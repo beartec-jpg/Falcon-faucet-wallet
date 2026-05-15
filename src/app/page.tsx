@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -79,7 +81,8 @@ function TxHashDisplay({ hash }: { hash: string }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function FaucetPage() {
-  const [address, setAddress]   = useState('')
+  const searchParams = useSearchParams()
+  const [address, setAddress]   = useState(() => searchParams?.get('address') ?? '')
   const [status, setStatus]     = useState<NetworkStatus>({ online: false })
   const [loading, setLoading]   = useState(false)
   const [result, setResult]     = useState<DripResult | null>(null)
@@ -167,7 +170,15 @@ export default function FaucetPage() {
               <div className="text-xs text-slate-500">Faucet · Network {NETWORK_ID}</div>
             </div>
           </div>
-          <StatusDot online={status.online} state={status.state} />
+          <div className="flex items-center gap-4">
+            <nav className="flex items-center gap-4 text-sm">
+              <span className="text-brand-500 font-medium">Faucet</span>
+              <Link href="/wallet" className="text-slate-400 hover:text-white transition-colors">
+                Wallet
+              </Link>
+            </nav>
+            <StatusDot online={status.online} state={status.state} />
+          </div>
         </div>
       </header>
 
@@ -250,6 +261,12 @@ export default function FaucetPage() {
                   <span className="text-slate-500">Tx</span>
                   <TxHashDisplay hash={result.txHash} />
                 </div>
+                <Link
+                  href={`/wallet?address=${encodeURIComponent(result.account)}`}
+                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-colors"
+                >
+                  Open in Wallet →
+                </Link>
               </div>
             )}
           </div>
@@ -268,6 +285,23 @@ export default function FaucetPage() {
               </div>
             ))}
           </div>
+
+          {/* Wallet shortcut */}
+          <Link
+            href="/wallet"
+            className="card px-4 py-3 flex items-center justify-between text-sm hover:border-brand-500/40 transition-all"
+          >
+            <div className="flex items-center gap-2 text-slate-400">
+              <svg className="w-4 h-4 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
+              Open qXRP Wallet
+            </div>
+            <svg className="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
 
           {/* Help text */}
           <p className="text-center text-xs text-slate-600">
