@@ -4,11 +4,11 @@
 import { Wallet } from 'xrpl'
 import type { Payment, Transaction } from 'xrpl'
 
-const DROPS_PER_QXRP = 1_000_000n
+const DROPS_PER_QXRP = 1_000_000
 const NETWORK_ID = parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '999', 10)
 
 export function dropsFromQxrp(qxrp: number): string {
-  return (BigInt(Math.round(qxrp)) * DROPS_PER_QXRP).toString()
+  return (Math.round(qxrp) * DROPS_PER_QXRP).toString()
 }
 
 export interface SignedPayment {
