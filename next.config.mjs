@@ -1,9 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Prevent webpack from bundling xrpl and its deps — they must run as
-  // native Node.js modules in Vercel's serverless environment.
+  // Keep ripple sub-packages as native Node modules (not webpack-bundled).
+  // The full xrpl package is no longer imported server-side.
   serverExternalPackages: [
-    'xrpl',
     'ripple-keypairs',
     'ripple-binary-codec',
     'ripple-address-codec',
