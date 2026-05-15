@@ -1,9 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // xrpl uses Node.js crypto; must not run in the Edge runtime
-  experimental: {
-    serverComponentsExternalPackages: ['xrpl'],
-  },
+  // Prevent webpack from bundling xrpl and its deps — they must run as
+  // native Node.js modules in Vercel's serverless environment.
+  serverExternalPackages: [
+    'xrpl',
+    'ripple-keypairs',
+    'ripple-binary-codec',
+    'ripple-address-codec',
+    '@xrplf/isomorphic',
+  ],
 }
 
 export default nextConfig
