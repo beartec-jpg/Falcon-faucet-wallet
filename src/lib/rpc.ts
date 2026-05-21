@@ -1,6 +1,6 @@
 // xrpld JSON-RPC client — pure fetch, no WebSocket needed
 
-const RPC_URL = process.env.XRPLD_RPC_URL ?? 'http://127.0.0.1:6005'
+const RPC_URL = process.env.XRPLD_RPC_URL ?? 'http://37.27.47.236:6005'
 
 export interface ServerInfo {
   server_state: string

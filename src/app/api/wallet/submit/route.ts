@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const RPC = process.env.XRPLD_RPC_URL ?? 'http://127.0.0.1:6005'
+const RPC = process.env.XRPLD_RPC_URL ?? 'http://37.27.47.236:6005'
 
 export async function POST(req: NextRequest) {
   let body: { tx_blob?: unknown }

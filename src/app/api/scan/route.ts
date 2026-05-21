@@ -6,7 +6,7 @@ import { NextResponse } from 'next/server'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const RPC = process.env.XRPLD_RPC_URL ?? 'http://127.0.0.1:6005'
+const RPC = process.env.XRPLD_RPC_URL ?? 'http://37.27.47.236:6005'
 
 async function rpc<T = Record<string, unknown>>(
   method: string,
