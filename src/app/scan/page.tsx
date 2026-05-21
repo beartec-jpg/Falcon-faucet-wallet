@@ -275,6 +275,7 @@ export default function ScanPage() {
           <Link href="/" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors">Faucet</Link>
           <Link href="/scan" className="px-3 py-1.5 rounded-lg bg-brand-500/10 text-brand-500 font-medium">Explorer</Link>
           <Link href="/wallet" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors">Wallet</Link>
+          <Link href="/marketplace" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors">Market</Link>
         </nav>
       </header>
 

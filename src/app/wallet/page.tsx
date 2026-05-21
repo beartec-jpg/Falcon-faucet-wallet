@@ -311,6 +311,7 @@ export default function WalletPage() {
         <nav className="flex items-center gap-1 text-sm">
           <Link href="/" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors">Faucet</Link>
           <Link href="/scan" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors">Explorer</Link>
+          <Link href="/marketplace" className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors">Market</Link>
           <span className="px-3 py-1.5 rounded-lg bg-brand-500/10 text-brand-500 font-medium">Wallet</span>
         </nav>
       </header>

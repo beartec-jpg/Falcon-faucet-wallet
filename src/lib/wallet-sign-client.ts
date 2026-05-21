@@ -97,3 +97,104 @@ export async function signPayment(
 
   return { tx_blob }
 }
+
+// ─── Generic TX signer (internal) ────────────────────────────────────────────
+
+async function signTx(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  txFields: Record<string, any>,
+  seed: string,
+  sequence: number,
+  lastLedgerSequence: number,
+  fee = BASE_FEE,
+): Promise<SignedTx> {
+  const [keypairs, codec] = await Promise.all([
+    import('ripple-keypairs'),
+    import('ripple-binary-codec'),
+  ])
+
+  const { privateKey, publicKey } = keypairs.deriveKeypair(seed)
+
+  const tx: Record<string, unknown> = {
+    ...txFields,
+    Fee:                fee,
+    Sequence:           sequence,
+    LastLedgerSequence: lastLedgerSequence,
+    SigningPubKey:       publicKey,
+    TxnSignature:       '',
+  }
+  if (NETWORK_ID > 1024) tx.NetworkID = NETWORK_ID
+
+  const signingBytes = codec.encodeForSigning(tx)
+  const signature    = keypairs.sign(signingBytes, privateKey)
+  const tx_blob      = codec.encode({ ...tx, TxnSignature: signature })
+
+  return { tx_blob }
+}
+
+// ─── TrustSet ─────────────────────────────────────────────────────────────────
+
+export interface TrustSetParams {
+  account:            string
+  currency:           string
+  issuer:             string
+  limit:              string    // string number e.g. "10000000"
+  sequence:           number
+  lastLedgerSequence: number
+  fee?:               string
+}
+
+export async function signTrustSet(params: TrustSetParams, seed: string): Promise<SignedTx> {
+  return signTx(
+    {
+      TransactionType: 'TrustSet',
+      Account:         params.account,
+      LimitAmount: {
+        currency: params.currency,
+        issuer:   params.issuer,
+        value:    params.limit,
+      },
+      Flags: 0,
+    },
+    seed,
+    params.sequence,
+    params.lastLedgerSequence,
+    params.fee,
+  )
+}
+
+// ─── OfferCreate ──────────────────────────────────────────────────────────────
+
+export type XrpAmount    = string   // drops as string
+export type IouAmount    = { currency: string; issuer: string; value: string }
+export type XrplAmount   = XrpAmount | IouAmount
+
+export interface OfferCreateParams {
+  account:            string
+  takerGets:          XrplAmount   // what you offer (give)
+  takerPays:          XrplAmount   // what you want (receive)
+  sequence:           number
+  lastLedgerSequence: number
+  fee?:               string
+  /** tfImmediateOrCancel = 0x00020000. Default for instant swaps. */
+  flags?:             number
+}
+
+// tfImmediateOrCancel — fill what you can immediately, cancel the rest
+export const TF_IMMEDIATE_OR_CANCEL = 0x00020000
+
+export async function signOfferCreate(params: OfferCreateParams, seed: string): Promise<SignedTx> {
+  return signTx(
+    {
+      TransactionType: 'OfferCreate',
+      Account:         params.account,
+      TakerGets:       params.takerGets,
+      TakerPays:       params.takerPays,
+      Flags:           params.flags ?? TF_IMMEDIATE_OR_CANCEL,
+    },
+    seed,
+    params.sequence,
+    params.lastLedgerSequence,
+    params.fee,
+  )
+}
