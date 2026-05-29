@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { DEFAULT_RPC_URL } from '@/lib/rpc'
 
 // Public RPC only (Node 1 full-history recommended)
-const RPC = process.env.XRPLD_RPC_URL ?? 'http://46.224.0.140:6005'
+const RPC = process.env.XRPLD_RPC_URL ?? DEFAULT_RPC_URL
 
 export async function POST(req: NextRequest) {
   let body: { tx_blob?: unknown }

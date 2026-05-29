@@ -1,7 +1,20 @@
 // xrpld JSON-RPC client — pure fetch, no WebSocket needed
+// Resilient version with multiple public nodes + timeouts.
 
-// Public RPC only (port 6005). Node 1 = full history node (preferred for explorers/faucet).
-const RPC_URL = process.env.XRPLD_RPC_URL ?? 'http://46.224.0.140:6005'
+const ENV_RPC = process.env.XRPLD_RPC_URL
+
+// Public nodes (port 6005 only). First one is preferred.
+export const PUBLIC_RPC_NODES = [
+  'http://46.224.0.140:6005',   // Node 1 - full history (recommended)
+  'http://204.168.175.194:6005', // Node 4
+]
+
+const RPC_NODES = ENV_RPC ? [ENV_RPC, ...PUBLIC_RPC_NODES] : PUBLIC_RPC_NODES
+
+// Convenient default for files that still do their own RPC calls
+export const DEFAULT_RPC_URL = PUBLIC_RPC_NODES[0]
+
+const RPC_TIMEOUT_MS = 4500 // short timeout so Vercel doesn't hang forever
 
 export interface ServerInfo {
   server_state: string
@@ -20,23 +33,60 @@ interface RpcResponse<T> {
   result: T & { status?: string; error?: string; error_message?: string }
 }
 
-async function call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(RPC_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ method, params: [params] }),
-    // Vercel serverless: don't cache RPC calls
-    cache: 'no-store',
-  })
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
-  if (!res.ok) {
-    throw new Error(`RPC unreachable (${RPC_URL}): HTTP ${res.status}`)
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      // Vercel serverless: don't cache RPC calls
+      cache: 'no-store',
+    })
+    clearTimeout(timeout)
+    return res
+  } catch (err) {
+    clearTimeout(timeout)
+    throw err
   }
-  const body = (await res.json()) as RpcResponse<T>
-  if (body.result?.error) {
-    throw new Error(body.result.error_message ?? body.result.error)
+}
+
+async function call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  let lastError: Error | null = null
+
+  for (const nodeUrl of RPC_NODES) {
+    try {
+      const res = await fetchWithTimeout(
+        nodeUrl,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ method, params: [params] }),
+        },
+        RPC_TIMEOUT_MS
+      )
+
+      if (!res.ok) {
+        lastError = new Error(`RPC HTTP ${res.status} from ${nodeUrl}`)
+        continue
+      }
+
+      const body = (await res.json()) as RpcResponse<T>
+
+      if (body.result?.error) {
+        // Node responded but returned a protocol error (e.g. actNotFound)
+        throw new Error(body.result.error_message ?? body.result.error)
+      }
+
+      return body.result as T
+    } catch (err: any) {
+      lastError = err
+      // try next node
+    }
   }
-  return body.result as T
+
+  throw lastError ?? new Error('All qXRP public RPC nodes are unreachable')
 }
 
 export async function getServerInfo(): Promise<ServerInfo> {

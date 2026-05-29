@@ -2,12 +2,13 @@
 // Returns a full suite of network stats for the explorer page.
 
 import { NextResponse } from 'next/server'
+import { DEFAULT_RPC_URL } from '@/lib/rpc'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 // Public RPC only (Node 1 full-history recommended)
-const RPC = process.env.XRPLD_RPC_URL ?? 'http://46.224.0.140:6005'
+const RPC = process.env.XRPLD_RPC_URL ?? DEFAULT_RPC_URL
 
 async function rpc<T = Record<string, unknown>>(
   method: string,
