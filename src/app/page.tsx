@@ -86,8 +86,9 @@ function FaucetPageInner() {
   const [status, setStatus]     = useState<NetworkStatus>({ online: false })
   const [loading, setLoading]   = useState(false)
   const [result, setResult]     = useState<DripResult | null>(null)
-  const [error, setError]       = useState<string | null>(null)
-  const [cooldown, setCooldown] = useState<string | null>(null)
+  const [error, setError]           = useState<string | null>(null)
+  const [resetIso, setResetIso]     = useState<string | null>(null)
+  const [cooldownDisplay, setCooldownDisplay] = useState<string | null>(null)
 
   // ── Poll network status every 10s ─────────────────────────────────────────
   const refreshStatus = useCallback(async () => {
@@ -108,21 +109,30 @@ function FaucetPageInner() {
 
   // ── Cooldown countdown ────────────────────────────────────────────────────
   useEffect(() => {
-    if (!cooldown) return
+    if (!resetIso) {
+      setCooldownDisplay(null)
+      return
+    }
+
     const update = () => {
-      const secs = Math.max(0, Math.floor((new Date(cooldown).getTime() - Date.now()) / 1000))
-      if (secs <= 0) { setCooldown(null); return }
+      const secs = Math.max(0, Math.floor((new Date(resetIso).getTime() - Date.now()) / 1000))
+      if (secs <= 0) {
+        setResetIso(null)
+        setCooldownDisplay(null)
+        return
+      }
       const h = Math.floor(secs / 3600)
       const m = Math.floor((secs % 3600) / 60)
       const s = secs % 60
-      setCooldown(
+      setCooldownDisplay(
         h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`
       )
     }
+
     update()
     const id = setInterval(update, 1000)
     return () => clearInterval(id)
-  }, [cooldown])
+  }, [resetIso])
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
@@ -141,7 +151,7 @@ function FaucetPageInner() {
 
       if (!res.ok) {
         setError(data.error ?? 'Request failed')
-        if (data.reset) setCooldown(data.reset)
+        if (data.reset) setResetIso(data.reset)
       } else {
         setResult(data)
         setAddress('')
@@ -240,8 +250,8 @@ function FaucetPageInner() {
             {error && (
               <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400 space-y-1">
                 <div className="font-medium">{error}</div>
-                {typeof cooldown === 'string' && cooldown.length > 0 && cooldown !== 'Invalid Date' && (
-                  <div className="text-red-400/70">Try again in {cooldown}</div>
+                {cooldownDisplay && (
+                  <div className="text-red-400/70">Try again in {cooldownDisplay}</div>
                 )}
               </div>
             )}
