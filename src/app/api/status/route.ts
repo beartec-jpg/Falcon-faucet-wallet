@@ -20,9 +20,11 @@ export async function GET() {
       reserveBaseXrp: info.validated_ledger?.reserve_base_xrp ?? 0,
     })
   } catch (e) {
+    // Return 200 with online:false so the UI doesn't break / show network errors
+    // The detailed error is still available for debugging
     return NextResponse.json(
       { online: false, error: String(e) },
-      { status: 503 }
+      { status: 200 }
     )
   }
 }
