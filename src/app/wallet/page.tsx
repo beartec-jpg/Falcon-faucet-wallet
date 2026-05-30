@@ -93,6 +93,7 @@ export default function WalletPage() {
   const [error,   setError]   = useState<string | null>(null)
   const [busy,    setBusy]    = useState(false)
   const [copied,  setCopied]  = useState(false)
+  const [nodeName, setNodeName] = useState('my-qxrp-node')
 
   // Create-wallet form
   const [createLabel, setCreateLabel] = useState('')
@@ -673,7 +674,7 @@ export default function WalletPage() {
                 </div>
               )}
 
-              {/* ── Node panel ── */}
+              {/* ── Node panel (one-command validator onboarding) ── */}
               {view === 'node' && (
                 <div className="card p-5 space-y-4">
                   <div className="flex items-center gap-2">
@@ -684,68 +685,94 @@ export default function WalletPage() {
                     <h3 className="font-semibold text-white text-sm">Run a Validator Node</h3>
                   </div>
 
-                  <p className="text-xs text-slate-400">
-                    Earn qXRP rewards by validating transactions. Paste the command below into any Ubuntu VPS (4 GB RAM minimum).
-                    Your wallet address is pre-filled as the reward destination.
-                  </p>
-
-                  {/* Reward address */}
-                  <div className="bg-slate-800/70 rounded-xl px-3 py-2.5 space-y-0.5">
-                    <div className="text-xs text-slate-500">Reward address (your wallet)</div>
-                    <div className="font-mono text-xs text-slate-300 break-all">{wallet.address}</div>
+                  {/* THE EXACT WARNING USER REQUESTED */}
+                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200">
+                    <div className="flex gap-2.5">
+                      <div className="text-base mt-px">⚠️</div>
+                      <div className="text-sm leading-snug">
+                        <span className="font-semibold">You need 1,000 qXRP to bond.</span><br />
+                        It is <span className="underline">recommended to get that first</span> from the faucet before running the command.
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Install command */}
-                  <div className="space-y-1.5">
-                    <div className="text-xs text-slate-400">One-command installer — paste this in your server terminal:</div>
-                    <div className="relative">
-                      <pre className="bg-slate-900 border border-slate-700 rounded-xl p-3 pr-12 text-xs text-emerald-300 font-mono whitespace-pre-wrap break-all leading-relaxed">
-                        {`bash <(curl -sSL https://raw.githubusercontent.com/beartec-jpg/Crypto/main/qxrp-node-setup/testnet-install.sh) --reward-address ${wallet.address}`}
+                  <p className="text-xs text-slate-400">
+                    One command on any Ubuntu 22.04/24.04 VPS. The installer will <span className="text-amber-300">print a new validator r-address</span> — you fund that one (not this wallet). It then auto-bonds once it sees ≥1,100 qXRP.
+                    This wallet address is used as the <span className="text-emerald-300">payout / withdraw destination</span>.
+                  </p>
+
+                  {/* Payout address (auto-linked) */}
+                  <div className="bg-slate-800/70 rounded-xl px-3 py-2 space-y-0.5">
+                    <div className="text-[10px] text-slate-500">Payout / withdraw address (auto-linked via --payout)</div>
+                    <div className="font-mono text-xs text-emerald-300 break-all">{wallet.address}</div>
+                  </div>
+
+                  {/* Node name + live command */}
+                  <div className="space-y-2">
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">Node name (optional)</label>
+                      <input
+                        value={nodeName}
+                        onChange={(e) => setNodeName(e.target.value || 'my-qxrp-node')}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm font-mono text-white focus:outline-none focus:border-cyan-500/60"
+                        placeholder="my-qxrp-node"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="text-[10px] text-slate-500">One-liner — copy and paste into your server terminal:</div>
+                      <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-[11px] text-emerald-300 font-mono whitespace-pre-wrap break-all leading-snug">
+{`curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/install-qxrp-validator.sh | bash -s -- \\
+  --payout ${wallet.address} \\
+  --node-name ${nodeName || 'my-qxrp-node'}`}
                       </pre>
+
                       <button
                         onClick={async () => {
-                          await navigator.clipboard.writeText(
-                            `bash <(curl -sSL https://raw.githubusercontent.com/beartec-jpg/Crypto/main/qxrp-node-setup/testnet-install.sh) --reward-address ${wallet.address}`
-                          )
+                          const cmd = `curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/install-qxrp-validator.sh | bash -s -- \\
+  --payout ${wallet.address} \\
+  --node-name ${nodeName || 'my-qxrp-node'}`
+                          await navigator.clipboard.writeText(cmd)
                           setCopied(true)
-                          setTimeout(() => setCopied(false), 3000)
+                          setTimeout(() => setCopied(false), 2200)
                         }}
-                        className="absolute top-2.5 right-2.5 p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
-                        title="Copy command"
+                        className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 font-semibold text-sm transition flex items-center justify-center gap-2"
                       >
                         {copied ? (
-                          <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
+                          <>Copied to clipboard ✓</>
                         ) : (
-                          <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                              d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
+                          <>📋 Copy one-liner command</>
                         )}
                       </button>
                     </div>
                   </div>
 
-                  {/* What happens */}
-                  <div className="space-y-1.5">
-                    <div className="text-xs text-slate-500 uppercase tracking-wide font-medium">What happens automatically</div>
-                    <ol className="space-y-1 text-xs text-slate-400">
+                  {/* Accurate what happens */}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">What the command does</div>
+                    <ol className="space-y-0.5 text-xs text-slate-400">
                       {[
-                        'Copies qXRP binary from testnet',
-                        'Creates config, directories, and systemd service',
-                        'Waits for the node to sync with testnet',
-                        'Funds validator account from genesis (testnet)',
-                        'Bonds 1,000 qXRP to activate validator',
-                        `Installs hourly reward sweep → ${wallet.address.slice(0, 8)}…`,
-                        'Installs `qxrp` CLI (status, balance, logs, sweep)',
+                        'Installs Docker + starts official qXRP validator container',
+                        'Generates validator keys (classical + Falcon identity)',
+                        'Prints a NEW validator r-address in huge text — fund this',
+                        'Polls until ≥1,100 qXRP, then auto-submits ValidatorRegister + Bond(1000)',
+                        'Installs reward claimer (cron) — claims go into the validator account',
+                        `Your --payout (${wallet.address.slice(0,10)}…) is saved for easy future withdrawals`,
                       ].map((step, i) => (
                         <li key={i} className="flex items-start gap-2">
-                          <span className="text-cyan-600 font-mono flex-shrink-0">{String(i + 1).padStart(2, '0')}.</span>
+                          <span className="text-cyan-600 font-mono flex-shrink-0 text-[10px]">{String(i + 1).padStart(2, '0')}</span>
                           <span>{step}</span>
                         </li>
                       ))}
                     </ol>
+                  </div>
+
+                  <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-800">
+                    Rewards land in the validator account. Withdraw excess to this wallet later via the portal or manually.
+                    Full guide + troubleshooting:{' '}
+                    <a href="https://github.com/beartec-jpg/qXRP/blob/develop/docs/validator-onboarding.md" target="_blank" className="underline text-slate-400 hover:text-slate-300">
+                      validator-onboarding.md
+                    </a>
                   </div>
 
                   <button

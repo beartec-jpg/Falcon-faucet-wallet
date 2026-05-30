@@ -1,6 +1,14 @@
-# qXRP-faucet
+# qXRP Web Portal
 
-Faucet + passkey wallet + DEX marketplace + explorer for the qXRP testnet.
+Official public portal for the qXRP testnet:
+
+- Faucet (get testnet qXRP)
+- Passkey-secured wallet (create, restore, send, receive)
+- DEX marketplace
+- Explorer (scan)
+- **One-click "Run a Validator Node"** — generates the correct one-liner with your address pre-filled as `--payout`, plus the required 1,000 qXRP bond warning
+
+The "Open Node" flow inside the Wallet is the recommended way for normal users to become bonded validators. It uses the modern `install-qxrp-validator.sh` (Docker + auto-bond after funding + reward claimer).
 
 ## Current Public Node (recommended)
 
@@ -47,3 +55,23 @@ See `.env.example` for the full list. The important ones:
 
 - Always use public RPC ports (6005). Admin ports (5005 etc.) are intentionally restricted.
 - After node infrastructure changes, make sure the faucet account actually exists on the current ledger (use the genesis account during early testnet phases).
+
+## Becoming a Validator (Recommended Path)
+
+Inside the **Wallet** tab:
+
+1. Load your address (or create one).
+2. Click the **node / server icon** button in the action bar.
+3. You will see a prominent warning: **"You need 1,000 qXRP to bond."**
+4. Copy the ready-to-paste one-liner (your wallet address is automatically used as `--payout`).
+5. Run it on any Ubuntu 22.04/24.04 VPS with Docker.
+
+The command:
+- Starts the official Docker validator
+- Generates keys
+- Prints a **separate validator r-address** you must fund with ≥1,100 qXRP
+- Automatically submits `ValidatorRegister` + `ValidatorBond(1000)` once funded
+- Installs a reward claimer (claims land in the validator account)
+- Remembers your payout address for future withdrawals
+
+Full instructions: see the main qXRP repo → [docs/validator-onboarding.md](https://github.com/beartec-jpg/qXRP/blob/develop/docs/validator-onboarding.md)
