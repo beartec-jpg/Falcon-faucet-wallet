@@ -123,7 +123,20 @@ export default function MarketplacePage() {
     setBusy(true)
     setError(null)
     setTxResult(null)
+
     try {
+      // Always fetch fresh sequence + ledger right before signing a TrustSet
+      // This prevents tefPAST_SEQ errors from slightly stale state
+      const accRes = await fetch(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`)
+      const accData = await accRes.json()
+
+      if (!accRes.ok || !accData.exists) {
+        throw new Error('Failed to refresh account state')
+      }
+
+      const freshSequence = accData.sequence
+      const freshLedger   = accData.currentLedger
+
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const seed         = await decryptSeed(wallet.encrypted, keyBytes)
 
@@ -133,8 +146,8 @@ export default function MarketplacePage() {
           currency:           tok.currency,
           issuer:             tok.issuer,
           limit:              '10000000',
-          sequence,
-          lastLedgerSequence: ledger + 20,
+          sequence:           freshSequence,
+          lastLedgerSequence: freshLedger + 20,
         },
         seed,
       )
@@ -144,9 +157,12 @@ export default function MarketplacePage() {
         body:   JSON.stringify({ tx_blob }),
       })
       const data = await res.json()
+
       if (data.error) throw new Error(data.error)
+
       const msg = [data.result, data.message].filter(Boolean).join(' — ')
       setTxResult({ ok: !!data.success, msg, hash: data.hash })
+
       if (data.success) {
         setTimeout(() => refresh(wallet.address), 4000)
       }
@@ -303,13 +319,16 @@ export default function MarketplacePage() {
                       )}
                     </div>
                     {tok.configured && tok.userBalance === null && (
-                      <button
-                        onClick={() => handleTrustLine(tok)}
-                        disabled={busy || !isPasskeySupported()}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-brand-500/10 text-brand-400 hover:bg-brand-500/20 border border-brand-500/20 disabled:opacity-40 transition-colors"
-                      >
-                        {busy ? <Spinner className="w-3 h-3" /> : 'Add Trust Line'}
-                      </button>
+                      <div className="flex flex-col items-end gap-1">
+                        <button
+                          onClick={() => handleTrustLine(tok)}
+                          disabled={busy || !isPasskeySupported()}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-brand-500/10 text-brand-400 hover:bg-brand-500/20 border border-brand-500/20 disabled:opacity-40 transition-colors"
+                        >
+                          {busy ? <Spinner className="w-3 h-3" /> : 'Add Trust Line'}
+                        </button>
+                        <div className="text-[10px] text-amber-400/80">Needs extra qXRP for reserve</div>
+                      </div>
                     )}
                     {tok.userBalance !== null && (
                       <span className="text-xs text-emerald-400 flex items-center gap-1">
@@ -519,7 +538,10 @@ export default function MarketplacePage() {
                   {txResult.ok ? 'Transaction submitted' : 'Transaction failed'}
                 </div>
                 {txResult.hash && <div className="font-mono text-xs text-slate-400 break-all">{txResult.hash}</div>}
-                <div className="text-xs text-slate-500">{txResult.msg}</div>
+                {/* Show the raw engine_result very clearly on failure */}
+                <div className={`text-sm ${txResult.ok ? 'text-emerald-400' : 'text-red-400 font-semibold'}`}>
+                  {txResult.msg || 'No details returned'}
+                </div>
                 <button onClick={() => setTxResult(null)} className="text-xs text-brand-400 hover:text-brand-300 transition-colors">Dismiss</button>
               </div>
             )}
@@ -527,7 +549,10 @@ export default function MarketplacePage() {
             {/* ── Error ── */}
             {error && (
               <div className="card p-4 border border-red-500/20">
-                <div className="text-sm text-red-400">{error}</div>
+                <div className="text-sm text-red-400 font-medium">{error}</div>
+                <div className="text-[10px] text-red-400/70 mt-1">
+                  Common causes: not enough qXRP for reserve, stale sequence, or issuer not fully set up.
+                </div>
                 <button onClick={() => setError(null)} className="text-xs text-slate-500 hover:text-slate-300 mt-2 transition-colors">Dismiss</button>
               </div>
             )}
