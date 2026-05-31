@@ -86,3 +86,32 @@ export async function checkRateLimit(key: string): Promise<LimitResult> {
   const r = memCheck(key)
   return { success: r.success, reset: r.reset.toISOString() }
 }
+
+/**
+ * Refund one request token for a key (e.g. when signing/submit fails before
+ * funds actually move). Best-effort — never throws.
+ */
+export async function refundRateLimit(key: string): Promise<void> {
+  try {
+    // In-memory: decrement the counter so the user isn't penalised
+    const entry = memStore.get(key)
+    if (entry && entry.count > 0) {
+      entry.count--
+    }
+
+    // Redis: the Upstash Ratelimit SDK has no decrement, so we reset the key.
+    // This gives a full window reset rather than a single-token refund, but it's
+    // better than consuming the limit on a node error.
+    if (!limiter) limiter = makeRedisLimiter()
+    if (limiter) {
+      // Access the underlying Redis client via the internal property
+      const redis = (limiter as unknown as { redis: { del: (key: string) => Promise<unknown> } }).redis
+      if (redis?.del) {
+        const prefixedKey = `qxrp_faucet:${key}`
+        await redis.del(prefixedKey).catch(() => {})
+      }
+    }
+  } catch {
+    // refund is best-effort — never propagate errors
+  }
+}

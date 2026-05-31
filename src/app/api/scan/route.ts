@@ -106,7 +106,8 @@ export async function GET() {
     const [srvR, feeR, valR] = await Promise.all([
       rpc<{ info: Record<string, unknown> }>('server_info', {}),
       rpc<Record<string, unknown>>('fee', {}),
-      rpc<{ validators: ValidatorEntry[] }>('validators', {}),
+      // validators is admin-only on port 6005 — catch 403 and return empty list
+      rpc<{ validators: ValidatorEntry[] }>('validators', {}).catch(() => ({ validators: [] as ValidatorEntry[] })),
     ])
 
     const info    = srvR.info as Record<string, unknown>

@@ -3,7 +3,7 @@
 // Returns: { txHash, amount, account, reset } | { error, reset? }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { checkRateLimit } from '@/lib/rate-limit'
+import { checkRateLimit, refundRateLimit } from '@/lib/rate-limit'
 import { getAccountInfo, getLedgerIndex, submitTx } from '@/lib/rpc'
 import { signPayment, dropsFromQxrp } from '@/lib/xrpl-sign'
 import { isValidClassicAddress } from 'ripple-address-codec'
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
   let tx_blob: string
   let txHash: string
   try {
-    const signed = signPayment({
+    const signed = await signPayment({
       from: FAUCET_ACCOUNT,
       secret: FAUCET_SECRET,
       to: account,
@@ -108,6 +108,11 @@ export async function POST(req: NextRequest) {
     txHash  = signed.hash
   } catch (e) {
     console.error('Signing error:', e)
+    // Refund rate limit — signing failed before any funds moved
+    await Promise.allSettled([
+      refundRateLimit(`ip:${clientIp}`),
+      refundRateLimit(`acct:${account}`),
+    ])
     return err('Transaction signing failed', 500)
   }
 
@@ -121,7 +126,11 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     const realError = e?.message || String(e)
     console.error('Submit error from node:', realError)
-    // Return the actual error from the node instead of a generic message
+    // Refund rate limit — submission failed before funds moved
+    await Promise.allSettled([
+      refundRateLimit(`ip:${clientIp}`),
+      refundRateLimit(`acct:${account}`),
+    ])
     return err(`Transaction submission failed: ${realError}`, 503)
   }
 
