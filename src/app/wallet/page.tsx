@@ -18,7 +18,6 @@ import {
 import {
   generateWallet,
   keysFromSeed,
-  signPayment,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
 
@@ -241,22 +240,34 @@ export default function WalletPage() {
       // 1. Authenticate — triggers biometric/PIN prompt
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
 
-      // 2. Decrypt seed (never sent to server)
+      // 2. Decrypt seed
       const seed = await decryptSeed(wallet.encrypted, keyBytes)
 
-      // 3. Sign TX entirely in browser
-      const { tx_blob } = await signPayment(
-        {
-          account:            wallet.address,
-          destination:        to,
-          amountDrops:        qxrpToDrops(amtQxrp),
-          sequence:           account.sequence,
-          lastLedgerSequence: account.currentLedger + 20,
-        },
-        seed
-      )
+      // 3. Sign via server-side proxy (adds required Falcon fields for qXRP)
+      const signRes = await fetch('/api/wallet/sign', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          secret: seed,
+          tx_json: {
+            TransactionType:    'Payment',
+            Account:            wallet.address,
+            Destination:        to,
+            Amount:             qxrpToDrops(amtQxrp),
+            Fee:                '12',
+            Flags:              0,
+            Sequence:           account.sequence,
+            LastLedgerSequence: account.currentLedger + 20,
+          },
+        }),
+      })
+      const signData = await signRes.json() as { tx_blob?: string; error?: string }
+      if (!signRes.ok || !signData.tx_blob) {
+        throw new Error(signData.error ?? 'Signing failed')
+      }
+      const tx_blob = signData.tx_blob
 
-      // 4. Submit signed blob to server proxy (no private data sent)
+      // 4. Submit signed blob
       const res = await fetch('/api/wallet/submit', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
