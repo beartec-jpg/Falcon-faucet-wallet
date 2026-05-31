@@ -243,7 +243,14 @@ export default function WalletPage() {
       // 2. Decrypt seed
       const seed = await decryptSeed(wallet.encrypted, keyBytes)
 
-      // 3. Sign via server-side proxy (adds required Falcon fields for qXRP)
+      // 3. Fetch fresh sequence + ledger index just before signing (avoids tefPAST_SEQ)
+      const freshAcct = await fetch(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`)
+        .then(r => r.ok ? r.json() as Promise<AccountData> : null)
+        .catch(() => null)
+      const sequence           = freshAcct?.sequence           ?? account.sequence
+      const lastLedgerSequence = (freshAcct?.currentLedger ?? account.currentLedger) + 20
+
+      // 4. Sign via server-side proxy (adds required Falcon fields for qXRP)
       const signRes = await fetch('/api/wallet/sign', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -256,8 +263,8 @@ export default function WalletPage() {
             Amount:             qxrpToDrops(amtQxrp),
             Fee:                '12',
             Flags:              0,
-            Sequence:           account.sequence,
-            LastLedgerSequence: account.currentLedger + 20,
+            Sequence:           sequence,
+            LastLedgerSequence: lastLedgerSequence,
           },
         }),
       })
@@ -284,7 +291,9 @@ export default function WalletPage() {
       if (data.success) {
         setSendTo('')
         setSendAmount('')
-        setTimeout(() => refreshBalance(wallet.address), 3000)
+        // Refresh balance immediately then again after confirmation
+        refreshBalance(wallet.address)
+        setTimeout(() => refreshBalance(wallet.address), 4000)
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Transaction failed')
