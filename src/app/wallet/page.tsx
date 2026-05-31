@@ -699,8 +699,17 @@ export default function WalletPage() {
                     </div>
                   </div>
 
+                  {/* VPS requirement warning */}
+                  <div className="flex gap-2 bg-red-950/50 border border-red-700/50 rounded-xl px-3 py-2.5">
+                    <span className="text-red-400 text-base leading-none mt-0.5">⚠</span>
+                    <p className="text-xs text-red-300 leading-snug">
+                      <span className="font-semibold">Requires a VPS with a public IP address.</span>{' '}
+                      Run this on a cloud server (Hetzner, DigitalOcean, Contabo, etc.) — <span className="font-semibold">not</span> your laptop or home machine. A validator must be reachable on port 51235 to participate in consensus.
+                    </p>
+                  </div>
+
                   <p className="text-xs text-slate-400">
-                    One command on any Ubuntu 22.04/24.04 VPS. The installer will <span className="text-amber-300">print a new validator r-address</span> — you fund that one (not this wallet). It then auto-bonds once it sees ≥1,100 qXRP.
+                    SSH into your VPS and paste the command below. The installer will <span className="text-amber-300">print a new validator r-address</span> — you fund that one (not this wallet). It then auto-bonds once it sees ≥1,100 qXRP.
                     This wallet address is used as the <span className="text-emerald-300">payout / withdraw destination</span>.
                   </p>
 
