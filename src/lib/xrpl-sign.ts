@@ -56,7 +56,8 @@ export async function signPayment(opts: {
       Flags: 0,
       Sequence: sequence,
       LastLedgerSequence: lastLedgerSequence,
-      NetworkID: NETWORK_ID,
+      // NetworkID only required for networks with ID > 1024; qXRP is 999
+      ...(NETWORK_ID > 1024 ? { NetworkID: NETWORK_ID } : {}),
     }
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -92,7 +93,6 @@ export async function signPayment(opts: {
     Sequence: sequence,
     LastLedgerSequence: lastLedgerSequence,
     SigningPubKey: publicKey,
-    NetworkID: NETWORK_ID,
   }
 
   const encoded = binary.encodeForSigning(tx)
