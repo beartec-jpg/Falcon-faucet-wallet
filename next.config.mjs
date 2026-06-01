@@ -32,17 +32,19 @@ const nextConfig = {
             key: 'Permissions-Policy',
             value: 'camera=(), microphone=(), geolocation=()',
           },
-          // Basic CSP - tighten further before mainnet
+          // CSP tuned for Next.js + qXRP wallet (testnet). Tighten before any real-value use.
           {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js requires some inline/eval
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://vercel.live", // Next.js dev + Vercel
               "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: https:",
+              "img-src 'self' data: https: blob:",
               "font-src 'self' data:",
-              "connect-src 'self' https: http:", // Allow both for testnet flexibility
+              "connect-src 'self' https: wss: http:", // Allow http for testnet nodes during transition
               "frame-ancestors 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
             ].join('; '),
           },
         ],

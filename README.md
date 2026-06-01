@@ -38,25 +38,24 @@ See `.env.example` for the full list. The important ones:
 ## Deploy to Vercel
 
 1. Import the repo in [Vercel](https://vercel.com).
-2. In **Project Settings → General**, set **Package Manager** to `pnpm`.
-3. Add these **Environment Variables** (Production + Preview):
+2. In **Project Settings → General**, set **Package Manager** to `npm`.
+3. Add these **Environment Variables** (Production + Preview) — **use values for the new clean testnet**:
 
-   - `XRPLD_RPC_URL` → `http://46.224.0.140:6005`
-   - `FAUCET_ACCOUNT` → `rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh`
-   - `FAUCET_SECRET` → (your secret — **never commit this**)
+   - `XRPLD_RPC_URL` → `https://your-node.example.com:6005` (must be HTTPS in production)
+   - `FAUCET_ACCOUNT` + `FAUCET_SECRET` → Dedicated funded faucet account (never the old genesis account)
    - `DRIP_AMOUNT_QXRP` → `100`
-   - `NEXT_PUBLIC_NETWORK_ID` → `999`
+   - `NEXT_PUBLIC_NETWORK_ID` → `1001` (or your chosen new network ID)
    - `NEXT_PUBLIC_NETWORK_NAME` → `qXRP Testnet`
-   - (Optional but recommended) Add Upstash Redis keys for production rate limiting:
+   - (Strongly recommended) Add Upstash Redis keys for production rate limiting:
      - `KV_REST_API_URL`
      - `KV_REST_API_TOKEN`
 
-4. Deploy. The repo is configured to use pnpm + frozen lockfile.
+4. Deploy. The repo uses npm (package-lock.json present for reproducible builds).
 
 ## Notes
 
 - Always use public RPC ports (6005). Admin ports (5005 etc.) are intentionally restricted.
-- After node infrastructure changes, make sure the faucet account actually exists on the current ledger. Use a dedicated funded account (never the old genesis account).
+- After node infrastructure changes, make sure the faucet account actually exists on the current ledger.
 
 ## Becoming a Validator (Recommended Path)
 
