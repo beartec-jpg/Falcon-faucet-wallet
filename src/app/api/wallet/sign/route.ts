@@ -17,7 +17,23 @@ export const dynamic = 'force-dynamic'
 const PROXY_URL   = process.env.SIGNER_PROXY_URL
 const PROXY_TOKEN = process.env.SIGNER_PROXY_TOKEN
 
+// Simple origin allow-list for CSRF protection (M-3)
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean)
+
+function isOriginAllowed(req: NextRequest): boolean {
+  if (ALLOWED_ORIGINS.length === 0) return true // allow all if not configured (dev)
+  const origin = req.headers.get('origin') || req.headers.get('referer') || ''
+  return ALLOWED_ORIGINS.some(allowed => origin.startsWith(allowed))
+}
+
 export async function POST(req: NextRequest) {
+  if (!isOriginAllowed(req)) {
+    return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
+  }
+
   let body: { tx_json?: unknown; secret?: unknown }
   try {
     body = await req.json()
@@ -65,8 +81,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ tx_blob: data.tx_blob, hash: data.hash })
   } catch (err: unknown) {
+    console.error('[wallet/sign] Unexpected error:', err)
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Sign request failed' },
+      { error: 'Signing request failed' }, // do not leak internal details
       { status: 502 }
     )
   }

@@ -83,10 +83,10 @@ export async function checkRateLimit(key: string): Promise<LimitResult> {
   }
 
   // Production safety: fail closed if no Upstash/Redis is configured.
-  // In-memory fallback is only acceptable for local development.
+  // This prevents the in-memory fallback (which is useless on Vercel serverless) from allowing unlimited abuse.
   const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
   if (isProduction) {
-    console.error('[rate-limit] No Upstash Redis configured in production — rate limiting disabled (FAUCET DRAIN RISK). Failing closed.')
+    console.error('[rate-limit] Production requires Upstash Redis (KV_REST_API_URL + KV_REST_API_TOKEN). In-memory fallback disabled.')
     return { success: false, reset: new Date(Date.now() + 60_000).toISOString() }
   }
 

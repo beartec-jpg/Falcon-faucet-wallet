@@ -2,10 +2,11 @@
  * WebAuthn passkey helpers for qXRP wallet.
  *
  * Security model:
- *  • Attempts to use the PRF extension (HMAC key material tied to the passkey
- *    private key).  Supported by Chrome 116+, Edge 116+, Safari 17+.
- *  • Falls back to using the credential rawId as HKDF input when PRF is
- *    unavailable (acceptable for a testnet; rawId is semi-public).
+ *  • Prefers the PRF extension (strong key material tied to the passkey private key).
+ *  • Falls back to credential rawId when PRF is unavailable.
+ *
+ * WARNING (M-2 from audit): The rawId fallback is weaker (semi-public data).
+ * Acceptable only for testnet. Do not use these wallets with real funds.
  *
  * All functions are browser-only.
  */

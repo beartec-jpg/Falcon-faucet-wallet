@@ -2,10 +2,12 @@
  * AES-GCM 256-bit encryption for XRPL seeds.
  *
  * Key derivation strategy (in priority order):
- *  1. WebAuthn PRF extension output (32-byte secret tied to passkey private key)
- *  2. Credential rawId bytes  (weaker — rawId is semi-public, but fine for testnet)
+ *  1. WebAuthn PRF extension output (strongest — 32-byte secret tied to passkey private key)
+ *  2. Credential rawId bytes (weaker fallback — rawId is semi-public information)
  *
- * The `hasPrf` flag stored alongside encrypted data tells us which was used.
+ * WARNING (M-2): When PRF is unavailable, encryption strength is reduced.
+ * This is acceptable only for testnet. Do not reuse these wallets for real value
+ * or mainnet accounts. Consider adding a user passphrase as a second factor in the future.
  */
 
 // ─── Base64 helpers ───────────────────────────────────────────────────────────

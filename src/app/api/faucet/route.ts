@@ -31,7 +31,23 @@ function err(msg: string, status = 400, extra?: Record<string, unknown>) {
   return NextResponse.json({ error: msg, ...extra }, { status })
 }
 
+// Simple origin allow-list (M-3)
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean)
+
+function isOriginAllowed(req: NextRequest): boolean {
+  if (ALLOWED_ORIGINS.length === 0) return true
+  const origin = req.headers.get('origin') || req.headers.get('referer') || ''
+  return ALLOWED_ORIGINS.some(allowed => origin.startsWith(allowed))
+}
+
 export async function POST(req: NextRequest) {
+  if (!isOriginAllowed(req)) {
+    return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
+  }
+
   // ── Parse body ────────────────────────────────────────────────────────────
   let account: string
   try {

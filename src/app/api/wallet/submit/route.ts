@@ -4,7 +4,23 @@ import { DEFAULT_RPC_URL } from '@/lib/rpc'
 // Public RPC only (Node 1 full-history recommended)
 const RPC = process.env.XRPLD_RPC_URL ?? DEFAULT_RPC_URL
 
+// Simple origin allow-list (M-3)
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean)
+
+function isOriginAllowed(req: NextRequest): boolean {
+  if (ALLOWED_ORIGINS.length === 0) return true
+  const origin = req.headers.get('origin') || req.headers.get('referer') || ''
+  return ALLOWED_ORIGINS.some(allowed => origin.startsWith(allowed))
+}
+
 export async function POST(req: NextRequest) {
+  if (!isOriginAllowed(req)) {
+    return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
+  }
+
   let body: { tx_blob?: unknown }
   try {
     body = await req.json()
@@ -38,9 +54,9 @@ export async function POST(req: NextRequest) {
       tx_json?:              { hash?: string }
     }
 
-    const success =
-      result.engine_result === 'tesSUCCESS' ||
-      result.engine_result?.startsWith('ter')   // queued / held
+    // Only treat tesSUCCESS as a clear success for the client.
+    // ter* codes (e.g. terPRE_SEQ) mean the tx is held and may never succeed.
+    const success = result.engine_result === 'tesSUCCESS'
 
     return NextResponse.json(
       {
@@ -52,8 +68,9 @@ export async function POST(req: NextRequest) {
       { status: success ? 200 : 422 }
     )
   } catch (err: unknown) {
+    console.error('[wallet/submit] Unexpected error:', err)
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Submit failed' },
+      { error: 'Transaction submission failed' }, // do not leak internal details
       { status: 502 }
     )
   }
