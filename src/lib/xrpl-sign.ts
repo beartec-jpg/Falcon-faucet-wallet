@@ -13,7 +13,7 @@ import * as binary from 'ripple-binary-codec'
 import { createHash } from 'crypto'
 
 const DROPS_PER_QXRP = 1_000_000
-const NETWORK_ID = parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '999', 10)
+const NETWORK_ID = parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '1001', 10)
 const HASH_PREFIX_SIGNED_TX = 0x54584e00 // 'TXN\x00'
 
 // Signing proxy config (server-side env vars only)
@@ -56,7 +56,7 @@ export async function signPayment(opts: {
       Flags: 0,
       Sequence: sequence,
       LastLedgerSequence: lastLedgerSequence,
-      // NetworkID only required for networks with ID > 1024; qXRP is 999
+      // NetworkID only required for networks with ID > 1024 (recommended for custom testnets)
       ...(NETWORK_ID > 1024 ? { NetworkID: NETWORK_ID } : {}),
     }
 

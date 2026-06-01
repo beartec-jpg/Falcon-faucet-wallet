@@ -12,9 +12,11 @@ The "Open Node" flow inside the Wallet is the recommended way for normal users t
 
 ## Current Public Node (recommended)
 
-- **Primary (full history)**: `http://46.224.0.140:6005` (public port only)
-- Network ID: 999
-- Faucet uses the genesis account (`rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh`) which holds the bootstrap supply.
+> **Note for new testnet launch**: The values below are examples from a previous testnet. For the current clean testnet, use the values published in the official deployment docs or your own nodes.
+
+- **Primary (full history)**: Use your deployed node(s)
+- Network ID: 1001 (example for new clean testnet)
+- Faucet uses a **dedicated funded account** (never the genesis/bootstrap account)
 
 ## Local Development
 
@@ -54,7 +56,7 @@ See `.env.example` for the full list. The important ones:
 ## Notes
 
 - Always use public RPC ports (6005). Admin ports (5005 etc.) are intentionally restricted.
-- After node infrastructure changes, make sure the faucet account actually exists on the current ledger (use the genesis account during early testnet phases).
+- After node infrastructure changes, make sure the faucet account actually exists on the current ledger. Use a dedicated funded account (never the old genesis account).
 
 ## Becoming a Validator (Recommended Path)
 

@@ -11,7 +11,7 @@
  *  4. encode({ ...tx, TxnSignature: sig }) → final tx_blob hex
  */
 
-const NETWORK_ID     = parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '999', 10)
+const NETWORK_ID     = parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '1001', 10)
 const DROPS_PER_QXRP = 1_000_000
 const BASE_FEE       = '12'
 
