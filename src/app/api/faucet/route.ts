@@ -3,7 +3,7 @@
 // Returns: { txHash, amount, account, reset } | { error, reset? }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { checkRateLimit, refundRateLimit } from '@/lib/rate-limit'
+import { peekRateLimit, consumeRateLimit } from '@/lib/rate-limit'
 import { getAccountInfo, getLedgerIndex, submitTx } from '@/lib/rpc'
 import { signPayment, dropsFromQxrp } from '@/lib/xrpl-sign'
 import { isValidClassicAddress } from 'ripple-address-codec'
@@ -60,25 +60,25 @@ export async function POST(req: NextRequest) {
   if (!account) return err('Missing "account" field')
   if (!isValidClassicAddress(account)) return err('Invalid qXRP address')
 
-  // ── Rate limit: by IP and by destination account ──────────────────────────
+  // ── Rate limit peek (does NOT consume — only successful drips count) ─────
   const clientIp = ip(req)
   const [ipLimit, acctLimit] = await Promise.all([
-    checkRateLimit(`ip:${clientIp}`),
-    checkRateLimit(`acct:${account}`),
+    peekRateLimit(`ip:${clientIp}`),
+    peekRateLimit(`acct:${account}`),
   ])
 
   if (!ipLimit.success) {
     return err(
-      'Rate limit exceeded for your IP. Try again later.',
+      `Rate limit exceeded for your IP (${ipLimit.remaining ?? 0} left). Try again after reset.`,
       429,
-      { reset: ipLimit.reset }
+      { reset: ipLimit.reset, limitType: 'ip' }
     )
   }
   if (!acctLimit.success) {
     return err(
-      'Rate limit exceeded for this account. Try again later.',
+      `Rate limit exceeded for this address (${acctLimit.remaining ?? 0} left). Try again after reset.`,
       429,
-      { reset: acctLimit.reset }
+      { reset: acctLimit.reset, limitType: 'account' }
     )
   }
 
@@ -124,11 +124,6 @@ export async function POST(req: NextRequest) {
     txHash  = signed.hash
   } catch (e) {
     console.error('Signing error:', e)
-    // Refund rate limit — signing failed before any funds moved
-    await Promise.allSettled([
-      refundRateLimit(`ip:${clientIp}`),
-      refundRateLimit(`acct:${account}`),
-    ])
     return err('Transaction signing failed', 500)
   }
 
@@ -142,11 +137,6 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     const realError = e?.message || String(e)
     console.error('Submit error from node:', realError)
-    // Refund rate limit — submission failed before funds moved
-    await Promise.allSettled([
-      refundRateLimit(`ip:${clientIp}`),
-      refundRateLimit(`acct:${account}`),
-    ])
     return err(`Transaction submission failed: ${realError}`, 503)
   }
 
@@ -155,6 +145,12 @@ export async function POST(req: NextRequest) {
   if (!accepted) {
     return err(`Transaction rejected: ${engineResult} — ${engineMsg}`, 422)
   }
+
+  // Only consume rate limit after confirmed success
+  await Promise.all([
+    consumeRateLimit(`ip:${clientIp}`),
+    consumeRateLimit(`acct:${account}`),
+  ])
 
   return NextResponse.json({
     txHash,

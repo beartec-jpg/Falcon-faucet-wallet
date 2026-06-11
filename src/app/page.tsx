@@ -182,7 +182,7 @@ function FaucetPageInner() {
               <span className="text-brand-500">qXRP</span>
             </h1>
             <p className="text-slate-400 text-sm">
-              {DRIP_AMOUNT} qXRP per request · 24-hour cooldown per address
+              {DRIP_AMOUNT.toLocaleString()} qXRP per successful drip · failed attempts don&apos;t count
             </p>
           </div>
 

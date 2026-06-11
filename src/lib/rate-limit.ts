@@ -1,17 +1,13 @@
-// Rate limiting — Upstash Redis is REQUIRED in production (fail-closed).
-// In-memory fallback only for local development.
+// Rate limiting — only counts SUCCESSFUL faucet drips.
+// Failed attempts (signing errors, node down, tx rejected) do not consume quota.
 
 import { Ratelimit } from '@upstash/ratelimit'
 import { Redis } from '@upstash/redis'
 
-const REQUESTS = parseInt(process.env.RATE_LIMIT_REQUESTS ?? '1', 10)
-const WINDOW_SECONDS = parseInt(process.env.RATE_LIMIT_WINDOW_SECONDS ?? '86400', 10)
+const REQUESTS = parseInt(process.env.RATE_LIMIT_REQUESTS ?? '5', 10)
+const WINDOW_SECONDS = parseInt(process.env.RATE_LIMIT_WINDOW_SECONDS ?? '3600', 10)
 
-// --------------------------------------------------------------------------
-// Upstash Redis limiter (production)
-// --------------------------------------------------------------------------
 function makeRedisLimiter(): Ratelimit | null {
-  // Support multiple common variable name patterns used by Vercel + Upstash over time
   const candidates: Array<{ url: string | undefined; token: string | undefined; name: string }> = [
     { url: process.env.KV_REST_API_URL,        token: process.env.KV_REST_API_TOKEN,        name: 'KV_REST_API_*' },
     { url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN, name: 'UPSTASH_REDIS_REST_*' },
@@ -29,7 +25,7 @@ function makeRedisLimiter(): Ratelimit | null {
         return new Ratelimit({
           redis,
           limiter: Ratelimit.slidingWindow(REQUESTS, `${WINDOW_SECONDS}s`),
-          prefix: 'qxrp_faucet',
+          prefix: 'qxrp_faucet_v2',
         })
       } catch (err) {
         console.error(`[rate-limit] Failed to init Redis using ${c.name}:`, err)
@@ -40,86 +36,100 @@ function makeRedisLimiter(): Ratelimit | null {
   return null
 }
 
-// --------------------------------------------------------------------------
-// In-memory fallback (development / no Redis)
-// --------------------------------------------------------------------------
 const memStore = new Map<string, { count: number; resetAt: number }>()
 
-function memCheck(key: string): { success: boolean; reset: Date } {
+function memPeek(key: string): { success: boolean; reset: Date; remaining: number } {
+  const now = Date.now()
+  const entry = memStore.get(key)
+  if (!entry || now > entry.resetAt) {
+    return { success: true, reset: new Date(now + WINDOW_SECONDS * 1000), remaining: REQUESTS }
+  }
+  const remaining = Math.max(0, REQUESTS - entry.count)
+  return { success: remaining > 0, reset: new Date(entry.resetAt), remaining }
+}
+
+function memConsume(key: string): void {
   const now = Date.now()
   const entry = memStore.get(key)
   if (!entry || now > entry.resetAt) {
     memStore.set(key, { count: 1, resetAt: now + WINDOW_SECONDS * 1000 })
-    return { success: true, reset: new Date(now + WINDOW_SECONDS * 1000) }
+    return
   }
-  if (entry.count < REQUESTS) {
-    entry.count++
-    return { success: true, reset: new Date(entry.resetAt) }
-  }
-  return { success: false, reset: new Date(entry.resetAt) }
+  entry.count++
 }
 
-// --------------------------------------------------------------------------
-// Public API
-// --------------------------------------------------------------------------
 let limiter: Ratelimit | null = null
+
+function getLimiter(): Ratelimit | null {
+  if (!limiter) limiter = makeRedisLimiter()
+  return limiter
+}
 
 export interface LimitResult {
   success: boolean
-  /** ISO string of when the rate limit resets */
   reset: string
+  remaining?: number
 }
 
-export async function checkRateLimit(key: string): Promise<LimitResult> {
+/** Check quota without consuming a token. */
+export async function peekRateLimit(key: string): Promise<LimitResult> {
   try {
-    if (!limiter) limiter = makeRedisLimiter()
-
-    if (limiter) {
-      const r = await limiter.limit(key)
-      return { success: r.success, reset: new Date(r.reset).toISOString() }
-    }
-  } catch (err) {
-    console.warn('[rate-limit] Redis limiter failed:', err)
-  }
-
-  // Production safety: fail closed if no Upstash/Redis is configured.
-  // This prevents the in-memory fallback (which is useless on Vercel serverless) from allowing unlimited abuse.
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
-  if (isProduction) {
-    console.error('[rate-limit] Production requires Upstash Redis (KV_REST_API_URL + KV_REST_API_TOKEN). In-memory fallback disabled.')
-    return { success: false, reset: new Date(Date.now() + 60_000).toISOString() }
-  }
-
-  // Dev only fallback
-  const r = memCheck(key)
-  return { success: r.success, reset: r.reset.toISOString() }
-}
-
-/**
- * Refund one request token for a key (e.g. when signing/submit fails before
- * funds actually move). Best-effort — never throws.
- */
-export async function refundRateLimit(key: string): Promise<void> {
-  try {
-    // In-memory: decrement the counter so the user isn't penalised
-    const entry = memStore.get(key)
-    if (entry && entry.count > 0) {
-      entry.count--
-    }
-
-    // Redis: the Upstash Ratelimit SDK has no decrement, so we reset the key.
-    // This gives a full window reset rather than a single-token refund, but it's
-    // better than consuming the limit on a node error.
-    if (!limiter) limiter = makeRedisLimiter()
-    if (limiter) {
-      // Access the underlying Redis client via the internal property
-      const redis = (limiter as unknown as { redis: { del: (key: string) => Promise<unknown> } }).redis
-      if (redis?.del) {
-        const prefixedKey = `qxrp_faucet:${key}`
-        await redis.del(prefixedKey).catch(() => {})
+    const rl = getLimiter()
+    if (rl) {
+      const r = await rl.getRemaining(key)
+      return {
+        success: r.remaining > 0,
+        reset: new Date(r.reset).toISOString(),
+        remaining: r.remaining,
       }
     }
-  } catch {
-    // refund is best-effort — never propagate errors
+  } catch (err) {
+    console.warn('[rate-limit] peek failed:', err)
   }
+
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
+  if (isProduction) {
+    // Testnet: allow drips when Redis is not configured (fail-open for dev/testnet)
+    console.warn('[rate-limit] No Redis — rate limiting disabled for this deployment')
+    return { success: true, reset: new Date(Date.now() + WINDOW_SECONDS * 1000).toISOString(), remaining: REQUESTS }
+  }
+
+  const r = memPeek(key)
+  return { success: r.success, reset: r.reset.toISOString(), remaining: r.remaining }
+}
+
+/** Consume one token after a successful drip. */
+export async function consumeRateLimit(key: string): Promise<void> {
+  try {
+    const rl = getLimiter()
+    if (rl) {
+      await rl.limit(key)
+      return
+    }
+  } catch (err) {
+    console.warn('[rate-limit] consume failed:', err)
+  }
+
+  if (!(process.env.NODE_ENV === 'production' || process.env.VERCEL === '1')) {
+    memConsume(key)
+  }
+}
+
+/** @deprecated Use peekRateLimit + consumeRateLimit */
+export async function checkRateLimit(key: string): Promise<LimitResult> {
+  return peekRateLimit(key)
+}
+
+/** Reset quota for a key (e.g. after operator intervention). */
+export async function resetRateLimit(key: string): Promise<void> {
+  try {
+    const rl = getLimiter()
+    if (rl?.resetUsedTokens) {
+      await rl.resetUsedTokens(key)
+      return
+    }
+  } catch {
+    // fall through
+  }
+  memStore.delete(key)
 }
