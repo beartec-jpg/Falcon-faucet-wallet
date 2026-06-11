@@ -2,7 +2,7 @@
   "name": "qxrp-faucet",
   "version": "1.0.0",
   "private": true,
-  "packageManager": "npm@10",
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -16,10 +16,7 @@
     "next": "^14.2.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "ripple-address-codec": "^5.0.0",
-    "ripple-binary-codec": "^2.7.0",
-    "ripple-keypairs": "^2.0.0",
-    "xrpl": "^4.1.0"
+    "ripple-address-codec": "^5.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
