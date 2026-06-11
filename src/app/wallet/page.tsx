@@ -684,8 +684,8 @@ export default function WalletPage() {
                     <div className="flex gap-2.5">
                       <div className="text-base mt-px">⚠️</div>
                       <div className="text-sm leading-snug">
-                        <span className="font-semibold">You need 1,000 qXRP to bond.</span><br />
-                        It is <span className="underline">recommended to get that first</span> from the faucet before running the command.
+                        <span className="font-semibold">You need 1,000 qXRP to bond</span> (≥1,100 qXRP on the validator address).<br />
+                        Claim <span className="underline font-semibold">2,000 qXRP</span> from the faucet first — enough to fund bonding immediately.
                       </div>
                     </div>
                   </div>
@@ -791,12 +791,21 @@ export default function WalletPage() {
                     </div>
                   </div>
 
+                  <Link
+                    href="/validator"
+                    className="block text-center py-2.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-sm font-medium hover:bg-cyan-500/20 transition"
+                  >
+                    Full validator guide + command reference →
+                  </Link>
+
                   <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-800">
-                    Rewards land in the validator account. Withdraw excess to this wallet later via the portal or manually.
-                    Full guide + troubleshooting:{' '}
-                    <a href="https://github.com/beartec-jpg/qXRP/blob/develop/docs/validator-onboarding.md" target="_blank" className="underline text-slate-400 hover:text-slate-300">
-                      validator-onboarding.md
-                    </a>
+                    Rewards land in the validator account. Payout address ({wallet.address.slice(0, 10)}…) is saved for withdrawals.
+                    Also see{' '}
+                    <a href="/validator" className="underline text-slate-400 hover:text-slate-300">/validator</a>
+                    {' '}or{' '}
+                    <a href="https://github.com/beartec-jpg/qXRP/blob/develop/docs/validator-onboarding.md" target="_blank" rel="noopener noreferrer" className="underline text-slate-400 hover:text-slate-300">
+                      GitHub docs
+                    </a>.
                   </div>
 
                   <button

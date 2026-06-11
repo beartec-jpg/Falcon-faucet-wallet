@@ -26,7 +26,7 @@ interface DripResult {
 
 const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Falcon Testnet'
 const EXPLORER_URL = process.env.NEXT_PUBLIC_EXPLORER_URL ?? ''
-const DRIP_AMOUNT  = 100
+const DRIP_AMOUNT  = parseInt(process.env.NEXT_PUBLIC_DRIP_AMOUNT_QXRP ?? '2000', 10)
 
 // ─── Subcomponents ───────────────────────────────────────────────────────────
 

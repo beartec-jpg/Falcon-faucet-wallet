@@ -18,6 +18,8 @@ export async function GET() {
       loadFactor: info.load_factor,
       completeLedgers: info.complete_ledgers,
       reserveBaseXrp: info.validated_ledger?.reserve_base_xrp ?? 0,
+      dripAmountQxrp: parseFloat(process.env.DRIP_AMOUNT_QXRP ?? '2000'),
+      networkId: parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '1001', 10),
     })
   } catch (e) {
     // Return 200 with online:false so the UI doesn't break / show network errors
