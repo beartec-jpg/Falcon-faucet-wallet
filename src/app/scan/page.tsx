@@ -5,7 +5,7 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import type { ScanData, LedgerSummary, TxSummary } from '@/app/api/scan/route'
 
-const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Testnet'
+const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Falcon Testnet'
 const RIPPLE_EPOCH = 946684800
 
 function rippleAge(rippleTime: number | undefined): string {

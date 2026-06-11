@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import Script from 'next/script'
 import './globals.css'
 
-const NETWORK = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Testnet'
+const NETWORK = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Falcon Testnet'
 
 export const metadata: Metadata = {
   title: `${NETWORK}`,

@@ -17,7 +17,9 @@ import {
 } from '@/lib/wallet-store'
 import {
   generateWallet,
-  keysFromSeed,
+  keysFromFalconSecret,
+  validateFalconSecret,
+  signPayment,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
 
@@ -145,16 +147,14 @@ export default function WalletPage() {
     try {
       const label = createLabel.trim() || 'My qXRP Wallet'
 
-      // 1. Generate XRPL keypair + seed (browser-side)
-      //    NOTE: For qXRP, the seed is sent to the server-side signing proxy when creating transactions
-      //    so that required Falcon fields can be added. See security disclosures below.
-      const { seed, address, publicKey } = await generateWallet()
+      // 1. Generate Falcon wallet via server (falcon_secret returned once)
+      const { falcon_secret, address, publicKey } = await generateWallet()
 
       // 2. Register passkey + get key material for encryption
       const { credentialId, keyBytes, hasPrf } = await registerPasskey(label)
 
-      // 3. Encrypt seed with AES-GCM keyed from passkey material
-      const encrypted = await encryptSeed(seed, keyBytes, hasPrf)
+      // 3. Encrypt falcon_secret with AES-GCM keyed from passkey material
+      const encrypted = await encryptSeed(falcon_secret, keyBytes, hasPrf)
 
       // 4. Save to IndexedDB
       const stored: StoredWallet = {
@@ -178,25 +178,27 @@ export default function WalletPage() {
     }
   }
 
-  // ── Restore from seed ─────────────────────────────────────────────────────
+  // ── Restore from Falcon secret ────────────────────────────────────────────
 
   const handleRestore = async () => {
     if (!isPasskeySupported()) {
       setError('Passkeys need a secure context (HTTPS or localhost).')
       return
     }
-    const seed = restoreSeed.trim()
-    if (!seed) { setError('Please enter your XRPL secret'); return }
+    const falconSecret = restoreSeed.trim()
+    if (!falconSecret) { setError('Please enter your Falcon secret'); return }
+    if (!validateFalconSecret(falconSecret)) {
+      setError('Invalid Falcon secret format'); return
+    }
 
     setBusy(true)
     setError(null)
     try {
-      // Validate seed by deriving keys
-      const { address, publicKey } = await keysFromSeed(seed)
+      const { address, publicKey } = await keysFromFalconSecret(falconSecret)
 
       const label = restoreLabel.trim() || 'Restored Wallet'
       const { credentialId, keyBytes, hasPrf } = await registerPasskey(label)
-      const encrypted = await encryptSeed(seed, keyBytes, hasPrf)
+      const encrypted = await encryptSeed(falconSecret, keyBytes, hasPrf)
 
       const stored: StoredWallet = {
         credentialId, address, publicKey, label, encrypted, hasPrf,
@@ -209,7 +211,7 @@ export default function WalletPage() {
       setView('dashboard')
       refreshBalance(address)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Restore failed. Check your seed.')
+      setError(e instanceof Error ? e.message : 'Restore failed. Check your Falcon secret.')
     } finally {
       setBusy(false)
     }
@@ -242,11 +244,8 @@ export default function WalletPage() {
       // 1. Authenticate — triggers biometric/PIN prompt
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
 
-      // 2. Decrypt seed
-      // WARNING: For qXRP compatibility, this seed will be sent (in plaintext) to the server-side
-      // signing proxy so that required Falcon signature fields can be added.
-      // This means your seed temporarily leaves the device during transaction creation.
-      const seed = await decryptSeed(wallet.encrypted, keyBytes)
+      // 2. Decrypt falcon_secret (sent to sign API only for signing)
+      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
       // 3. Fetch fresh sequence + ledger index just before signing (avoids tefPAST_SEQ)
       const freshAcct = await fetch(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`)
@@ -255,29 +254,16 @@ export default function WalletPage() {
       const sequence           = freshAcct?.sequence           ?? account.sequence
       const lastLedgerSequence = (freshAcct?.currentLedger ?? account.currentLedger) + 20
 
-      // 4. Sign via server-side proxy (adds required Falcon fields for qXRP)
-      const signRes = await fetch('/api/wallet/sign', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          secret: seed,
-          tx_json: {
-            TransactionType:    'Payment',
-            Account:            wallet.address,
-            Destination:        to,
-            Amount:             qxrpToDrops(amtQxrp),
-            Fee:                '12',
-            Flags:              0,
-            Sequence:           sequence,
-            LastLedgerSequence: lastLedgerSequence,
-          },
-        }),
-      })
-      const signData = await signRes.json() as { tx_blob?: string; error?: string }
-      if (!signRes.ok || !signData.tx_blob) {
-        throw new Error(signData.error ?? 'Signing failed')
-      }
-      const tx_blob = signData.tx_blob
+      const { tx_blob } = await signPayment(
+        {
+          account:            wallet.address,
+          destination:        to,
+          amountDrops:        qxrpToDrops(amtQxrp),
+          sequence,
+          lastLedgerSequence,
+        },
+        falcon_secret,
+      )
 
       // 4. Submit signed blob
       const res = await fetch('/api/wallet/submit', {
@@ -395,14 +381,14 @@ export default function WalletPage() {
                     onClick={() => { setView('restore'); setError(null) }}
                     className="text-sm text-slate-500 hover:text-slate-300 transition-colors"
                   >
-                    Restore from existing seed →
+                    Restore from Falcon secret →
                   </button>
                 </div>
               </div>
             </>
           )}
 
-          {/* ── Restore from seed ── */}
+          {/* ── Restore from Falcon secret ── */}
           {view === 'restore' && (
             <>
               <div className="flex items-center gap-2">
@@ -419,7 +405,7 @@ export default function WalletPage() {
 
               <div className="card p-6 space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">XRPL secret (seed)</label>
+                  <label className="text-xs text-slate-400">Falcon secret (hex)</label>
                   <input
                     type="text"
                     value={restoreSeed}
@@ -884,7 +870,7 @@ export default function WalletPage() {
               {view === 'dashboard' && (
                 <button
                   onClick={async () => {
-                    if (!confirm('Remove this wallet from this device? Make sure you have a copy of your seed phrase first.')) return
+                    if (!confirm('Remove this wallet from this device? Make sure you have a copy of your Falcon secret first.')) return
                     await deleteWallet(wallet.credentialId)
                     setWallet(null)
                     setAccount(null)

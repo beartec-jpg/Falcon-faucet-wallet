@@ -10,7 +10,6 @@ import {
 import { decryptSeed } from '@/lib/wallet-crypto'
 import { loadWallets, type StoredWallet } from '@/lib/wallet-store'
 import {
-  keysFromSeed,
   signTrustSet,
   signOfferCreate,
   TF_IMMEDIATE_OR_CANCEL,
@@ -43,7 +42,7 @@ interface MarketData {
 }
 
 const DROPS_PER_XRP = 1_000_000
-const NETWORK_NAME  = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Testnet'
+const NETWORK_NAME  = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Falcon Testnet'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -138,7 +137,7 @@ export default function MarketplacePage() {
       const freshLedger   = accData.currentLedger
 
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-      const seed         = await decryptSeed(wallet.encrypted, keyBytes)
+      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
       const { tx_blob } = await signTrustSet(
         {
@@ -149,7 +148,7 @@ export default function MarketplacePage() {
           sequence:           freshSequence,
           lastLedgerSequence: freshLedger + 20,
         },
-        seed,
+        falcon_secret,
       )
 
       const res  = await fetch('/api/wallet/submit', {
@@ -186,7 +185,7 @@ export default function MarketplacePage() {
 
     try {
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-      const seed         = await decryptSeed(wallet.encrypted, keyBytes)
+      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
       // Estimate the other side using AMM price with 1% slippage tolerance
       const price = swapToken.amm?.price ?? 1   // qXRP per token
@@ -216,7 +215,7 @@ export default function MarketplacePage() {
           lastLedgerSequence: ledger + 20,
           flags:              TF_IMMEDIATE_OR_CANCEL,
         },
-        seed,
+        falcon_secret,
       )
 
       const res  = await fetch('/api/wallet/submit', {

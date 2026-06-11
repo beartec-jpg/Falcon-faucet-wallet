@@ -19,7 +19,7 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
 ]
 
 export default function Header({ current, subtitle, children }: HeaderProps) {
-  const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Testnet'
+  const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Falcon Testnet'
 
   return (
     <header className="border-b border-slate-800/60 px-4 py-3 flex items-center justify-between sticky top-0 bg-slate-950/95 backdrop-blur-md z-20">
