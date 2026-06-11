@@ -111,3 +111,10 @@ export async function getLedgerIndex(): Promise<number> {
 export async function submitTx(tx_blob: string): Promise<{ tx_json: { hash: string }; engine_result: string; engine_result_message: string }> {
   return call('submit', { tx_blob })
 }
+
+export async function getTx(hash: string): Promise<{
+  validated?: boolean
+  meta?: { TransactionResult?: string }
+}> {
+  return call('tx', { transaction: hash })
+}

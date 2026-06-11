@@ -1,4 +1,4 @@
-// Falcon transaction signing via the node1 signing proxy.
+// Transaction signing via the node1 signing proxy (Falcon or classic seed).
 
 import { proxySign } from '@/lib/signer-proxy'
 

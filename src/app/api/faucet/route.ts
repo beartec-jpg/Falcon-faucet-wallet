@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { peekRateLimit, consumeRateLimit } from '@/lib/rate-limit'
-import { getAccountInfo, getLedgerIndex, submitTx } from '@/lib/rpc'
+import { getAccountInfo, getLedgerIndex, getTx, submitTx } from '@/lib/rpc'
 import { signPayment, dropsFromQxrp } from '@/lib/xrpl-sign'
 import { isValidClassicAddress } from 'ripple-address-codec'
 
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
       getLedgerIndex(),
     ])
     sequence = acctInfo.account_data.Sequence
-    lastLedgerSequence = ledger + 10
+    lastLedgerSequence = ledger + 30
   } catch (e: any) {
     const msg = String(e?.message || e)
     console.error('RPC error fetching faucet account info:', msg)
@@ -140,13 +140,38 @@ export async function POST(req: NextRequest) {
     return err(`Transaction submission failed: ${realError}`, 503)
   }
 
-  // tesSUCCESS or terQUEUED are acceptable
-  const accepted = engineResult.startsWith('tes') || engineResult === 'terQUEUED'
-  if (!accepted) {
+  if (engineResult !== 'tesSUCCESS') {
     return err(`Transaction rejected: ${engineResult} — ${engineMsg}`, 422)
   }
 
-  // Only consume rate limit after confirmed success
+  // Falcon-signed payments can show tesSUCCESS on the open ledger but fail consensus.
+  // Poll until validated or the tx expires before counting the drip.
+  const deadline = Date.now() + 45_000
+  let validated = false
+  let validatedResult: string | undefined
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 3000))
+    try {
+      const tx = await getTx(txHash)
+      if (tx?.validated) {
+        validated = true
+        validatedResult = tx?.meta?.TransactionResult
+        break
+      }
+    } catch {
+      // keep polling
+    }
+  }
+
+  if (!validated || validatedResult !== 'tesSUCCESS') {
+    return err(
+      'Payment was submitted but did not confirm on the ledger. No funds were sent — try again shortly.',
+      503,
+      { txHash, engine_result: validatedResult ?? 'pending_or_failed' },
+    )
+  }
+
+  // Only consume rate limit after validated success
   await Promise.all([
     consumeRateLimit(`ip:${clientIp}`),
     consumeRateLimit(`acct:${account}`),
@@ -156,7 +181,7 @@ export async function POST(req: NextRequest) {
     txHash,
     amount: DRIP_AMOUNT,
     account,
-    engine_result: engineResult,
+    engine_result: validatedResult,
     reset: acctLimit.reset,
   })
 }

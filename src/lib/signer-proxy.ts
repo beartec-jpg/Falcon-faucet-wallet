@@ -30,14 +30,22 @@ export interface ProposedWallet {
   falcon_secret: string
 }
 
+function isClassicSeed(secret: string): boolean {
+  return secret.startsWith('s') && secret.length < 64
+}
+
 export async function proxySign(
   tx_json: Record<string, unknown>,
-  falcon_secret: string,
+  secret: string,
 ): Promise<SignedTx> {
-  const body: Record<string, unknown> = { tx_json, falcon_secret }
-  if (INCLUDE_NETWORK_ID && !('NetworkID' in tx_json)) {
-    body.tx_json = { ...tx_json, NetworkID: NETWORK_ID }
-  }
+  const enriched =
+    INCLUDE_NETWORK_ID && !('NetworkID' in tx_json)
+      ? { ...tx_json, NetworkID: NETWORK_ID }
+      : tx_json
+
+  const body: Record<string, unknown> = isClassicSeed(secret)
+    ? { tx_json: enriched, secret }
+    : { tx_json: enriched, falcon_secret: secret }
 
   const res = await fetch(`${proxyBase()}/sign`, {
     method: 'POST',
