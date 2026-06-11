@@ -5,7 +5,8 @@
  * are delegated to server routes that call the node1 signing proxy.
  */
 
-const NETWORK_ID     = parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '1001', 10)
+const NETWORK_ID         = parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '1001', 10)
+const INCLUDE_NETWORK_ID = NETWORK_ID > 1024
 const DROPS_PER_QXRP = 1_000_000
 const BASE_FEE       = '12'
 
@@ -85,7 +86,7 @@ async function signTx(
     LastLedgerSequence: lastLedgerSequence,
     Flags:              txFields.Flags ?? 0,
   }
-  if (NETWORK_ID > 1024) tx_json.NetworkID = NETWORK_ID
+  if (INCLUDE_NETWORK_ID) tx_json.NetworkID = NETWORK_ID
 
   const res = await fetch('/api/wallet/sign', {
     method:  'POST',

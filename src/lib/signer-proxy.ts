@@ -1,6 +1,8 @@
 // Server-side client for the Falcon signing proxy on node1.
 
+// NetworkID is only required on networks with ID > 1024 (XRPL signing rule).
 const NETWORK_ID = parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '1001', 10)
+const INCLUDE_NETWORK_ID = NETWORK_ID > 1024
 
 function proxyBase(): string {
   const url = process.env.SIGNER_PROXY_URL?.replace(/\/$/, '')
@@ -33,7 +35,7 @@ export async function proxySign(
   falcon_secret: string,
 ): Promise<SignedTx> {
   const body: Record<string, unknown> = { tx_json, falcon_secret }
-  if (NETWORK_ID > 1024 && !('NetworkID' in tx_json)) {
+  if (INCLUDE_NETWORK_ID && !('NetworkID' in tx_json)) {
     body.tx_json = { ...tx_json, NetworkID: NETWORK_ID }
   }
 
