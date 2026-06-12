@@ -725,14 +725,14 @@ export default function WalletPage() {
                     <div className="space-y-1">
                       <div className="text-[10px] text-slate-500">One-liner — copy and paste into your server terminal:</div>
                       <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-[11px] text-emerald-300 font-mono whitespace-pre-wrap break-all leading-snug">
-{`curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/install-qxrp-validator.sh | bash -s -- \\
+{`curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- \\
   --payout ${wallet.address} \\
   --node-name ${nodeName || 'my-qxrp-node'}`}
                       </pre>
 
                       <button
                         onClick={async () => {
-                          const cmd = `curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/install-qxrp-validator.sh | bash -s -- \\
+                          const cmd = `curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- \\
   --payout ${wallet.address} \\
   --node-name ${nodeName || 'my-qxrp-node'}`
                           await navigator.clipboard.writeText(cmd)
