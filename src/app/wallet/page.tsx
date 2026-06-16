@@ -700,8 +700,7 @@ export default function WalletPage() {
                   </div>
 
                   <p className="text-xs text-slate-400">
-                    Run the command below on any Ubuntu 22.04/24.04 machine. The installer will <span className="text-amber-300">print a new validator r-address</span> — you fund that one (not this wallet). It then auto-bonds once it sees ≥1,100 qXRP.
-                    This wallet address is used as the <span className="text-emerald-300">payout / withdraw destination</span>.
+                    Run the single-line command on any fresh Ubuntu 22.04/24.04 (SSH or console). Uses Docker + public image. Derives validator keys from the secret (or auto fresh), patches config, prints validation_public_key + a separate <span className="text-amber-300">r-address you must fund (≥1,100 qXRP)</span> for bonding. Your payout address (this wallet) is saved for rewards. Container runs under docker compose.
                   </p>
 
                   {/* Payout address (auto-linked) */}
@@ -723,18 +722,14 @@ export default function WalletPage() {
                     </div>
 
                     <div className="space-y-1">
-                      <div className="text-[10px] text-slate-500">One-liner — copy and paste into your server terminal:</div>
+                      <div className="text-[10px] text-slate-500">One-liner (single line — paste-safe for web consoles like Hetzner):</div>
                       <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-[11px] text-emerald-300 font-mono whitespace-pre-wrap break-all leading-snug">
-{`curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- \\
-  --payout ${wallet.address} \\
-  --node-name ${nodeName || 'my-qxrp-node'}`}
+{`curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- --payout ${wallet.address} --node-name ${nodeName || 'my-qxrp-node'}`}
                       </pre>
 
                       <button
                         onClick={async () => {
-                          const cmd = `curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- \\
-  --payout ${wallet.address} \\
-  --node-name ${nodeName || 'my-qxrp-node'}`
+                          const cmd = `curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- --payout ${wallet.address} --node-name ${nodeName || 'my-qxrp-node'}`
                           await navigator.clipboard.writeText(cmd)
                           setCopied(true)
                           setTimeout(() => setCopied(false), 2200)
@@ -755,13 +750,13 @@ export default function WalletPage() {
                     <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">What the command does</div>
                     <ol className="space-y-0.5 text-xs text-slate-400">
                       {[
-                        'Downloads the qXRP node binary and installs it on your server',
-                        'Generates validator keys (classical + Falcon identity)',
-                        'Prints a NEW validator r-address in huge text — fund this',
-                        'Polls until ≥1,100 qXRP, then auto-submits ValidatorRegister + Bond(1000)',
-                        'Starts the validator as a systemd service (auto-restarts on reboot)',
-                        'Installs reward claimer (cron) — claims go into the validator account',
-                        `Your --payout (${wallet.address.slice(0,10)}…) is saved for easy future withdrawals`,
+                        'Sets up qxrp user + docker (if missing) on fresh Ubuntu',
+                        'Writes docker-compose.yml + xrpld.cfg + base validators.txt (UNL)',
+                        'Starts qxrp-validator container from public qxrp/xrpld:latest image',
+                        'Runs validation_create (using --secret or fresh qxrp-val-...) inside container; patches seed + pubkey into config',
+                        'Runs wallet_propose; prints the r-address + master_seed you must fund with ≥1,100 qXRP (separate from payout)',
+                        'Saves --payout / --node-name + validator files under /var/lib/qxrp-validator/',
+                        'Leaves container running (restart: unless-stopped). Monitor with: docker logs -f qxrp-validator',
                       ].map((step, i) => (
                         <li key={i} className="flex items-start gap-2">
                           <span className="text-cyan-600 font-mono flex-shrink-0 text-[10px]">{String(i + 1).padStart(2, '0')}</span>
@@ -776,10 +771,11 @@ export default function WalletPage() {
                     <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Handy commands (run on your server)</div>
                     <div className="space-y-1">
                       {[
-                        { label: 'Live logs',      cmd: 'journalctl -u qxrp-<node-name> -f' },
-                        { label: 'Status',         cmd: 'systemctl status qxrp-<node-name>' },
-                        { label: 'Restart',        cmd: 'systemctl restart qxrp-<node-name>' },
-                        { label: 'Stop',           cmd: 'systemctl stop qxrp-<node-name>' },
+                        { label: 'Live logs',      cmd: 'docker logs -f qxrp-validator' },
+                        { label: 'Status',         cmd: 'docker ps | grep qxrp-validator; docker inspect --format "{{.State.Status}}" qxrp-validator' },
+                        { label: 'Restart',        cmd: 'docker restart qxrp-validator' },
+                        { label: 'Stop',           cmd: 'docker stop qxrp-validator' },
+                        { label: 'Compose logs',   cmd: 'cd /var/lib/qxrp-validator && docker compose logs --tail 200' },
                         { label: 'Node info',      cmd: "curl -s -X POST http://127.0.0.1:5005 -H 'Content-Type: application/json' -d '{\"method\":\"server_info\",\"params\":[{}]}' | python3 -m json.tool" },
                         { label: 'Check balance',  cmd: 'curl -s -X POST http://127.0.0.1:5005 -H \'Content-Type: application/json\' -d \'{"method":"account_info","params":[{"account":"<validator-r-address>","ledger_index":"current"}]}\'' },
                       ].map(({ label, cmd }) => (
