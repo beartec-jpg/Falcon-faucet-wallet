@@ -1,4 +1,5 @@
-// POST /api/wallet/sign — Falcon signing via node1 proxy.
+// POST /api/wallet/sign — DEPRECATED: client wallet signs locally via WASM.
+// Kept for legacy integrations only. New wallets must not send falcon_secret here.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { proxySign } from '@/lib/signer-proxy'

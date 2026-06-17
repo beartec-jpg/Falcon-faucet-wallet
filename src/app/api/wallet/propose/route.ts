@@ -1,3 +1,4 @@
+// DEPRECATED: client wallet generates Falcon keys in-browser via WASM.
 import { NextResponse } from 'next/server'
 import { proxyWalletPropose } from '@/lib/signer-proxy'
 
