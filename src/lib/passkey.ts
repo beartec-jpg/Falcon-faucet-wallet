@@ -38,6 +38,19 @@ export function isPasskeySupported(): boolean {
   )
 }
 
+/** Best-effort PRF capability probe (Chrome 118+, Safari 18+). */
+export function isPrfLikelySupported(): boolean {
+  if (!isPasskeySupported()) return false
+  try {
+    const caps = PublicKeyCredential.getClientCapabilities?.()
+    if (caps && typeof caps === 'object' && 'prf' in caps) {
+      return !!(caps as Record<string, unknown>).prf
+    }
+  } catch { /* ignore */ }
+  // Assume PRF on platform authenticators in secure contexts when API is missing
+  return window.isSecureContext
+}
+
 // PRF eval input — constant so every auth call returns the same key material
 const PRF_INPUT = new TextEncoder().encode('qxrp-wallet-v1')
 
@@ -80,7 +93,7 @@ export async function registerPasskey(label: string): Promise<PasskeyRegistratio
       authenticatorSelection: {
         authenticatorAttachment: 'platform',
         userVerification:        'required',
-        residentKey:             'preferred',
+        residentKey:             'required',
       },
       timeout:     60_000,
       attestation: 'none',
