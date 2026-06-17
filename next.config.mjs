@@ -3,7 +3,25 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: [
       'ripple-address-codec',
+      '@openforge-sh/liboqs',
     ],
+  },
+
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.experiments = {
+        ...config.experiments,
+        asyncWebAssembly: true,
+      }
+      config.output = {
+        ...config.output,
+        environment: {
+          ...config.output?.environment,
+          asyncFunction: true,
+        },
+      }
+    }
+    return config
   },
 
   async headers() {
