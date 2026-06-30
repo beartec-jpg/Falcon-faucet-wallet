@@ -35,8 +35,8 @@ self.addEventListener('fetch', event => {
 
   if (url.origin !== self.location.origin) return
 
-  // API + WASM modules: network-first
-  if (url.pathname.startsWith('/api/') || url.pathname.includes('.wasm')) {
+  // API + Falcon WASM bundle: network-first
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/wasm/') || url.pathname.includes('.wasm')) {
     event.respondWith(
       fetch(request).catch(() =>
         new Response(

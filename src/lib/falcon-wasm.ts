@@ -1,21 +1,19 @@
 /**
- * Singleton Falcon-512 WASM signer (liboqs via @openforge-sh/liboqs).
- * Browser-only — never import from server components or API routes.
+ * Singleton Falcon-512 WASM signer (browser-only).
  */
 
-import type { Falcon512 } from '@openforge-sh/liboqs/sig'
+import { createFalcon512, type Falcon512Signer } from './falcon-512-browser'
 
-let instance: Falcon512 | null = null
-let loading: Promise<Falcon512> | null = null
+let instance: Falcon512Signer | null = null
+let loading: Promise<Falcon512Signer> | null = null
 
-export async function getFalcon512(): Promise<Falcon512> {
+export async function getFalcon512(): Promise<Falcon512Signer> {
   if (instance) return instance
   if (!loading) {
-    loading = (async () => {
-      const { createFalcon512 } = await import('@openforge-sh/liboqs/sig')
-      instance = await createFalcon512()
-      return instance
-    })()
+    loading = createFalcon512().then(f => {
+      instance = f
+      return f
+    })
   }
   return loading
 }

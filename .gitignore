@@ -1,4 +1,6 @@
 node_modules/
+public/wasm/falcon-512.min.js
+tsconfig.tsbuildinfo
 .next/
 out/
 .env.local
