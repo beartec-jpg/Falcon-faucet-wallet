@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import {
@@ -22,6 +22,14 @@ import {
   signPayment,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
+import {
+  createEncryptedBackup,
+  decryptBackupFile,
+  downloadBackup,
+  parseBackupFile,
+  shareBackup,
+  validateBackupPassphrase,
+} from '@/lib/wallet-backup'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,10 +129,23 @@ export default function WalletPage() {
   const [restoreLabel, setRestoreLabel] = useState('')
 
   // Backup gate (shown once after create, before IndexedDB write)
-  const [pendingSave,       setPendingSave]       = useState<PendingWalletSave | null>(null)
-  const [backupCopied,      setBackupCopied]      = useState(false)
+  const [pendingSave,        setPendingSave]        = useState<PendingWalletSave | null>(null)
+  const [backupPassphrase,   setBackupPassphrase]   = useState('')
+  const [backupPassConfirm,  setBackupPassConfirm]  = useState('')
+  const [backupDownloaded,   setBackupDownloaded]   = useState(false)
   const [backupAcknowledged, setBackupAcknowledged] = useState(false)
-  const [secretCopied,      setSecretCopied]      = useState(false)
+  const [showRawSecret,      setShowRawSecret]      = useState(false)
+  const [secretCopied,       setSecretCopied]       = useState(false)
+
+  // Restore from file
+  const [restorePassphrase,  setRestorePassphrase]  = useState('')
+  const [showManualRestore,  setShowManualRestore]  = useState(false)
+  const restoreFileRef = useRef<HTMLInputElement>(null)
+
+  // Re-export backup from dashboard
+  const [exportPassphrase,   setExportPassphrase]   = useState('')
+  const [exportPassConfirm,  setExportPassConfirm]  = useState('')
+  const [showExportBackup,   setShowExportBackup]   = useState(false)
 
   // ── Fetch account balance ─────────────────────────────────────────────────
 
@@ -160,8 +181,11 @@ export default function WalletPage() {
     }
     setBusy(true)
     setError(null)
-    setBackupCopied(false)
+    setBackupPassphrase('')
+    setBackupPassConfirm('')
+    setBackupDownloaded(false)
     setBackupAcknowledged(false)
+    setShowRawSecret(false)
     setSecretCopied(false)
     try {
       const label = createLabel.trim() || 'My qXRP Wallet'
@@ -183,7 +207,7 @@ export default function WalletPage() {
   }
 
   const handleConfirmBackup = async () => {
-    if (!pendingSave || !backupCopied || !backupAcknowledged) return
+    if (!pendingSave || !backupDownloaded || !backupAcknowledged) return
     setBusy(true)
     setError(null)
     try {
@@ -192,7 +216,9 @@ export default function WalletPage() {
       await saveWallet(stored)
       setWallet(stored)
       setPendingSave(null)
-      setBackupCopied(false)
+      setBackupPassphrase('')
+      setBackupPassConfirm('')
+      setBackupDownloaded(false)
       setBackupAcknowledged(false)
       setView('dashboard')
       refreshBalance(stored.address)
@@ -205,55 +231,142 @@ export default function WalletPage() {
 
   const handleCancelBackup = () => {
     setPendingSave(null)
-    setBackupCopied(false)
+    setBackupPassphrase('')
+    setBackupPassConfirm('')
+    setBackupDownloaded(false)
     setBackupAcknowledged(false)
+    setShowRawSecret(false)
     setSecretCopied(false)
     setView('no-wallet')
     setError('Wallet not saved. Create again when ready — your passkey was registered but this wallet was discarded.')
+  }
+
+  const downloadPendingBackup = async () => {
+    if (!pendingSave) return
+    const passErr = validateBackupPassphrase(backupPassphrase)
+    if (passErr) { setError(passErr); return }
+    if (backupPassphrase !== backupPassConfirm) {
+      setError('Backup passwords do not match')
+      return
+    }
+    setError(null)
+    try {
+      const file = await createEncryptedBackup({
+        falcon_secret: pendingSave.falcon_secret,
+        address: pendingSave.address,
+        publicKey: pendingSave.publicKey,
+        label: pendingSave.label,
+        createdAt: Date.now(),
+      }, backupPassphrase)
+      downloadBackup(file)
+      setBackupDownloaded(true)
+      // On mobile, offer native save-to-files if available
+      void shareBackup(file).catch(() => {})
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to create backup file')
+    }
   }
 
   const copyFalconSecret = async () => {
     if (!pendingSave) return
     await navigator.clipboard.writeText(pendingSave.falcon_secret)
     setSecretCopied(true)
-    setBackupCopied(true)
     setTimeout(() => setSecretCopied(false), 2200)
   }
 
-  // ── Restore from Falcon secret ────────────────────────────────────────────
-
-  const handleRestore = async () => {
+  const finishRestore = async (falconSecret: string, label: string) => {
     if (!isPasskeySupported()) {
       setError('Passkeys need a secure context (HTTPS or localhost).')
       return
     }
-    const falconSecret = restoreSeed.trim()
-    if (!falconSecret) { setError('Please enter your Falcon secret'); return }
     if (!validateFalconSecret(falconSecret)) {
-      setError('Invalid Falcon secret format'); return
+      setError('Invalid Falcon secret in backup')
+      return
     }
 
     setBusy(true)
     setError(null)
     try {
       const { address, publicKey } = await keysFromFalconSecret(falconSecret)
-
-      const label = restoreLabel.trim() || 'Restored Wallet'
-      const { credentialId, keyBytes, hasPrf } = await registerPasskey(label)
+      const walletLabel = label.trim() || 'Restored Wallet'
+      const { credentialId, keyBytes, hasPrf } = await registerPasskey(walletLabel)
       const encrypted = await encryptSeed(falconSecret, keyBytes, hasPrf)
 
       const stored: StoredWallet = {
-        credentialId, address, publicKey, label, encrypted, hasPrf,
+        credentialId, address, publicKey, label: walletLabel, encrypted, hasPrf,
         createdAt: Date.now(),
       }
       await saveWallet(stored)
 
       setWallet(stored)
       setRestoreSeed('')
+      setRestorePassphrase('')
       setView('dashboard')
       refreshBalance(address)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Restore failed. Check your Falcon secret.')
+      setError(e instanceof Error ? e.message : 'Restore failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRestore = async () => {
+    const falconSecret = restoreSeed.trim()
+    if (!falconSecret) { setError('Upload a backup file or paste your Falcon secret'); return }
+    await finishRestore(falconSecret, restoreLabel)
+  }
+
+  const handleRestoreFile = async (file: File) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const parsed = parseBackupFile(JSON.parse(await file.text()))
+      if (parsed.encrypted) {
+        if (!restorePassphrase) {
+          setError('Enter the backup password for this file')
+          return
+        }
+        const payload = await decryptBackupFile(parsed, restorePassphrase)
+        await finishRestore(payload.falcon_secret, payload.label || restoreLabel)
+        return
+      }
+      setRestoreLabel(parsed.label || restoreLabel)
+      await finishRestore(parsed.falcon_secret, parsed.label || restoreLabel)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Could not read backup file')
+    } finally {
+      setBusy(false)
+      if (restoreFileRef.current) restoreFileRef.current.value = ''
+    }
+  }
+
+  const handleExportBackup = async () => {
+    if (!wallet) return
+    const passErr = validateBackupPassphrase(exportPassphrase)
+    if (passErr) { setError(passErr); return }
+    if (exportPassphrase !== exportPassConfirm) {
+      setError('Backup passwords do not match')
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+    try {
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+      const file = await createEncryptedBackup({
+        falcon_secret,
+        address: wallet.address,
+        publicKey: wallet.publicKey,
+        label: wallet.label,
+        createdAt: wallet.createdAt,
+      }, exportPassphrase)
+      downloadBackup(file)
+      setShowExportBackup(false)
+      setExportPassphrase('')
+      setExportPassConfirm('')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Export failed')
     } finally {
       setBusy(false)
     }
@@ -427,7 +540,7 @@ export default function WalletPage() {
                     onClick={() => { setView('restore'); setError(null) }}
                     className="text-sm text-slate-500 hover:text-slate-300 transition-colors"
                   >
-                    Restore from Falcon secret →
+                    Restore from backup file →
                   </button>
                 </div>
               </div>
@@ -438,14 +551,14 @@ export default function WalletPage() {
           {view === 'backup' && pendingSave && (
             <>
               <div className="text-center space-y-2 pb-1">
-                <h2 className="text-xl font-bold text-white">Back up your Falcon secret</h2>
+                <h2 className="text-xl font-bold text-white">Save your wallet backup</h2>
                 <p className="text-slate-400 text-sm">
-                  Shown once. Copy it somewhere safe — password manager, notes, etc.
+                  Download an encrypted file — no need to copy 4,000+ characters of hex.
                 </p>
               </div>
 
               <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                If you skip this, you cannot restore your wallet after clearing browser data or switching browsers.
+                Save the backup file to iCloud Drive, Google Drive, or your password manager. You will need this file and your backup password to restore.
               </div>
 
               <div className="card p-5 space-y-4">
@@ -455,21 +568,64 @@ export default function WalletPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">Falcon secret (hex)</div>
-                  <textarea
-                    readOnly
-                    value={pendingSave.falcon_secret}
-                    rows={4}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[10px] text-emerald-300 font-mono leading-snug resize-none"
+                  <label className="text-xs text-slate-400">Backup password <span className="text-slate-600">(min 8 chars — not your passkey)</span></label>
+                  <input
+                    type="password"
+                    value={backupPassphrase}
+                    onChange={e => setBackupPassphrase(e.target.value)}
+                    placeholder="Choose a backup password"
+                    className="input-field"
+                    autoComplete="new-password"
                   />
-                  <button
-                    type="button"
-                    onClick={copyFalconSecret}
-                    className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm transition"
-                  >
-                    {secretCopied ? 'Copied to clipboard ✓' : 'Copy Falcon secret'}
-                  </button>
                 </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400">Confirm backup password</label>
+                  <input
+                    type="password"
+                    value={backupPassConfirm}
+                    onChange={e => setBackupPassConfirm(e.target.value)}
+                    placeholder="Repeat backup password"
+                    className="input-field"
+                    autoComplete="new-password"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={downloadPendingBackup}
+                  disabled={!backupPassphrase || !backupPassConfirm}
+                  className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm transition disabled:opacity-50"
+                >
+                  {backupDownloaded ? 'Download again ✓' : 'Download encrypted backup file'}
+                </button>
+                {backupDownloaded && (
+                  <p className="text-xs text-emerald-400 text-center">Backup file downloaded — store it somewhere safe</p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowRawSecret(v => !v)}
+                  className="text-xs text-slate-600 hover:text-slate-400 transition-colors w-full text-center"
+                >
+                  {showRawSecret ? 'Hide raw hex' : 'Advanced: show raw hex'}
+                </button>
+                {showRawSecret && (
+                  <div className="space-y-1.5">
+                    <textarea
+                      readOnly
+                      value={pendingSave.falcon_secret}
+                      rows={3}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[10px] text-emerald-300 font-mono leading-snug resize-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={copyFalconSecret}
+                      className="w-full py-2 text-xs rounded-lg border border-slate-700 text-slate-400 hover:text-slate-200"
+                    >
+                      {secretCopied ? 'Copied ✓' : 'Copy raw hex'}
+                    </button>
+                  </div>
+                )}
 
                 <label className="flex items-start gap-2.5 text-sm text-slate-300 cursor-pointer">
                   <input
@@ -478,12 +634,12 @@ export default function WalletPage() {
                     onChange={e => setBackupAcknowledged(e.target.checked)}
                     className="mt-1 rounded border-slate-600"
                   />
-                  <span>I have saved my Falcon secret somewhere safe</span>
+                  <span>I saved the backup file and remember my backup password</span>
                 </label>
 
                 <button
                   onClick={handleConfirmBackup}
-                  disabled={busy || !backupCopied || !backupAcknowledged}
+                  disabled={busy || !backupDownloaded || !backupAcknowledged}
                   className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {busy ? <><Spinner /> Saving wallet…</> : 'Continue to wallet'}
@@ -517,42 +673,85 @@ export default function WalletPage() {
               </div>
 
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200 leading-snug">
-                Paste the long hex secret from backup (starts with <span className="font-mono">fb</span>, not an XRPL <span className="font-mono">s…</span> seed).
+                Upload your <span className="font-mono">qxrp-backup-….json</span> file from iCloud Drive, Google Drive, or downloads.
               </div>
 
               <div className="card p-6 space-y-4">
+                <input
+                  ref={restoreFileRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (file) handleRestoreFile(file)
+                  }}
+                />
+
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">Falcon secret (hex)</label>
-                  <textarea
-                    value={restoreSeed}
-                    onChange={e => setRestoreSeed(e.target.value)}
-                    placeholder="fb…"
-                    rows={3}
-                    className="input-field font-mono text-xs resize-none"
+                  <label className="text-xs text-slate-400">Backup password</label>
+                  <input
+                    type="password"
+                    value={restorePassphrase}
+                    onChange={e => setRestorePassphrase(e.target.value)}
+                    placeholder="Password you set when downloading backup"
+                    className="input-field"
+                    autoComplete="current-password"
                     disabled={busy}
-                    autoComplete="off"
-                    spellCheck={false}
                   />
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => restoreFileRef.current?.click()}
+                  disabled={busy || !restorePassphrase}
+                  className="btn-primary flex items-center justify-center gap-2 w-full"
+                >
+                  {busy ? <><Spinner /> Restoring…</> : 'Upload backup file'}
+                </button>
+
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">Wallet name <span className="text-slate-600">(optional)</span></label>
+                  <label className="text-xs text-slate-400">Wallet name <span className="text-slate-600">(optional override)</span></label>
                   <input
                     type="text"
                     value={restoreLabel}
                     onChange={e => setRestoreLabel(e.target.value)}
-                    placeholder="Restored Wallet"
+                    placeholder="Uses name from backup file if empty"
                     className="input-field"
                     disabled={busy}
                     maxLength={40}
                   />
                 </div>
+
                 <button
-                  onClick={handleRestore}
-                  disabled={busy || !restoreSeed.trim()}
-                  className="btn-primary flex items-center justify-center gap-2"
+                  type="button"
+                  onClick={() => setShowManualRestore(v => !v)}
+                  className="text-xs text-slate-600 hover:text-slate-400 transition-colors w-full text-center"
                 >
-                  {busy ? <><Spinner /> Restoring…</> : 'Restore & Secure with Passkey'}
+                  {showManualRestore ? 'Hide manual hex entry' : 'Advanced: paste raw hex instead'}
                 </button>
+
+                {showManualRestore && (
+                  <>
+                    <textarea
+                      value={restoreSeed}
+                      onChange={e => setRestoreSeed(e.target.value)}
+                      placeholder="fb… (4,000+ characters)"
+                      rows={3}
+                      className="input-field font-mono text-xs resize-none"
+                      disabled={busy}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <button
+                      onClick={handleRestore}
+                      disabled={busy || !restoreSeed.trim()}
+                      className="w-full py-2 text-sm rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800"
+                    >
+                      Restore from pasted hex
+                    </button>
+                  </>
+                )}
               </div>
             </>
           )}
@@ -990,15 +1189,62 @@ export default function WalletPage() {
 
               {/* ── Remove wallet ── */}
               {view === 'dashboard' && (
-                <p className="text-center text-[10px] text-slate-600 leading-snug px-2">
-                  Wallet data lives in this browser only. Back up your Falcon secret to restore elsewhere.
-                </p>
+                <div className="card p-4 space-y-3">
+                  <div className="text-xs text-slate-500">
+                    Wallet data lives in this browser only. Download a fresh encrypted backup anytime.
+                  </div>
+                  {!showExportBackup ? (
+                    <button
+                      type="button"
+                      onClick={() => { setShowExportBackup(true); setError(null) }}
+                      className="w-full py-2 text-sm rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition"
+                    >
+                      Download backup file
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <input
+                        type="password"
+                        value={exportPassphrase}
+                        onChange={e => setExportPassphrase(e.target.value)}
+                        placeholder="New backup password"
+                        className="input-field"
+                        autoComplete="new-password"
+                      />
+                      <input
+                        type="password"
+                        value={exportPassConfirm}
+                        onChange={e => setExportPassConfirm(e.target.value)}
+                        placeholder="Confirm backup password"
+                        className="input-field"
+                        autoComplete="new-password"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setShowExportBackup(false); setExportPassphrase(''); setExportPassConfirm('') }}
+                          className="flex-1 py-2 text-xs rounded-lg text-slate-500 hover:text-slate-300"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleExportBackup}
+                          disabled={busy || !exportPassphrase || !exportPassConfirm}
+                          className="flex-1 py-2 text-xs rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50"
+                        >
+                          {busy ? 'Exporting…' : 'Download'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               {view === 'dashboard' && (
                 <button
                   onClick={async () => {
-                    if (!confirm('Remove this wallet from this device? Make sure you have a copy of your Falcon secret first.')) return
+                    if (!confirm('Remove this wallet from this device? Make sure you have your backup file first.')) return
                     await deleteWallet(wallet.credentialId)
                     setWallet(null)
                     setAccount(null)
