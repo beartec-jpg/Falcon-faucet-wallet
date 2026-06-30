@@ -43,7 +43,17 @@ interface AccountData {
   currentLedger: number
 }
 
-type View = 'loading' | 'no-wallet' | 'restore' | 'dashboard' | 'send' | 'receive' | 'node'
+type View = 'loading' | 'no-wallet' | 'restore' | 'backup' | 'dashboard' | 'send' | 'receive' | 'node'
+
+interface PendingWalletSave {
+  credentialId: string
+  address:      string
+  publicKey:    string
+  label:        string
+  encrypted:    StoredWallet['encrypted']
+  hasPrf:       boolean
+  falcon_secret: string
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -110,6 +120,12 @@ export default function WalletPage() {
   const [restoreSeed,  setRestoreSeed]  = useState('')
   const [restoreLabel, setRestoreLabel] = useState('')
 
+  // Backup gate (shown once after create, before IndexedDB write)
+  const [pendingSave,       setPendingSave]       = useState<PendingWalletSave | null>(null)
+  const [backupCopied,      setBackupCopied]      = useState(false)
+  const [backupAcknowledged, setBackupAcknowledged] = useState(false)
+  const [secretCopied,      setSecretCopied]      = useState(false)
+
   // ── Fetch account balance ─────────────────────────────────────────────────
 
   const refreshBalance = useCallback(async (address: string) => {
@@ -144,38 +160,64 @@ export default function WalletPage() {
     }
     setBusy(true)
     setError(null)
+    setBackupCopied(false)
+    setBackupAcknowledged(false)
+    setSecretCopied(false)
     try {
       const label = createLabel.trim() || 'My qXRP Wallet'
 
-      // 1. Generate Falcon wallet via server (falcon_secret returned once)
       const { falcon_secret, address, publicKey } = await generateWallet()
-
-      // 2. Register passkey + get key material for encryption
       const { credentialId, keyBytes, hasPrf } = await registerPasskey(label)
-
-      // 3. Encrypt falcon_secret with AES-GCM keyed from passkey material
       const encrypted = await encryptSeed(falcon_secret, keyBytes, hasPrf)
 
-      // 4. Save to IndexedDB
-      const stored: StoredWallet = {
-        credentialId,
-        address,
-        publicKey,
-        label,
-        encrypted,
-        hasPrf,
-        createdAt: Date.now(),
-      }
-      await saveWallet(stored)
-
-      setWallet(stored)
-      setView('dashboard')
-      refreshBalance(address)
+      // Hold in memory until user confirms backup — not written to IndexedDB yet
+      setPendingSave({
+        credentialId, address, publicKey, label, encrypted, hasPrf, falcon_secret,
+      })
+      setView('backup')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Wallet creation failed')
     } finally {
       setBusy(false)
     }
+  }
+
+  const handleConfirmBackup = async () => {
+    if (!pendingSave || !backupCopied || !backupAcknowledged) return
+    setBusy(true)
+    setError(null)
+    try {
+      const { falcon_secret: _secret, ...rest } = pendingSave
+      const stored: StoredWallet = { ...rest, createdAt: Date.now() }
+      await saveWallet(stored)
+      setWallet(stored)
+      setPendingSave(null)
+      setBackupCopied(false)
+      setBackupAcknowledged(false)
+      setView('dashboard')
+      refreshBalance(stored.address)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to save wallet')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleCancelBackup = () => {
+    setPendingSave(null)
+    setBackupCopied(false)
+    setBackupAcknowledged(false)
+    setSecretCopied(false)
+    setView('no-wallet')
+    setError('Wallet not saved. Create again when ready — your passkey was registered but this wallet was discarded.')
+  }
+
+  const copyFalconSecret = async () => {
+    if (!pendingSave) return
+    await navigator.clipboard.writeText(pendingSave.falcon_secret)
+    setSecretCopied(true)
+    setBackupCopied(true)
+    setTimeout(() => setSecretCopied(false), 2200)
   }
 
   // ── Restore from Falcon secret ────────────────────────────────────────────
@@ -330,21 +372,25 @@ export default function WalletPage() {
                   qXRP <span className="text-brand-500">Wallet</span>
                 </h1>
                 <p className="text-slate-400 text-sm">
-                  Your keys are generated on-device with passkeys. However, qXRP currently requires server-side Falcon signing. Your seed is sent to our signing proxy during transaction creation. This wallet is NOT suitable for real funds or mainnet use.
+                  Falcon keys are generated and signed on your device. Testnet only — not for real funds.
                 </p>
               </div>
 
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200 leading-snug">
+                <span className="font-semibold">Stay in this browser tab.</span>{' '}
+                Wallet data is stored locally in this browser only. Installing the PWA or opening a different URL will look like a fresh wallet — restore with your saved Falcon secret if that happens.
+              </div>
+
               <div className="card p-6 space-y-4">
-                {/* Security notice */}
                 <div className="flex items-start gap-3 text-sm text-slate-400 bg-slate-800/50 rounded-xl px-4 py-3">
                   <svg className="w-5 h-5 text-brand-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                       d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                   </svg>
                   <span>
-                    Wallet creation and every transaction uses your device passkey
-                    (Face ID, fingerprint, or PIN). Your private key is encrypted
-                    locally — no server ever sees it.
+                    Your passkey (Face ID, fingerprint, or PIN) encrypts the wallet on this device.
+                    Signing runs in-browser — your Falcon secret is never sent to a server.
+                    You must back up the secret shown after creation; the app cannot recover it.
                   </span>
                 </div>
 
@@ -388,6 +434,73 @@ export default function WalletPage() {
             </>
           )}
 
+          {/* ── Backup gate (required before first save) ── */}
+          {view === 'backup' && pendingSave && (
+            <>
+              <div className="text-center space-y-2 pb-1">
+                <h2 className="text-xl font-bold text-white">Back up your Falcon secret</h2>
+                <p className="text-slate-400 text-sm">
+                  Shown once. Copy it somewhere safe — password manager, notes, etc.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                If you skip this, you cannot restore your wallet after clearing browser data or switching browsers.
+              </div>
+
+              <div className="card p-5 space-y-4">
+                <div className="space-y-1">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">Address</div>
+                  <div className="font-mono text-xs text-emerald-300 break-all">{pendingSave.address}</div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">Falcon secret (hex)</div>
+                  <textarea
+                    readOnly
+                    value={pendingSave.falcon_secret}
+                    rows={4}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[10px] text-emerald-300 font-mono leading-snug resize-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={copyFalconSecret}
+                    className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm transition"
+                  >
+                    {secretCopied ? 'Copied to clipboard ✓' : 'Copy Falcon secret'}
+                  </button>
+                </div>
+
+                <label className="flex items-start gap-2.5 text-sm text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={backupAcknowledged}
+                    onChange={e => setBackupAcknowledged(e.target.checked)}
+                    className="mt-1 rounded border-slate-600"
+                  />
+                  <span>I have saved my Falcon secret somewhere safe</span>
+                </label>
+
+                <button
+                  onClick={handleConfirmBackup}
+                  disabled={busy || !backupCopied || !backupAcknowledged}
+                  className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {busy ? <><Spinner /> Saving wallet…</> : 'Continue to wallet'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelBackup}
+                  disabled={busy}
+                  className="w-full text-xs text-slate-600 hover:text-red-400 transition-colors py-1"
+                >
+                  Cancel (wallet will not be saved)
+                </button>
+              </div>
+            </>
+          )}
+
           {/* ── Restore from Falcon secret ── */}
           {view === 'restore' && (
             <>
@@ -403,15 +516,19 @@ export default function WalletPage() {
                 <h2 className="font-semibold text-white">Restore Existing Wallet</h2>
               </div>
 
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200 leading-snug">
+                Paste the long hex secret from backup (starts with <span className="font-mono">fb</span>, not an XRPL <span className="font-mono">s…</span> seed).
+              </div>
+
               <div className="card p-6 space-y-4">
                 <div className="space-y-1.5">
                   <label className="text-xs text-slate-400">Falcon secret (hex)</label>
-                  <input
-                    type="text"
+                  <textarea
                     value={restoreSeed}
                     onChange={e => setRestoreSeed(e.target.value)}
-                    placeholder="sXXX…"
-                    className="input-field"
+                    placeholder="fb…"
+                    rows={3}
+                    className="input-field font-mono text-xs resize-none"
                     disabled={busy}
                     autoComplete="off"
                     spellCheck={false}
@@ -872,6 +989,12 @@ export default function WalletPage() {
               )}
 
               {/* ── Remove wallet ── */}
+              {view === 'dashboard' && (
+                <p className="text-center text-[10px] text-slate-600 leading-snug px-2">
+                  Wallet data lives in this browser only. Back up your Falcon secret to restore elsewhere.
+                </p>
+              )}
+
               {view === 'dashboard' && (
                 <button
                   onClick={async () => {
