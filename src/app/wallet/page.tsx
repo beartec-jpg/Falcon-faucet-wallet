@@ -977,17 +977,22 @@ export default function WalletPage() {
                         setView('node')
                       }
                     }}
-                    className={`py-2.5 px-3 rounded-xl text-sm font-semibold transition-colors ${
+                    className={`py-2.5 px-3 rounded-xl text-sm font-semibold transition-colors flex items-center gap-1.5 ${
                       view === 'node'
                         ? 'bg-cyan-600 text-white'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-400'
+                        : savedNode
+                          ? 'bg-cyan-950/60 hover:bg-cyan-900/50 text-cyan-300 border border-cyan-500/30'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-400'
                     }`}
                     title={savedNode ? 'Validator dashboard' : 'Run a validator node'}
                   >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M5 12H3m2 0a2 2 0 100-4 2 2 0 000 4zm0 0a2 2 0 100 4 2 2 0 000-4zm8-4H9m4 0a2 2 0 100-4 2 2 0 000 4zm0 0a2 2 0 100 4 2 2 0 000-4zm8-4h-2m2 0a2 2 0 100-4 2 2 0 000 4zm0 0a2 2 0 100 4 2 2 0 000-4" />
+                        d={savedNode && view !== 'node'
+                          ? 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'
+                          : 'M5 12H3m2 0a2 2 0 100-4 2 2 0 000 4zm0 0a2 2 0 100 4 2 2 0 000-4zm8-4H9m4 0a2 2 0 100-4 2 2 0 000 4zm0 0a2 2 0 100 4 2 2 0 000-4zm8-4h-2m2 0a2 2 0 100-4 2 2 0 000 4zm0 0a2 2 0 100 4 2 2 0 000-4'} />
                     </svg>
+                    <span className="hidden sm:inline">{savedNode ? 'Dashboard' : 'Node'}</span>
                   </button>
                   <button
                     onClick={() => refreshBalance(wallet.address)}
@@ -1365,6 +1370,30 @@ export default function WalletPage() {
                     </button>
                   )}
 
+                  {/* Link node — prominent at top so it is not missed */}
+                  <div className="space-y-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-3">
+                    <div className="text-sm font-semibold text-cyan-200">Already ran the one-liner?</div>
+                    <p className="text-xs text-cyan-100/80 leading-snug">
+                      Paste your server&apos;s public IP below. This tab switches to a live validator dashboard (node + network metrics, auto-refresh 15s).
+                    </p>
+                    <div>
+                      <label className="block text-[10px] text-cyan-200/70 mb-1">Server public IP or hostname</label>
+                      <input
+                        value={nodeHostInput}
+                        onChange={(e) => setNodeHostInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleLinkValidatorNode()}
+                        className="w-full bg-slate-900 border border-cyan-500/30 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-cyan-400"
+                        placeholder="192.241.247.158"
+                      />
+                    </div>
+                    <button
+                      onClick={handleLinkValidatorNode}
+                      className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-sm transition"
+                    >
+                      Link node &amp; open dashboard
+                    </button>
+                  </div>
+
                   {/* THE EXACT WARNING USER REQUESTED */}
                   <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200">
                     <div className="flex gap-2.5">
@@ -1452,30 +1481,6 @@ export default function WalletPage() {
                     </ol>
                   </div>
 
-                  {/* Link node → in-wallet dashboard */}
-                  <div className="space-y-2 pt-1 border-t border-slate-800">
-                    <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">I&apos;ve started my node</div>
-                    <p className="text-xs text-slate-400">
-                      When bootstrap finishes it prints your public IP and dashboard URL. Paste the IP here — this tab becomes your live validator dashboard (refreshes every 15s). Also open TCP <span className="text-amber-300">8080</span> in your cloud firewall.
-                    </p>
-                    <div>
-                      <label className="block text-[10px] text-slate-500 mb-1">Server public IP or hostname</label>
-                      <input
-                        value={nodeHostInput}
-                        onChange={(e) => setNodeHostInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleLinkValidatorNode()}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-cyan-500/60"
-                        placeholder="192.241.247.158"
-                      />
-                    </div>
-                    <button
-                      onClick={handleLinkValidatorNode}
-                      className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-sm transition"
-                    >
-                      Link node &amp; open dashboard
-                    </button>
-                  </div>
-
                   {/* Handy commands */}
                   <div className="space-y-1.5 pt-1 border-t border-slate-800">
                     <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Handy commands (run on your server)</div>
@@ -1523,6 +1528,42 @@ export default function WalletPage() {
                     </>
                   )}
                 </div>
+              )}
+
+              {/* ── Validator shortcut on main wallet view ── */}
+              {view === 'dashboard' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (savedNode) {
+                      setShowNodeSetup(false)
+                    } else {
+                      setShowNodeSetup(true)
+                    }
+                    setView('node')
+                  }}
+                  className="card px-4 py-3 flex items-center justify-between text-sm hover:border-cyan-500/40 transition-all w-full text-left"
+                >
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <svg className="w-4 h-4 text-cyan-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <div>
+                      <div className="text-slate-300 font-medium">
+                        {savedNode ? 'Validator dashboard' : 'Run a validator node'}
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        {savedNode
+                          ? `${savedNode.host} · tap for live metrics`
+                          : 'One-liner setup · paste IP when done'}
+                      </div>
+                    </div>
+                  </div>
+                  <svg className="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
               )}
 
               {/* ── Faucet shortcut ── */}
