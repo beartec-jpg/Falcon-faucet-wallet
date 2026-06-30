@@ -1082,18 +1082,40 @@ export default function WalletPage() {
                     </ol>
                   </div>
 
+                  {/* Dashboard + monitoring */}
+                  <div className="space-y-1.5 pt-1 border-t border-slate-800">
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">View your validator</div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2.5 space-y-1.5 text-xs text-slate-400">
+                      <p>
+                        <span className="text-slate-300">Dashboard</span> — open in your browser (not just the IP):
+                      </p>
+                      <code className="block text-[11px] font-mono text-emerald-300 break-all">
+                        http://&lt;your-server-ip&gt;:8080
+                      </code>
+                      <p className="text-[10px] text-slate-500">
+                        Replace with your VPS public IP (e.g. DigitalOcean droplet). Port <strong className="text-amber-300/90">8080</strong> is required.
+                        Open TCP 8080 in your cloud firewall if the page does not load.
+                      </p>
+                      <p>
+                        <a href="https://q-xrp-faucet.vercel.app/scan" target="_blank" rel="noopener noreferrer" className="text-brand-400 hover:underline">Block explorer</a>
+                        {' · '}
+                        <a href="/validator" className="text-brand-400 hover:underline">Full command reference</a>
+                      </p>
+                    </div>
+                  </div>
+
                   {/* Handy commands */}
                   <div className="space-y-1.5 pt-1 border-t border-slate-800">
                     <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Handy commands (run on your server)</div>
                     <div className="space-y-1">
                       {[
+                        { label: 'Dashboard',      cmd: 'curl -s http://127.0.0.1:8080/health && echo " — open http://<server-ip>:8080 in browser"' },
+                        { label: 'Bond log',       cmd: 'tail -f /var/lib/qxrp-validator/bond.log' },
                         { label: 'Live logs',      cmd: 'docker logs -f qxrp-validator' },
-                        { label: 'Status',         cmd: 'docker ps | grep qxrp-validator; docker inspect --format "{{.State.Status}}" qxrp-validator' },
-                        { label: 'Restart',        cmd: 'docker restart qxrp-validator' },
-                        { label: 'Stop',           cmd: 'docker stop qxrp-validator' },
-                        { label: 'Compose logs',   cmd: 'cd /var/lib/qxrp-validator && docker compose logs --tail 200' },
+                        { label: 'Status',         cmd: 'docker ps | grep qxrp' },
+                        { label: 'Restart',        cmd: 'cd /var/lib/qxrp-validator && docker compose restart' },
                         { label: 'Node info',      cmd: "curl -s -X POST http://127.0.0.1:5005 -H 'Content-Type: application/json' -d '{\"method\":\"server_info\",\"params\":[{}]}' | python3 -m json.tool" },
-                        { label: 'Check balance',  cmd: 'curl -s -X POST http://127.0.0.1:5005 -H \'Content-Type: application/json\' -d \'{"method":"account_info","params":[{"account":"<validator-r-address>","ledger_index":"current"}]}\'' },
+                        { label: 'Check balance',  cmd: 'curl -s -X POST http://46.224.0.140:6005 -H \'Content-Type: application/json\' -d \'{"method":"account_info","params":[{"account":"<validator-r-address>","ledger_index":"validated"}]}\'' },
                       ].map(({ label, cmd }) => (
                         <div key={label} className="flex items-start gap-2">
                           <span className="text-slate-600 text-[10px] flex-shrink-0 w-20 pt-0.5">{label}</span>

@@ -16,13 +16,14 @@ interface CommandRow {
 }
 
 const SERVER_COMMANDS: CommandRow[] = [
-  { label: 'Live logs', cmd: 'docker logs -f qxrp-<node-name>' },
-  { label: 'Restart', cmd: 'docker compose -f ~/.qxrp/<node-name>/docker-compose.yml restart' },
-  { label: 'Stop', cmd: 'docker compose -f ~/.qxrp/<node-name>/docker-compose.yml down' },
+  { label: 'Dashboard URL', cmd: 'http://<your-server-ip>:8080', note: 'Browser only — IP alone is not enough; use port 8080. Open TCP 8080 in cloud firewall.' },
+  { label: 'Dashboard health', cmd: 'curl -s http://127.0.0.1:8080/health' },
+  { label: 'Bond log', cmd: 'tail -f /var/lib/qxrp-validator/bond.log' },
+  { label: 'Live logs', cmd: 'docker logs -f qxrp-validator' },
+  { label: 'Restart', cmd: 'cd /var/lib/qxrp-validator && docker compose restart' },
+  { label: 'Stop', cmd: 'cd /var/lib/qxrp-validator && docker compose down' },
   { label: 'Node info', cmd: "curl -s -X POST http://127.0.0.1:5005 -H 'Content-Type: application/json' -d '{\"method\":\"server_info\",\"params\":[{}]}' | python3 -m json.tool" },
   { label: 'Validator balance', cmd: `curl -s -X POST ${PUBLIC_RPC} -H 'Content-Type: application/json' -d '{"method":"account_info","params":[{"account":"<validator-r-address>","ledger_index":"validated"}]}'` },
-  { label: 'Claim rewards', cmd: '~/.qxrp/<node-name>/claim-rewards.sh' },
-  { label: 'Claim log', cmd: 'tail -f ~/.qxrp/<node-name>/claim.log' },
 ]
 
 const STEPS = [
@@ -52,7 +53,7 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 export default function ValidatorGuidePage() {
-  const oneLiner = `curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/install-qxrp-validator.sh | bash -s -- \\
+  const oneLiner = `curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- \\
   --payout rYourWalletAddress \\
   --node-name my-qxrp-node`
 
@@ -112,15 +113,30 @@ export default function ValidatorGuidePage() {
           </ul>
         </section>
 
+        {/* Dashboard */}
+        <section className="card p-5 space-y-2">
+          <h2 className="text-sm font-semibold text-white uppercase tracking-wide">Validator dashboard</h2>
+          <p className="text-xs text-slate-400">
+            After bootstrap, open <code className="text-emerald-300">http://&lt;your-server-ip&gt;:8080</code> in your browser.
+            The bootstrap script prints your droplet IP at the end. Port <strong className="text-amber-300">8080</strong> must be open in your cloud firewall.
+          </p>
+          <p className="text-xs text-slate-500">
+            Shows server state, ledger height, peers, bond status, and composite score (auto-refreshes every 10s).
+          </p>
+        </section>
+
         {/* Commands */}
         <section className="card p-5 space-y-3">
           <h2 className="text-sm font-semibold text-white uppercase tracking-wide">Useful commands</h2>
-          <p className="text-xs text-slate-500">Run on your server. Replace <code className="text-slate-400">&lt;node-name&gt;</code> and addresses.</p>
+          <p className="text-xs text-slate-500">Run on your server. Replace <code className="text-slate-400">&lt;validator-r-address&gt;</code> and your public IP.</p>
           <div className="space-y-2">
             {SERVER_COMMANDS.map(row => (
               <div key={row.label} className="flex items-start gap-2 group">
                 <span className="text-slate-600 text-[10px] w-24 flex-shrink-0 pt-1">{row.label}</span>
-                <code className="flex-1 text-[10px] font-mono text-cyan-700 break-all bg-slate-950/50 rounded px-2 py-1">{row.cmd}</code>
+                <div className="flex-1 min-w-0">
+                  <code className="block text-[10px] font-mono text-cyan-700 break-all bg-slate-950/50 rounded px-2 py-1">{row.cmd}</code>
+                  {row.note && <p className="text-[10px] text-slate-500 mt-0.5">{row.note}</p>}
+                </div>
                 <CopyBtn text={row.cmd} />
               </div>
             ))}
