@@ -30,6 +30,13 @@ import {
   shareBackup,
   validateBackupPassphrase,
 } from '@/lib/wallet-backup'
+import {
+  loadValidatorNode,
+  saveValidatorNode,
+  clearValidatorNode,
+  dashboardUrl,
+  type SavedValidatorNode,
+} from '@/lib/validator-node-store'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,6 +99,87 @@ function fmtDate(rippleDate?: number): string {
   })
 }
 
+interface NodeBondStats {
+  status?: string
+  bonded_amount_qxrp?: number | null
+  composite_score?: number | null
+  reward_accum_qxrp?: number | null
+  uptime_score?: number | null
+  vote_accuracy_score?: number | null
+  slash_multiplier?: number | null
+}
+
+interface NodeStatsPayload {
+  updated_at?: string
+  node?: {
+    validator_account?: string | null
+    validation_pubkey?: string | null
+    server_state?: string
+    peers?: number
+    complete_ledgers?: string
+    ledger_seq?: number
+    ledger_hash?: string
+    ledger_lag?: number | null
+    load_factor?: number
+    uptime_seconds?: number
+    network_id?: number
+    build_version?: string
+    balance_qxrp?: number | null
+    bond?: NodeBondStats | null
+  }
+  network?: {
+    rpc?: string
+    server_state?: string
+    ledger_seq?: number
+    complete_ledgers?: string
+    peers?: number
+    load_factor?: number
+    bonded_validator_count?: number
+    total_validator_entries?: number
+    validators?: Array<{
+      account?: string
+      bond_status?: string
+      bonded_amount_qxrp?: number | null
+      composite_score?: number | null
+      reward_accum_qxrp?: number | null
+    }>
+    epoch?: {
+      epoch_number?: number
+      emission_rate_qxrp?: number | null
+      epoch_pool_balance_qxrp?: number | null
+    }
+  }
+}
+
+function fmtStat(n: number | null | undefined, digits = 0): string {
+  if (n == null || Number.isNaN(n)) return '—'
+  return n.toLocaleString(undefined, { maximumFractionDigits: digits })
+}
+
+function MetricTile({
+  label, value, sub, tone = '',
+}: {
+  label: string
+  value: string
+  sub?: string
+  tone?: 'good' | 'warn' | 'bad' | ''
+}) {
+  const toneClass = tone === 'good'
+    ? 'text-emerald-400'
+    : tone === 'warn'
+      ? 'text-amber-400'
+      : tone === 'bad'
+        ? 'text-red-400'
+        : 'text-white'
+  return (
+    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+      <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{label}</div>
+      <div className={`text-lg font-bold ${toneClass}`}>{value}</div>
+      {sub && <div className="text-[10px] text-slate-600 font-mono mt-0.5 truncate" title={sub}>{sub}</div>}
+    </div>
+  )
+}
+
 // ─── Spinner ─────────────────────────────────────────────────────────────────
 
 function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
@@ -113,6 +201,12 @@ export default function WalletPage() {
   const [busy,    setBusy]    = useState(false)
   const [copied,  setCopied]  = useState(false)
   const [nodeName, setNodeName] = useState('my-qxrp-node')
+  const [savedNode, setSavedNode] = useState<SavedValidatorNode | null>(null)
+  const [nodeHostInput, setNodeHostInput] = useState('')
+  const [nodeStats, setNodeStats] = useState<NodeStatsPayload | null>(null)
+  const [nodeStatsError, setNodeStatsError] = useState<string | null>(null)
+  const [nodeStatsLoading, setNodeStatsLoading] = useState(false)
+  const [showNodeSetup, setShowNodeSetup] = useState(false)
 
   // Create-wallet form
   const [createLabel, setCreateLabel] = useState('')
@@ -159,6 +253,63 @@ export default function WalletPage() {
   }, [])
 
   // ── On mount: load wallet from IndexedDB ──────────────────────────────────
+
+  const refreshNodeStats = useCallback(async (host: string) => {
+    setNodeStatsLoading(true)
+    setNodeStatsError(null)
+    try {
+      const r = await fetch(`/api/node-dashboard?host=${encodeURIComponent(host)}`)
+      const data = await r.json()
+      if (!r.ok) {
+        throw new Error(data.error || data.hint || 'Dashboard unreachable')
+      }
+      setNodeStats(data as NodeStatsPayload)
+    } catch (e: unknown) {
+      setNodeStats(null)
+      setNodeStatsError(e instanceof Error ? e.message : 'Failed to load dashboard')
+    } finally {
+      setNodeStatsLoading(false)
+    }
+  }, [])
+
+  const handleLinkValidatorNode = () => {
+    const host = nodeHostInput.trim()
+    if (!host) {
+      setError('Enter your server public IP or hostname')
+      return
+    }
+    const saved = saveValidatorNode(host, nodeName)
+    setSavedNode(saved)
+    setShowNodeSetup(false)
+    setError(null)
+    void refreshNodeStats(saved.host)
+  }
+
+  const handleUnlinkValidatorNode = () => {
+    clearValidatorNode()
+    setSavedNode(null)
+    setNodeStats(null)
+    setNodeStatsError(null)
+    setShowNodeSetup(true)
+    setNodeHostInput('')
+  }
+
+  useEffect(() => {
+    const linked = loadValidatorNode()
+    if (linked) {
+      setSavedNode(linked)
+      setNodeName(linked.nodeName)
+      setNodeHostInput(linked.host)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (view === 'node' && savedNode && !showNodeSetup) {
+      refreshNodeStats(savedNode.host)
+      const id = setInterval(() => refreshNodeStats(savedNode.host), 15000)
+      return () => clearInterval(id)
+    }
+  }, [view, savedNode, showNodeSetup, refreshNodeStats])
 
   useEffect(() => {
     loadWallets().then(wallets => {
@@ -818,13 +969,20 @@ export default function WalletPage() {
                     {view === 'receive' ? 'Done' : 'Receive'}
                   </button>
                   <button
-                    onClick={() => setView(view === 'node' ? 'dashboard' : 'node')}
+                    onClick={() => {
+                      if (view === 'node') {
+                        setView('dashboard')
+                      } else {
+                        setShowNodeSetup(!savedNode)
+                        setView('node')
+                      }
+                    }}
                     className={`py-2.5 px-3 rounded-xl text-sm font-semibold transition-colors ${
                       view === 'node'
                         ? 'bg-cyan-600 text-white'
                         : 'bg-slate-800 hover:bg-slate-700 text-slate-400'
                     }`}
-                    title="Run a validator node"
+                    title={savedNode ? 'Validator dashboard' : 'Run a validator node'}
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -984,9 +1142,213 @@ export default function WalletPage() {
                 </div>
               )}
 
-              {/* ── Node panel (one-command validator onboarding) ── */}
+              {/* ── Node panel: setup one-liner OR linked dashboard ── */}
               {view === 'node' && (
                 <div className="card p-5 space-y-4">
+                  {savedNode && !showNodeSetup ? (
+                    <>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            <h3 className="font-semibold text-white text-sm">Validator Dashboard</h3>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {savedNode.nodeName} · <span className="font-mono text-slate-400">{savedNode.host}</span>
+                          </p>
+                        </div>
+                        <div className="flex gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={() => savedNode && refreshNodeStats(savedNode.host)}
+                            disabled={nodeStatsLoading}
+                            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 disabled:opacity-50"
+                            title="Refresh now"
+                          >
+                            {nodeStatsLoading ? <Spinner className="w-4 h-4" /> : (
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setShowNodeSetup(true)}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-400"
+                          >
+                            Setup
+                          </button>
+                        </div>
+                      </div>
+
+                      <a
+                        href={dashboardUrl(savedNode.host)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-center py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold transition"
+                      >
+                        Open full dashboard → {dashboardUrl(savedNode.host)}
+                      </a>
+
+                      {nodeStatsError && (
+                        <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                          {nodeStatsError}
+                          <p className="text-[10px] text-red-400/80 mt-1">Ensure bootstrap finished and TCP 8080 is open on your server.</p>
+                        </div>
+                      )}
+
+                      {nodeStats?.node && (
+                        <>
+                          <div className="space-y-2">
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Your node</div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              <MetricTile
+                                label="Server state"
+                                value={nodeStats.node.server_state || '—'}
+                                tone={nodeStats.node.server_state === 'proposing' ? 'good' : 'warn'}
+                                sub={(nodeStats.node.validation_pubkey || '').slice(0, 20) + '…'}
+                              />
+                              <MetricTile
+                                label="Ledger"
+                                value={`#${fmtStat(nodeStats.node.ledger_seq)}`}
+                                tone="good"
+                                sub={(nodeStats.node.ledger_hash || '').slice(0, 16) + '…'}
+                              />
+                              <MetricTile
+                                label="Sync lag"
+                                value={nodeStats.node.ledger_lag != null ? `${nodeStats.node.ledger_lag} ledgers` : '—'}
+                                tone={nodeStats.node.ledger_lag != null && nodeStats.node.ledger_lag <= 5 ? 'good' : 'warn'}
+                                sub={nodeStats.node.complete_ledgers}
+                              />
+                              <MetricTile
+                                label="Peers"
+                                value={fmtStat(nodeStats.node.peers)}
+                                tone={(nodeStats.node.peers ?? 0) >= 3 ? 'good' : 'warn'}
+                              />
+                              <MetricTile
+                                label="Bond"
+                                value={nodeStats.node.bond?.status || '—'}
+                                tone={nodeStats.node.bond?.status === 'bonded' ? 'good' : 'warn'}
+                                sub={`${fmtStat(nodeStats.node.bond?.bonded_amount_qxrp, 2)} qXRP`}
+                              />
+                              <MetricTile
+                                label="Composite score"
+                                value={fmtStat(nodeStats.node.bond?.composite_score)}
+                                tone={(nodeStats.node.bond?.composite_score ?? 0) >= 5000 ? 'good' : 'warn'}
+                                sub="basis points / 10000"
+                              />
+                              <MetricTile
+                                label="Rewards pending"
+                                value={`${fmtStat(nodeStats.node.bond?.reward_accum_qxrp, 4)}`}
+                                sub="qXRP accumulator"
+                              />
+                              <MetricTile
+                                label="Validator balance"
+                                value={`${fmtStat(nodeStats.node.balance_qxrp, 2)}`}
+                                sub="qXRP on-chain"
+                              />
+                              <MetricTile
+                                label="Uptime"
+                                value={`${fmtStat(Math.floor((nodeStats.node.uptime_seconds ?? 0) / 3600))}h`}
+                                sub={`load ×${nodeStats.node.load_factor ?? 1}`}
+                              />
+                            </div>
+                            {nodeStats.node.validator_account && (
+                              <div className="bg-slate-900/50 rounded-lg px-3 py-2">
+                                <div className="text-[10px] text-slate-500">Validator r-address</div>
+                                <div className="font-mono text-[11px] text-emerald-300 break-all">{nodeStats.node.validator_account}</div>
+                              </div>
+                            )}
+                            {nodeStats.node.bond && (
+                              <div className="grid grid-cols-3 gap-2 text-[10px]">
+                                <div className="bg-slate-900/40 rounded-lg px-2 py-1.5 text-slate-500">
+                                  Uptime score <span className="text-slate-300 font-mono">{fmtStat(nodeStats.node.bond.uptime_score)}</span>
+                                </div>
+                                <div className="bg-slate-900/40 rounded-lg px-2 py-1.5 text-slate-500">
+                                  Vote accuracy <span className="text-slate-300 font-mono">{fmtStat(nodeStats.node.bond.vote_accuracy_score)}</span>
+                                </div>
+                                <div className="bg-slate-900/40 rounded-lg px-2 py-1.5 text-slate-500">
+                                  Slash mult. <span className="text-slate-300 font-mono">{fmtStat(nodeStats.node.bond.slash_multiplier, 4)}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {nodeStats.network && (
+                            <div className="space-y-2 pt-1 border-t border-slate-800">
+                              <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Network</div>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                <MetricTile label="Network ledger" value={`#${fmtStat(nodeStats.network.ledger_seq)}`} tone="good" sub={nodeStats.network.complete_ledgers} />
+                                <MetricTile label="Network state" value={nodeStats.network.server_state || '—'} />
+                                <MetricTile label="Bonded validators" value={fmtStat(nodeStats.network.bonded_validator_count)} tone="good" sub={`${fmtStat(nodeStats.network.total_validator_entries)} on ledger`} />
+                                <MetricTile
+                                  label="Epoch"
+                                  value={nodeStats.network.epoch?.epoch_number != null ? String(nodeStats.network.epoch.epoch_number) : '—'}
+                                  sub={nodeStats.network.epoch?.epoch_pool_balance_qxrp != null
+                                    ? `pool ${fmtStat(nodeStats.network.epoch.epoch_pool_balance_qxrp, 2)} qXRP`
+                                    : undefined}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {(nodeStats.network?.validators?.length ?? 0) > 0 && (
+                            <div className="space-y-2 pt-1 border-t border-slate-800">
+                              <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">All bonded validators</div>
+                              <div className="rounded-xl border border-slate-800 overflow-hidden">
+                                <table className="w-full text-[11px]">
+                                  <thead>
+                                    <tr className="bg-slate-900/80 text-slate-500 text-left">
+                                      <th className="px-2 py-1.5 font-medium">Account</th>
+                                      <th className="px-2 py-1.5 font-medium">Status</th>
+                                      <th className="px-2 py-1.5 font-medium text-right">Bond</th>
+                                      <th className="px-2 py-1.5 font-medium text-right">Score</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-800/80">
+                                    {nodeStats.network!.validators!.map((v) => {
+                                      const mine = v.account === nodeStats.node?.validator_account
+                                      return (
+                                        <tr key={v.account} className={mine ? 'bg-cyan-950/30' : ''}>
+                                          <td className="px-2 py-1.5 font-mono text-slate-400">
+                                            {mine && <span className="text-cyan-400 mr-1">●</span>}
+                                            {shortAddr(v.account || '')}
+                                          </td>
+                                          <td className="px-2 py-1.5 text-slate-300">{v.bond_status}</td>
+                                          <td className="px-2 py-1.5 text-right text-slate-300">{fmtStat(v.bonded_amount_qxrp, 0)}</td>
+                                          <td className="px-2 py-1.5 text-right text-slate-300">{fmtStat(v.composite_score)}</td>
+                                        </tr>
+                                      )
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
+                          {nodeStats.updated_at && (
+                            <p className="text-[10px] text-slate-600 text-center">Auto-refreshes every 15s · Last update {nodeStats.updated_at}</p>
+                          )}
+                        </>
+                      )}
+
+                      {!nodeStats && !nodeStatsError && nodeStatsLoading && (
+                        <div className="flex items-center justify-center gap-2 py-8 text-slate-500 text-sm">
+                          <Spinner /> Loading metrics…
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleUnlinkValidatorNode}
+                        className="text-[10px] text-slate-600 hover:text-red-400 transition-colors w-full text-center"
+                      >
+                        Unlink this node (show setup again)
+                      </button>
+                    </>
+                  ) : (
+                    <>
                   <div className="flex items-center gap-2">
                     <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -994,6 +1356,14 @@ export default function WalletPage() {
                     </svg>
                     <h3 className="font-semibold text-white text-sm">Run a Validator Node</h3>
                   </div>
+                  {savedNode && showNodeSetup && (
+                    <button
+                      onClick={() => { setShowNodeSetup(false); setError(null) }}
+                      className="text-xs text-cyan-500 hover:text-cyan-400"
+                    >
+                      ← Back to dashboard view
+                    </button>
+                  )}
 
                   {/* THE EXACT WARNING USER REQUESTED */}
                   <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200">
@@ -1010,8 +1380,8 @@ export default function WalletPage() {
                   <div className="flex gap-2 bg-amber-950/50 border border-amber-700/50 rounded-xl px-3 py-2.5">
                     <span className="text-amber-400 text-base leading-none mt-0.5">⚠</span>
                     <p className="text-xs text-amber-200 leading-snug">
-                      <span className="font-semibold">Port 51235 (TCP) must be reachable from the internet.</span>{' '}
-                      Works on a VPS <span className="text-amber-400">(automatic)</span> or a home PC/laptop — just forward port 51235 on your router to this machine. Without it your node can&apos;t peer.
+                      <span className="font-semibold">Ports 51235 and 8080 (TCP) must be reachable.</span>{' '}
+                      51235 for peering; 8080 for the validator dashboard. Works on a VPS <span className="text-amber-400">(automatic)</span> or home PC with router port-forwarding.
                     </p>
                   </div>
 
@@ -1068,11 +1438,11 @@ export default function WalletPage() {
                       {[
                         'Sets up qxrp user + docker (if missing) on fresh Ubuntu',
                         'Writes docker-compose.yml + xrpld.cfg + base validators.txt (UNL)',
-                        'Starts qxrp-validator container from public qxrp/xrpld:latest image',
+                        'Starts qxrp-validator + qxrp-dashboard containers (validator on :51235, dashboard on :8080)',
                         'Runs validation_create (using --secret or fresh qxrp-val-...) inside container; patches seed + pubkey into config',
                         'Runs wallet_propose; prints the r-address + master_seed you must fund with ≥1,100 qXRP (separate from payout)',
                         'Saves --payout / --node-name + validator files under /var/lib/qxrp-validator/',
-                        'Leaves container running (restart: unless-stopped). Monitor with: docker logs -f qxrp-validator',
+                        'Auto-bonds when funded; prints your public IP for the dashboard at the end',
                       ].map((step, i) => (
                         <li key={i} className="flex items-start gap-2">
                           <span className="text-cyan-600 font-mono flex-shrink-0 text-[10px]">{String(i + 1).padStart(2, '0')}</span>
@@ -1082,26 +1452,28 @@ export default function WalletPage() {
                     </ol>
                   </div>
 
-                  {/* Dashboard + monitoring */}
-                  <div className="space-y-1.5 pt-1 border-t border-slate-800">
-                    <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">View your validator</div>
-                    <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2.5 space-y-1.5 text-xs text-slate-400">
-                      <p>
-                        <span className="text-slate-300">Dashboard</span> — open in your browser (not just the IP):
-                      </p>
-                      <code className="block text-[11px] font-mono text-emerald-300 break-all">
-                        http://&lt;your-server-ip&gt;:8080
-                      </code>
-                      <p className="text-[10px] text-slate-500">
-                        Replace with your VPS public IP (e.g. DigitalOcean droplet). Port <strong className="text-amber-300/90">8080</strong> is required.
-                        Open TCP 8080 in your cloud firewall if the page does not load.
-                      </p>
-                      <p>
-                        <a href="https://q-xrp-faucet.vercel.app/scan" target="_blank" rel="noopener noreferrer" className="text-brand-400 hover:underline">Block explorer</a>
-                        {' · '}
-                        <a href="/validator" className="text-brand-400 hover:underline">Full command reference</a>
-                      </p>
+                  {/* Link node → in-wallet dashboard */}
+                  <div className="space-y-2 pt-1 border-t border-slate-800">
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">I&apos;ve started my node</div>
+                    <p className="text-xs text-slate-400">
+                      When bootstrap finishes it prints your public IP and dashboard URL. Paste the IP here — this tab becomes your live validator dashboard (refreshes every 15s). Also open TCP <span className="text-amber-300">8080</span> in your cloud firewall.
+                    </p>
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">Server public IP or hostname</label>
+                      <input
+                        value={nodeHostInput}
+                        onChange={(e) => setNodeHostInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleLinkValidatorNode()}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-cyan-500/60"
+                        placeholder="192.241.247.158"
+                      />
                     </div>
+                    <button
+                      onClick={handleLinkValidatorNode}
+                      className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-sm transition"
+                    >
+                      Link node &amp; open dashboard
+                    </button>
                   </div>
 
                   {/* Handy commands */}
@@ -1148,6 +1520,8 @@ export default function WalletPage() {
                   >
                     ← Back to wallet
                   </button>
+                    </>
+                  )}
                 </div>
               )}
 
