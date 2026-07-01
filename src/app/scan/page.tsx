@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import Logo from '@/components/Logo'
 import type { ScanData, LedgerSummary, TxSummary } from '@/app/api/scan/route'
 
 const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
@@ -270,11 +270,7 @@ export default function ScanPage() {
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8 space-y-8">
 
         {/* Logo */}
-        <div className="flex justify-center">
-          <div className="w-24 h-24 rounded-2xl overflow-hidden flex-shrink-0 shadow-lg border border-brand-500/20">
-            <Image src="/falcon-logo.png" alt="Falcon Ledger" width={96} height={96} priority className="w-full h-full object-cover" />
-          </div>
-        </div>
+        <Logo />
 
         {error && (
           <div className="card p-4 border-red-900 bg-red-950/30 text-red-400 text-sm">

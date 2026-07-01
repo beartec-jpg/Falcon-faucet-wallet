@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useEffect, useCallback, Suspense } from 'react'
-import Image from 'next/image'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import Logo from '@/components/Logo'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -177,11 +177,7 @@ function FaucetPageInner() {
         <div className="w-full max-w-lg space-y-6">
 
           {/* Logo */}
-          <div className="flex justify-center pb-2">
-            <div className="w-24 h-24 rounded-2xl overflow-hidden flex-shrink-0 shadow-lg border border-brand-500/20">
-              <Image src="/falcon-logo.png" alt="Falcon Ledger" width={96} height={96} priority className="w-full h-full object-cover" />
-            </div>
-          </div>
+          <Logo />
 
           {/* Hero */}
           <div className="text-center space-y-2">
