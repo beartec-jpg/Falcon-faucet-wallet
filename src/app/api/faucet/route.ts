@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!account) return err('Missing "account" field')
-  if (!isValidClassicAddress(account)) return err('Invalid qXRP address')
+  if (!isValidClassicAddress(account)) return err('Invalid Falcon address')
 
   // ── Rate limit peek (does NOT consume — only successful drips count) ─────
   const clientIp = ip(req)
@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
     if (msg.includes('actNotFound') || msg.includes('Account not found')) {
       return err('Faucet account is not funded on this network. Contact operator.', 503)
     }
-    return err('Cannot reach qXRP node. Try again shortly.', 503)
+    return err('Cannot reach Falcon Ledger node. Try again shortly.', 503)
   }
 
   // ── Sign and submit ───────────────────────────────────────────────────────

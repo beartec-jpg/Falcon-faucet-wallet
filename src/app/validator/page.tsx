@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 
-const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Falcon Testnet'
+const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
 const DRIP_AMOUNT  = parseInt(process.env.NEXT_PUBLIC_DRIP_AMOUNT_QXRP ?? '2000', 10)
 const PUBLIC_RPC   = process.env.NEXT_PUBLIC_RPC_URL ?? 'http://46.224.0.140:6005'
 const PORTAL_URL   = 'https://q-xrp-faucet.vercel.app'
@@ -18,20 +18,20 @@ interface CommandRow {
 const SERVER_COMMANDS: CommandRow[] = [
   { label: 'Dashboard URL', cmd: 'http://<your-server-ip>:8080', note: 'Browser only — IP alone is not enough; use port 8080. Open TCP 8080 in cloud firewall.' },
   { label: 'Dashboard health', cmd: 'curl -s http://127.0.0.1:8080/health' },
-  { label: 'Bond log', cmd: 'tail -f /var/lib/qxrp-validator/bond.log' },
-  { label: 'Live logs', cmd: 'docker logs -f qxrp-validator' },
-  { label: 'Restart', cmd: 'cd /var/lib/qxrp-validator && docker compose restart' },
-  { label: 'Stop', cmd: 'cd /var/lib/qxrp-validator && docker compose down' },
+  { label: 'Bond log', cmd: 'tail -f /var/lib/falcon-validator/bond.log' },
+  { label: 'Live logs', cmd: 'docker logs -f falcon-validator' },
+  { label: 'Restart', cmd: 'cd /var/lib/falcon-validator && docker compose restart' },
+  { label: 'Stop', cmd: 'cd /var/lib/falcon-validator && docker compose down' },
   { label: 'Node info', cmd: "curl -s -X POST http://127.0.0.1:5005 -H 'Content-Type: application/json' -d '{\"method\":\"server_info\",\"params\":[{}]}' | python3 -m json.tool" },
   { label: 'Validator balance', cmd: `curl -s -X POST ${PUBLIC_RPC} -H 'Content-Type: application/json' -d '{"method":"account_info","params":[{"account":"<validator-r-address>","ledger_index":"validated"}]}'` },
 ]
 
 const STEPS = [
   { n: 1, title: 'Create a Falcon wallet', body: 'Open the Wallet tab and create a passkey-secured wallet. Back up your falcon_secret.' },
-  { n: 2, title: `Claim ${DRIP_AMOUNT.toLocaleString()} qXRP from the faucet`, body: 'Use the Faucet tab (or Wallet → Top up). One drip per day per IP/account gives enough for bonding.' },
+  { n: 2, title: `Claim ${DRIP_AMOUNT.toLocaleString()} FALCON from the faucet`, body: 'Use the Faucet tab (or Wallet → Top up). One drip per day per IP/account gives enough for bonding.' },
   { n: 3, title: 'Copy the one-liner', body: 'In Wallet → Run Validator, copy the install command. Your wallet address is auto-filled as --payout.' },
   { n: 4, title: 'Run on Ubuntu VPS', body: 'Paste into an Ubuntu 22.04/24.04 server with port 51235/TCP open. Docker installs automatically.' },
-  { n: 5, title: 'Fund the validator address', body: 'The installer prints a NEW validator r-address. Send ≥1,100 qXRP there (from your wallet or another drip tomorrow).' },
+  { n: 5, title: 'Fund the validator address', body: 'The installer prints a NEW validator r-address. Send ≥1,100 FALCON there (from your wallet or another drip tomorrow).' },
   { n: 6, title: 'Auto-bond + rewards', body: 'Installer polls until funded, submits ValidatorRegister + Bond(1000), and sets up hourly ClaimReward cron.' },
 ]
 
@@ -55,7 +55,7 @@ function CopyBtn({ text }: { text: string }) {
 export default function ValidatorGuidePage() {
   const oneLiner = `curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- \\
   --payout rYourWalletAddress \\
-  --node-name my-qxrp-node`
+  --node-name my-falcon-node`
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -65,7 +65,7 @@ export default function ValidatorGuidePage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Run a <span className="text-cyan-400">Validator</span></h1>
           <p className="text-sm text-slate-400 mt-1">
-            {NETWORK_NAME} · Network ID 1001 · Bond 1,000 qXRP · Faucet drip {DRIP_AMOUNT.toLocaleString()} qXRP
+            {NETWORK_NAME} · Network ID 1001 · Bond 1,000 FALCON · Faucet drip {DRIP_AMOUNT.toLocaleString()} FALCON
           </p>
         </div>
 
@@ -109,7 +109,7 @@ export default function ValidatorGuidePage() {
             <li>Ubuntu 22.04 or 24.04 (or Debian 12)</li>
             <li>≥4 GB RAM, ≥40 GB disk</li>
             <li>Port <strong className="text-amber-300">51235/TCP</strong> reachable from the internet</li>
-            <li>≥1,100 qXRP on the validator address (2,000 qXRP faucet drip recommended)</li>
+            <li>≥1,100 FALCON on the validator address (2,000 FALCON faucet drip recommended)</li>
           </ul>
         </section>
 

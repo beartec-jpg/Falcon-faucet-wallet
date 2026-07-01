@@ -133,7 +133,7 @@ export async function decryptBackupFile(
 export function parseBackupFile(raw: unknown): WalletBackupFile {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid backup file')
   const file = raw as Record<string, unknown>
-  if (file.type !== BACKUP_TYPE) throw new Error('Not a qXRP wallet backup file')
+  if (file.type !== BACKUP_TYPE) throw new Error('Not a Falcon Ledger wallet backup file')
   if (file.version !== BACKUP_VERSION) throw new Error('Unsupported backup version')
 
   if (file.encrypted === true) {
@@ -149,7 +149,7 @@ export function parseBackupFile(raw: unknown): WalletBackupFile {
 }
 
 export function backupFilename(address: string): string {
-  return `qxrp-backup-${address.slice(0, 10)}.json`
+  return `falcon-backup-${address.slice(0, 10)}.json`
 }
 
 export function downloadBackup(file: WalletBackupFile): void {
@@ -169,7 +169,7 @@ export async function shareBackup(file: WalletBackupFile): Promise<boolean> {
   if (!navigator.canShare({ files: [shareFile] })) return false
   await navigator.share({
     files: [shareFile],
-    title: 'qXRP wallet backup',
+    title: 'Falcon Ledger wallet backup',
     text: `Backup for ${file.address}`,
   })
   return true

@@ -19,13 +19,14 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
 ]
 
 export default function Header({ current, subtitle, children }: HeaderProps) {
-  const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Falcon Testnet'
+  const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
 
   return (
     <header className="border-b border-slate-800/60 px-4 py-3 flex items-center justify-between sticky top-0 bg-slate-950/95 backdrop-blur-md z-20">
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center font-bold text-slate-950 text-sm">
-          Q
+        <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/falcon-logo.png" alt="Falcon Ledger" className="w-full h-full object-cover" />
         </div>
         <div>
           <div className="font-semibold text-white leading-tight">{NETWORK_NAME}</div>

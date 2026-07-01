@@ -200,7 +200,7 @@ export default function WalletPage() {
   const [error,   setError]   = useState<string | null>(null)
   const [busy,    setBusy]    = useState(false)
   const [copied,  setCopied]  = useState(false)
-  const [nodeName, setNodeName] = useState('my-qxrp-node')
+  const [nodeName, setNodeName] = useState('my-falcon-node')
   const [savedNode, setSavedNode] = useState<SavedValidatorNode | null>(null)
   const [nodeHostInput, setNodeHostInput] = useState('')
   const [nodeStats, setNodeStats] = useState<NodeStatsPayload | null>(null)
@@ -339,7 +339,7 @@ export default function WalletPage() {
     setShowRawSecret(false)
     setSecretCopied(false)
     try {
-      const label = createLabel.trim() || 'My qXRP Wallet'
+      const label = createLabel.trim() || 'My Falcon Wallet'
 
       const { falcon_secret, address, publicKey } = await generateWallet()
       const { credentialId, keyBytes, hasPrf } = await registerPasskey(label)
@@ -633,7 +633,7 @@ export default function WalletPage() {
             <>
               <div className="text-center space-y-2 pb-2">
                 <h1 className="text-3xl font-bold text-white">
-                  qXRP <span className="text-brand-500">Wallet</span>
+                  Falcon <span className="text-brand-500">Wallet</span>
                 </h1>
                 <p className="text-slate-400 text-sm">
                   Falcon keys are generated and signed on your device. Testnet only — not for real funds.
@@ -665,7 +665,7 @@ export default function WalletPage() {
                     value={createLabel}
                     onChange={e => setCreateLabel(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && !busy && handleCreate()}
-                    placeholder="My qXRP Wallet"
+                    placeholder="My Falcon Wallet"
                     className="input-field"
                     disabled={busy}
                     maxLength={40}
@@ -824,7 +824,7 @@ export default function WalletPage() {
               </div>
 
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200 leading-snug">
-                Upload your <span className="font-mono">qxrp-backup-….json</span> file from iCloud Drive, Google Drive, or downloads.
+                Upload your <span className="font-mono">falcon-backup-….json</span> file from iCloud Drive, Google Drive, or downloads.
               </div>
 
               <div className="card p-6 space-y-4">
@@ -942,13 +942,13 @@ export default function WalletPage() {
                     <div className="text-2xl font-bold text-slate-600">—</div>
                   ) : !account.exists ? (
                     <div>
-                      <div className="text-2xl font-bold text-slate-600">0 <span className="text-lg text-slate-700">qXRP</span></div>
+                      <div className="text-2xl font-bold text-slate-600">0 <span className="text-lg text-slate-700">FALCON</span></div>
                       <div className="text-xs text-slate-600 mt-1">Account not yet activated — fund it first</div>
                     </div>
                   ) : (
                     <div className="text-3xl font-bold text-white">
                       {account.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}
-                      <span className="text-brand-500 text-xl ml-2">qXRP</span>
+                      <span className="text-brand-500 text-xl ml-2">FALCON</span>
                     </div>
                   )}
                 </div>
@@ -1010,7 +1010,7 @@ export default function WalletPage() {
               {/* ── Receive panel ── */}
               {view === 'receive' && (
                 <div className="card p-5 space-y-4">
-                  <h3 className="font-semibold text-white text-sm">Receive qXRP</h3>
+                  <h3 className="font-semibold text-white text-sm">Receive FALCON</h3>
                   <div className="bg-white rounded-xl p-3 mx-auto w-fit">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -1053,7 +1053,7 @@ export default function WalletPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
-                    <h3 className="font-semibold text-white text-sm">Send qXRP</h3>
+                    <h3 className="font-semibold text-white text-sm">Send FALCON</h3>
                   </div>
 
                   {sendResult ? (
@@ -1101,7 +1101,7 @@ export default function WalletPage() {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-xs text-slate-400">Amount (qXRP)</label>
+                        <label className="text-xs text-slate-400">Amount (FALCON)</label>
                         <input
                           type="number"
                           value={sendAmount}
@@ -1114,7 +1114,7 @@ export default function WalletPage() {
                         />
                         {account?.exists && (
                           <div className="flex justify-between text-xs text-slate-600">
-                            <span>Available: {account.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })} qXRP</span>
+                            <span>Available: {account.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })} FALCON</span>
                             <button
                               type="button"
                               onClick={() => setSendAmount(String(Math.max(0, account.balance - 0.000012)))}
@@ -1236,7 +1236,7 @@ export default function WalletPage() {
                                 label="Bond"
                                 value={nodeStats.node.bond?.status || '—'}
                                 tone={nodeStats.node.bond?.status === 'bonded' ? 'good' : 'warn'}
-                                sub={`${fmtStat(nodeStats.node.bond?.bonded_amount_qxrp, 2)} qXRP`}
+                                sub={`${fmtStat(nodeStats.node.bond?.bonded_amount_qxrp, 2)} FALCON`}
                               />
                               <MetricTile
                                 label="Composite score"
@@ -1247,12 +1247,12 @@ export default function WalletPage() {
                               <MetricTile
                                 label="Rewards pending"
                                 value={`${fmtStat(nodeStats.node.bond?.reward_accum_qxrp, 4)}`}
-                                sub="qXRP accumulator"
+                                sub="FALCON accumulator"
                               />
                               <MetricTile
                                 label="Validator balance"
                                 value={`${fmtStat(nodeStats.node.balance_qxrp, 2)}`}
-                                sub="qXRP on-chain"
+                                sub="FALCON on-chain"
                               />
                               <MetricTile
                                 label="Uptime"
@@ -1292,7 +1292,7 @@ export default function WalletPage() {
                                   label="Epoch"
                                   value={nodeStats.network.epoch?.epoch_number != null ? String(nodeStats.network.epoch.epoch_number) : '—'}
                                   sub={nodeStats.network.epoch?.epoch_pool_balance_qxrp != null
-                                    ? `pool ${fmtStat(nodeStats.network.epoch.epoch_pool_balance_qxrp, 2)} qXRP`
+                                   ? `pool ${fmtStat(nodeStats.network.epoch.epoch_pool_balance_qxrp, 2)} FALCON`
                                     : undefined}
                                 />
                               </div>
@@ -1399,8 +1399,8 @@ export default function WalletPage() {
                     <div className="flex gap-2.5">
                       <div className="text-base mt-px">⚠️</div>
                       <div className="text-sm leading-snug">
-                        <span className="font-semibold">You need 1,000 qXRP to bond</span> (≥1,100 qXRP on the validator address).<br />
-                        Claim <span className="underline font-semibold">2,000 qXRP</span> from the faucet first — enough to fund bonding immediately.
+                        <span className="font-semibold">You need 1,000 FALCON to bond</span> (≥1,100 FALCON on the validator address).<br />
+                        Claim <span className="underline font-semibold">2,000 FALCON</span> from the faucet first — enough to fund bonding immediately.
                       </div>
                     </div>
                   </div>
@@ -1415,7 +1415,7 @@ export default function WalletPage() {
                   </div>
 
                   <p className="text-xs text-slate-400">
-                    Run the single-line command on any fresh Ubuntu 22.04/24.04 (SSH or console). Uses Docker + public image. Derives validator keys from the secret (or auto fresh), patches config, prints validation_public_key + a separate <span className="text-amber-300">r-address you must fund (≥1,100 qXRP)</span> for bonding. Your payout address (this wallet) is saved for rewards. Container runs under docker compose.
+                    Run the single-line command on any fresh Ubuntu 22.04/24.04 (SSH or console). Uses Docker + public image. Derives validator keys from the secret (or auto fresh), patches config, prints validation_public_key + a separate <span className="text-amber-300">r-address you must fund (≥1,100 FALCON)</span> for bonding. Your payout address (this wallet) is saved for rewards. Container runs under docker compose.
                   </p>
 
                   {/* Payout address (auto-linked) */}
@@ -1430,21 +1430,21 @@ export default function WalletPage() {
                       <label className="block text-[10px] text-slate-500 mb-1">Node name (optional)</label>
                       <input
                         value={nodeName}
-                        onChange={(e) => setNodeName(e.target.value || 'my-qxrp-node')}
+                        onChange={(e) => setNodeName(e.target.value || 'my-falcon-node')}
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm font-mono text-white focus:outline-none focus:border-cyan-500/60"
-                        placeholder="my-qxrp-node"
+                        placeholder="my-falcon-node"
                       />
                     </div>
 
                     <div className="space-y-1">
                       <div className="text-[10px] text-slate-500">One-liner (single line — paste-safe for web consoles like Hetzner):</div>
                       <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-[11px] text-emerald-300 font-mono whitespace-pre-wrap break-all leading-snug">
-{`curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- --payout ${wallet.address} --node-name ${nodeName || 'my-qxrp-node'}`}
+{`curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- --payout ${wallet.address} --node-name ${nodeName || 'my-falcon-node'}`}
                       </pre>
 
                       <button
                         onClick={async () => {
-                          const cmd = `curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- --payout ${wallet.address} --node-name ${nodeName || 'my-qxrp-node'}`
+                          const cmd = `curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- --payout ${wallet.address} --node-name ${nodeName || 'my-falcon-node'}`
                           await navigator.clipboard.writeText(cmd)
                           setCopied(true)
                           setTimeout(() => setCopied(false), 2200)
@@ -1465,12 +1465,12 @@ export default function WalletPage() {
                     <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">What the command does</div>
                     <ol className="space-y-0.5 text-xs text-slate-400">
                       {[
-                        'Sets up qxrp user + docker (if missing) on fresh Ubuntu',
+                        'Sets up falcon user + docker (if missing) on fresh Ubuntu',
                         'Writes docker-compose.yml + xrpld.cfg + base validators.txt (UNL)',
-                        'Starts qxrp-validator + qxrp-dashboard containers (validator on :51235, dashboard on :8080)',
-                        'Runs validation_create (using --secret or fresh qxrp-val-...) inside container; patches seed + pubkey into config',
-                        'Runs wallet_propose; prints the r-address + master_seed you must fund with ≥1,100 qXRP (separate from payout)',
-                        'Saves --payout / --node-name + validator files under /var/lib/qxrp-validator/',
+                        'Starts falcon-validator + falcon-dashboard containers (validator on :51235, dashboard on :8080)',
+                        'Runs validation_create (using --secret or fresh falcon-val-...) inside container; patches seed + pubkey into config',
+                        'Runs wallet_propose; prints the r-address + master_seed you must fund with ≥1,100 FALCON (separate from payout)',
+                        'Saves --payout / --node-name + validator files under /var/lib/falcon-validator/',
                         'Auto-bonds when funded; prints your public IP for the dashboard at the end',
                       ].map((step, i) => (
                         <li key={i} className="flex items-start gap-2">
@@ -1487,10 +1487,10 @@ export default function WalletPage() {
                     <div className="space-y-1">
                       {[
                         { label: 'Dashboard',      cmd: 'curl -s http://127.0.0.1:8080/health && echo " — open http://<server-ip>:8080 in browser"' },
-                        { label: 'Bond log',       cmd: 'tail -f /var/lib/qxrp-validator/bond.log' },
-                        { label: 'Live logs',      cmd: 'docker logs -f qxrp-validator' },
-                        { label: 'Status',         cmd: 'docker ps | grep qxrp' },
-                        { label: 'Restart',        cmd: 'cd /var/lib/qxrp-validator && docker compose restart' },
+                        { label: 'Bond log',       cmd: 'tail -f /var/lib/falcon-validator/bond.log' },
+                        { label: 'Live logs',      cmd: 'docker logs -f falcon-validator' },
+                        { label: 'Status',         cmd: 'docker ps | grep falcon' },
+                        { label: 'Restart',        cmd: 'cd /var/lib/falcon-validator && docker compose restart' },
                         { label: 'Node info',      cmd: "curl -s -X POST http://127.0.0.1:5005 -H 'Content-Type: application/json' -d '{\"method\":\"server_info\",\"params\":[{}]}' | python3 -m json.tool" },
                         { label: 'Check balance',  cmd: 'curl -s -X POST http://46.224.0.140:6005 -H \'Content-Type: application/json\' -d \'{"method":"account_info","params":[{"account":"<validator-r-address>","ledger_index":"validated"}]}\'' },
                       ].map(({ label, cmd }) => (
@@ -1614,7 +1614,7 @@ export default function WalletPage() {
                           <div className={`text-sm font-medium ${
                             !ok ? 'text-red-400' : incoming ? 'text-emerald-400' : 'text-slate-300'
                           }`}>
-                            {!ok ? 'failed' : `${incoming ? '+' : '-'}${amt} qXRP`}
+                            {!ok ? 'failed' : `${incoming ? '+' : '-'}${amt} FALCON`}
                           </div>
                           <div className="text-xs text-slate-600">{fmtDate(tx.date)}</div>
                         </div>
@@ -1714,7 +1714,7 @@ export default function WalletPage() {
               rel="noopener noreferrer"
               className="hover:text-slate-500 underline underline-offset-2 transition-colors"
             >
-              qXRP on GitHub
+              Falcon Ledger on GitHub
             </a>
           </p>
         </div>

@@ -1,5 +1,5 @@
 /**
- * Client-side Falcon transaction signing for qXRP.
+ * Client-side Falcon transaction signing for Falcon Ledger.
  * falcon_secret never leaves the device.
  */
 

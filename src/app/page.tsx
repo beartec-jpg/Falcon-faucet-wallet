@@ -24,7 +24,7 @@ interface DripResult {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Falcon Testnet'
+const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
 const EXPLORER_URL = process.env.NEXT_PUBLIC_EXPLORER_URL ?? ''
 const DRIP_AMOUNT  = parseInt(process.env.NEXT_PUBLIC_DRIP_AMOUNT_QXRP ?? '2000', 10)
 
@@ -179,10 +179,10 @@ function FaucetPageInner() {
           <div className="text-center space-y-2">
             <h1 className="text-3xl font-bold text-white">
               Get testnet{' '}
-              <span className="text-brand-500">qXRP</span>
+              <span className="text-brand-500">FALCON</span>
             </h1>
             <p className="text-slate-400 text-sm">
-              {DRIP_AMOUNT.toLocaleString()} qXRP per successful drip · failed attempts don&apos;t count
+              {DRIP_AMOUNT.toLocaleString()} FALCON per successful drip · failed attempts don&apos;t count
             </p>
           </div>
 
@@ -191,7 +191,7 @@ function FaucetPageInner() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <label htmlFor="address" className="block text-sm font-medium text-slate-300">
-                  Your qXRP address
+                  Your Falcon address
                 </label>
                 <input
                   id="address"
@@ -220,7 +220,7 @@ function FaucetPageInner() {
                     Sending…
                   </span>
                 ) : (
-                  `Request ${DRIP_AMOUNT} qXRP`
+                  `Request ${DRIP_AMOUNT} FALCON`
                 )}
               </button>
             </form>
@@ -242,7 +242,7 @@ function FaucetPageInner() {
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  {result.amount} qXRP sent!
+                  {result.amount} FALCON sent!
                 </div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
                   <span className="text-slate-500">To</span>
@@ -285,7 +285,7 @@ function FaucetPageInner() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
               </svg>
-              Open qXRP Wallet
+              Open Falcon Wallet
             </div>
             <svg className="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -297,7 +297,7 @@ function FaucetPageInner() {
             Tokens have no real value · For testing only ·{' '}
             <a href="https://github.com/beartec-jpg/qXRP" target="_blank" rel="noopener noreferrer"
                className="text-slate-500 hover:text-slate-400 underline underline-offset-2">
-              qXRP on GitHub
+              Falcon Ledger on GitHub
             </a>
           </p>
         </div>

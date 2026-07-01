@@ -1,19 +1,19 @@
 {
-  "name": "qXRP Wallet",
-  "short_name": "qXRP",
-  "description": "qXRP testnet wallet — passkey secured, runs in browser or installs to device",
+  "name": "Falcon Ledger Wallet",
+  "short_name": "Falcon",
+  "description": "Falcon Ledger testnet wallet — passkey secured, runs in browser or installs to device",
   "start_url": "/wallet",
   "id": "/wallet",
   "display": "standalone",
   "background_color": "#020617",
-  "theme_color": "#f59e0b",
+  "theme_color": "#c07838",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/favicon.svg",
+      "src": "/falcon-logo.png",
       "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/icon-192.png",

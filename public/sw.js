@@ -1,7 +1,7 @@
-// qXRP Wallet — Service Worker
+// Falcon Ledger Wallet — Service Worker
 // Network-first for API + WASM; stale-while-revalidate for static assets
 
-const CACHE = 'qxrp-wallet-v2'
+const CACHE = 'falcon-wallet-v2'
 
 const PRECACHE_URLS = [
   '/',
