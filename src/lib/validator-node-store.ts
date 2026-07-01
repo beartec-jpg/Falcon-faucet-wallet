@@ -35,7 +35,7 @@ export function loadValidatorNode(): SavedValidatorNode | null {
 export function saveValidatorNode(host: string, nodeName: string): SavedValidatorNode {
   const entry: SavedValidatorNode = {
     host: normalizeHost(host),
-    nodeName: nodeName.trim() || 'my-qxrp-node',
+    nodeName: nodeName.trim() || 'my-falcon-node',
     savedAt: Date.now(),
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(entry))

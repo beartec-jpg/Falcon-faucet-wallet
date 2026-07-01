@@ -5,7 +5,7 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import type { ScanData, LedgerSummary, TxSummary } from '@/app/api/scan/route'
 
-const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Falcon Testnet'
+const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
 const RIPPLE_EPOCH = 946684800
 
 function rippleAge(rippleTime: number | undefined): string {
@@ -30,7 +30,7 @@ function dropsToQxrp(drops: string | number | undefined): string {
   if (drops === undefined || drops === '') return '—'
   const n = parseInt(String(drops), 10)
   if (isNaN(n)) return '—'
-  if (n >= 1_000_000) return (n / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' qXRP'
+  if (n >= 1_000_000) return (n / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' FALCON'
   return n + ' drops'
 }
 
@@ -178,7 +178,7 @@ function AccountResult({ data }: { data: Record<string, unknown> }) {
     <div className="space-y-1">
       <div className="text-brand-500 font-sans font-semibold text-base mb-2">Account</div>
       <Row k="Address"  v={String(data.address ?? '')} />
-      <Row k="Balance"  v={`${Number(data.balance ?? 0).toLocaleString()} qXRP`} />
+      <Row k="Balance"  v={`${Number(data.balance ?? 0).toLocaleString()} FALCON`} />
       <Row k="Sequence" v={String(data.sequence ?? 0)} />
       <Row k="Exists"   v={data.exists ? 'Yes' : 'No'} />
     </div>
@@ -291,7 +291,7 @@ export default function ScanPage() {
               <StatCard label="Validators"        value={d.validators.length} sub="on UNL" />
               <StatCard label="State"             value={d.server_state} accent={d.server_state === 'proposing' ? 'text-emerald-400' : 'text-amber-400'} />
               <StatCard label="Uptime"            value={fmtUptime(d.uptime_seconds)} />
-              <StatCard label="Base Fee"          value={`${d.current_fee_drops} drops`} sub={`${(d.current_fee_drops / 1e6).toFixed(6)} qXRP`} />
+              <StatCard label="Base Fee"          value={`${d.current_fee_drops} drops`} sub={`${(d.current_fee_drops / 1e6).toFixed(6)} FALCON`} />
               <StatCard label="Open Ledger Fee"   value={`${d.open_ledger_fee} drops`} />
               <StatCard label="TX Queue"          value={d.tx_queue_size} sub="pending" />
             </div>
@@ -306,7 +306,7 @@ export default function ScanPage() {
               <StatCard label="Minimum Fee"    value={`${d.current_fee_drops} drops`} />
               <StatCard label="Median Fee"     value={`${d.median_fee_drops} drops`} />
               <StatCard label="Load Factor"    value={`${(d.load_factor / (d.load_base || 256) * 100).toFixed(1)}%`} sub={`${d.load_factor} / ${d.load_base}`} />
-              <StatCard label="Reserve Base"   value={`${(d.reserve_base / 1e6).toFixed(2)} qXRP`} sub={`+${(d.reserve_inc / 1e6).toFixed(2)} per object`} />
+              <StatCard label="Reserve Base"   value={`${(d.reserve_base / 1e6).toFixed(2)} FALCON`} sub={`+${(d.reserve_inc / 1e6).toFixed(2)} per object`} />
             </div>
           </section>
         )}
@@ -435,7 +435,7 @@ export default function ScanPage() {
       <footer className="border-t border-slate-800 py-4 px-4 text-center text-xs text-slate-600">
         Testnet tokens · No real value ·{' '}
         <a href="https://github.com/beartec-jpg/qXRP" target="_blank" rel="noopener noreferrer"
-          className="hover:text-slate-400 underline underline-offset-2">qXRP on GitHub</a>
+          className="hover:text-slate-400 underline underline-offset-2">Falcon Ledger on GitHub</a>
       </footer>
     </div>
   )

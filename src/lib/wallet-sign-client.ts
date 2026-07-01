@@ -1,5 +1,5 @@
 /**
- * Falcon wallet client for the qXRP Falcon testnet.
+ * Falcon wallet client for the Falcon Ledger testnet.
  *
  * Key generation and signing run entirely in the browser via WASM (liboqs).
  * falcon_secret is never sent to any server.

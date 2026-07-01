@@ -22,7 +22,7 @@ interface AmmInfo {
   type:       'amm' | 'dex'
   xrpPool:    number
   tokenPool:  number
-  price:      number    // qXRP per 1 token
+  price:      number    // FALCON per 1 token
   tradingFee: number
   accountId?: string
   offerCount?: number
@@ -42,7 +42,7 @@ interface MarketData {
 }
 
 const DROPS_PER_XRP = 1_000_000
-const NETWORK_NAME  = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'qXRP Falcon Testnet'
+const NETWORK_NAME  = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -80,7 +80,7 @@ export default function MarketplacePage() {
 
   // Swap form
   const [swapToken,  setSwapToken]  = useState<TokenInfo | null>(null)
-  const [swapDir,    setSwapDir]    = useState<'buy' | 'sell'>('buy')   // buy = qXRP→token
+  const [swapDir,    setSwapDir]    = useState<'buy' | 'sell'>('buy')   // buy = FALCON→token
   const [swapAmt,    setSwapAmt]    = useState('')
 
   // Load wallet + balances
@@ -188,18 +188,18 @@ export default function MarketplacePage() {
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
       // Estimate the other side using AMM price with 1% slippage tolerance
-      const price = swapToken.amm?.price ?? 1   // qXRP per token
+      const price = swapToken.amm?.price ?? 1   // FALCON per token
       let takerGets: string | IouAmount
       let takerPays: string | IouAmount
 
       if (swapDir === 'buy') {
-        // Spend qXRP, receive token
+        // Spend FALCON, receive token
         const xrpDrops   = String(Math.round(amt * DROPS_PER_XRP))
         const tokenAmt   = price > 0 ? (amt / price) * 0.99 : amt  // min 99% fill
         takerGets = xrpDrops
         takerPays = { currency: swapToken.currency, issuer: swapToken.issuer, value: fmtAmount(tokenAmt, 8) }
       } else {
-        // Spend token, receive qXRP
+        // Spend token, receive FALCON
         const xrpAmt     = (amt * price) * 0.99  // min 99% fill
         const xrpDrops   = String(Math.round(xrpAmt * DROPS_PER_XRP))
         takerGets = { currency: swapToken.currency, issuer: swapToken.issuer, value: String(amt) }
@@ -279,9 +279,9 @@ export default function MarketplacePage() {
               <div className="text-xs text-slate-500 mb-1">Your wallet</div>
               <div className="font-mono text-sm text-slate-300 mb-3">{wallet.address}</div>
               <div className="grid grid-cols-3 gap-3">
-                {/* qXRP */}
+                {/* FALCON */}
                 <div className="bg-slate-800/60 rounded-xl p-3 text-center">
-                  <div className="text-xs text-slate-500 mb-1">qXRP</div>
+                  <div className="text-xs text-slate-500 mb-1">FALCON</div>
                   <div className="text-lg font-bold text-white">
                     {xrpBalance !== null ? fmtAmount(xrpBalance, 2) : '—'}
                   </div>
@@ -326,7 +326,7 @@ export default function MarketplacePage() {
                         >
                           {busy ? <Spinner className="w-3 h-3" /> : 'Add Trust Line'}
                         </button>
-                        <div className="text-[10px] text-amber-400/80">Needs extra qXRP for reserve</div>
+                        <div className="text-[10px] text-amber-400/80">Needs extra FALCON for reserve</div>
                       </div>
                     )}
                     {tok.userBalance !== null && (
@@ -352,7 +352,7 @@ export default function MarketplacePage() {
                       </div>
                       <div className="grid grid-cols-3 gap-2 text-xs">
                         <div className="bg-slate-800/60 rounded-lg px-3 py-2">
-                          <div className="text-slate-500">qXRP depth</div>
+                          <div className="text-slate-500">FALCON depth</div>
                           <div className="text-slate-200 font-mono">{fmtAmount(tok.amm.xrpPool, 0)}</div>
                         </div>
                         <div className="bg-slate-800/60 rounded-lg px-3 py-2">
@@ -361,7 +361,7 @@ export default function MarketplacePage() {
                         </div>
                         <div className="bg-slate-800/60 rounded-lg px-3 py-2">
                           <div className="text-slate-500">Best price</div>
-                          <div className="text-slate-200 font-mono">{fmtPrice(tok.amm.price)} qXRP</div>
+                          <div className="text-slate-200 font-mono">{fmtPrice(tok.amm.price)} FALCON</div>
                         </div>
                       </div>
                     </div>
@@ -391,7 +391,7 @@ export default function MarketplacePage() {
                           : 'bg-slate-800 text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      qXRP / {tok.symbol}
+                      FALCON / {tok.symbol}
                     </button>
                   ))}
                 </div>
@@ -425,7 +425,7 @@ export default function MarketplacePage() {
                     {/* Amount input */}
                     <div className="space-y-1.5">
                       <label className="text-xs text-slate-400">
-                        {swapDir === 'buy' ? 'Spend (qXRP)' : `Sell (${swapToken.symbol})`}
+                        {swapDir === 'buy' ? 'Spend (FALCON)' : `Sell (${swapToken.symbol})`}
                       </label>
                       <input
                         type="number"
@@ -441,7 +441,7 @@ export default function MarketplacePage() {
                       <div className="flex justify-between text-xs text-slate-600">
                         <span>
                           {swapDir === 'buy'
-                            ? xrpBalance !== null ? `Available: ${fmtAmount(xrpBalance, 4)} qXRP` : ''
+                            ? xrpBalance !== null ? `Available: ${fmtAmount(xrpBalance, 4)} FALCON` : ''
                             : swapToken.userBalance !== null ? `Available: ${fmtAmount(swapToken.userBalance.balance, 4)} ${swapToken.symbol}` : 'No trust line'}
                         </span>
                         {swapDir === 'buy' && xrpBalance && (
@@ -469,13 +469,13 @@ export default function MarketplacePage() {
                           <span className="text-white font-semibold">
                             {fmtAmount(swapEstimate, 4)}{' '}
                             <span className="text-brand-500">
-                              {swapDir === 'buy' ? swapToken.symbol : 'qXRP'}
+                              {swapDir === 'buy' ? swapToken.symbol : 'FALCON'}
                             </span>
                           </span>
                         </div>
                         <div className="flex justify-between text-xs text-slate-600 mt-1">
                           <span>Rate</span>
-                          <span>{fmtPrice(swapToken.amm!.price)} qXRP per {swapToken.symbol}</span>
+                          <span>{fmtPrice(swapToken.amm!.price)} FALCON per {swapToken.symbol}</span>
                         </div>
                         {swapToken.amm!.tradingFee > 0 && (
                           <div className="flex justify-between text-xs text-slate-600">
@@ -550,7 +550,7 @@ export default function MarketplacePage() {
               <div className="card p-4 border border-red-500/20">
                 <div className="text-sm text-red-400 font-medium">{error}</div>
                 <div className="text-[10px] text-red-400/70 mt-1">
-                  Common causes: not enough qXRP for reserve, stale sequence, or issuer not fully set up.
+                  Common causes: not enough FALCON for reserve, stale sequence, or issuer not fully set up.
                 </div>
                 <button onClick={() => setError(null)} className="text-xs text-slate-500 hover:text-slate-300 mt-2 transition-colors">Dismiss</button>
               </div>

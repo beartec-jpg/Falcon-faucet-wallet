@@ -1,5 +1,5 @@
 /**
- * IndexedDB storage for qXRP wallet credentials.
+ * IndexedDB storage for Falcon Ledger wallet credentials.
  * All operations run in the browser only.
  */
 

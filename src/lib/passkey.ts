@@ -1,5 +1,5 @@
 /**
- * WebAuthn passkey helpers for qXRP wallet.
+ * WebAuthn passkey helpers for Falcon Ledger wallet.
  *
  * Security model:
  *  • Prefers the PRF extension (strong key material tied to the passkey private key).
@@ -80,7 +80,7 @@ export async function registerPasskey(label: string): Promise<PasskeyRegistratio
   const cred = await navigator.credentials.create({
     publicKey: {
       challenge,
-      rp: { name: 'qXRP Wallet', id: rpId },
+      rp: { name: 'Falcon Ledger Wallet', id: rpId },
       user: {
         id:          userId,
         name:        label,

@@ -88,7 +88,7 @@ async function call<T>(method: string, params: Record<string, unknown> = {}): Pr
     }
   }
 
-  throw lastError ?? new Error('All qXRP public RPC nodes are unreachable')
+  throw lastError ?? new Error('All Falcon Ledger public RPC nodes are unreachable')
 }
 
 export async function getServerInfo(): Promise<ServerInfo> {

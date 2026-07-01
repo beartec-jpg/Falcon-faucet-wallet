@@ -47,7 +47,7 @@ export default function InstallPwa() {
   return (
     <div className="card p-4 flex items-center justify-between gap-3 border-brand-500/30">
       <div className="min-w-0">
-        <div className="text-sm font-semibold text-white">Install qXRP Wallet</div>
+        <div className="text-sm font-semibold text-white">Install Falcon Wallet</div>
         <div className="text-xs text-slate-500 mt-0.5">
           Add to your home screen for a standalone passkey wallet app.
         </div>

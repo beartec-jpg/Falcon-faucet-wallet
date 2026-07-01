@@ -1,5 +1,5 @@
 {
-  "name": "qxrp-faucet",
+  "name": "falcon-ledger-wallet",
   "version": "1.0.0",
   "private": true,
   "packageManager": "pnpm@9.15.9",
