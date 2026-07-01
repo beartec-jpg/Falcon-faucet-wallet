@@ -89,9 +89,17 @@ export async function peekRateLimit(key: string): Promise<LimitResult> {
 
   const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
   if (isProduction) {
-    // Testnet: allow drips when Redis is not configured (fail-open for dev/testnet)
-    console.warn('[rate-limit] No Redis — rate limiting disabled for this deployment')
-    return { success: true, reset: new Date(Date.now() + WINDOW_SECONDS * 1000).toISOString(), remaining: REQUESTS }
+    // Fail CLOSED in production: without a distributed limiter the faucet has no
+    // effective protection and its funded account can be drained. Operators who
+    // explicitly accept this risk can opt back into fail-open with
+    // RATE_LIMIT_FAIL_OPEN=true, but the default must be safe.
+    const failOpen = process.env.RATE_LIMIT_FAIL_OPEN === 'true'
+    if (failOpen) {
+      console.warn('[rate-limit] No Redis — RATE_LIMIT_FAIL_OPEN=true, rate limiting disabled')
+      return { success: true, reset: new Date(Date.now() + WINDOW_SECONDS * 1000).toISOString(), remaining: REQUESTS }
+    }
+    console.error('[rate-limit] No Redis configured in production — failing closed. Set KV_REST_API_* / UPSTASH_REDIS_REST_* to enable the faucet.')
+    return { success: false, reset: new Date(Date.now() + WINDOW_SECONDS * 1000).toISOString(), remaining: 0 }
   }
 
   const r = memPeek(key)

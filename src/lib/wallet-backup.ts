@@ -73,7 +73,18 @@ async function derivePassphraseKey(passphrase: string, salt: Uint8Array): Promis
 }
 
 export function validateBackupPassphrase(passphrase: string): string | null {
-  if (passphrase.length < 8) return 'Backup password must be at least 8 characters'
+  if (passphrase.length < 12) return 'Backup password must be at least 12 characters'
+  // Require a mix of character classes to resist offline GPU cracking of the
+  // exported/shared backup file (which contains the full falcon_secret).
+  const classes = [
+    /[a-z]/.test(passphrase),
+    /[A-Z]/.test(passphrase),
+    /[0-9]/.test(passphrase),
+    /[^A-Za-z0-9]/.test(passphrase),
+  ].filter(Boolean).length
+  if (classes < 3) {
+    return 'Backup password must contain at least 3 of: uppercase, lowercase, numbers, and symbols'
+  }
   return null
 }
 
@@ -124,7 +135,14 @@ export async function decryptBackupFile(
         return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer
       })(),
     )
-    return JSON.parse(new TextDecoder().decode(dec)) as BackupPayload
+    const payload = JSON.parse(new TextDecoder().decode(dec)) as BackupPayload
+    // L-5: the outer address/label are not covered by AES-GCM authentication.
+    // Ensure the authenticated payload address matches the outer metadata so a
+    // tampered outer field can never be trusted downstream.
+    if (payload.address !== file.address) {
+      throw new Error('Backup file integrity check failed')
+    }
+    return payload
   } catch {
     throw new Error('Wrong backup password or corrupted backup file')
   }

@@ -1,24 +1,30 @@
-// POST /api/wallet/sign — DEPRECATED: client wallet signs locally via WASM.
-// Kept for legacy integrations only. New wallets must not send falcon_secret here.
+// POST /api/wallet/sign — DEPRECATED and DISABLED BY DEFAULT.
+//
+// New wallets sign locally in the browser via WASM; falcon_secret must NEVER be
+// sent to the server. This legacy endpoint forwards a full falcon_secret to the
+// signing proxy and therefore contradicts the wallet's security model.
+//
+// It is disabled unless an operator explicitly sets ENABLE_LEGACY_SIGN=true for
+// a specific legacy integration, in which case a strict origin allow-list is
+// still enforced.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { proxySign } from '@/lib/signer-proxy'
+import { isOriginAllowed } from '@/lib/origin'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
-  .split(',')
-  .map(o => o.trim())
-  .filter(Boolean)
-
-function isOriginAllowed(req: NextRequest): boolean {
-  if (ALLOWED_ORIGINS.length === 0) return true
-  const origin = req.headers.get('origin') || req.headers.get('referer') || ''
-  return ALLOWED_ORIGINS.some(allowed => origin.startsWith(allowed))
-}
+const LEGACY_SIGN_ENABLED = process.env.ENABLE_LEGACY_SIGN === 'true'
 
 export async function POST(req: NextRequest) {
+  if (!LEGACY_SIGN_ENABLED) {
+    return NextResponse.json(
+      { error: 'This endpoint is disabled. Wallets sign locally in the browser.' },
+      { status: 410 },
+    )
+  }
+
   if (!isOriginAllowed(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
