@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import Logo from '@/components/Logo'
 import type { ScanData, LedgerSummary, TxSummary } from '@/app/api/scan/route'
 
 const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
@@ -267,6 +268,9 @@ export default function ScanPage() {
       <Header current="scan" />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8 space-y-8">
+
+        {/* Logo */}
+        <Logo />
 
         {error && (
           <div className="card p-4 border-red-900 bg-red-950/30 text-red-400 text-sm">

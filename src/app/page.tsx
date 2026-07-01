@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import Logo from '@/components/Logo'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -174,6 +175,9 @@ function FaucetPageInner() {
       {/* Main */}
       <main className="flex-1 flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-lg space-y-6">
+
+          {/* Logo */}
+          <Logo />
 
           {/* Hero */}
           <div className="text-center space-y-2">
