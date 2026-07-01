@@ -22,7 +22,8 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean)
-  .map((o) => toOrigin(o) ?? o.replace(/\/+$/, ''))
+  .map((o) => toOrigin(o))
+  .filter((o): o is string => o !== null)
 
 function isProduction(): boolean {
   return process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
