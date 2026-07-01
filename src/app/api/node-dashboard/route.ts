@@ -27,6 +27,43 @@ function isValidHost(host: string): boolean {
 }
 
 /**
+ * Expand an IPv6 address to its full 8-group form (lowercase, 4 hex digits per
+ * group) so prefix checks work regardless of the source representation
+ * (e.g. "::1" vs "0:0:0:0:0:0:0:1").
+ */
+function expandIpv6(ip: string): string | null {
+  let s = ip.toLowerCase()
+  // Strip zone id if present (fe80::1%eth0)
+  const pct = s.indexOf('%')
+  if (pct !== -1) s = s.slice(0, pct)
+
+  // Handle an embedded IPv4 tail (e.g. ::ffff:192.0.2.1) by converting it to hex.
+  const v4 = s.match(/(.*:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
+  if (v4) {
+    const octets = v4[2].split('.').map((o) => parseInt(o, 10))
+    if (octets.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return null
+    const hi = ((octets[0] << 8) | octets[1]).toString(16)
+    const lo = ((octets[2] << 8) | octets[3]).toString(16)
+    s = `${v4[1]}${hi}:${lo}`
+  }
+
+  const halves = s.split('::')
+  if (halves.length > 2) return null
+  const head = halves[0] ? halves[0].split(':') : []
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : []
+  const missing = 8 - (head.length + tail.length)
+  if (halves.length === 1 && head.length !== 8) return null
+  if (halves.length === 2 && missing < 0) return null
+  const groups = [
+    ...head,
+    ...Array(halves.length === 2 ? missing : 0).fill('0'),
+    ...tail,
+  ]
+  if (groups.length !== 8) return null
+  return groups.map((g) => g.padStart(4, '0')).join(':')
+}
+
+/**
  * Reject IP addresses that point at internal / non-routable ranges. This blocks
  * SSRF attempts against loopback, private (RFC1918), link-local (incl. cloud
  * metadata 169.254.169.254), CGNAT, and IPv6 internal ranges.
@@ -48,14 +85,27 @@ function isBlockedIp(ip: string): boolean {
     return false
   }
   if (v === 6) {
-    const lower = ip.toLowerCase()
-    if (lower === '::1' || lower === '::') return true                 // loopback / unspecified
-    if (lower.startsWith('fe80')) return true                         // link-local
-    if (lower.startsWith('fc') || lower.startsWith('fd')) return true // unique-local
-    if (lower.startsWith('ff')) return true                           // multicast
-    // IPv4-mapped IPv6 (::ffff:a.b.c.d) — re-check embedded v4
-    const mapped = lower.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/)
-    if (mapped) return isBlockedIp(mapped[1])
+    const full = expandIpv6(ip)
+    if (!full) return true // cannot normalise → treat as unsafe
+    const groups = full.split(':')
+
+    // IPv4-mapped (::ffff:a.b.c.d → 0000:...:ffff:HHHH:LLLL) — re-check the v4.
+    if (groups.slice(0, 5).every((g) => g === '0000') && groups[5] === 'ffff') {
+      const hi = parseInt(groups[6], 16)
+      const lo = parseInt(groups[7], 16)
+      const v4 = `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`
+      return isBlockedIp(v4)
+    }
+
+    if (full === '0000:0000:0000:0000:0000:0000:0000:0001') return true // loopback
+    if (full === '0000:0000:0000:0000:0000:0000:0000:0000') return true // unspecified
+    const first = groups[0]
+    // fe80::/10 link-local
+    if (first.startsWith('fe8') || first.startsWith('fe9') || first.startsWith('fea') || first.startsWith('feb')) return true
+    // fc00::/7 unique-local
+    if (first.startsWith('fc') || first.startsWith('fd')) return true
+    // ff00::/8 multicast
+    if (first.startsWith('ff')) return true
     return false
   }
   // Not a literal IP — caller must resolve first.

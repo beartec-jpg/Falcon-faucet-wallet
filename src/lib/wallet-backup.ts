@@ -83,7 +83,7 @@ export function validateBackupPassphrase(passphrase: string): string | null {
     /[^A-Za-z0-9]/.test(passphrase),
   ].filter(Boolean).length
   if (classes < 3) {
-    return 'Backup password must mix upper, lower, numbers and symbols (at least 3 of 4)'
+    return 'Backup password must contain at least 3 of: uppercase, lowercase, numbers, and symbols'
   }
   return null
 }
