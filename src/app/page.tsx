@@ -179,7 +179,7 @@ function FaucetPageInner() {
           {/* Logo */}
           <div className="flex justify-center pb-2">
             <div className="w-24 h-24 rounded-2xl overflow-hidden flex-shrink-0 shadow-lg border border-brand-500/20">
-              <Image src="/falcon-logo.png" alt="Falcon Ledger" width={96} height={96} className="w-full h-full object-cover" />
+              <Image src="/falcon-logo.png" alt="Falcon Ledger" width={96} height={96} priority className="w-full h-full object-cover" />
             </div>
           </div>
 
