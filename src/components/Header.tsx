@@ -1,9 +1,10 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 
-type NavItem = 'faucet' | 'wallet' | 'market' | 'scan'
+type NavItem = 'faucet' | 'wallet' | 'market' | 'scan' | 'whitepaper'
 
 interface HeaderProps {
   current: NavItem
@@ -16,6 +17,7 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'scan', label: 'Explorer', href: '/scan' },
   { key: 'wallet', label: 'Wallet', href: '/wallet' },
   { key: 'market', label: 'Market', href: '/marketplace' },
+  { key: 'whitepaper', label: 'Whitepaper', href: '/whitepaper' },
 ]
 
 export default function Header({ current, subtitle, children }: HeaderProps) {
@@ -24,16 +26,28 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
   return (
     <header className="border-b border-slate-800/60 px-4 py-3 flex items-center justify-between sticky top-0 bg-slate-950/95 backdrop-blur-md z-20">
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/falcon-logo.png" alt="Falcon Ledger" className="w-full h-full object-cover" />
-        </div>
+        <Link href="/" className="w-8 h-8 rounded-lg overflow-hidden shrink-0">
+          <Image
+            src="/falcon-logo.png"
+            alt="Falcon Ledger"
+            width={32}
+            height={32}
+            className="w-full h-full object-cover rounded-lg"
+          />
+        </Link>
         <div>
           <div className="font-semibold text-white leading-tight">{NETWORK_NAME}</div>
           <div className="text-xs text-slate-500">
-            {subtitle || (current === 'wallet' ? 'Wallet · Passkey secured' : 
-                         current === 'market' ? 'Marketplace · AMM DEX' : 
-                         current === 'scan' ? 'Explorer' : 'Faucet')}
+            {subtitle ||
+              (current === 'wallet'
+                ? 'Wallet · Passkey secured'
+                : current === 'market'
+                  ? 'Marketplace · AMM DEX'
+                  : current === 'scan'
+                    ? 'Explorer'
+                    : current === 'whitepaper'
+                      ? 'White paper'
+                      : 'Faucet')}
           </div>
         </div>
       </div>
