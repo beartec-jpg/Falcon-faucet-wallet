@@ -12,6 +12,13 @@ export const PUBLIC_RPC_NODES: string[] = [
 
 const RPC_NODES = ENV_RPC ? [ENV_RPC, ...PUBLIC_RPC_NODES] : PUBLIC_RPC_NODES
 
+// Warn once if any configured RPC node uses plaintext HTTP in production. Signed
+// tx_blobs traverse this channel and are exposed to MITM over plain HTTP.
+const IS_PRODUCTION = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
+if (IS_PRODUCTION && RPC_NODES.some((n) => n.startsWith('http://'))) {
+  console.warn('[rpc] An RPC node is configured over plaintext HTTP in production. Use https:// (port 6005) to protect signed transactions from MITM.')
+}
+
 // Convenient default for files that still do their own RPC calls.
 // WARNING: Must be https:// in production. Plain HTTP exposes signed tx_blobs to MITM.
 export const DEFAULT_RPC_URL = ENV_RPC || (PUBLIC_RPC_NODES[0] ?? 'https://YOUR_NODE:6005')

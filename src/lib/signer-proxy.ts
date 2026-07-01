@@ -4,9 +4,28 @@
 const NETWORK_ID = parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '1001', 10)
 const INCLUDE_NETWORK_ID = NETWORK_ID > 1024
 
+const IS_PRODUCTION = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
+const ALLOW_INSECURE_TRANSPORT = process.env.ALLOW_INSECURE_TRANSPORT === 'true'
+
+let insecureWarned = false
+
+function assertSecureTransport(url: string): void {
+  if (url.startsWith('https://')) return
+  if (!IS_PRODUCTION) return
+  if (ALLOW_INSECURE_TRANSPORT) {
+    if (!insecureWarned) {
+      console.warn('[signer-proxy] Using plaintext HTTP for SIGNER_PROXY_URL in production. The bearer token and any forwarded secrets are exposed to MITM. Set ALLOW_INSECURE_TRANSPORT=false and use HTTPS/mTLS or an SSH tunnel.')
+      insecureWarned = true
+    }
+    return
+  }
+  throw new Error('SIGNER_PROXY_URL must use https:// in production. Configure TLS (or set ALLOW_INSECURE_TRANSPORT=true to explicitly accept the risk on a trusted network).')
+}
+
 function proxyBase(): string {
   const url = process.env.SIGNER_PROXY_URL?.replace(/\/$/, '')
   if (!url) throw new Error('SIGNER_PROXY_URL is not configured')
+  assertSecureTransport(url)
   return url
 }
 

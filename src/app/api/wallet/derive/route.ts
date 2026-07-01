@@ -20,7 +20,9 @@ export async function POST(req: NextRequest) {
   }
 
   const hex = falcon_secret.trim()
-  if (!/^[0-9A-Fa-f]{800,}$/.test(hex)) {
+  // Falcon-512 secret bundle is a fixed 4358 hex chars; the public blob alone is
+  // 1796. Bound the input to avoid hashing attacker-controlled unbounded data.
+  if (!/^[0-9A-Fa-f]{800,4358}$/.test(hex) || hex.length % 2 !== 0) {
     return NextResponse.json({ error: 'Invalid falcon_secret format' }, { status: 400 })
   }
 

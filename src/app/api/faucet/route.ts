@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { peekRateLimit, consumeRateLimit } from '@/lib/rate-limit'
 import { getAccountInfo, getLedgerIndex, getTx, submitTx } from '@/lib/rpc'
 import { signPayment, dropsFromQxrp } from '@/lib/xrpl-sign'
+import { isOriginAllowed } from '@/lib/origin'
 import { isValidClassicAddress } from 'ripple-address-codec'
 
 export const runtime = 'nodejs'
@@ -29,18 +30,6 @@ function ip(req: NextRequest): string {
 
 function err(msg: string, status = 400, extra?: Record<string, unknown>) {
   return NextResponse.json({ error: msg, ...extra }, { status })
-}
-
-// Simple origin allow-list (M-3)
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
-  .split(',')
-  .map(o => o.trim())
-  .filter(Boolean)
-
-function isOriginAllowed(req: NextRequest): boolean {
-  if (ALLOWED_ORIGINS.length === 0) return true
-  const origin = req.headers.get('origin') || req.headers.get('referer') || ''
-  return ALLOWED_ORIGINS.some(allowed => origin.startsWith(allowed))
 }
 
 export async function POST(req: NextRequest) {
@@ -137,7 +126,7 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     const realError = e?.message || String(e)
     console.error('Submit error from node:', realError)
-    return err(`Transaction submission failed: ${realError}`, 503)
+    return err('Transaction submission failed. Try again shortly.', 503)
   }
 
   if (engineResult !== 'tesSUCCESS') {

@@ -420,9 +420,19 @@ export default function WalletPage() {
 
   const copyFalconSecret = async () => {
     if (!pendingSave) return
-    await navigator.clipboard.writeText(pendingSave.falcon_secret)
+    const secret = pendingSave.falcon_secret
+    await navigator.clipboard.writeText(secret)
     setSecretCopied(true)
     setTimeout(() => setSecretCopied(false), 2200)
+    // Auto-clear the clipboard after a short window so the secret does not
+    // linger where other apps / clipboard managers could read it.
+    setTimeout(() => {
+      navigator.clipboard.readText()
+        .then(current => {
+          if (current === secret) return navigator.clipboard.writeText('')
+        })
+        .catch(() => { /* clipboard read may be blocked — best effort only */ })
+    }, 30_000)
   }
 
   const finishRestore = async (falconSecret: string, label: string) => {
@@ -550,7 +560,8 @@ export default function WalletPage() {
       // 1. Authenticate — triggers biometric/PIN prompt
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
 
-      // 2. Decrypt falcon_secret (sent to sign API only for signing)
+      // 2. Decrypt falcon_secret locally. Signing happens in-browser via WASM —
+      //    the secret is never sent to any server.
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
       // 3. Fetch fresh sequence + ledger index just before signing (avoids tefPAST_SEQ)
@@ -712,6 +723,12 @@ export default function WalletPage() {
                 Save the backup file to iCloud Drive, Google Drive, or your password manager. You will need this file and your backup password to restore.
               </div>
 
+              {!pendingSave.hasPrf && (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                  <strong>Weaker device encryption:</strong> this device/browser does not support the passkey PRF extension, so the wallet on this device is encrypted with lower-strength key material. Keep your encrypted backup file safe and do not store significant value on this wallet.
+                </div>
+              )}
+
               <div className="card p-5 space-y-4">
                 <div className="space-y-1">
                   <div className="text-[10px] text-slate-500 uppercase tracking-wide">Address</div>
@@ -719,7 +736,7 @@ export default function WalletPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">Backup password <span className="text-slate-600">(min 8 chars — not your passkey)</span></label>
+                  <label className="text-xs text-slate-400">Backup password <span className="text-slate-600">(min 12 chars, mix of cases/numbers/symbols — not your passkey)</span></label>
                   <input
                     type="password"
                     value={backupPassphrase}
