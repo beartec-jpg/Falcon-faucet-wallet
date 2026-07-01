@@ -268,6 +268,14 @@ export default function ScanPage() {
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8 space-y-8">
 
+        {/* Logo */}
+        <div className="flex justify-center">
+          <div className="w-24 h-24 rounded-2xl overflow-hidden flex-shrink-0 shadow-lg border border-brand-500/20">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/falcon-logo.png" alt="Falcon Ledger" className="w-full h-full object-cover" />
+          </div>
+        </div>
+
         {error && (
           <div className="card p-4 border-red-900 bg-red-950/30 text-red-400 text-sm">
             Node unavailable: {error}

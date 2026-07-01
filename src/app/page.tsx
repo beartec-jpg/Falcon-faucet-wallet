@@ -175,6 +175,14 @@ function FaucetPageInner() {
       <main className="flex-1 flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-lg space-y-6">
 
+          {/* Logo */}
+          <div className="flex justify-center pb-2">
+            <div className="w-24 h-24 rounded-2xl overflow-hidden flex-shrink-0 shadow-lg border border-brand-500/20">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/falcon-logo.png" alt="Falcon Ledger" className="w-full h-full object-cover" />
+            </div>
+          </div>
+
           {/* Hero */}
           <div className="text-center space-y-2">
             <h1 className="text-3xl font-bold text-white">
