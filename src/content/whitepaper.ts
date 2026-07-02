@@ -7,13 +7,62 @@ export const WHITEPAPER_SECTIONS: { id: string; title: string; body: string }[] 
   {
     id: 'summary',
     title: 'Executive Summary',
-    body: `Falcon Ledger is a quantum-resistant payment protocol forked from the XRP Ledger. It keeps RPCA consensus and sub-second finality, and replaces company-controlled supply, zero validator incentives, and classical cryptography with Falcon-512 post-quantum signatures, protocol-controlled treasury emission, and on-chain Proof-of-Participation rewards.
+    body: `Falcon Ledger is a quantum-resistant payment protocol forked from the XRP Ledger. It keeps RPCA consensus and sub-second finality and replaces everything that made XRP a compromised bet: the company-controlled supply, the zero validator incentives, the company-gated grants and governance, and the classical cryptography that a quantum computer will eventually break.
 
-**Falcon signatures for authority.** Falcon-512 lattice signatures secure validator consensus messages, account transactions, and on-chain validator identity. Wallets on this testnet are Falcon-native: every account is created with a Falcon key pair, and every transaction is signed and verified with Falcon.
+**Falcon signatures, everywhere, from genesis.** Falcon-512 lattice signatures are the standard signature scheme for validator identities and all transactions, built in at the protocol level from genesis — not retrofitted later. Every wallet is created with Falcon keys, every transaction is signed and verified with Falcon. This chain is built to be secure in 2026 and in 2046.
 
-**Fixed supply — 200 billion qXRP.** 98% is locked in a protocol treasury with no private key, released only by on-chain epoch rules to qualifying validators. Fees burn and validators earn — no company escrow or monthly unlock schedule.
+**Fixed supply.** 200 billion qXRP. Hard cap. No exceptions. 98% of the supply is locked in a protocol treasury with no private key. It is released only by on-chain consensus rules — one epoch at a time, according to a halving schedule, to the validators who keep the network alive. Validators get paid for doing the work. Fees burn. The supply shrinks. No company can dump on you, and no foundation decides who gets a grant.
 
-**No exchange required (mainnet target).** Built-in DEX and AMM enable in-wallet qXRP↔USDC/USDT swaps without a centralized exchange.`,
+**No exchange required.** Falcon Ledger ships with a built-in DEX and AMM. The launch target is an in-wallet experience — faucet, wallet, and swaps — that lets a validator convert qXRP rewards to USDC and USDT on-chain from day one of mainnet, with no centralized exchange in the loop.`,
+  },
+  {
+    id: 'problem',
+    title: '1. The Problem',
+    body: `### 1.1 XRP Is Controlled by a Company
+Ripple, Inc. created 100 billion XRP at genesis and retained roughly 60% of the supply. Through a series of escrow agreements, Ripple releases up to 1 billion XRP per month into the market. The releases are real. The selling pressure is real. Holders of XRP are permanently exposed to a counterparty that has a nine-figure inventory of the same token they are holding.
+
+This is not decentralization. It is a public company with a vesting schedule that happens to run on a fast ledger.
+
+### 1.2 Validators Have No Reason to Participate
+Running an XRP Ledger validator costs money — hardware, bandwidth, operations. The protocol pays validators nothing. The incentive to run a validator is reputational at best, and non-existent at worst. The result is a validator set that skews heavily toward Ripple-affiliated entities and large institutions with indirect business reasons to keep the network running.
+
+A network where most validators serve at the pleasure of one company is not a decentralized network.
+
+### 1.3 Classical Cryptography Has an Expiry Date
+ECDSA and ed25519 are secure today because factoring large integers and solving the discrete logarithm problem is computationally infeasible on classical hardware. Shor's algorithm solves both problems in polynomial time on a sufficiently large quantum computer.
+
+NIST finalized its post-quantum cryptography standards in 2024. The timeline for cryptographically relevant quantum computers is measured in years, not decades. Financial infrastructure built today needs to be secure for 20 to 40 years. A payment chain that waits until quantum computers arrive to begin a migration will not survive it.
+
+### 1.4 No On-Chain Governance, and Company-Gated Grants
+Protocol changes on the XRP Ledger happen through Ripple's amendment process. Validators vote, but the proposals originate from and are largely controlled by Ripple. There is no on-chain mechanism for bonded participants to propose, debate, and ratify changes to economic parameters without relying on off-chain social coordination and a company's goodwill. Ecosystem funding, too, flows through company- and foundation-controlled grant programs that pick winners off-chain.
+
+### 1.5 You Still Need an Exchange to Get Paid
+Even where a chain pays participants, realizing that value usually means moving tokens to a centralized exchange — KYC, listing politics, withdrawal limits, and counterparty risk. The reward only matters if you can spend it.`,
+  },
+  {
+    id: 'why-now',
+    title: '2. Why Now',
+    body: `- **NIST Post-Quantum Cryptography standards finalized in 2024:** ML-DSA (CRYSTALS-Dilithium) and Falcon-512 are the approved signature schemes.
+- **The era of VC-controlled "decentralized" protocols is ending under regulatory scrutiny.** SEC actions against centralized token issuers are accelerating globally.
+- **Bitcoin's halving model proved that predictable emission schedules build long-term holder confidence.** No equivalent model exists in the XRP ecosystem.
+- **The validator incentive problem is unsolved in every ledger-based chain that does not issue a staking reward.** This problem has a known solution: pay validators on-chain, deterministically, from a protocol-controlled supply.
+- **On-chain DEX/AMM liquidity and stablecoins are mature enough** to let a chain offer native swaps to USDC/USDT without depending on a centralized exchange.`,
+  },
+  {
+    id: 'what-is',
+    title: '3. What Falcon Ledger Is',
+    body: `Falcon Ledger is a protocol, not a company product. It is a fork of the XRP Ledger with fundamental upgrades applied to the layers that XRP left broken:
+
+| Layer | What Falcon Ledger Changes |
+|-------|---------------------------|
+| Supply | Protocol treasury replaces company wallet |
+| Incentives | Validators earn rewards every epoch |
+| Cryptography | Falcon-512 as the standard signature scheme for all keys and transactions |
+| Governance | Bonded validator supermajority on-chain |
+| Fees | Burn + validator split, no dead-end fee destruction |
+| Liquidity | Built-in DEX/AMM for in-wallet qXRP↔USDC/USDT swaps |
+
+The consensus model is unchanged. RPCA stays. Finality stays sub-second. Fees stay low. The economic and cryptographic layers are replaced entirely.`,
   },
   {
     id: 'testnet',
