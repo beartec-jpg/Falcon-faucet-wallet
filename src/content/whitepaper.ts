@@ -96,7 +96,7 @@ composite = (uptime×40 + voteAccuracy×30 + latency×15 + consistency×10 + sla
   {
     id: 'liquidity',
     title: '8. Faucet, Wallet, and Built-In Liquidity',
-    body: `This portal (q-xrp-faucet.vercel.app) provides:
+    body: `This portal (falcon-ledger.com) provides:
 - **Faucet** — fund new Falcon wallets
 - **Wallet** — passkey-secured Falcon-512 accounts, send/receive, validator onboarding
 - **Explorer** — ledger and transaction scan
