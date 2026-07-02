@@ -7,7 +7,7 @@ import Header from '@/components/Header'
 const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
 const DRIP_AMOUNT  = parseInt(process.env.NEXT_PUBLIC_DRIP_AMOUNT_QXRP ?? '2000', 10)
 const PUBLIC_RPC   = process.env.NEXT_PUBLIC_RPC_URL ?? 'http://46.224.0.140:6005'
-const PORTAL_URL   = 'https://q-xrp-faucet.vercel.app'
+const PORTAL_URL   = 'https://falcon-ledger.com'
 
 interface CommandRow {
   label: string
