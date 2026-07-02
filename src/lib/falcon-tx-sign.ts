@@ -143,6 +143,33 @@ export async function signTrustSetTx(
   return { tx_blob: await signPrepared(tx, decoded) }
 }
 
+export async function signClaimRewardTx(
+  params: {
+    account: string
+    consensusKeyHex: string
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const tx = {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      decoded.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'ClaimReward',
+    ConsensusKey: params.consensusKeyHex.toUpperCase(),
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}
+
 export async function signOfferCreateTx(
   params: {
     account: string

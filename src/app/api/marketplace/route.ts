@@ -1,11 +1,35 @@
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
 import {
   resolveNetworkKey,
   serverNetworkConfig,
   serverRpcCall,
 } from '@/lib/network-server'
+import type { NetworkToken } from '@/lib/networks'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
+
+async function mergeManifestTokens(tokens: NetworkToken[]): Promise<NetworkToken[]> {
+  if (tokens.every((t) => t.issuer)) return tokens
+  try {
+    const manifestPath = path.join(process.cwd(), 'public', 'config', 'testnet-stables.json')
+    const raw = await readFile(manifestPath, 'utf8')
+    const manifest = JSON.parse(raw) as {
+      tokens?: Array<{ symbol: string; currency: string; issuer: string }>
+    }
+    if (!manifest.tokens?.length) return tokens
+    return tokens.map((tok) => {
+      const m = manifest.tokens!.find((x) => x.symbol === tok.symbol)
+      if (!tok.issuer && m?.issuer) {
+        return { ...tok, issuer: m.issuer, currency: m.currency || tok.currency }
+      }
+      return tok
+    })
+  } catch {
+    return tokens
+  }
+}
 
 async function getMarketInfo(
   networkKey: ReturnType<typeof resolveNetworkKey>,
@@ -38,9 +62,9 @@ async function getMarketInfo(
 
   try {
     const bookR = await serverRpcCall<{ offers?: unknown[] }>(networkKey, 'book_offers', {
-      taker_gets: { currency: 'XRP' },
-      taker_pays: { currency, issuer },
-      limit: 5,
+      taker_gets: { currency, issuer },
+      taker_pays: { currency: 'XRP' },
+      limit: 20,
       ledger_index: 'validated',
     })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -49,8 +73,8 @@ async function getMarketInfo(
       const best = offers[0]
       const qual = parseFloat(best.quality ?? '0')
       const price = qual > 0 ? qual / 1_000_000 : 0
-      const totalXrp = offers.reduce((s: number, o: any) => s + parseInt(o.TakerGets ?? '0', 10) / 1_000_000, 0)
-      const totalToken = offers.reduce((s: number, o: any) => s + parseFloat(o.TakerPays?.value ?? '0'), 0)
+      const totalToken = offers.reduce((s: number, o: any) => s + parseFloat(o.TakerGets?.value ?? '0'), 0)
+      const totalXrp = offers.reduce((s: number, o: any) => s + parseInt(o.TakerPays ?? '0', 10) / 1_000_000, 0)
       return {
         type:       'dex' as const,
         xrpPool:    totalXrp,
@@ -91,10 +115,11 @@ export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address') ?? ''
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
   const cfg = serverNetworkConfig(networkKey)
+  const tokens = await mergeManifestTokens(cfg.tokens)
 
   try {
     const tokensWithData = await Promise.all(
-      cfg.tokens.map(async (tok) => {
+      tokens.map(async (tok) => {
         if (!tok.issuer) {
           return { ...tok, amm: null, userBalance: null, configured: false }
         }

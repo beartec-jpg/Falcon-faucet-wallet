@@ -1316,6 +1316,12 @@ export default function WalletPage() {
                                 </div>
                               </div>
                             )}
+                            <Link
+                              href="/rewards"
+                              className="inline-flex items-center gap-1.5 text-xs text-brand-400 hover:text-brand-300 transition-colors"
+                            >
+                              Claim rewards &amp; swap to stablecoins →
+                            </Link>
                           </div>
 
                           {nodeStats.network && (

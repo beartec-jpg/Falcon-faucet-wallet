@@ -327,7 +327,7 @@ export default function MarketplacePage() {
                       {tok.configured ? (
                         <div className="text-xs text-slate-500 font-mono mt-0.5">{tok.issuer}</div>
                       ) : (
-                        <div className="text-xs text-amber-500 mt-0.5">Not configured — run 07_issue_stables.py first</div>
+                        <div className="text-xs text-amber-500 mt-0.5">Not configured — run issue-testnet-stables.py first</div>
                       )}
                     </div>
                     {tok.configured && tok.userBalance === null && (
@@ -380,7 +380,7 @@ export default function MarketplacePage() {
                     </div>
                   ) : tok.configured ? (
                     <div className="text-xs text-slate-600 bg-slate-800/40 rounded-lg px-3 py-2">
-                      No liquidity yet — run 07_issue_stables.py to seed the order book
+                      No liquidity yet — run issue-testnet-stables.py to seed the order book
                     </div>
                   ) : null}
                 </div>

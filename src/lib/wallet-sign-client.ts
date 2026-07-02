@@ -19,6 +19,7 @@ import {
   signPaymentTx,
   signTrustSetTx,
   signOfferCreateTx,
+  signClaimRewardTx,
 } from './falcon-tx-sign'
 
 export { validateFalconSecret, keysFromFalconSecret }
@@ -113,6 +114,29 @@ export interface OfferCreateParams {
 }
 
 export const TF_IMMEDIATE_OR_CANCEL = 0x00020000
+
+export interface ClaimRewardParams {
+  account: string
+  consensusKeyHex: string
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  fee?: string
+}
+
+/** Falcon-512 consensus public key hex (898-byte blob) from falcon_secret. */
+export function consensusKeyFromSecret(falcon_secret: string): string {
+  const { publicKey } = keysFromFalconSecret(falcon_secret)
+  return publicKey
+}
+
+export async function signClaimReward(
+  params: ClaimRewardParams,
+  falcon_secret: string,
+): Promise<SignedTx> {
+  const { tx_blob } = await signClaimRewardTx(params, falcon_secret)
+  return { tx_blob }
+}
 
 export async function signOfferCreate(
   params: OfferCreateParams,
