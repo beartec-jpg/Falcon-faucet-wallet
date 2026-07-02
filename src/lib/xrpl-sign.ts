@@ -20,9 +20,12 @@ export async function signPayment(opts: {
   amountDrops: string
   sequence: number
   lastLedgerSequence: number
+  networkId: number
   fee?: string
+  proxyUrl?: string
+  proxyToken?: string
 }): Promise<SignedPayment> {
-  const { from, secret, to, amountDrops, sequence, lastLedgerSequence, fee = '12' } = opts
+  const { from, secret, to, amountDrops, sequence, lastLedgerSequence, networkId, fee = '12', proxyUrl, proxyToken } = opts
 
   const signed = await proxySign(
     {
@@ -36,6 +39,7 @@ export async function signPayment(opts: {
       Flags: 0,
     },
     secret,
+    { networkId, proxyUrl, proxyToken },
   )
 
   return { tx_blob: signed.tx_blob, hash: signed.hash ?? '' }

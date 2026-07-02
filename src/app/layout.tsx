@@ -1,8 +1,9 @@
 import type { Metadata, Viewport } from 'next'
 import Script from 'next/script'
+import Providers from '@/components/Providers'
 import './globals.css'
 
-const NETWORK = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
+const NETWORK = process.env.NEXT_PUBLIC_TESTNET_NAME ?? 'Falcon Ledger'
 
 export const metadata: Metadata = {
   title: `${NETWORK}`,
@@ -31,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="apple-touch-icon" href="/falcon-logo.png" />
       </head>
       <body className="min-h-screen flex flex-col">
-        {children}
+        <Providers>{children}</Providers>
         {/* Register service worker for PWA */}
         <Script id="sw-register" strategy="afterInteractive">{`
           if ('serviceWorker' in navigator) {

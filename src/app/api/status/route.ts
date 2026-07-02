@@ -1,32 +1,47 @@
-// GET /api/status
-// Returns live network info from the configured xrpld node
-
-import { NextResponse } from 'next/server'
-import { getServerInfo } from '@/lib/rpc'
+import { NextRequest, NextResponse } from 'next/server'
+import {
+  resolveNetworkKey,
+  serverNetworkConfig,
+  serverRpcCall,
+} from '@/lib/network-server'
+import type { ServerInfo } from '@/lib/rpc'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
+  const cfg = serverNetworkConfig(networkKey)
+
   try {
-    const info = await getServerInfo()
+    const result = await serverRpcCall<{ info: ServerInfo }>(networkKey, 'server_info', {})
+    const info = result.info
     return NextResponse.json({
       online: true,
+      network: networkKey,
+      networkName: cfg.name,
+      networkLive: cfg.live,
       state: info.server_state,
       ledger: info.validated_ledger?.seq ?? 0,
       peers: info.peers,
       loadFactor: info.load_factor,
       completeLedgers: info.complete_ledgers,
       reserveBaseXrp: info.validated_ledger?.reserve_base_xrp ?? 0,
-      dripAmountQxrp: parseFloat(process.env.DRIP_AMOUNT_QXRP ?? '2000'),
-      networkId: parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '1001', 10),
+      dripAmountQxrp: cfg.dripAmountQxrp,
+      networkId: cfg.networkId,
     })
   } catch (e) {
-    // Return 200 with online:false so the UI doesn't break / show network errors
-    // The detailed error is still available for debugging
     return NextResponse.json(
-      { online: false, error: String(e) },
-      { status: 200 }
+      {
+        online: false,
+        network: networkKey,
+        networkName: cfg.name,
+        networkLive: cfg.live,
+        dripAmountQxrp: cfg.dripAmountQxrp,
+        networkId: cfg.networkId,
+        error: String(e),
+      },
+      { status: 200 },
     )
   }
 }

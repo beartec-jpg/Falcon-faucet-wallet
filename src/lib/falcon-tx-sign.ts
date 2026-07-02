@@ -14,8 +14,8 @@ import {
 import { getFalcon512 } from './falcon-wasm'
 import type { XrplAmount } from './wallet-sign-client'
 
-const NETWORK_ID = parseInt(process.env.NEXT_PUBLIC_NETWORK_ID ?? '1001', 10)
-const INCLUDE_NETWORK_ID = NETWORK_ID > 1024
+import { networkIdForTx } from '@/lib/networks'
+
 const BASE_FEE = '12'
 
 interface TxCore {
@@ -29,8 +29,12 @@ interface TxCore {
   NetworkID?: number
 }
 
-function withNetwork<T extends Record<string, unknown>>(tx: T): T & { NetworkID?: number } {
-  if (INCLUDE_NETWORK_ID) return { ...tx, NetworkID: NETWORK_ID }
+function withNetwork<T extends Record<string, unknown>>(
+  tx: T,
+  networkId: number,
+): T & { NetworkID?: number } {
+  const id = networkIdForTx(networkId)
+  if (id !== undefined) return { ...tx, NetworkID: id }
   return tx
 }
 
@@ -60,17 +64,21 @@ function baseTx(
   sequence: number,
   lastLedgerSequence: number,
   publicKeyHex: string,
+  networkId: number,
   fee = BASE_FEE,
 ): TxCore {
-  return withNetwork({
-    TransactionType: '',
-    Account: account,
-    Fee: fee,
-    Sequence: sequence,
-    LastLedgerSequence: lastLedgerSequence,
-    Flags: 0,
-    SigningPubKey: publicKeyHex,
-  }) as TxCore
+  return withNetwork(
+    {
+      TransactionType: '',
+      Account: account,
+      Fee: fee,
+      Sequence: sequence,
+      LastLedgerSequence: lastLedgerSequence,
+      Flags: 0,
+      SigningPubKey: publicKeyHex,
+    },
+    networkId,
+  ) as TxCore
 }
 
 export async function signPaymentTx(
@@ -80,6 +88,7 @@ export async function signPaymentTx(
     amountDrops: string
     sequence: number
     lastLedgerSequence: number
+    networkId: number
     fee?: string
   },
   falcon_secret: string,
@@ -91,6 +100,7 @@ export async function signPaymentTx(
       params.sequence,
       params.lastLedgerSequence,
       decoded.publicKeyHex,
+      params.networkId,
       params.fee,
     ),
     TransactionType: 'Payment',
@@ -108,6 +118,7 @@ export async function signTrustSetTx(
     limit: string
     sequence: number
     lastLedgerSequence: number
+    networkId: number
     fee?: string
   },
   falcon_secret: string,
@@ -119,6 +130,7 @@ export async function signTrustSetTx(
       params.sequence,
       params.lastLedgerSequence,
       decoded.publicKeyHex,
+      params.networkId,
       params.fee,
     ),
     TransactionType: 'TrustSet',
@@ -138,6 +150,7 @@ export async function signOfferCreateTx(
     takerPays: XrplAmount
     sequence: number
     lastLedgerSequence: number
+    networkId: number
     fee?: string
     flags?: number
   },
@@ -149,6 +162,7 @@ export async function signOfferCreateTx(
     params.sequence,
     params.lastLedgerSequence,
     decoded.publicKeyHex,
+    params.networkId,
     params.fee,
   )
   const tx = {

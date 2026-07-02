@@ -42,6 +42,7 @@ export interface PaymentParams {
   amountDrops: string
   sequence: number
   lastLedgerSequence: number
+  networkId: number
   fee?: string
 }
 
@@ -84,6 +85,7 @@ export interface TrustSetParams {
   limit: string
   sequence: number
   lastLedgerSequence: number
+  networkId: number
   fee?: string
 }
 
@@ -105,6 +107,7 @@ export interface OfferCreateParams {
   takerPays: XrplAmount
   sequence: number
   lastLedgerSequence: number
+  networkId: number
   fee?: string
   flags?: number
 }

@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import NetworkBanner from '@/components/NetworkBanner'
+import { useNetwork } from '@/components/NetworkProvider'
+import { withNetworkQuery } from '@/lib/network-query'
 import {
   isPasskeySupported,
   authenticatePasskey,
@@ -42,8 +45,6 @@ interface MarketData {
 }
 
 const DROPS_PER_XRP = 1_000_000
-const NETWORK_NAME  = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
@@ -68,6 +69,7 @@ function fmtAmount(n: number, decimals = 4): string {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function MarketplacePage() {
+  const { networkKey, network } = useNetwork()
   const [wallet,     setWallet]     = useState<StoredWallet | null>(null)
   const [xrpBalance, setXrpBal]    = useState<number | null>(null)
   const [sequence,   setSequence]   = useState(0)
@@ -86,8 +88,8 @@ export default function MarketplacePage() {
   // Load wallet + balances
   const refresh = useCallback(async (address: string) => {
     const [accR, mktR] = await Promise.all([
-      fetch(`/api/wallet/account?address=${encodeURIComponent(address)}`).then(r => r.json()),
-      fetch(`/api/marketplace?address=${encodeURIComponent(address)}`).then(r => r.json()),
+      fetch(withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, networkKey)).then(r => r.json()),
+      fetch(withNetworkQuery(`/api/marketplace?address=${encodeURIComponent(address)}`, networkKey)).then(r => r.json()),
     ])
     if (accR.exists) {
       setXrpBal(accR.balance)
@@ -102,7 +104,13 @@ export default function MarketplacePage() {
         if (first) setSwapToken(first)
       }
     }
-  }, [swapToken])
+  }, [swapToken, networkKey])
+
+  useEffect(() => {
+    if (wallet?.address) {
+      refresh(wallet.address)
+    }
+  }, [networkKey, wallet?.address, refresh])
 
   useEffect(() => {
     loadWallets().then(wallets => {
@@ -118,7 +126,7 @@ export default function MarketplacePage() {
   // ── Set trust line ─────────────────────────────────────────────────────────
 
   const handleTrustLine = async (tok: TokenInfo) => {
-    if (!wallet) return
+    if (!wallet || !network.live) return
     setBusy(true)
     setError(null)
     setTxResult(null)
@@ -126,7 +134,9 @@ export default function MarketplacePage() {
     try {
       // Always fetch fresh sequence + ledger right before signing a TrustSet
       // This prevents tefPAST_SEQ errors from slightly stale state
-      const accRes = await fetch(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`)
+      const accRes = await fetch(
+        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
+      )
       const accData = await accRes.json()
 
       if (!accRes.ok || !accData.exists) {
@@ -147,13 +157,14 @@ export default function MarketplacePage() {
           limit:              '10000000',
           sequence:           freshSequence,
           lastLedgerSequence: freshLedger + 20,
+          networkId:          network.networkId,
         },
         falcon_secret,
       )
 
       const res  = await fetch('/api/wallet/submit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body:   JSON.stringify({ tx_blob }),
+        body:   JSON.stringify({ tx_blob, network: networkKey }),
       })
       const data = await res.json()
 
@@ -175,7 +186,7 @@ export default function MarketplacePage() {
   // ── Swap (OfferCreate) ─────────────────────────────────────────────────────
 
   const handleSwap = async () => {
-    if (!wallet || !swapToken || !swapAmt) return
+    if (!wallet || !swapToken || !swapAmt || !network.live) return
     const amt = parseFloat(swapAmt)
     if (isNaN(amt) || amt <= 0) { setError('Invalid amount'); return }
 
@@ -213,6 +224,7 @@ export default function MarketplacePage() {
           takerPays,
           sequence,
           lastLedgerSequence: ledger + 20,
+          networkId:          network.networkId,
           flags:              TF_IMMEDIATE_OR_CANCEL,
         },
         falcon_secret,
@@ -220,7 +232,7 @@ export default function MarketplacePage() {
 
       const res  = await fetch('/api/wallet/submit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body:   JSON.stringify({ tx_blob }),
+        body:   JSON.stringify({ tx_blob, network: networkKey }),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
@@ -254,6 +266,7 @@ export default function MarketplacePage() {
     <div className="min-h-screen flex flex-col">
 
       <Header current="market" />
+      <NetworkBanner />
 
       <main className="flex-1 px-4 py-8 max-w-2xl mx-auto w-full space-y-5">
 

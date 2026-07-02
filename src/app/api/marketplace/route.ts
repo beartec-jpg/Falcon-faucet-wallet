@@ -1,46 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { DEFAULT_RPC_URL } from '@/lib/rpc'
+import {
+  resolveNetworkKey,
+  serverNetworkConfig,
+  serverRpcCall,
+} from '@/lib/network-server'
 
-// Public RPC only (Node 1 full-history recommended)
-const RPC = process.env.XRPLD_RPC_URL ?? DEFAULT_RPC_URL
+const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
-// Token configuration — set via env after running 07_issue_stables.py
-const TOKENS = [
-  {
-    symbol:   'qUSDC',
-    currency: process.env.NEXT_PUBLIC_QUSDC_CURRENCY ?? 'QUC',
-    issuer:   process.env.NEXT_PUBLIC_QUSDC_ISSUER   ?? '',
-  },
-  {
-    symbol:   'qUSDT',
-    currency: process.env.NEXT_PUBLIC_QUSDT_CURRENCY ?? 'QUT',
-    issuer:   process.env.NEXT_PUBLIC_QUSDT_ISSUER   ?? '',
-  },
-]
-
-async function rpc(method: string, params: Record<string, unknown> = {}) {
-  const res = await fetch(RPC, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ method, params: [params] }),
-    cache:   'no-store',
-  })
-  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`)
-  return (await res.json()).result
-}
-
-async function getMarketInfo(currency: string, issuer: string) {
-  // Try AMM first; fall back to DEX best-offer price
+async function getMarketInfo(
+  networkKey: ReturnType<typeof resolveNetworkKey>,
+  currency: string,
+  issuer: string,
+) {
   try {
-    const ammR = await rpc('amm_info', {
-      asset:  { currency: 'XRP' },
+    const ammR = await serverRpcCall<{ amm?: Record<string, unknown> }>(networkKey, 'amm_info', {
+      asset: { currency: 'XRP' },
       asset2: { currency, issuer },
       ledger_index: 'validated',
     })
     if (ammR?.amm) {
       const amm = ammR.amm
-      const xrpDrops:   string = typeof amm.amount === 'string' ? amm.amount : '0'
-      const tokenValue: string = amm.amount2?.value ?? '0'
+      const xrpDrops: string = typeof amm.amount === 'string' ? amm.amount : '0'
+      const amount2 = amm.amount2 as { value?: string } | undefined
+      const tokenValue: string = amount2?.value ?? '0'
       const xrpAmt = parseInt(xrpDrops, 10) / 1_000_000
       const tokAmt = parseFloat(tokenValue)
       return {
@@ -54,9 +36,8 @@ async function getMarketInfo(currency: string, issuer: string) {
     }
   } catch { /* AMM not available */ }
 
-  // DEX: query best sell offer (someone selling tokens for XRP)
   try {
-    const bookR = await rpc('book_offers', {
+    const bookR = await serverRpcCall<{ offers?: unknown[] }>(networkKey, 'book_offers', {
       taker_gets: { currency: 'XRP' },
       taker_pays: { currency, issuer },
       limit: 5,
@@ -66,14 +47,10 @@ async function getMarketInfo(currency: string, issuer: string) {
     const offers: any[] = bookR?.offers ?? []
     if (offers.length > 0) {
       const best = offers[0]
-      // quality = XRP drops per token (drop/token)
-      const qual  = parseFloat(best.quality ?? '0')
-      // price in qXRP per token
+      const qual = parseFloat(best.quality ?? '0')
       const price = qual > 0 ? qual / 1_000_000 : 0
-
-      const totalXrp   = offers.reduce((s: number, o: any) => s + parseInt(o.TakerGets ?? '0', 10) / 1_000_000, 0)
+      const totalXrp = offers.reduce((s: number, o: any) => s + parseInt(o.TakerGets ?? '0', 10) / 1_000_000, 0)
       const totalToken = offers.reduce((s: number, o: any) => s + parseFloat(o.TakerPays?.value ?? '0'), 0)
-
       return {
         type:       'dex' as const,
         xrpPool:    totalXrp,
@@ -88,12 +65,21 @@ async function getMarketInfo(currency: string, issuer: string) {
   return null
 }
 
-async function getTokenBalance(address: string, currency: string, issuer: string) {
+async function getTokenBalance(
+  networkKey: ReturnType<typeof resolveNetworkKey>,
+  address: string,
+  currency: string,
+  issuer: string,
+) {
   try {
-    const r = await rpc('account_lines', { account: address, ledger_index: 'validated' })
+    const r = await serverRpcCall<{ lines?: Array<{ currency: string; account: string; balance: string; limit: string }> }>(
+      networkKey, 'account_lines', {
+      account: address,
+      ledger_index: 'validated',
+    })
     const line = (r?.lines ?? []).find(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (l: any) => l.currency === currency && l.account === issuer
+      (l: any) => l.currency === currency && l.account === issuer,
     )
     return line ? { balance: parseFloat(line.balance), limit: parseFloat(line.limit) } : null
   } catch {
@@ -101,34 +87,34 @@ async function getTokenBalance(address: string, currency: string, issuer: string
   }
 }
 
-// GET /api/marketplace?address=rXXX  (address optional)
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address') ?? ''
-  const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
+  const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
+  const cfg = serverNetworkConfig(networkKey)
 
   try {
     const tokensWithData = await Promise.all(
-      TOKENS.map(async (tok) => {
+      cfg.tokens.map(async (tok) => {
         if (!tok.issuer) {
           return { ...tok, amm: null, userBalance: null, configured: false }
         }
 
         const [amm, userBalance] = await Promise.all([
-          getMarketInfo(tok.currency, tok.issuer),
+          getMarketInfo(networkKey, tok.currency, tok.issuer),
           ADDRESS_RE.test(address)
-            ? getTokenBalance(address, tok.currency, tok.issuer)
+            ? getTokenBalance(networkKey, address, tok.currency, tok.issuer)
             : Promise.resolve(null),
         ])
 
         return { ...tok, amm, userBalance, configured: true }
-      })
+      }),
     )
 
-    return NextResponse.json({ tokens: tokensWithData })
+    return NextResponse.json({ tokens: tokensWithData, network: networkKey })
   } catch (e: unknown) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Node unavailable' },
-      { status: 502 }
+      { status: 502 },
     )
   }
 }

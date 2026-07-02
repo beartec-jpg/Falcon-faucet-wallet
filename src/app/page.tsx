@@ -5,6 +5,8 @@ import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Logo from '@/components/Logo'
+import NetworkBanner from '@/components/NetworkBanner'
+import { useNetwork } from '@/components/NetworkProvider'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,9 +27,7 @@ interface DripResult {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
-const EXPLORER_URL = process.env.NEXT_PUBLIC_EXPLORER_URL ?? ''
-const DRIP_AMOUNT  = parseInt(process.env.NEXT_PUBLIC_DRIP_AMOUNT_QXRP ?? '2000', 10)
+
 
 // ─── Subcomponents ───────────────────────────────────────────────────────────
 
@@ -43,7 +43,7 @@ function StatusDot({ online, state }: { online: boolean; state?: string }) {
   )
 }
 
-function TxHashDisplay({ hash }: { hash: string }) {
+function TxHashDisplay({ hash, explorerUrl }: { hash: string; explorerUrl: string }) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
     navigator.clipboard.writeText(hash)
@@ -51,7 +51,7 @@ function TxHashDisplay({ hash }: { hash: string }) {
     setTimeout(() => setCopied(false), 2000)
   }
   const short = `${hash.slice(0, 8)}…${hash.slice(-8)}`
-  const explorerHref = EXPLORER_URL ? `${EXPLORER_URL}/tx/${hash}` : null
+  const explorerHref = explorerUrl ? `${explorerUrl}/tx/${hash}` : null
 
   return (
     <div className="flex items-center gap-2 font-mono text-sm">
@@ -82,6 +82,7 @@ function TxHashDisplay({ hash }: { hash: string }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 function FaucetPageInner() {
+  const { networkKey, network } = useNetwork()
   const searchParams = useSearchParams()
   const [address, setAddress]   = useState(() => searchParams?.get('address') ?? '')
   const [status, setStatus]     = useState<NetworkStatus>({ online: false })
@@ -94,13 +95,13 @@ function FaucetPageInner() {
   // ── Poll network status every 10s ─────────────────────────────────────────
   const refreshStatus = useCallback(async () => {
     try {
-      const r = await fetch('/api/status')
+      const r = await fetch(`/api/status?network=${networkKey}`)
       const data = await r.json()
       setStatus(data)
     } catch {
       setStatus({ online: false })
     }
-  }, [])
+  }, [networkKey])
 
   useEffect(() => {
     refreshStatus()
@@ -146,7 +147,7 @@ function FaucetPageInner() {
       const res = await fetch('/api/faucet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account: address.trim() }),
+        body: JSON.stringify({ account: address.trim(), network: networkKey }),
       })
       const data = await res.json()
 
@@ -171,6 +172,7 @@ function FaucetPageInner() {
       <Header current="faucet">
         <StatusDot online={status.online} state={status.state} />
       </Header>
+      <NetworkBanner />
 
       {/* Main */}
       <main className="flex-1 flex items-center justify-center px-4 py-12">
@@ -182,12 +184,15 @@ function FaucetPageInner() {
           {/* Hero */}
           <div className="text-center space-y-2">
             <h1 className="text-3xl font-bold text-white">
-              Get testnet{' '}
+              Get {network.badge === 'testnet' ? 'testnet' : ''}{' '}
               <span className="text-brand-500">FALCON</span>
             </h1>
             <p className="text-slate-400 text-sm">
-              {DRIP_AMOUNT.toLocaleString()} FALCON per successful drip · failed attempts don&apos;t count
+              {network.dripAmountQxrp.toLocaleString()} FALCON per successful drip · failed attempts don&apos;t count
             </p>
+            {!network.live && (
+              <p className="text-amber-400/90 text-xs">{network.comingSoonMessage}</p>
+            )}
           </div>
 
           {/* Faucet card */}
@@ -212,7 +217,7 @@ function FaucetPageInner() {
 
               <button
                 type="submit"
-                disabled={loading || !address.trim() || !status.online}
+                disabled={loading || !address.trim() || !status.online || !network.live}
                 className="btn-primary"
               >
                 {loading ? (
@@ -224,7 +229,7 @@ function FaucetPageInner() {
                     Sending…
                   </span>
                 ) : (
-                  `Request ${DRIP_AMOUNT} FALCON`
+                  `Request ${network.dripAmountQxrp} FALCON`
                 )}
               </button>
             </form>
@@ -252,7 +257,7 @@ function FaucetPageInner() {
                   <span className="text-slate-500">To</span>
                   <span className="font-mono text-slate-300 text-xs break-all">{result.account}</span>
                   <span className="text-slate-500">Tx</span>
-                  <TxHashDisplay hash={result.txHash} />
+                  <TxHashDisplay hash={result.txHash} explorerUrl={network.explorerUrl} />
                 </div>
                 <Link
                   href={`/wallet?address=${encodeURIComponent(result.account)}`}

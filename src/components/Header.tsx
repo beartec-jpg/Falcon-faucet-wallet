@@ -3,6 +3,8 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import { useNetwork } from '@/components/NetworkProvider'
+import NetworkSwitcher from '@/components/NetworkSwitcher'
 
 type NavItem = 'faucet' | 'wallet' | 'market' | 'scan' | 'whitepaper'
 
@@ -21,7 +23,7 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
 ]
 
 export default function Header({ current, subtitle, children }: HeaderProps) {
-  const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
+  const { network } = useNetwork()
 
   return (
     <header className="border-b border-slate-800/60 px-4 py-3 flex items-center justify-between sticky top-0 bg-slate-950/95 backdrop-blur-md z-20">
@@ -36,7 +38,7 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
           />
         </Link>
         <div>
-          <div className="font-semibold text-white leading-tight">{NETWORK_NAME}</div>
+          <div className="font-semibold text-white leading-tight">{network.name}</div>
           <div className="text-xs text-slate-500">
             {subtitle ||
               (current === 'wallet'
@@ -53,7 +55,8 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        <nav className="flex items-center gap-1 text-sm">
+        <NetworkSwitcher compact />
+        <nav className="hidden sm:flex items-center gap-1 text-sm">
           {NAV_ITEMS.map((item) => {
             const isActive = item.key === current
             return isActive ? (

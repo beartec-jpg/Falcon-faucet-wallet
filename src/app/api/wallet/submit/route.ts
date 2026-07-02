@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { DEFAULT_RPC_URL } from '@/lib/rpc'
 import { isOriginAllowed } from '@/lib/origin'
-
-// Public RPC only (Node 1 full-history recommended)
-const RPC = process.env.XRPLD_RPC_URL ?? DEFAULT_RPC_URL
+import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 
 export async function POST(req: NextRequest) {
   if (!isOriginAllowed(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
 
-  let body: { tx_blob?: unknown }
+  let body: { tx_blob?: unknown; network?: string }
   try {
     body = await req.json()
   } catch {
@@ -21,30 +18,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing tx_blob' }, { status: 400 })
   }
 
-  // Basic sanity: tx_blob must be a non-empty hex string
   if (!/^[0-9A-Fa-f]{10,}$/.test(body.tx_blob)) {
     return NextResponse.json({ error: 'Malformed tx_blob' }, { status: 400 })
   }
 
+  const networkKey = resolveNetworkKey(body.network)
+
   try {
-    const res = await fetch(RPC, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ method: 'submit', params: [{ tx_blob: body.tx_blob }] }),
-      cache:   'no-store',
-    })
-
-    if (!res.ok) throw new Error(`RPC HTTP ${res.status}`)
-
-    const data   = await res.json()
-    const result = data.result as {
-      engine_result:         string
+    const result = await serverRpcCall<{
+      engine_result: string
       engine_result_message: string
-      tx_json?:              { hash?: string }
-    }
+      tx_json?: { hash?: string }
+    }>(networkKey, 'submit', { tx_blob: body.tx_blob })
 
-    // Only treat tesSUCCESS as a clear success for the client.
-    // ter* codes (e.g. terPRE_SEQ) mean the tx is held and may never succeed.
     const success = result.engine_result === 'tesSUCCESS'
 
     return NextResponse.json(
@@ -53,14 +39,15 @@ export async function POST(req: NextRequest) {
         hash:    result.tx_json?.hash,
         result:  result.engine_result,
         message: result.engine_result_message,
+        network: networkKey,
       },
-      { status: success ? 200 : 422 }
+      { status: success ? 200 : 422 },
     )
   } catch (err: unknown) {
     console.error('[wallet/submit] Unexpected error:', err)
     return NextResponse.json(
-      { error: 'Transaction submission failed' }, // do not leak internal details
-      { status: 502 }
+      { error: 'Transaction submission failed' },
+      { status: 502 },
     )
   }
 }

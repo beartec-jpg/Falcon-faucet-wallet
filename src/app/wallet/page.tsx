@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import NetworkBanner from '@/components/NetworkBanner'
+import { useNetwork } from '@/components/NetworkProvider'
+import { withNetworkQuery } from '@/lib/network-query'
 import {
   isPasskeySupported,
   registerPasskey,
@@ -194,6 +197,7 @@ function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function WalletPage() {
+  const { networkKey, network } = useNetwork()
   const [view,    setView]    = useState<View>('loading')
   const [wallet,  setWallet]  = useState<StoredWallet | null>(null)
   const [account, setAccount] = useState<AccountData | null>(null)
@@ -245,12 +249,20 @@ export default function WalletPage() {
 
   const refreshBalance = useCallback(async (address: string) => {
     try {
-      const r = await fetch(`/api/wallet/account?address=${encodeURIComponent(address)}`)
+      const r = await fetch(
+        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, networkKey),
+      )
       if (!r.ok) return
       const data: AccountData = await r.json()
       setAccount(data)
     } catch { /* non-fatal */ }
-  }, [])
+  }, [networkKey])
+
+  useEffect(() => {
+    if (wallet?.address) {
+      refreshBalance(wallet.address)
+    }
+  }, [networkKey, wallet?.address, refreshBalance])
 
   // ── On mount: load wallet from IndexedDB ──────────────────────────────────
 
@@ -538,6 +550,10 @@ export default function WalletPage() {
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!wallet || !account) return
+    if (!network.live) {
+      setError(`${network.name} is not live yet.`)
+      return
+    }
 
     const to      = sendTo.trim()
     const amtQxrp = parseFloat(sendAmount)
@@ -565,7 +581,9 @@ export default function WalletPage() {
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
       // 3. Fetch fresh sequence + ledger index just before signing (avoids tefPAST_SEQ)
-      const freshAcct = await fetch(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`)
+      const freshAcct = await fetch(
+        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
+      )
         .then(r => r.ok ? r.json() as Promise<AccountData> : null)
         .catch(() => null)
       const sequence           = freshAcct?.sequence           ?? account.sequence
@@ -578,6 +596,7 @@ export default function WalletPage() {
           amountDrops:        qxrpToDrops(amtQxrp),
           sequence,
           lastLedgerSequence,
+          networkId:          network.networkId,
         },
         falcon_secret,
       )
@@ -586,7 +605,7 @@ export default function WalletPage() {
       const res = await fetch('/api/wallet/submit', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ tx_blob }),
+        body:    JSON.stringify({ tx_blob, network: networkKey }),
       })
       const data = await res.json()
 
@@ -627,6 +646,7 @@ export default function WalletPage() {
     <div className="min-h-screen flex flex-col">
 
       <Header current="wallet" />
+      <NetworkBanner />
 
       <main className="flex-1 flex items-start justify-center px-4 py-10">
         <div className="w-full max-w-lg space-y-4">
@@ -974,7 +994,7 @@ export default function WalletPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => { setView('send'); setError(null); setSendResult(null) }}
-                    disabled={!account?.exists}
+                    disabled={!account?.exists || !network.live}
                     className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-brand-500 hover:bg-brand-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 transition-colors"
                   >
                     Send
@@ -1724,7 +1744,8 @@ export default function WalletPage() {
 
           {/* ── Footer note ── */}
           <p className="text-center text-xs text-slate-700">
-            Testnet tokens · No real value ·{' '}
+            {network.badge === 'testnet' ? 'Testnet tokens · No real value' : `${network.name} · Network ID ${network.networkId}`}
+            {' · '}
             <a
               href="https://github.com/beartec-jpg/qXRP"
               target="_blank"
