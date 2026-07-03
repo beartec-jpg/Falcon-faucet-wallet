@@ -13,7 +13,7 @@ import {
   signOfferCreate,
   signOfferCancel,
   signAmmDeposit,
-  TF_TWO_ASSET,
+  signAmmWithdraw,
   type IouAmount,
 } from '@/lib/wallet-sign-client'
 
@@ -32,6 +32,14 @@ interface UserOffer {
   price: number
   amountToken: number
   amountXrp: number
+}
+
+interface LpPosition {
+  lpBalance: number
+  lpToken: { currency: string; issuer: string }
+  sharePct: number
+  estXrpOut: number
+  estUsdcOut: number
 }
 
 interface Props {
@@ -76,6 +84,8 @@ export default function MarketLiquidityPanel({
   const [xrpAmt, setXrpAmt] = useState('')
   const [usdcAmt, setUsdcAmt] = useState('')
   const [offers, setOffers] = useState<UserOffer[]>([])
+  const [lpPosition, setLpPosition] = useState<LpPosition | null>(null)
+  const [withdrawPct, setWithdrawPct] = useState('100')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<string | null>(null)
@@ -88,9 +98,18 @@ export default function MarketLiquidityPanel({
     if (!d.error) setOffers(d.offers ?? [])
   }, [wallet.address, networkKey])
 
+  const loadLpPosition = useCallback(async () => {
+    const r = await fetch(
+      withNetworkQuery(`/api/market/lp-position?address=${encodeURIComponent(wallet.address)}`, networkKey),
+    )
+    const d = await r.json()
+    if (!d.error) setLpPosition(d.position ?? null)
+  }, [wallet.address, networkKey])
+
   useEffect(() => {
     loadOffers()
-  }, [loadOffers])
+    if (ammEnabled) loadLpPosition()
+  }, [loadOffers, loadLpPosition, ammEnabled])
 
   const submitTx = async (tx_blob: string) => {
     const res = await fetch('/api/wallet/submit', {
@@ -232,7 +251,7 @@ export default function MarketLiquidityPanel({
       setResult(`AMM deposit: ${data.result ?? 'ok'} — LP tokens credited; fees paid to your wallet when swaps occur`)
       setXrpAmt('')
       setUsdcAmt('')
-      setTimeout(() => onRefresh(), 4000)
+      setTimeout(() => { onRefresh(); loadLpPosition() }, 4000)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'AMM deposit failed')
     } finally {
@@ -240,7 +259,64 @@ export default function MarketLiquidityPanel({
     }
   }
 
+  const handleAmmWithdraw = async (withdrawAll: boolean) => {
+    if (!token.issuer || !ammEnabled || !lpPosition) return
+    const pct = withdrawAll ? 100 : parseFloat(withdrawPct)
+    if (!withdrawAll && (!Number.isFinite(pct) || pct <= 0 || pct > 100)) {
+      setError('Enter a withdraw percentage between 1 and 100')
+      return
+    }
+
+    const lpAmt = withdrawAll
+      ? String(lpPosition.lpBalance)
+      : String(Math.floor(lpPosition.lpBalance * (pct / 100) * 1e6) / 1e6)
+
+    if (parseFloat(lpAmt) <= 0) {
+      setError('No LP tokens to withdraw')
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+    setResult(null)
+    try {
+      const accRes = await fetch(
+        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
+      )
+      const accData = await accRes.json()
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+
+      const { tx_blob } = await signAmmWithdraw(
+        {
+          account: wallet.address,
+          currency: token.currency,
+          issuer: token.issuer,
+          lpTokenCurrency: lpPosition.lpToken.currency,
+          lpTokenIssuer: lpPosition.lpToken.issuer,
+          lpTokenAmount: lpAmt,
+          withdrawAll,
+          sequence: accData.sequence,
+          lastLedgerSequence: accData.currentLedger + 20,
+          networkId: network.networkId,
+        },
+        falcon_secret,
+      )
+
+      const data = await submitTx(tx_blob)
+      setResult(
+        `Withdrawn from pool: ${data.result ?? 'ok'} — FALCON and USDC returned to your wallet`,
+      )
+      setTimeout(() => { onRefresh(); loadLpPosition() }, 4000)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'AMM withdraw failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const tokenNum = parseFloat(tokenAmt) || 0
+  const withdrawPctNum = parseFloat(withdrawPct) || 0
   const priceNum = parseFloat(price) || 0
   const falconNeeded = side === 'sell' ? 0 : tokenNum * priceNum
   const usdcNeeded = side === 'sell' ? tokenNum : 0
@@ -341,6 +417,58 @@ export default function MarketLiquidityPanel({
 
         {mode === 'amm' && ammEnabled && (
           <div className="space-y-4">
+            {lpPosition && (
+              <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3 space-y-2 text-xs">
+                <div className="font-medium text-purple-300">Your pool position</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <div className="text-slate-500">Pool share</div>
+                    <div className="font-mono text-slate-200">{fmt(lpPosition.sharePct, 4)}%</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">LP tokens</div>
+                    <div className="font-mono text-slate-200">{fmt(lpPosition.lpBalance, 0)}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Est. FALCON</div>
+                    <div className="font-mono text-slate-200">{fmt(lpPosition.estXrpOut, 4)}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Est. USDC</div>
+                    <div className="font-mono text-slate-200">{fmt(lpPosition.estUsdcOut, 4)}</div>
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <input
+                    type="number"
+                    value={withdrawPct}
+                    onChange={(e) => setWithdrawPct(e.target.value)}
+                    min="1"
+                    max="100"
+                    className="input-field flex-1 text-sm"
+                    placeholder="%"
+                    disabled={busy}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAmmWithdraw(false)}
+                    disabled={busy || !isPasskeySupported() || withdrawPctNum <= 0}
+                    className="text-xs px-3 py-2 rounded-lg bg-slate-700 text-slate-200 hover:bg-slate-600 disabled:opacity-40"
+                  >
+                    Withdraw %
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAmmWithdraw(true)}
+                    disabled={busy || !isPasskeySupported()}
+                    className="text-xs px-3 py-2 rounded-lg bg-purple-600/80 text-white hover:bg-purple-500 disabled:opacity-40"
+                  >
+                    Withdraw all
+                  </button>
+                </div>
+              </div>
+            )}
+
             <p className="text-xs text-slate-500">
               Deposit both assets at the current pool ratio. You receive LP tokens; swap fees accrue to LPs.
             </p>

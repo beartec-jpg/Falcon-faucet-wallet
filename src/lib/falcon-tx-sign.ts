@@ -231,6 +231,10 @@ export async function signOfferCancelTx(
 
 /** tfTwoAsset — deposit both pool assets (XLS-30). */
 export const TF_TWO_ASSET = 0x00100000
+/** tfLPToken — burn LP tokens for proportional withdraw. */
+export const TF_LP_TOKEN = 0x00010000
+/** tfWithdrawAll — redeem entire LP balance. */
+export const TF_WITHDRAW_ALL = 0x00020000
 
 export async function signAmmDepositTx(
   params: {
@@ -263,6 +267,48 @@ export async function signAmmDepositTx(
     Amount: params.amountXrpDrops,
     Amount2: { currency: params.currency, issuer: params.issuer, value: params.amountToken },
     Flags: TF_TWO_ASSET,
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}
+
+export async function signAmmWithdrawTx(
+  params: {
+    account: string
+    currency: string
+    issuer: string
+    lpTokenCurrency: string
+    lpTokenIssuer: string
+    lpTokenAmount: string
+    withdrawAll?: boolean
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const core = baseTx(
+    params.account,
+    params.sequence,
+    params.lastLedgerSequence,
+    decoded.publicKeyHex,
+    params.networkId,
+    params.fee,
+  )
+  let flags = TF_LP_TOKEN
+  if (params.withdrawAll) flags |= TF_WITHDRAW_ALL
+  const tx = {
+    ...core,
+    TransactionType: 'AMMWithdraw',
+    Asset: { currency: 'XRP' },
+    Asset2: { currency: params.currency, issuer: params.issuer },
+    LPTokenIn: {
+      currency: params.lpTokenCurrency,
+      issuer: params.lpTokenIssuer,
+      value: params.lpTokenAmount,
+    },
+    Flags: flags,
   }
   return { tx_blob: await signPrepared(tx, decoded) }
 }
