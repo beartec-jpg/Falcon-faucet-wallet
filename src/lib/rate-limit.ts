@@ -59,6 +59,7 @@ function memConsume(key: string): void {
 }
 
 let limiter: Ratelimit | null = null
+let memFallbackWarned = false
 
 function getLimiter(): Ratelimit | null {
   if (!limiter) limiter = makeRedisLimiter()
@@ -87,21 +88,19 @@ export async function peekRateLimit(key: string): Promise<LimitResult> {
     console.warn('[rate-limit] peek failed:', err)
   }
 
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
-  if (isProduction) {
-    // Fail CLOSED in production: without a distributed limiter the faucet has no
-    // effective protection and its funded account can be drained. Operators who
-    // explicitly accept this risk can opt back into fail-open with
-    // RATE_LIMIT_FAIL_OPEN=true, but the default must be safe.
-    const failOpen = process.env.RATE_LIMIT_FAIL_OPEN === 'true'
-    if (failOpen) {
-      console.warn('[rate-limit] No Redis — RATE_LIMIT_FAIL_OPEN=true, rate limiting disabled')
-      return { success: true, reset: new Date(Date.now() + WINDOW_SECONDS * 1000).toISOString(), remaining: REQUESTS }
-    }
-    console.error('[rate-limit] No Redis configured in production — failing closed. Set KV_REST_API_* / UPSTASH_REDIS_REST_* to enable the faucet.')
-    return { success: false, reset: new Date(Date.now() + WINDOW_SECONDS * 1000).toISOString(), remaining: 0 }
+  const failOpen = process.env.RATE_LIMIT_FAIL_OPEN === 'true'
+  if (failOpen) {
+    console.warn('[rate-limit] No Redis — RATE_LIMIT_FAIL_OPEN=true, rate limiting disabled')
+    return { success: true, reset: new Date(Date.now() + WINDOW_SECONDS * 1000).toISOString(), remaining: REQUESTS }
   }
 
+  // No Redis available — fall back to in-process memory store.
+  // This provides per-instance rate limiting. For multi-instance deployments
+  // configure KV_REST_API_* or UPSTASH_REDIS_REST_* for a distributed limiter.
+  if (!memFallbackWarned) {
+    console.warn('[rate-limit] No Redis configured — using in-memory rate limiting (per-instance). Set KV_REST_API_* / UPSTASH_REDIS_REST_* for distributed limiting.')
+    memFallbackWarned = true
+  }
   const r = memPeek(key)
   return { success: r.success, reset: r.reset.toISOString(), remaining: r.remaining }
 }
@@ -118,9 +117,8 @@ export async function consumeRateLimit(key: string): Promise<void> {
     console.warn('[rate-limit] consume failed:', err)
   }
 
-  if (!(process.env.NODE_ENV === 'production' || process.env.VERCEL === '1')) {
-    memConsume(key)
-  }
+  // No Redis — consume from in-memory store regardless of environment.
+  memConsume(key)
 }
 
 /** @deprecated Use peekRateLimit + consumeRateLimit */
