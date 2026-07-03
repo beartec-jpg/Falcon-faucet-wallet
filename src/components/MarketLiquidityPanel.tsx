@@ -152,11 +152,11 @@ export default function MarketLiquidityPanel({
       let takerPays: string | IouAmount
 
       if (side === 'sell') {
-        takerGets = { currency: token.currency, issuer: token.issuer, value: tokenValue }
-        takerPays = xrpDrops
-      } else {
         takerGets = xrpDrops
         takerPays = { currency: token.currency, issuer: token.issuer, value: tokenValue }
+      } else {
+        takerGets = { currency: token.currency, issuer: token.issuer, value: tokenValue }
+        takerPays = xrpDrops
       }
 
       const { tx_blob } = await signOfferCreate(
@@ -399,8 +399,8 @@ export default function MarketLiquidityPanel({
             {tokenNum > 0 && priceNum > 0 && (
               <p className="text-xs text-slate-500">
                 {side === 'sell'
-                  ? `Locks ${fmt(tokenNum, 4)} USDC on the book`
-                  : `Locks ~${fmt(falconNeeded, 4)} FALCON + ${fmt(usdcNeeded, 4)} USDC`}
+                  ? `Locks ${fmt(tokenNum, 4)} F-USDC on the book`
+                  : `Locks ~${fmt(falconNeeded, 4)} FALCON as bid`}
               </p>
             )}
 

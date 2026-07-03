@@ -14,8 +14,7 @@ import { decryptSeed } from '@/lib/wallet-crypto'
 import { loadWallets, type StoredWallet } from '@/lib/wallet-store'
 import {
   signTrustSet,
-  signOfferCreate,
-  TF_IMMEDIATE_OR_CANCEL,
+  signPaymentSwap,
   type IouAmount,
 } from '@/lib/wallet-sign-client'
 import { type UsdcBridgeManifest } from '@/lib/bridge-config'
@@ -42,6 +41,7 @@ interface SwapQuote {
   price: number
   inputAmount: number
   outputAmount: number
+  minOutputAmount?: number
   tradingFeeBps: number
 }
 
@@ -196,44 +196,52 @@ export default function SwapPage() {
       setError('Invalid amount')
       return
     }
+    if (!quote) {
+      setError('Quote unavailable — pool may be empty')
+      return
+    }
 
     setBusy(true)
     setError(null)
     setTxResult(null)
 
     try {
+      const accRes = await fetch(
+        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
+      )
+      const accData = await accRes.json()
+
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-      const price = quote?.price ?? swapData.market?.price ?? 1
 
-      let takerGets: string | IouAmount
-      let takerPays: string | IouAmount
+      const outAmt = quote.outputAmount
+      const minOut = quote.minOutputAmount ?? outAmt * 0.995
+      const token = swapData.token
+
+      let amount: string | IouAmount
+      let sendMax: string | IouAmount
+      let deliverMin: string | IouAmount | undefined
 
       if (swapDir === 'buy') {
-        const xrpDrops = String(Math.round(amt * DROPS_PER_XRP))
-        const tokenAmt = price > 0 ? (amt / price) * 0.99 : amt
-        takerGets = xrpDrops
-        takerPays = {
-          currency: swapData.token.currency,
-          issuer: swapData.token.issuer,
-          value: fmt(tokenAmt, 8),
-        }
+        sendMax = String(Math.round(amt * DROPS_PER_XRP))
+        amount = { currency: token.currency, issuer: token.issuer, value: fmt(outAmt, 8) }
+        deliverMin = { currency: token.currency, issuer: token.issuer, value: fmt(minOut, 8) }
       } else {
-        const xrpAmt = amt * price * 0.99
-        const xrpDrops = String(Math.round(xrpAmt * DROPS_PER_XRP))
-        takerGets = { currency: swapData.token.currency, issuer: swapData.token.issuer, value: String(amt) }
-        takerPays = xrpDrops
+        sendMax = { currency: token.currency, issuer: token.issuer, value: fmt(amt, 8) }
+        amount = String(Math.round(outAmt * DROPS_PER_XRP))
+        deliverMin = String(Math.round(minOut * DROPS_PER_XRP))
       }
 
-      const { tx_blob } = await signOfferCreate(
+      const { tx_blob } = await signPaymentSwap(
         {
           account: wallet.address,
-          takerGets,
-          takerPays,
-          sequence,
-          lastLedgerSequence: ledger + 20,
+          destination: wallet.address,
+          amount,
+          sendMax,
+          deliverMin,
+          sequence: accData.sequence,
+          lastLedgerSequence: accData.currentLedger + 20,
           networkId: network.networkId,
-          flags: TF_IMMEDIATE_OR_CANCEL,
         },
         falcon_secret,
       )
@@ -317,7 +325,7 @@ export default function SwapPage() {
                   </div>
                 </div>
                 <div className="bg-slate-800/60 rounded-xl p-3 text-center">
-                  <div className="text-xs text-slate-500 mb-1">USDC</div>
+                  <div className="text-xs text-slate-500 mb-1">F-USDC</div>
                   {swapData?.userBalance ? (
                     <div className="text-lg font-bold text-white">{fmt(swapData.userBalance.balance, 2)}</div>
                   ) : (
@@ -366,7 +374,7 @@ export default function SwapPage() {
                       }`}>
                         {swapData.market.type === 'amm' ? 'AMM' : 'DEX'}
                       </span>
-                      <span>{fmt(swapData.market.price, 6)} FALCON per USDC</span>
+                      <span>{fmt(swapData.market.price, 6)} FALCON per F-USDC</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="bg-slate-800/60 rounded-lg px-3 py-2">
@@ -383,7 +391,8 @@ export default function SwapPage() {
 
                 {swapData?.market ? (
                   <div className="card p-5 space-y-4">
-                    <h2 className="text-sm font-semibold text-white">FALCON ↔ USDC</h2>
+                    <h2 className="text-sm font-semibold text-white">FALCON ↔ F-USDC</h2>
+                    <p className="text-xs text-slate-500">Mainnet-style swap via on-ledger Payment through the AMM pool.</p>
 
                     <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
                       <button

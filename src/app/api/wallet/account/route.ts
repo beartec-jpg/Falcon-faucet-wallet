@@ -3,6 +3,7 @@ import {
   resolveNetworkKey,
   serverRpcCall,
 } from '@/lib/network-server'
+import { fetchWalletAssets } from '@/lib/swap/wallet-assets'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
@@ -46,6 +47,7 @@ export async function GET(req: NextRequest) {
         transactions:   [],
         currentLedger,
         network:        networkKey,
+        assets:         { fusdc: null, lp: null },
       })
     }
 
@@ -70,6 +72,8 @@ export async function GET(req: NextRequest) {
       })
       .filter(t => t.hash)
 
+    const assets = await fetchWalletAssets(networkKey, address)
+
     return NextResponse.json({
       address,
       balance,
@@ -78,6 +82,7 @@ export async function GET(req: NextRequest) {
       transactions,
       currentLedger,
       network: networkKey,
+      assets,
     })
   } catch (err: unknown) {
     return NextResponse.json(

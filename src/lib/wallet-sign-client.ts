@@ -17,6 +17,7 @@ import {
 import { getFalcon512 } from './falcon-wasm'
 import {
   signPaymentTx,
+  signPaymentSwapTx,
   signTrustSetTx,
   signOfferCreateTx,
   signOfferCancelTx,
@@ -82,6 +83,27 @@ export async function signPayment(
   falcon_secret: string,
 ): Promise<SignedTx> {
   const { tx_blob } = await signPaymentTx(params, falcon_secret)
+  return { tx_blob }
+}
+
+export interface PaymentSwapParams {
+  account: string
+  destination: string
+  amount: XrplAmount
+  sendMax: XrplAmount
+  deliverMin?: XrplAmount
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  fee?: string
+}
+
+/** Cross-currency self-payment — routes through on-ledger AMM (mainnet-style). */
+export async function signPaymentSwap(
+  params: PaymentSwapParams,
+  falcon_secret: string,
+): Promise<SignedTx> {
+  const { tx_blob } = await signPaymentSwapTx(params, falcon_secret)
   return { tx_blob }
 }
 

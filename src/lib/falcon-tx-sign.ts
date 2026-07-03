@@ -110,6 +110,44 @@ export async function signPaymentTx(
   return { tx_blob: await signPrepared(tx, decoded) }
 }
 
+/** tfPartialPayment — allow cross-currency path through AMM with DeliverMin. */
+export const TF_PARTIAL_PAYMENT = 0x00020000
+
+export async function signPaymentSwapTx(
+  params: {
+    account: string
+    destination: string
+    amount: XrplAmount
+    sendMax: XrplAmount
+    deliverMin?: XrplAmount
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const core = baseTx(
+    params.account,
+    params.sequence,
+    params.lastLedgerSequence,
+    decoded.publicKeyHex,
+    params.networkId,
+    params.fee,
+  )
+  const tx: Record<string, unknown> = {
+    ...core,
+    TransactionType: 'Payment',
+    Destination: params.destination,
+    Amount: params.amount,
+    SendMax: params.sendMax,
+    Flags: params.deliverMin ? TF_PARTIAL_PAYMENT : 0,
+  }
+  if (params.deliverMin) tx.DeliverMin = params.deliverMin
+  return { tx_blob: await signPrepared(tx as TxCore & Record<string, unknown>, decoded) }
+}
+
 export async function signTrustSetTx(
   params: {
     account: string

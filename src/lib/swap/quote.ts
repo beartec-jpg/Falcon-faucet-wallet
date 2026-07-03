@@ -1,17 +1,20 @@
 /**
- * On-ledger swap quoting — AMM pool, order book, or path_find.
+ * On-ledger swap quoting — AMM constant-product math (mainnet-style).
  */
 
 import type { NetworkKey } from '@/lib/networks'
 import { serverNetworkConfig, serverRpcCall } from '@/lib/network-server'
+import { ammAmountOut, applySlippage } from '@/lib/swap/amm-math'
 
 const DROPS_PER_XRP = 1_000_000
+const DEFAULT_SLIPPAGE_BPS = 50
 
 export interface SwapQuote {
-  source: 'amm' | 'dex' | 'path'
+  source: 'amm' | 'dex'
   price: number
   inputAmount: number
   outputAmount: number
+  minOutputAmount: number
   tradingFeeBps: number
   pool?: {
     xrp: number
@@ -25,7 +28,7 @@ export interface UsdcTokenRef {
   issuer: string
 }
 
-async function ammQuote(
+async function ammPool(
   networkKey: NetworkKey,
   currency: string,
   issuer: string,
@@ -98,46 +101,57 @@ export async function quoteSwap(
   token: UsdcTokenRef,
   direction: 'buy' | 'sell',
   amount: number,
-  slippageBps = 100,
+  slippageBps = DEFAULT_SLIPPAGE_BPS,
 ): Promise<SwapQuote | null> {
   if (amount <= 0 || !token.issuer) return null
 
-  const amm = await ammQuote(networkKey, token.currency, token.issuer)
+  const amm = await ammPool(networkKey, token.currency, token.issuer)
   const dex = amm ? null : await dexQuote(networkKey, token.currency, token.issuer)
-  const source = amm ? amm : dex
-  if (!source || source.price <= 0) return null
-
-  const slip = 1 - slippageBps / 10_000
   const src = amm ? ('amm' as const) : ('dex' as const)
 
-  if (direction === 'buy') {
-    const output = (amount / source.price) * slip
+  if (amm) {
+    let output: number
+    if (direction === 'buy') {
+      output = ammAmountOut(amm.xrpPool, amm.tokenPool, amount, amm.tradingFee)
+    } else {
+      output = ammAmountOut(amm.tokenPool, amm.xrpPool, amount, amm.tradingFee)
+    }
+    if (output <= 0) return null
+    const minOut = applySlippage(output, slippageBps, 'min')
     return {
-      source: src,
-      price: source.price,
+      source: 'amm',
+      price: amm.price,
       inputAmount: amount,
       outputAmount: output,
-      tradingFeeBps: amm?.tradingFee ?? 0,
-      pool: {
-        xrp: source.xrpPool,
-        token: source.tokenPool,
-        type: src,
-      },
+      minOutputAmount: minOut,
+      tradingFeeBps: amm.tradingFee,
+      pool: { xrp: amm.xrpPool, token: amm.tokenPool, type: 'amm' },
     }
   }
 
-  const output = amount * source.price * slip
+  if (!dex || dex.price <= 0) return null
+  const slip = 1 - slippageBps / 10_000
+  if (direction === 'buy') {
+    const output = (amount / dex.price) * slip
+    return {
+      source: 'dex',
+      price: dex.price,
+      inputAmount: amount,
+      outputAmount: output,
+      minOutputAmount: output,
+      tradingFeeBps: 0,
+      pool: { xrp: dex.xrpPool, token: dex.tokenPool, type: 'dex' },
+    }
+  }
+  const output = amount * dex.price * slip
   return {
-    source: src,
-    price: source.price,
+    source: 'dex',
+    price: dex.price,
     inputAmount: amount,
     outputAmount: output,
-    tradingFeeBps: amm?.tradingFee ?? 0,
-    pool: {
-      xrp: source.xrpPool,
-      token: source.tokenPool,
-      type: src,
-    },
+    minOutputAmount: output,
+    tradingFeeBps: 0,
+    pool: { xrp: dex.xrpPool, token: dex.tokenPool, type: 'dex' },
   }
 }
 
@@ -147,7 +161,7 @@ export async function getUsdcMarket(
   address?: string,
 ) {
   const cfg = serverNetworkConfig(networkKey)
-  const amm = await ammQuote(networkKey, token.currency, token.issuer)
+  const amm = await ammPool(networkKey, token.currency, token.issuer)
   const dex = amm ? null : await dexQuote(networkKey, token.currency, token.issuer)
   const market = amm ?? dex
 
@@ -173,7 +187,7 @@ export async function getUsdcMarket(
     network: networkKey,
     networkId: cfg.networkId,
     token: {
-      symbol: 'USDC',
+      symbol: 'F-USDC',
       currency: token.currency,
       issuer: token.issuer,
       configured: !!token.issuer,

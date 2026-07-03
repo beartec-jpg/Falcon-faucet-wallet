@@ -53,12 +53,31 @@ interface TxRecord {
   date?:        number
 }
 
+interface WalletAssets {
+  fusdc: {
+    symbol: string
+    balance: number
+    currency: string
+    issuer: string
+  } | null
+  lp: {
+    symbol: string
+    balance: number
+    currency: string
+    issuer: string
+    sharePct: number
+    estXrpOut: number
+    estUsdcOut: number
+  } | null
+}
+
 interface AccountData {
   balance:      number
   sequence:     number
   exists:       boolean
   transactions: TxRecord[]
   currentLedger: number
+  assets?:      WalletAssets
 }
 
 type View = 'loading' | 'no-wallet' | 'restore' | 'backup' | 'dashboard' | 'send' | 'receive' | 'node'
@@ -972,20 +991,52 @@ export default function WalletPage() {
                   </button>
                 </div>
 
-                {/* Balance */}
-                <div>
-                  <div className="text-xs text-slate-500 mb-1">Balance</div>
-                  {account === null ? (
-                    <div className="text-2xl font-bold text-slate-600">—</div>
-                  ) : !account.exists ? (
-                    <div>
-                      <div className="text-2xl font-bold text-slate-600">0 <span className="text-lg text-slate-700">FALCON</span></div>
-                      <div className="text-xs text-slate-600 mt-1">Account not yet activated — fund it first</div>
-                    </div>
-                  ) : (
-                    <div className="text-3xl font-bold text-white">
-                      {account.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}
-                      <span className="text-brand-500 text-xl ml-2">FALCON</span>
+                {/* Balances */}
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-xs text-slate-500 mb-1">FALCON</div>
+                    {account === null ? (
+                      <div className="text-2xl font-bold text-slate-600">—</div>
+                    ) : !account.exists ? (
+                      <div>
+                        <div className="text-2xl font-bold text-slate-600">0</div>
+                        <div className="text-xs text-slate-600 mt-1">Account not yet activated — fund it first</div>
+                      </div>
+                    ) : (
+                      <div className="text-3xl font-bold text-white">
+                        {account.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                      </div>
+                    )}
+                  </div>
+
+                  {account?.exists && (
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
+                        <div className="text-xs text-slate-500">F-USDC</div>
+                        <div className="font-mono text-slate-100 mt-0.5">
+                          {account.assets?.fusdc
+                            ? account.assets.fusdc.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })
+                            : '0'}
+                        </div>
+                        <div className="text-[10px] text-slate-600 mt-0.5">Testnet bridged USDC</div>
+                      </div>
+                      <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
+                        <div className="text-xs text-slate-500">LP-TOKENS</div>
+                        <div className="font-mono text-slate-100 mt-0.5">
+                          {account.assets?.lp
+                            ? account.assets.lp.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                            : '0'}
+                        </div>
+                        {account.assets?.lp ? (
+                          <div className="text-[10px] text-slate-600 mt-0.5">
+                            ≈ {account.assets.lp.estXrpOut.toFixed(2)} FALCON + {account.assets.lp.estUsdcOut.toFixed(2)} F-USDC
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-600 mt-0.5">
+                            <Link href="/pool" className="text-brand-400 hover:text-brand-300">Add on Pool →</Link>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
