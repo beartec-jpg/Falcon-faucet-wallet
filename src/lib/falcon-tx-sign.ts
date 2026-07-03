@@ -201,3 +201,68 @@ export async function signOfferCreateTx(
   }
   return { tx_blob: await signPrepared(tx, decoded) }
 }
+
+export async function signOfferCancelTx(
+  params: {
+    account: string
+    offerSequence: number
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const tx = {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      decoded.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'OfferCancel',
+    OfferSequence: params.offerSequence,
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}
+
+/** tfTwoAsset — deposit both pool assets (XLS-30). */
+export const TF_TWO_ASSET = 0x00100000
+
+export async function signAmmDepositTx(
+  params: {
+    account: string
+    currency: string
+    issuer: string
+    amountXrpDrops: string
+    amountToken: string
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const core = baseTx(
+    params.account,
+    params.sequence,
+    params.lastLedgerSequence,
+    decoded.publicKeyHex,
+    params.networkId,
+    params.fee,
+  )
+  const tx = {
+    ...core,
+    TransactionType: 'AMMDeposit',
+    Asset: { currency: 'XRP' },
+    Asset2: { currency: params.currency, issuer: params.issuer },
+    Amount: params.amountXrpDrops,
+    Amount2: { currency: params.currency, issuer: params.issuer, value: params.amountToken },
+    Flags: TF_TWO_ASSET,
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}

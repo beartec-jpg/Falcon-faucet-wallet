@@ -19,7 +19,10 @@ import {
   signPaymentTx,
   signTrustSetTx,
   signOfferCreateTx,
+  signOfferCancelTx,
+  signAmmDepositTx,
   signClaimRewardTx,
+  TF_TWO_ASSET,
 } from './falcon-tx-sign'
 
 export { validateFalconSecret, keysFromFalconSecret }
@@ -143,6 +146,45 @@ export async function signOfferCreate(
   falcon_secret: string,
 ): Promise<SignedTx> {
   const { tx_blob } = await signOfferCreateTx(params, falcon_secret)
+  return { tx_blob }
+}
+
+export interface OfferCancelParams {
+  account: string
+  offerSequence: number
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  fee?: string
+}
+
+export async function signOfferCancel(
+  params: OfferCancelParams,
+  falcon_secret: string,
+): Promise<SignedTx> {
+  const { tx_blob } = await signOfferCancelTx(params, falcon_secret)
+  return { tx_blob }
+}
+
+export { TF_TWO_ASSET }
+
+export interface AmmDepositParams {
+  account: string
+  currency: string
+  issuer: string
+  amountXrpDrops: string
+  amountToken: string
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  fee?: string
+}
+
+export async function signAmmDeposit(
+  params: AmmDepositParams,
+  falcon_secret: string,
+): Promise<SignedTx> {
+  const { tx_blob } = await signAmmDepositTx(params, falcon_secret)
   return { tx_blob }
 }
 

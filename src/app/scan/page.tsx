@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import Logo from '@/components/Logo'
 import type { ScanData, LedgerSummary, TxSummary } from '@/app/api/scan/route'
+import OrderBookPanel from '@/components/OrderBookPanel'
 
 const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
 const RIPPLE_EPOCH = 946684800
@@ -312,6 +313,21 @@ export default function ScanPage() {
               <StatCard label="Load Factor"    value={`${(d.load_factor / (d.load_base || 256) * 100).toFixed(1)}%`} sub={`${d.load_factor} / ${d.load_base}`} />
               <StatCard label="Reserve Base"   value={`${(d.reserve_base / 1e6).toFixed(2)} FALCON`} sub={`+${(d.reserve_inc / 1e6).toFixed(2)} per object`} />
             </div>
+          </section>
+        )}
+
+        {/* ── DEX order book ─────────────────────────────────────────────── */}
+        {d && (
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+                FALCON / USDC Order Book
+              </h2>
+              <Link href="/swap" className="text-xs text-brand-400 hover:text-brand-300">
+                Trade on Swap →
+              </Link>
+            </div>
+            <OrderBookPanel compact pollMs={12000} />
           </section>
         )}
 

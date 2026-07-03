@@ -81,19 +81,7 @@ export async function depositUsdcToBridge(opts: {
   onStep?: (step: string) => void
 }): Promise<BridgeDepositResult> {
   const { cfg, evmPrivateKey, amountUsdc, falconAccount, onStep } = opts
-  const p = await (async () => {
-    const urls = [cfg.rpc_url, ...SEPOLIA_RPC_FALLBACKS.filter((u) => u !== cfg.rpc_url)]
-    for (const url of urls) {
-      try {
-        const prov = provider(url)
-        await prov.getBlockNumber()
-        return prov
-      } catch {
-        /* try next */
-      }
-    }
-    throw new Error('Cannot reach Sepolia RPC — try again shortly')
-  })()
+  const p = await resolveProvider(cfg.rpc_url)
   const signer = new Wallet(evmPrivateKey, p)
   const usdc = new Contract(cfg.usdc_token, ERC20_ABI, signer)
   const lock = new Contract(cfg.lock_contract, LOCK_ABI, signer)
@@ -148,4 +136,52 @@ export async function depositUsdcToBridge(opts: {
     depositHash: depositRc.hash,
     depositId,
   }
+}
+
+export async function sendSepoliaEth(opts: {
+  cfg: SepoliaBridgeConfig
+  evmPrivateKey: string
+  to: string
+  amountEth: string
+}): Promise<string> {
+  const p = await resolveProvider(opts.cfg.rpc_url)
+  const signer = new Wallet(opts.evmPrivateKey, p)
+  const tx = await signer.sendTransaction({
+    to: opts.to,
+    value: parseUnits(opts.amountEth, 18),
+  })
+  const rc = await tx.wait()
+  if (!rc || rc.status !== 1) throw new Error('ETH send failed')
+  return rc.hash
+}
+
+export async function sendSepoliaUsdc(opts: {
+  cfg: SepoliaBridgeConfig
+  evmPrivateKey: string
+  to: string
+  amountUsdc: string
+}): Promise<string> {
+  const p = await resolveProvider(opts.cfg.rpc_url)
+  const signer = new Wallet(opts.evmPrivateKey, p)
+  const usdc = new Contract(opts.cfg.usdc_token, ERC20_ABI, signer)
+  const decimals: number = await usdc.decimals().catch(() => opts.cfg.usdc_decimals)
+  const amount = parseUnits(opts.amountUsdc, decimals)
+  const tx = await usdc.transfer(opts.to, amount)
+  const rc = await tx.wait()
+  if (!rc || rc.status !== 1) throw new Error('USDC send failed')
+  return rc.hash
+}
+
+async function resolveProvider(primaryUrl: string): Promise<JsonRpcProvider> {
+  const urls = [primaryUrl, ...SEPOLIA_RPC_FALLBACKS.filter((u) => u !== primaryUrl)]
+  for (const url of urls) {
+    try {
+      const prov = provider(url)
+      await prov.getBlockNumber()
+      return prov
+    } catch {
+      /* try next */
+    }
+  }
+  throw new Error('Cannot reach Sepolia RPC')
 }

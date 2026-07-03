@@ -11,6 +11,8 @@ import { saveWallet, type StoredWallet } from '@/lib/wallet-store'
 import {
   depositUsdcToBridge,
   fetchSepoliaBalances,
+  sendSepoliaEth,
+  sendSepoliaUsdc,
   type BridgeDepositResult,
 } from '@/lib/evm-bridge-client'
 import {
@@ -58,10 +60,17 @@ interface Props {
   onWalletUpdate: (w: StoredWallet) => void
 }
 
+type BridgeMode = 'deposit' | 'send'
+
 export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }: Props) {
   const [balances, setBalances] = useState<{ eth: string; usdc: string } | null>(null)
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
+  const [mode, setMode] = useState<BridgeMode>('deposit')
+  const [sendAsset, setSendAsset] = useState<'eth' | 'usdc'>('usdc')
+  const [sendTo, setSendTo] = useState('')
+  const [sendAmount, setSendAmount] = useState('')
+  const [sendHash, setSendHash] = useState<string | null>(null)
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState<string | null>(null)
@@ -118,6 +127,59 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
     }
   }
 
+  const handleSend = async () => {
+    if (!wallet.evmEncrypted || !wallet.evmAddress) return
+    const to = sendTo.trim()
+    if (!/^0x[a-fA-F0-9]{40}$/.test(to)) {
+      setError('Enter a valid 0x… recipient address')
+      return
+    }
+    const amt = parseFloat(sendAmount)
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setError('Enter a valid amount')
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+    setSendHash(null)
+    setStep(null)
+
+    try {
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const evmPrivateKey = await decryptSeed(wallet.evmEncrypted, keyBytes)
+
+      let hash: string
+      if (sendAsset === 'eth') {
+        setStep('Sending ETH…')
+        hash = await sendSepoliaEth({
+          cfg: bridgeCfg.sepolia,
+          evmPrivateKey,
+          to,
+          amountEth: sendAmount,
+        })
+      } else {
+        setStep('Sending USDC…')
+        hash = await sendSepoliaUsdc({
+          cfg: bridgeCfg.sepolia,
+          evmPrivateKey,
+          to,
+          amountUsdc: sendAmount,
+        })
+      }
+
+      setSendHash(hash)
+      setSendAmount('')
+      setSendTo('')
+      await refreshBalances()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Send failed')
+    } finally {
+      setBusy(false)
+      setStep(null)
+    }
+  }
+
   const handleDeposit = async () => {
     if (!wallet.evmEncrypted || !wallet.evmAddress || !bridgeReady) return
     const amt = parseFloat(amount)
@@ -155,6 +217,7 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
   }
 
   const amtNum = parseFloat(amount) || 0
+  const sendAmtNum = parseFloat(sendAmount) || 0
   const usdcAvail = balances ? parseFloat(balances.usdc) : 0
   const ethAvail = balances ? parseFloat(balances.eth) : 0
 
@@ -162,12 +225,30 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
     <div className="space-y-4">
       <div className="card p-5 space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-white">Bridge USDC In</h2>
+          <h2 className="text-sm font-semibold text-white">Sepolia Bridge Wallet</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Deposit Sepolia USDC from a passkey-secured wallet in this app — no MetaMask required.
-            Falcon USDC is minted to your Falcon address after validators attest the deposit.
+            Passkey-secured Sepolia wallet — bridge USDC in to mint Falcon QUC, or send ETH/USDC out after bridging back (future) or from faucet funds.
           </p>
         </div>
+
+        {hasEvm && (
+          <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
+            <button
+              type="button"
+              onClick={() => { setMode('deposit'); setError(null) }}
+              className={`flex-1 py-2 font-medium ${mode === 'deposit' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
+            >
+              Bridge In
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode('send'); setError(null) }}
+              className={`flex-1 py-2 font-medium ${mode === 'send' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
+            >
+              Send Out
+            </button>
+          </div>
+        )}
 
         {!bridgeReady && (
           <div className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2.5">
@@ -270,53 +351,135 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
               </a>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">USDC amount to bridge</label>
-              <input
-                type="number"
-                value={amount}
-                onChange={(e) => { setAmount(e.target.value); setError(null) }}
-                placeholder="0.00"
-                min="0.000001"
-                step="any"
-                className="input-field"
-                disabled={busy || !bridgeReady}
-              />
-              <div className="flex justify-between text-xs text-slate-600">
-                <span>{balances ? `Available: ${fmt(usdcAvail, 4)} USDC` : ''}</span>
-                {usdcAvail > 0 && (
-                  <button type="button" onClick={() => setAmount(String(usdcAvail))} className="text-brand-500">
-                    Max
-                  </button>
-                )}
-              </div>
-            </div>
+            {mode === 'deposit' && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400">USDC amount to bridge</label>
+                  <input
+                    type="number"
+                    value={amount}
+                    onChange={(e) => { setAmount(e.target.value); setError(null) }}
+                    placeholder="0.00"
+                    min="0.000001"
+                    step="any"
+                    className="input-field"
+                    disabled={busy || !bridgeReady}
+                  />
+                  <div className="flex justify-between text-xs text-slate-600">
+                    <span>{balances ? `Available: ${fmt(usdcAvail, 4)} USDC` : ''}</span>
+                    {usdcAvail > 0 && (
+                      <button type="button" onClick={() => setAmount(String(usdcAvail))} className="text-brand-500">
+                        Max
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-            <button
-              type="button"
-              onClick={handleDeposit}
-              disabled={busy || !bridgeReady || amtNum <= 0 || ethAvail < 0.0001}
-              className="btn-primary flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500"
-            >
-              {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Deposit with Passkey'}
-            </button>
-
-            {bridgeReady && (
-              <div className="text-[10px] text-slate-500">
-                Lock contract:{' '}
-                <a
-                  href={etherscanAddressUrl(bridgeCfg.sepolia.explorer_url, bridgeCfg.sepolia.lock_contract)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-brand-400 hover:text-brand-300 font-mono"
+                <button
+                  type="button"
+                  onClick={handleDeposit}
+                  disabled={busy || !bridgeReady || amtNum <= 0 || ethAvail < 0.0001}
+                  className="btn-primary flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500"
                 >
-                  {bridgeCfg.sepolia.lock_contract.slice(0, 10)}…
-                </a>
+                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Deposit with Passkey'}
+                </button>
+
+                {bridgeReady && (
+                  <div className="text-[10px] text-slate-500">
+                    Lock contract:{' '}
+                    <a
+                      href={etherscanAddressUrl(bridgeCfg.sepolia.explorer_url, bridgeCfg.sepolia.lock_contract)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-brand-400 hover:text-brand-300 font-mono"
+                    >
+                      {bridgeCfg.sepolia.lock_contract.slice(0, 10)}…
+                    </a>
+                  </div>
+                )}
+              </>
+            )}
+
+            {mode === 'send' && (
+              <div className="space-y-3">
+                <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setSendAsset('usdc')}
+                    className={`flex-1 py-2 ${sendAsset === 'usdc' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
+                  >
+                    USDC
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSendAsset('eth')}
+                    className={`flex-1 py-2 ${sendAsset === 'eth' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
+                  >
+                    ETH
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400">Recipient (0x…)</label>
+                  <input
+                    type="text"
+                    value={sendTo}
+                    onChange={(e) => { setSendTo(e.target.value); setError(null) }}
+                    placeholder="0x…"
+                    className="input-field font-mono text-sm"
+                    disabled={busy}
+                    spellCheck={false}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400">Amount ({sendAsset.toUpperCase()})</label>
+                  <input
+                    type="number"
+                    value={sendAmount}
+                    onChange={(e) => { setSendAmount(e.target.value); setError(null) }}
+                    placeholder="0.00"
+                    min="0"
+                    step="any"
+                    className="input-field"
+                    disabled={busy}
+                  />
+                  <div className="flex justify-between text-xs text-slate-600">
+                    <span>
+                      Available:{' '}
+                      {sendAsset === 'eth' ? fmt(ethAvail, 6) + ' ETH' : fmt(usdcAvail, 4) + ' USDC'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSendAmount(String(sendAsset === 'eth' ? Math.max(0, ethAvail - 0.002) : usdcAvail))}
+                      className="text-brand-500"
+                    >
+                      Max
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={busy || sendAmtNum <= 0 || ethAvail < 0.0001}
+                  className="btn-primary flex items-center justify-center gap-2"
+                >
+                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Send with Passkey'}
+                </button>
+                <p className="text-[10px] text-slate-500">
+                  Send Sepolia assets to any address — e.g. after bridge-out releases USDC here, or to move leftover faucet funds.
+                </p>
               </div>
             )}
           </div>
         )}
       </div>
+
+      {sendHash && (
+        <div className="card p-4 space-y-2 border border-brand-500/20">
+          <div className="text-sm font-medium text-brand-400">Sent on Sepolia</div>
+          <div className="text-xs text-slate-400 break-all">Tx: {sendHash}</div>
+          <button type="button" onClick={() => setSendHash(null)} className="text-xs text-brand-400">Dismiss</button>
+        </div>
+      )}
 
       {result && (
         <div className="card p-4 space-y-2 border border-emerald-500/20">
