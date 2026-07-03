@@ -20,8 +20,6 @@ import {
 } from '@/lib/wallet-sign-client'
 import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
-import MarketLiquidityPanel from '@/components/MarketLiquidityPanel'
-import OrderBookPanel from '@/components/OrderBookPanel'
 
 const DROPS_PER_XRP = 1_000_000
 
@@ -47,7 +45,7 @@ interface SwapQuote {
   tradingFeeBps: number
 }
 
-type Tab = 'swap' | 'liquidity' | 'orderbook' | 'bridge'
+type Tab = 'swap' | 'bridge'
 
 function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
   return (
@@ -88,7 +86,6 @@ export default function SwapPage() {
   const [ledger, setLedger] = useState(0)
   const [swapData, setSwapData] = useState<SwapData | null>(null)
   const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
-  const [ammEnabled, setAmmEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -99,11 +96,10 @@ export default function SwapPage() {
   const [quote, setQuote] = useState<SwapQuote | null>(null)
 
   const refresh = useCallback(async (address: string) => {
-    const [accR, swapR, bridgeR, bookR] = await Promise.all([
+    const [accR, swapR, bridgeR] = await Promise.all([
       fetch(withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, networkKey)).then((r) => r.json()),
       fetch(withNetworkQuery(`/api/swap?address=${encodeURIComponent(address)}`, networkKey)).then((r) => r.json()),
       fetch('/api/bridge/config').then((r) => r.json()),
-      fetch(withNetworkQuery('/api/market/orderbook', networkKey)).then((r) => r.json()),
     ])
     if (accR.exists) {
       setXrpBalance(accR.balance)
@@ -112,7 +108,6 @@ export default function SwapPage() {
     }
     if (swapR.token) setSwapData(swapR)
     if (!bridgeR.error) setBridgeCfg(bridgeR)
-    if (!bookR.error) setAmmEnabled(!!bookR.ammEnabled)
   }, [networkKey])
 
   useEffect(() => {
@@ -286,30 +281,25 @@ export default function SwapPage() {
         {!loading && wallet && (
           <>
             {/* Tab switcher */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 rounded-xl overflow-hidden border border-slate-700 text-sm">
-              {([
-                ['swap', 'Swap', 'brand'],
-                ['liquidity', 'Liquidity', 'cyan'],
-                ['orderbook', 'Order Book', 'slate'],
-                ['bridge', 'Bridge', 'emerald'],
-              ] as const).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setTab(id)}
-                  className={`py-2.5 font-medium transition-colors ${
-                    tab === id
-                      ? id === 'bridge'
-                        ? 'bg-emerald-500/10 text-emerald-400'
-                        : id === 'liquidity'
-                          ? 'bg-cyan-500/10 text-cyan-400'
-                          : 'bg-brand-500/10 text-brand-400'
-                      : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+            <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
+              <button
+                type="button"
+                onClick={() => setTab('swap')}
+                className={`flex-1 py-2.5 font-medium transition-colors ${
+                  tab === 'swap' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                Swap on Falcon
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('bridge')}
+                className={`flex-1 py-2.5 font-medium transition-colors ${
+                  tab === 'bridge' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                Bridge USDC In
+              </button>
             </div>
 
             {/* Balances */}
@@ -343,24 +333,6 @@ export default function SwapPage() {
                 wallet={wallet}
                 bridgeCfg={bridgeCfg}
                 onWalletUpdate={setWallet}
-              />
-            )}
-
-            {tab === 'orderbook' && (
-              <div className="card p-5">
-                <h2 className="text-sm font-semibold text-white mb-4">FALCON / USDC Order Book</h2>
-                <OrderBookPanel />
-              </div>
-            )}
-
-            {tab === 'liquidity' && swapData?.token && (
-              <MarketLiquidityPanel
-                wallet={wallet}
-                token={swapData.token}
-                xrpBalance={xrpBalance}
-                usdcBalance={swapData.userBalance?.balance ?? null}
-                ammEnabled={ammEnabled}
-                onRefresh={() => refresh(wallet.address)}
               />
             )}
 
@@ -499,10 +471,10 @@ export default function SwapPage() {
                   </div>
                 ) : swapData?.token.configured ? (
                   <div className="card p-4 text-sm text-slate-500 space-y-2">
-                    <p>No USDC liquidity yet. Bridge USDC in, then post limit orders on the Liquidity tab.</p>
-                    <button type="button" onClick={() => setTab('liquidity')} className="text-brand-400 text-xs">
-                      Go to Liquidity →
-                    </button>
+                    <p>No USDC liquidity yet. Bridge USDC in or add to the pool.</p>
+                    <Link href="/pool" className="text-brand-400 text-xs inline-block">
+                      Go to Pool →
+                    </Link>
                   </div>
                 ) : null}
               </div>

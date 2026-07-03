@@ -323,9 +323,14 @@ export default function ScanPage() {
               <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
                 FALCON / USDC Order Book
               </h2>
-              <Link href="/swap" className="text-xs text-brand-400 hover:text-brand-300">
-                Trade on Swap →
-              </Link>
+              <div className="flex gap-3 text-xs">
+                <Link href="/swap" className="text-brand-400 hover:text-brand-300">
+                  Swap →
+                </Link>
+                <Link href="/pool" className="text-brand-400 hover:text-brand-300">
+                  Add liquidity →
+                </Link>
+              </div>
             </div>
             <OrderBookPanel compact pollMs={12000} />
           </section>

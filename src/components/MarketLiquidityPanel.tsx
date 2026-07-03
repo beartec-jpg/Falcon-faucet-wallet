@@ -66,6 +66,10 @@ export default function MarketLiquidityPanel({
 }: Props) {
   const { networkKey, network } = useNetwork()
   const [mode, setMode] = useState<'dex' | 'amm'>('dex')
+
+  useEffect(() => {
+    if (ammEnabled) setMode('amm')
+  }, [ammEnabled])
   const [side, setSide] = useState<'sell' | 'buy'>('sell')
   const [tokenAmt, setTokenAmt] = useState('')
   const [price, setPrice] = useState('1')

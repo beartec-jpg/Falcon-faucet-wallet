@@ -9,7 +9,7 @@
       "symbol": "USDC",
       "currency": "QUC",
       "issuer": "rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt",
-      "liquidity": "dex"
+      "liquidity": "amm"
     }
   ],
   "env": {

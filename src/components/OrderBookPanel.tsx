@@ -169,7 +169,7 @@ export default function OrderBookPanel({ compact = false, pollMs = 8000 }: Props
 
       <div className={`grid gap-4 ${compact ? 'grid-cols-1' : 'lg:grid-cols-2'}`}>
         <BookTable title="Bids (buy USDC)" rows={data.bids} accent="text-emerald-400" empty="No bids" />
-        <BookTable title="Asks (sell USDC)" rows={data.asks} accent="text-red-400" empty="No asks — add liquidity on Swap → Liquidity" />
+        <BookTable title="Asks (sell USDC)" rows={data.asks} accent="text-red-400" empty="No asks — add liquidity on Pool" />
       </div>
     </div>
   )

@@ -7,7 +7,7 @@ import type { ReactNode } from 'react'
 import { useNetwork } from '@/components/NetworkProvider'
 import NetworkSwitcher from '@/components/NetworkSwitcher'
 
-type NavItem = 'faucet' | 'wallet' | 'swap' | 'scan' | 'whitepaper'
+type NavItem = 'faucet' | 'wallet' | 'swap' | 'pool' | 'scan' | 'whitepaper'
 
 interface HeaderProps {
   current: NavItem
@@ -20,6 +20,7 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'scan', label: 'Explorer', href: '/scan' },
   { key: 'wallet', label: 'Wallet', href: '/wallet' },
   { key: 'swap', label: 'Swap', href: '/swap' },
+  { key: 'pool', label: 'Pool', href: '/pool' },
   { key: 'whitepaper', label: 'Whitepaper', href: '/whitepaper' },
 ]
 
@@ -68,7 +69,9 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
       ? 'Wallet · Passkey secured'
       : current === 'swap'
         ? 'Swap · USDC'
-        : current === 'scan'
+        : current === 'pool'
+          ? 'Pool · Liquidity'
+          : current === 'scan'
           ? 'Explorer'
           : current === 'whitepaper'
             ? 'White paper'
