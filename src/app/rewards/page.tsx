@@ -343,7 +343,7 @@ export default function RewardsPage() {
         <div>
           <h1 className="text-xl font-bold text-white">Validator Rewards</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Claim epoch FALCON from your bonded validator, transfer to your payout wallet, and swap to qUSDC/qUSDT.
+            Claim epoch FALCON from your bonded validator, transfer to your payout wallet, and swap to USDC.
           </p>
         </div>
 
@@ -506,8 +506,8 @@ export default function RewardsPage() {
                     </div>
                   </>
                 )}
-                <Link href="/marketplace" className="text-xs text-brand-400 hover:underline block">
-                  Full marketplace →
+                <Link href="/swap" className="text-xs text-brand-400 hover:underline block">
+                  Swap USDC →
                 </Link>
               </div>
             )}

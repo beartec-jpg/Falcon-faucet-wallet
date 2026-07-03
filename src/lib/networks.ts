@@ -67,14 +67,9 @@ const TESTNET: NetworkConfig = {
   explorerUrl: envStr('NEXT_PUBLIC_TESTNET_EXPLORER_URL', envStr('NEXT_PUBLIC_EXPLORER_URL', '')),
   tokens: [
     {
-      symbol: 'qUSDC',
-      currency: envStr('NEXT_PUBLIC_TESTNET_QUSDC_CURRENCY', envStr('NEXT_PUBLIC_QUSDC_CURRENCY', 'QUC')),
-      issuer: envStr('NEXT_PUBLIC_TESTNET_QUSDC_ISSUER', envStr('NEXT_PUBLIC_QUSDC_ISSUER', '')),
-    },
-    {
-      symbol: 'qUSDT',
-      currency: envStr('NEXT_PUBLIC_TESTNET_QUSDT_CURRENCY', envStr('NEXT_PUBLIC_QUSDT_CURRENCY', 'QUT')),
-      issuer: envStr('NEXT_PUBLIC_TESTNET_QUSDT_ISSUER', envStr('NEXT_PUBLIC_QUSDT_ISSUER', '')),
+      symbol: 'USDC',
+      currency: envStr('NEXT_PUBLIC_TESTNET_USDC_CURRENCY', envStr('NEXT_PUBLIC_QUSDC_CURRENCY', 'QUC')),
+      issuer: envStr('NEXT_PUBLIC_TESTNET_USDC_ISSUER', envStr('NEXT_PUBLIC_QUSDC_ISSUER', '')),
     },
   ],
   live: true,
@@ -94,11 +89,6 @@ const MAINNET: NetworkConfig = {
       symbol: 'USDC',
       currency: envStr('NEXT_PUBLIC_MAINNET_USDC_CURRENCY', 'USC'),
       issuer: envStr('NEXT_PUBLIC_MAINNET_USDC_ISSUER', ''),
-    },
-    {
-      symbol: 'USDT',
-      currency: envStr('NEXT_PUBLIC_MAINNET_USDT_CURRENCY', 'UST'),
-      issuer: envStr('NEXT_PUBLIC_MAINNET_USDT_ISSUER', ''),
     },
   ],
   live: envStr('NEXT_PUBLIC_MAINNET_LIVE', 'false') === 'true',

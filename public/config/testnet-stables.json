@@ -6,22 +6,14 @@
   "liquidity_provider": "rQBwFcbG1qo89zuBG6PNBWL9vvdRe6YQ9w",
   "tokens": [
     {
-      "symbol": "qUSDC",
+      "symbol": "USDC",
       "currency": "QUC",
       "issuer": "rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt",
-      "liquidity": "dex"
-    },
-    {
-      "symbol": "qUSDT",
-      "currency": "QUT",
-      "issuer": "rDtCqvzVU1xg9ViF7tAFjjXshabjR82S6T",
       "liquidity": "dex"
     }
   ],
   "env": {
-    "NEXT_PUBLIC_TESTNET_QUSDC_CURRENCY": "QUC",
-    "NEXT_PUBLIC_TESTNET_QUSDC_ISSUER": "rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt",
-    "NEXT_PUBLIC_TESTNET_QUSDT_CURRENCY": "QUT",
-    "NEXT_PUBLIC_TESTNET_QUSDT_ISSUER": "rDtCqvzVU1xg9ViF7tAFjjXshabjR82S6T"
+    "NEXT_PUBLIC_TESTNET_USDC_CURRENCY": "QUC",
+    "NEXT_PUBLIC_TESTNET_USDC_ISSUER": "rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt"
   }
 }
