@@ -6,6 +6,7 @@ import { Contract, JsonRpcProvider, Wallet, formatUnits, parseUnits } from 'ethe
 import type { SepoliaBridgeConfig } from '@/lib/bridge-config'
 
 const ERC20_ABI = [
+  'function transfer(address to, uint256 amount) returns (bool)',
   'function approve(address spender, uint256 amount) returns (bool)',
   'function allowance(address owner, address spender) view returns (uint256)',
   'function balanceOf(address account) view returns (uint256)',
