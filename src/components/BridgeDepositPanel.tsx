@@ -17,7 +17,7 @@ import {
   sendSepoliaUsdc,
   type BridgeDepositResult,
 } from '@/lib/evm-bridge-client'
-import { signBridgeWithdraw } from '@/lib/wallet-sign-client'
+import { signBridgeWithdraw, signFusdcPayment } from '@/lib/wallet-sign-client'
 import {
   etherscanAddressUrl,
   etherscanTokenUrl,
@@ -209,6 +209,71 @@ export default function BridgeDepositPanel({
     const data = await res.json()
     if (data.error) throw new Error(data.error)
     return data
+  }
+
+  const handleReturnFusdcToIssuer = async () => {
+    const issuer = bridgeCfg.falcon?.token_issuer
+    const currency = bridgeCfg.falcon?.token_currency
+    if (!issuer || !currency) return
+
+    const amt = parseFloat(withdrawAmount)
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setError('Enter a valid F-USDC amount')
+      return
+    }
+    if ((fusdcBalance ?? 0) < amt) {
+      setError(`Insufficient F-USDC (have ${fmt(fusdcBalance ?? 0, 4)})`)
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+    setWithdrawResult(null)
+    setStep(null)
+
+    try {
+      const accRes = await fetch(
+        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
+      )
+      const accData = await accRes.json()
+      if (!accRes.ok || !accData.exists) throw new Error('Failed to refresh Falcon account')
+
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+      const amountStr = String(Math.round(amt * 1e6) / 1e6)
+
+      setStep('Returning F-USDC to issuer…')
+      const { tx_blob } = await signFusdcPayment(
+        {
+          account: wallet.address,
+          destination: issuer,
+          issuer,
+          currency,
+          amount: amountStr,
+          sequence: accData.sequence,
+          lastLedgerSequence: accData.currentLedger + 20,
+          networkId: network.networkId,
+        },
+        falcon_secret,
+      )
+
+      const data = await submitFalconTx(tx_blob)
+      setWithdrawResult({
+        falconTxHash: data.hash,
+        amount: amountStr,
+        sepoliaRecipient: '(returned to issuer — not bridge-out)',
+      })
+      setWithdrawAmount('')
+      setTimeout(() => {
+        onFalconRefresh?.()
+        refreshBalances()
+      }, 4000)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Return failed')
+    } finally {
+      setBusy(false)
+      setStep(null)
+    }
   }
 
   const handleBridgeOut = async () => {
@@ -507,6 +572,23 @@ export default function BridgeDepositPanel({
                 >
                   {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge Out with Passkey'}
                 </button>
+                <button
+                  type="button"
+                  onClick={handleReturnFusdcToIssuer}
+                  disabled={
+                    busy ||
+                    !bridgeCfg.falcon?.token_issuer ||
+                    withdrawAmtNum <= 0 ||
+                    withdrawAmtNum > fusdcAvail
+                  }
+                  className="w-full py-2.5 rounded-xl border border-slate-600 text-slate-300 text-sm hover:bg-slate-800/60 disabled:opacity-50"
+                >
+                  {busy ? step ?? 'Working…' : 'Return F-USDC to issuer (legacy cleanup)'}
+                </button>
+                <p className="text-[10px] text-slate-500">
+                  Use legacy cleanup before releasing old Sepolia USDC in the Crypto app. Bridge Out only works
+                  for F-USDC backed by the new lock contract after a fresh bridge-in.
+                </p>
                 {fusdcAvail <= 0 && (
                   <p className="text-xs text-slate-500">
                     Need F-USDC first? Withdraw from the{' '}

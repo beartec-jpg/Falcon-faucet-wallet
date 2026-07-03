@@ -111,6 +111,42 @@ export async function signPaymentTx(
   return { tx_blob: await signPrepared(tx, decoded) }
 }
 
+/** Send F-USDC (IOU) to any Falcon address — no bridge memo. */
+export async function signFusdcPaymentTx(
+  params: {
+    account: string
+    destination: string
+    issuer: string
+    currency: string
+    amount: string
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const tx = {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      decoded.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'Payment',
+    Destination: params.destination,
+    Amount: {
+      currency: params.currency,
+      issuer: params.issuer,
+      value: params.amount,
+    },
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}
+
 /** Return F-USDC to bridge issuer; memo tags Sepolia release recipient. */
 export async function signBridgeWithdrawTx(
   params: {
