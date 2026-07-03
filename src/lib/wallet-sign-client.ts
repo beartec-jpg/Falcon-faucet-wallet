@@ -23,6 +23,7 @@ import {
   signOfferCancelTx,
   signAmmDepositTx,
   signAmmWithdrawTx,
+  signBridgeWithdrawTx,
   signClaimRewardTx,
   TF_TWO_ASSET,
   TF_LP_TOKEN,
@@ -234,6 +235,26 @@ export async function signAmmWithdraw(
   falcon_secret: string,
 ): Promise<SignedTx> {
   const { tx_blob } = await signAmmWithdrawTx(params, falcon_secret)
+  return { tx_blob }
+}
+
+export interface BridgeWithdrawParams {
+  account: string
+  issuer: string
+  currency: string
+  amount: string
+  sepoliaRecipient: string
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  fee?: string
+}
+
+export async function signBridgeWithdraw(
+  params: BridgeWithdrawParams,
+  falcon_secret: string,
+): Promise<SignedTx> {
+  const { tx_blob } = await signBridgeWithdrawTx(params, falcon_secret)
   return { tx_blob }
 }
 

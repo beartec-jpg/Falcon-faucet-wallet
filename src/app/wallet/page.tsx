@@ -1035,7 +1035,7 @@ export default function WalletPage() {
                         </div>
                         {(account.assets?.lp?.balance ?? 0) > 0 ? (
                           <div className="text-[10px] text-slate-600 mt-0.5">
-                            ≈ {account.assets!.lp.estXrpOut.toFixed(2)} FALCON + {account.assets!.lp.estUsdcOut.toFixed(2)} F-USDC
+                            Withdrawable: {account.assets!.lp.estXrpOut.toFixed(2)} FALCON + {account.assets!.lp.estUsdcOut.toFixed(2)} F-USDC
                           </div>
                         ) : (
                           <div className="text-[10px] text-slate-600 mt-0.5">

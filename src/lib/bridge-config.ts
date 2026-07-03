@@ -32,6 +32,11 @@ export interface UsdcBridgeManifest {
     steps: string[]
     note: string
   }
+  withdraw_flow?: {
+    memo_type: string
+    relay_script: string
+    note: string
+  }
 }
 
 let cached: UsdcBridgeManifest | null = null

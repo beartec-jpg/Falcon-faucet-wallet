@@ -306,7 +306,7 @@ export default function SwapPage() {
                   tab === 'bridge' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'
                 }`}
               >
-                Bridge USDC In
+                Bridge
               </button>
             </div>
 
@@ -340,7 +340,9 @@ export default function SwapPage() {
               <BridgeDepositPanel
                 wallet={wallet}
                 bridgeCfg={bridgeCfg}
+                fusdcBalance={swapData?.userBalance?.balance ?? null}
                 onWalletUpdate={setWallet}
+                onFalconRefresh={() => wallet && refresh(wallet.address)}
               />
             )}
 

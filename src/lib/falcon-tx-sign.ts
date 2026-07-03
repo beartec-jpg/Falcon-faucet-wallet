@@ -13,6 +13,7 @@ import {
 } from './falcon-keys'
 import { getFalcon512 } from './falcon-wasm'
 import type { XrplAmount } from './wallet-sign-client'
+import { BRIDGE_WITHDRAW_MEMO_TYPE, utf8ToMemoHex } from './bridge-memo'
 
 import { networkIdForTx } from '@/lib/networks'
 
@@ -106,6 +107,54 @@ export async function signPaymentTx(
     TransactionType: 'Payment',
     Destination: params.destination,
     Amount: params.amountDrops,
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}
+
+/** Return F-USDC to bridge issuer; memo tags Sepolia release recipient. */
+export async function signBridgeWithdrawTx(
+  params: {
+    account: string
+    issuer: string
+    currency: string
+    amount: string
+    sepoliaRecipient: string
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const evm = params.sepoliaRecipient.trim().toLowerCase()
+  if (!/^0x[a-f0-9]{40}$/.test(evm)) {
+    throw new Error('Invalid Sepolia recipient address')
+  }
+  const decoded = decodeFalconSecret(falcon_secret)
+  const tx = {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      decoded.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'Payment',
+    Destination: params.issuer,
+    Amount: {
+      currency: params.currency,
+      issuer: params.issuer,
+      value: params.amount,
+    },
+    Memos: [
+      {
+        Memo: {
+          MemoType: utf8ToMemoHex(BRIDGE_WITHDRAW_MEMO_TYPE),
+          MemoData: utf8ToMemoHex(evm),
+        },
+      },
+    ],
   }
   return { tx_blob: await signPrepared(tx, decoded) }
 }

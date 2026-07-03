@@ -42,12 +42,19 @@ interface LpPosition {
   estUsdcOut: number
 }
 
+interface PoolSnapshot {
+  xrp: number
+  usdc: number
+}
+
 interface Props {
   wallet: StoredWallet
   token: SwapToken
   xrpBalance: number | null
   usdcBalance: number | null
   ammEnabled: boolean
+  /** FALCON per F-USDC from parent market data; used until lp-position pool loads. */
+  poolPrice?: number | null
   onRefresh: () => void
 }
 
@@ -64,12 +71,50 @@ function fmt(n: number, d = 4): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: d })
 }
 
+/** FALCON per F-USDC — same units as pool price display. */
+function poolRatioFromPools(falconPool: number, usdcPool: number): number {
+  if (usdcPool <= 0) return 0
+  return falconPool / usdcPool
+}
+
+function matchedDepositAmounts(
+  falcon: number,
+  usdc: number,
+  poolRatio: number,
+): { matchedFalcon: number; matchedUsdc: number; imbalancePct: number } {
+  if (poolRatio <= 0 || falcon <= 0 || usdc <= 0) {
+    return { matchedFalcon: 0, matchedUsdc: 0, imbalancePct: 100 }
+  }
+  const matchedFalcon = Math.min(falcon, usdc * poolRatio)
+  const matchedUsdc = matchedFalcon / poolRatio
+  const ref = Math.max(falcon, usdc * poolRatio)
+  const imbalancePct = ref > 0 ? (Math.abs(falcon - usdc * poolRatio) / ref) * 100 : 0
+  return { matchedFalcon, matchedUsdc, imbalancePct }
+}
+
+function maxBalancedDeposit(
+  falconBal: number,
+  usdcBal: number,
+  poolRatio: number,
+  reserve = 0.5,
+): { falcon: number; usdc: number } {
+  const f = Math.max(0, falconBal - reserve)
+  const u = Math.max(0, usdcBal)
+  if (poolRatio <= 0) return { falcon: f, usdc: u }
+  if (u >= f / poolRatio) return { falcon: f, usdc: f / poolRatio }
+  return { falcon: u * poolRatio, usdc: u }
+}
+
+const DEPOSIT_IMBALANCE_WARN_PCT = 0.5
+const DEPOSIT_IMBALANCE_BLOCK_PCT = 1
+
 export default function MarketLiquidityPanel({
   wallet,
   token,
   xrpBalance,
   usdcBalance,
   ammEnabled,
+  poolPrice,
   onRefresh,
 }: Props) {
   const { networkKey, network } = useNetwork()
@@ -85,6 +130,7 @@ export default function MarketLiquidityPanel({
   const [usdcAmt, setUsdcAmt] = useState('')
   const [offers, setOffers] = useState<UserOffer[]>([])
   const [lpPosition, setLpPosition] = useState<LpPosition | null>(null)
+  const [poolSnapshot, setPoolSnapshot] = useState<PoolSnapshot | null>(null)
   const [withdrawPct, setWithdrawPct] = useState('100')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -103,7 +149,12 @@ export default function MarketLiquidityPanel({
       withNetworkQuery(`/api/market/lp-position?address=${encodeURIComponent(wallet.address)}`, networkKey),
     )
     const d = await r.json()
-    if (!d.error) setLpPosition(d.position ?? null)
+    if (!d.error) {
+      setLpPosition(d.position ?? null)
+      if (d.pool) {
+        setPoolSnapshot({ xrp: d.pool.xrp, usdc: d.pool.usdc })
+      }
+    }
   }, [wallet.address, networkKey])
 
   useEffect(() => {
@@ -222,6 +273,18 @@ export default function MarketLiquidityPanel({
       return
     }
 
+    if (activePoolRatio > 0) {
+      const { matchedFalcon, matchedUsdc, imbalancePct } = matchedDepositAmounts(x, u, activePoolRatio)
+      if (imbalancePct > DEPOSIT_IMBALANCE_BLOCK_PCT) {
+        setError(
+          `Deposit sides don't match the pool ratio (${fmt(activePoolRatio, 4)} FALCON per F-USDC). ` +
+            `Only ~${fmt(matchedFalcon, 4)} FALCON + ~${fmt(matchedUsdc, 4)} F-USDC would become LP; ` +
+            `excess stays in your wallet or may be swapped at pool price. Click "Match pool ratio" first.`,
+        )
+        return
+      }
+    }
+
     setBusy(true)
     setError(null)
     setResult(null)
@@ -320,6 +383,63 @@ export default function MarketLiquidityPanel({
   const priceNum = parseFloat(price) || 0
   const falconNeeded = side === 'sell' ? 0 : tokenNum * priceNum
   const usdcNeeded = side === 'sell' ? tokenNum : 0
+
+  const activePoolRatio = poolSnapshot
+    ? poolRatioFromPools(poolSnapshot.xrp, poolSnapshot.usdc)
+    : (poolPrice ?? 0)
+
+  const depositFalcon = parseFloat(xrpAmt) || 0
+  const depositUsdc = parseFloat(usdcAmt) || 0
+  const depositMatch =
+    activePoolRatio > 0 && depositFalcon > 0 && depositUsdc > 0
+      ? matchedDepositAmounts(depositFalcon, depositUsdc, activePoolRatio)
+      : null
+
+  const handleFalconDepositChange = (value: string) => {
+    setXrpAmt(value)
+    const n = parseFloat(value)
+    if (activePoolRatio > 0 && Number.isFinite(n) && n > 0) {
+      setUsdcAmt(String(Math.round((n / activePoolRatio) * 1e6) / 1e6))
+    }
+  }
+
+  const handleUsdcDepositChange = (value: string) => {
+    setUsdcAmt(value)
+    const n = parseFloat(value)
+    if (activePoolRatio > 0 && Number.isFinite(n) && n > 0) {
+      setXrpAmt(String(Math.round(n * activePoolRatio * 1e6) / 1e6))
+    }
+  }
+
+  const matchPoolRatio = () => {
+    const x = parseFloat(xrpAmt) || 0
+    const u = parseFloat(usdcAmt) || 0
+    if (activePoolRatio <= 0) return
+    if (x <= 0 && u <= 0) return
+    const { matchedFalcon, matchedUsdc } =
+      x > 0 && u > 0
+        ? matchedDepositAmounts(x, u, activePoolRatio)
+        : x > 0
+          ? { matchedFalcon: x, matchedUsdc: x / activePoolRatio }
+          : { matchedFalcon: u * activePoolRatio, matchedUsdc: u }
+    setXrpAmt(String(Math.round(matchedFalcon * 1e6) / 1e6))
+    setUsdcAmt(String(Math.round(matchedUsdc * 1e6) / 1e6))
+    setError(null)
+  }
+
+  const applyMaxBalancedFromFalcon = () => {
+    if (xrpBalance == null || activePoolRatio <= 0) return
+    const { falcon, usdc } = maxBalancedDeposit(xrpBalance, usdcBalance ?? 0, activePoolRatio)
+    setXrpAmt(String(Math.round(falcon * 1e6) / 1e6))
+    setUsdcAmt(String(Math.round(usdc * 1e6) / 1e6))
+  }
+
+  const applyMaxBalancedFromUsdc = () => {
+    if (usdcBalance == null || activePoolRatio <= 0) return
+    const { falcon, usdc } = maxBalancedDeposit(xrpBalance ?? 0, usdcBalance, activePoolRatio)
+    setXrpAmt(String(Math.round(falcon * 1e6) / 1e6))
+    setUsdcAmt(String(Math.round(usdc * 1e6) / 1e6))
+  }
 
   return (
     <div className="space-y-4">
@@ -420,6 +540,9 @@ export default function MarketLiquidityPanel({
             {lpPosition && (
               <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3 space-y-2 text-xs">
                 <div className="font-medium text-purple-300">Your pool position</div>
+                <p className="text-slate-500">
+                  Withdrawable now — your share of the whole pool, not what you originally typed in.
+                </p>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <div className="text-slate-500">Pool share</div>
@@ -430,11 +553,11 @@ export default function MarketLiquidityPanel({
                     <div className="font-mono text-slate-200">{fmt(lpPosition.lpBalance, 0)}</div>
                   </div>
                   <div>
-                    <div className="text-slate-500">Est. FALCON</div>
+                    <div className="text-slate-500">Withdrawable FALCON</div>
                     <div className="font-mono text-slate-200">{fmt(lpPosition.estXrpOut, 4)}</div>
                   </div>
                   <div>
-                    <div className="text-slate-500">Est. USDC</div>
+                    <div className="text-slate-500">Withdrawable F-USDC</div>
                     <div className="font-mono text-slate-200">{fmt(lpPosition.estUsdcOut, 4)}</div>
                   </div>
                 </div>
@@ -470,32 +593,80 @@ export default function MarketLiquidityPanel({
             )}
 
             <p className="text-xs text-slate-500">
-              Deposit both assets at the current pool ratio. You receive LP tokens; swap fees accrue to LPs.
+              Deposit both assets at the current pool ratio
+              ({activePoolRatio > 0 ? `${fmt(activePoolRatio, 4)} FALCON per F-USDC` : 'loading…'}).
+              This is monetary value at the live price, not equal token counts — if FALCON trades at $2, you deposit
+              about twice as much F-USDC as FALCON per dollar of liquidity.
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs text-slate-400">FALCON</label>
-                <input type="number" value={xrpAmt} onChange={(e) => setXrpAmt(e.target.value)} className="input-field" disabled={busy} />
-                {xrpBalance != null && (
-                  <button type="button" className="text-xs text-brand-500" onClick={() => setXrpAmt(String(Math.max(0, xrpBalance - 0.5)))}>
-                    Max
+                <input
+                  type="number"
+                  value={xrpAmt}
+                  onChange={(e) => handleFalconDepositChange(e.target.value)}
+                  className="input-field"
+                  disabled={busy}
+                />
+                {xrpBalance != null && activePoolRatio > 0 && (
+                  <button type="button" className="text-xs text-brand-500" onClick={applyMaxBalancedFromFalcon}>
+                    Max (balanced)
                   </button>
                 )}
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-slate-400">USDC</label>
-                <input type="number" value={usdcAmt} onChange={(e) => setUsdcAmt(e.target.value)} className="input-field" disabled={busy} />
-                {usdcBalance != null && (
-                  <button type="button" className="text-xs text-brand-500" onClick={() => setUsdcAmt(String(usdcBalance))}>
-                    Max
+                <label className="text-xs text-slate-400">F-USDC</label>
+                <input
+                  type="number"
+                  value={usdcAmt}
+                  onChange={(e) => handleUsdcDepositChange(e.target.value)}
+                  className="input-field"
+                  disabled={busy}
+                />
+                {usdcBalance != null && activePoolRatio > 0 && (
+                  <button type="button" className="text-xs text-brand-500" onClick={applyMaxBalancedFromUsdc}>
+                    Max (balanced)
                   </button>
                 )}
               </div>
             </div>
+
+            {depositMatch && depositMatch.imbalancePct > DEPOSIT_IMBALANCE_WARN_PCT && (
+              <div className="text-xs rounded-xl px-3 py-2 space-y-2 bg-amber-500/10 border border-amber-500/25 text-amber-200">
+                <p>
+                  Imbalanced deposit. Only ~{fmt(depositMatch.matchedFalcon, 4)}{' '}
+                  FALCON + ~{fmt(depositMatch.matchedUsdc, 4)} F-USDC would become LP ({fmt(depositMatch.imbalancePct, 2)}%
+                  off pool ratio). Excess stays in your wallet or may be swapped at pool price.
+                </p>
+                <button
+                  type="button"
+                  onClick={matchPoolRatio}
+                  disabled={busy}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-amber-600/80 text-white hover:bg-amber-500 disabled:opacity-40"
+                >
+                  Match pool ratio
+                </button>
+              </div>
+            )}
+
+            {depositMatch &&
+              depositMatch.imbalancePct <= DEPOSIT_IMBALANCE_WARN_PCT &&
+              depositFalcon > 0 &&
+              depositUsdc > 0 && (
+                <p className="text-xs text-emerald-400/90 bg-emerald-500/10 rounded-xl px-3 py-2">
+                  Balanced at pool ratio — ~{fmt(depositMatch.matchedFalcon, 4)} FALCON + ~{fmt(depositMatch.matchedUsdc, 4)}{' '}
+                  F-USDC will become LP.
+                </p>
+              )}
+
             <button
               type="button"
               onClick={handleAmmDeposit}
-              disabled={busy || !isPasskeySupported()}
+              disabled={
+                busy ||
+                !isPasskeySupported() ||
+                (depositMatch != null && depositMatch.imbalancePct > DEPOSIT_IMBALANCE_BLOCK_PCT)
+              }
               className="btn-primary flex items-center justify-center gap-2 w-full bg-purple-600 hover:bg-purple-500"
             >
               {busy ? <><Spinner /> Signing…</> : 'Deposit to AMM'}

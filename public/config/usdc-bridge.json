@@ -1,7 +1,7 @@
 {
   "version": 1,
   "status": "testnet",
-  "description": "Sepolia USDC → Falcon USDC bridge. Deposit from the in-app passkey Sepolia wallet (Swap → Bridge USDC In) or any external EVM wallet.",
+  "description": "Sepolia USDC ↔ Falcon F-USDC bridge. Bridge In from Sepolia; Bridge Out returns F-USDC to Sepolia USDC via the lock contract relay.",
   "sepolia": {
     "chain_id": 11155111,
     "chain_name": "Sepolia",
@@ -21,11 +21,17 @@
   "deposit_flow": {
     "type": "passkey_evm_wallet",
     "steps": [
-      "Open Swap → Bridge USDC In and create a Sepolia wallet with your passkey",
+      "Open Swap → Bridge and create a Sepolia wallet with your passkey",
       "Fund the Sepolia address with test ETH (gas) and Sepolia USDC",
-      "Enter amount and tap Deposit with Passkey (approve + lock in one flow)",
-      "Validators attest the deposit and mint Falcon USDC to your Falcon address"
+      "Bridge In: approve + lock USDC; relay mints F-USDC on Falcon",
+      "Bridge Out: return F-USDC on Falcon; relay releases Sepolia USDC to your Sepolia wallet",
+      "Send Out: move Sepolia ETH/USDC to any 0x address"
     ],
     "note": "No MetaMask required. Sepolia keys are encrypted with your passkey and stored only on this device."
+  },
+  "withdraw_flow": {
+    "memo_type": "sepolia-withdraw",
+    "relay_script": "scripts/bridge-withdraw-relay.py",
+    "note": "Lock contract must include withdraw(). Redeploy with deploy-falcon-lock.js if bridge-out fails on-chain."
   }
 }

@@ -235,6 +235,7 @@ export default function PoolPage() {
                 xrpBalance={xrpBalance}
                 usdcBalance={swapData.userBalance?.balance ?? null}
                 ammEnabled={ammEnabled}
+                poolPrice={swapData.market?.price ?? null}
                 onRefresh={() => refresh(wallet.address)}
               />
             )}

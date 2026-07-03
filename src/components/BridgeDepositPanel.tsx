@@ -8,6 +8,8 @@ import {
 } from '@/lib/passkey'
 import { decryptSeed, encryptSeed } from '@/lib/wallet-crypto'
 import { saveWallet, type StoredWallet } from '@/lib/wallet-store'
+import { useNetwork } from '@/components/NetworkProvider'
+import { withNetworkQuery } from '@/lib/network-query'
 import {
   depositUsdcToBridge,
   fetchSepoliaBalances,
@@ -15,6 +17,7 @@ import {
   sendSepoliaUsdc,
   type BridgeDepositResult,
 } from '@/lib/evm-bridge-client'
+import { signBridgeWithdraw } from '@/lib/wallet-sign-client'
 import {
   etherscanAddressUrl,
   etherscanTokenUrl,
@@ -57,12 +60,27 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 interface Props {
   wallet: StoredWallet
   bridgeCfg: UsdcBridgeManifest & { lock_contract_ready?: boolean }
+  fusdcBalance?: number | null
   onWalletUpdate: (w: StoredWallet) => void
+  onFalconRefresh?: () => void
 }
 
-type BridgeMode = 'deposit' | 'send'
+type BridgeMode = 'deposit' | 'withdraw' | 'send'
 
-export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }: Props) {
+interface BridgeWithdrawResult {
+  falconTxHash?: string
+  amount: string
+  sepoliaRecipient: string
+}
+
+export default function BridgeDepositPanel({
+  wallet,
+  bridgeCfg,
+  fusdcBalance,
+  onWalletUpdate,
+  onFalconRefresh,
+}: Props) {
+  const { networkKey, network } = useNetwork()
   const [balances, setBalances] = useState<{ eth: string; usdc: string } | null>(null)
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
@@ -72,10 +90,12 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
   const [sendAmount, setSendAmount] = useState('')
   const [sendHash, setSendHash] = useState<string | null>(null)
   const [amount, setAmount] = useState('')
+  const [withdrawAmount, setWithdrawAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BridgeDepositResult | null>(null)
+  const [withdrawResult, setWithdrawResult] = useState<BridgeWithdrawResult | null>(null)
 
   const bridgeReady = lockContractReady(bridgeCfg)
   const hasEvm = !!(wallet.evmAddress && wallet.evmEncrypted)
@@ -180,6 +200,82 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
     }
   }
 
+  const submitFalconTx = async (tx_blob: string) => {
+    const res = await fetch('/api/wallet/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tx_blob, network: networkKey }),
+    })
+    const data = await res.json()
+    if (data.error) throw new Error(data.error)
+    return data
+  }
+
+  const handleBridgeOut = async () => {
+    const issuer = bridgeCfg.falcon?.token_issuer
+    const currency = bridgeCfg.falcon?.token_currency
+    if (!issuer || !currency || !wallet.evmAddress) return
+
+    const amt = parseFloat(withdrawAmount)
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setError('Enter a valid F-USDC amount')
+      return
+    }
+    if ((fusdcBalance ?? 0) < amt) {
+      setError(`Insufficient F-USDC (have ${fmt(fusdcBalance ?? 0, 4)})`)
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+    setWithdrawResult(null)
+    setStep(null)
+
+    try {
+      const accRes = await fetch(
+        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
+      )
+      const accData = await accRes.json()
+      if (!accRes.ok || !accData.exists) throw new Error('Failed to refresh Falcon account')
+
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+
+      const amountStr = String(Math.round(amt * 1e6) / 1e6)
+      setStep('Returning F-USDC to bridge…')
+      const { tx_blob } = await signBridgeWithdraw(
+        {
+          account: wallet.address,
+          issuer,
+          currency,
+          amount: amountStr,
+          sepoliaRecipient: wallet.evmAddress,
+          sequence: accData.sequence,
+          lastLedgerSequence: accData.currentLedger + 20,
+          networkId: network.networkId,
+        },
+        falcon_secret,
+      )
+
+      const data = await submitFalconTx(tx_blob)
+      setWithdrawResult({
+        falconTxHash: data.hash,
+        amount: amountStr,
+        sepoliaRecipient: wallet.evmAddress,
+      })
+      setWithdrawAmount('')
+      setTimeout(() => {
+        onFalconRefresh?.()
+        refreshBalances()
+      }, 4000)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Bridge out failed')
+    } finally {
+      setBusy(false)
+      setStep(null)
+    }
+  }
+
   const handleDeposit = async () => {
     if (!wallet.evmEncrypted || !wallet.evmAddress || !bridgeReady) return
     const amt = parseFloat(amount)
@@ -217,7 +313,9 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
   }
 
   const amtNum = parseFloat(amount) || 0
+  const withdrawAmtNum = parseFloat(withdrawAmount) || 0
   const sendAmtNum = parseFloat(sendAmount) || 0
+  const fusdcAvail = fusdcBalance ?? 0
   const usdcAvail = balances ? parseFloat(balances.usdc) : 0
   const ethAvail = balances ? parseFloat(balances.eth) : 0
 
@@ -227,7 +325,7 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
         <div>
           <h2 className="text-sm font-semibold text-white">Sepolia Bridge Wallet</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Passkey-secured Sepolia wallet — bridge USDC in to mint Falcon QUC, or send ETH/USDC out after bridging back (future) or from faucet funds.
+            Bridge USDC in from Sepolia, bridge F-USDC back out to your Sepolia wallet, or send Sepolia assets anywhere.
           </p>
         </div>
 
@@ -239,6 +337,13 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
               className={`flex-1 py-2 font-medium ${mode === 'deposit' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
             >
               Bridge In
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode('withdraw'); setError(null) }}
+              className={`flex-1 py-2 font-medium ${mode === 'withdraw' ? 'bg-amber-500/10 text-amber-400' : 'text-slate-500'}`}
+            >
+              Bridge Out
             </button>
             <button
               type="button"
@@ -350,6 +455,67 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
                 USDC token on Etherscan →
               </a>
             </div>
+
+            {mode === 'withdraw' && (
+              <>
+                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-slate-400 space-y-1">
+                  <p>
+                    Return F-USDC on Falcon to the bridge issuer. Validators release matching Sepolia USDC
+                    to your passkey Sepolia wallet below (usually within a few minutes).
+                  </p>
+                  <p className="text-slate-500">
+                    Falcon F-USDC available:{' '}
+                    <span className="font-mono text-slate-200">{fmt(fusdcAvail, 4)}</span>
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs text-slate-400">F-USDC to bridge out</label>
+                  <input
+                    type="number"
+                    value={withdrawAmount}
+                    onChange={(e) => { setWithdrawAmount(e.target.value); setError(null) }}
+                    placeholder="0.00"
+                    min="0.000001"
+                    step="any"
+                    className="input-field"
+                    disabled={busy || !bridgeReady}
+                  />
+                  <div className="flex justify-between text-xs text-slate-600">
+                    <span>{fusdcAvail > 0 ? `Available: ${fmt(fusdcAvail, 4)} F-USDC` : 'No F-USDC balance'}</span>
+                    {fusdcAvail > 0 && (
+                      <button type="button" onClick={() => setWithdrawAmount(String(fusdcAvail))} className="text-brand-500">
+                        Max
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  Sepolia release target:{' '}
+                  <span className="font-mono text-slate-400">{wallet.evmAddress}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={handleBridgeOut}
+                  disabled={
+                    busy ||
+                    !bridgeReady ||
+                    !bridgeCfg.falcon?.token_issuer ||
+                    withdrawAmtNum <= 0 ||
+                    withdrawAmtNum > fusdcAvail
+                  }
+                  className="btn-primary flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-500"
+                >
+                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge Out with Passkey'}
+                </button>
+                {fusdcAvail <= 0 && (
+                  <p className="text-xs text-slate-500">
+                    Need F-USDC first? Withdraw from the{' '}
+                    <a href="/pool" className="text-brand-400 hover:text-brand-300">pool</a>
+                    {' '}or swap FALCON on the Swap tab.
+                  </p>
+                )}
+              </>
+            )}
 
             {mode === 'deposit' && (
               <>
@@ -481,6 +647,23 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
         </div>
       )}
 
+      {withdrawResult && (
+        <div className="card p-4 space-y-2 border border-amber-500/20">
+          <div className="text-sm font-medium text-amber-400">Bridge-out submitted on Falcon</div>
+          {withdrawResult.falconTxHash && (
+            <div className="text-xs text-slate-400 break-all">Falcon tx: {withdrawResult.falconTxHash}</div>
+          )}
+          <p className="text-xs text-slate-500">
+            Returned {withdrawResult.amount} F-USDC. Sepolia USDC will be sent to{' '}
+            <span className="font-mono">{withdrawResult.sepoliaRecipient.slice(0, 10)}…</span> once the
+            relay processes it — refresh Sepolia balance above, then use Send Out for MetaMask or elsewhere.
+          </p>
+          <button type="button" onClick={() => setWithdrawResult(null)} className="text-xs text-brand-400">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {result && (
         <div className="card p-4 space-y-2 border border-emerald-500/20">
           <div className="text-sm font-medium text-emerald-400">Deposit submitted on Sepolia</div>
@@ -513,9 +696,9 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
         <div className="text-slate-400 font-medium">How it works</div>
         <ol className="list-decimal list-inside space-y-1">
           <li>Create Sepolia wallet (passkey-encrypted, stored on this device)</li>
-          <li>Fund it with Sepolia ETH (gas) + Sepolia USDC</li>
-          <li>Deposit locks USDC in the protocol contract tagged with your Falcon address</li>
-          <li>Validators mint matching Falcon USDC (QUC) on ledger 1001</li>
+          <li>Bridge In: lock Sepolia USDC → mint F-USDC on Falcon</li>
+          <li>Bridge Out: return F-USDC on Falcon → Sepolia USDC released to your Sepolia wallet</li>
+          <li>Send Out: move Sepolia ETH/USDC to any 0x address</li>
         </ol>
       </div>
     </div>

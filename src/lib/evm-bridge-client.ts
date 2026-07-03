@@ -15,7 +15,9 @@ const ERC20_ABI = [
 
 const LOCK_ABI = [
   'function deposit(uint256 amount, string falconAccount) returns (bytes32 depositId)',
+  'function withdraw(uint256 amount, address recipient, bytes32 withdrawalId, string falconAccount, string falconTxHash) external',
   'event DepositCreated(bytes32 indexed depositId, address indexed sender, uint256 amount, string falconAccount)',
+  'event WithdrawalReleased(bytes32 indexed withdrawalId, address indexed recipient, uint256 amount, string falconAccount, string falconTxHash)',
 ] as const
 
 export interface SepoliaBalances {
