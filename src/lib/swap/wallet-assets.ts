@@ -10,7 +10,8 @@ export interface WalletAssetBalances {
     balance: number
     currency: string
     issuer: string
-  } | null
+    hasTrustLine: boolean
+  }
   lp: {
     symbol: string
     balance: number
@@ -19,7 +20,7 @@ export interface WalletAssetBalances {
     sharePct: number
     estXrpOut: number
     estUsdcOut: number
-  } | null
+  }
 }
 
 export async function fetchWalletAssets(
@@ -27,10 +28,24 @@ export async function fetchWalletAssets(
   address: string,
 ): Promise<WalletAssetBalances> {
   const token = await loadStableToken()
-  let fusdc: WalletAssetBalances['fusdc'] = null
-  let lp: WalletAssetBalances['lp'] = null
+  const emptyFusdc: WalletAssetBalances['fusdc'] = {
+    symbol: 'F-USDC',
+    balance: 0,
+    currency: token.currency,
+    issuer: token.issuer,
+    hasTrustLine: false,
+  }
+  const emptyLp: WalletAssetBalances['lp'] = {
+    symbol: 'LP-TOKENS',
+    balance: 0,
+    currency: '',
+    issuer: '',
+    sharePct: 0,
+    estXrpOut: 0,
+    estUsdcOut: 0,
+  }
 
-  if (!token.issuer) return { fusdc, lp }
+  if (!token.issuer) return { fusdc: emptyFusdc, lp: emptyLp }
 
   const linesR = await serverRpcCall<{
     lines?: Array<{ currency: string; account: string; balance: string }>
@@ -42,15 +57,15 @@ export async function fetchWalletAssets(
   const usdcLine = (linesR.lines ?? []).find(
     (l) => l.currency === token.currency && l.account === token.issuer,
   )
-  if (usdcLine) {
-    const bal = parseFloat(usdcLine.balance)
-    fusdc = {
-      symbol: token.displaySymbol,
-      balance: bal,
-      currency: token.currency,
-      issuer: token.issuer,
-    }
+  const fusdc: WalletAssetBalances['fusdc'] = {
+    symbol: token.displaySymbol,
+    balance: usdcLine ? parseFloat(usdcLine.balance) : 0,
+    currency: token.currency,
+    issuer: token.issuer,
+    hasTrustLine: !!usdcLine,
   }
+
+  let lp: WalletAssetBalances['lp'] | undefined
 
   const ammR = await serverRpcCall<{ amm?: Record<string, unknown> }>(networkKey, 'amm_info', {
     asset: { currency: 'XRP' },
@@ -86,5 +101,5 @@ export async function fetchWalletAssets(
     }
   }
 
-  return { fusdc, lp }
+  return { fusdc, lp: lp ?? emptyLp }
 }

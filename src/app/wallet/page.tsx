@@ -59,7 +59,8 @@ interface WalletAssets {
     balance: number
     currency: string
     issuer: string
-  } | null
+    hasTrustLine?: boolean
+  }
   lp: {
     symbol: string
     balance: number
@@ -68,7 +69,7 @@ interface WalletAssets {
     sharePct: number
     estXrpOut: number
     estUsdcOut: number
-  } | null
+  }
 }
 
 interface AccountData {
@@ -268,11 +269,16 @@ export default function WalletPage() {
 
   const refreshBalance = useCallback(async (address: string) => {
     try {
-      const r = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, networkKey),
-      )
-      if (!r.ok) return
-      const data: AccountData = await r.json()
+      const [accR, assetsR] = await Promise.all([
+        fetch(withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, networkKey)),
+        fetch(withNetworkQuery(`/api/wallet/assets?address=${encodeURIComponent(address)}`, networkKey)),
+      ])
+      if (!accR.ok) return
+      const data: AccountData = await accR.json()
+      if (assetsR.ok) {
+        const assetsData = await assetsR.json()
+        if (assetsData.assets) data.assets = assetsData.assets
+      }
       setAccount(data)
     } catch { /* non-fatal */ }
   }, [networkKey])
@@ -1014,22 +1020,22 @@ export default function WalletPage() {
                       <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
                         <div className="text-xs text-slate-500">F-USDC</div>
                         <div className="font-mono text-slate-100 mt-0.5">
-                          {account.assets?.fusdc
-                            ? account.assets.fusdc.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })
-                            : '0'}
+                          {(account.assets?.fusdc?.balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
                         </div>
-                        <div className="text-[10px] text-slate-600 mt-0.5">Testnet bridged USDC</div>
+                        <div className="text-[10px] text-slate-600 mt-0.5">
+                          {account.assets?.fusdc?.hasTrustLine === false
+                            ? <Link href="/swap" className="text-brand-400">Add trust line →</Link>
+                            : 'Testnet bridged USDC'}
+                        </div>
                       </div>
                       <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
                         <div className="text-xs text-slate-500">LP-TOKENS</div>
                         <div className="font-mono text-slate-100 mt-0.5">
-                          {account.assets?.lp
-                            ? account.assets.lp.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })
-                            : '0'}
+                          {(account.assets?.lp?.balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </div>
-                        {account.assets?.lp ? (
+                        {(account.assets?.lp?.balance ?? 0) > 0 ? (
                           <div className="text-[10px] text-slate-600 mt-0.5">
-                            ≈ {account.assets.lp.estXrpOut.toFixed(2)} FALCON + {account.assets.lp.estUsdcOut.toFixed(2)} F-USDC
+                            ≈ {account.assets!.lp.estXrpOut.toFixed(2)} FALCON + {account.assets!.lp.estUsdcOut.toFixed(2)} F-USDC
                           </div>
                         ) : (
                           <div className="text-[10px] text-slate-600 mt-0.5">

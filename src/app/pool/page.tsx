@@ -184,23 +184,28 @@ export default function PoolPage() {
               </div>
 
               {swapData?.market && (
-                <div className="bg-slate-800/40 rounded-xl p-3 grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <span className={`px-1.5 py-0.5 rounded font-mono ${
-                      swapData.market.type === 'amm' ? 'bg-purple-500/10 text-purple-400' : 'bg-cyan-500/10 text-cyan-400'
-                    }`}>
-                      {swapData.market.type === 'amm' ? 'AMM' : 'DEX'}
-                    </span>
-                    <div className="text-slate-500 mt-2">Price</div>
-                    <div className="font-mono text-slate-200">{fmt(swapData.market.price, 6)} FALCON/USDC</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-slate-500">Pool depth</div>
-                    <div className="font-mono text-slate-200">{fmt(swapData.market.xrpPool, 0)} FALCON</div>
-                    <div className="font-mono text-slate-400">{fmt(swapData.market.tokenPool, 0)} USDC</div>
-                    {swapData.market.tradingFee > 0 && (
-                      <div className="text-slate-500 mt-1">Fee {(swapData.market.tradingFee / 1000).toFixed(2)}%</div>
-                    )}
+                <div className="bg-slate-800/40 rounded-xl p-3 space-y-2 text-xs">
+                  <p className="text-slate-500">
+                    Total pool liquidity (whole AMM). Sides can differ after swaps — that is normal, not your deposit breaking.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className={`px-1.5 py-0.5 rounded font-mono ${
+                        swapData.market.type === 'amm' ? 'bg-purple-500/10 text-purple-400' : 'bg-cyan-500/10 text-cyan-400'
+                      }`}>
+                        {swapData.market.type === 'amm' ? 'AMM' : 'DEX'}
+                      </span>
+                      <div className="text-slate-500 mt-2">Price</div>
+                      <div className="font-mono text-slate-200">{fmt(swapData.market.price, 6)} FALCON/F-USDC</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-slate-500">Pool depth</div>
+                      <div className="font-mono text-slate-200">{fmt(swapData.market.xrpPool, 0)} FALCON</div>
+                      <div className="font-mono text-slate-400">{fmt(swapData.market.tokenPool, 0)} F-USDC</div>
+                      {swapData.market.tradingFee > 0 && (
+                        <div className="text-slate-500 mt-1">Fee {(swapData.market.tradingFee / 1000).toFixed(2)}%</div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

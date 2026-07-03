@@ -47,7 +47,10 @@ export async function GET(req: NextRequest) {
         transactions:   [],
         currentLedger,
         network:        networkKey,
-        assets:         { fusdc: null, lp: null },
+        assets: await fetchWalletAssets(networkKey, address).catch(() => ({
+          fusdc: { symbol: 'F-USDC', balance: 0, currency: 'QUC', issuer: '', hasTrustLine: false },
+          lp: { symbol: 'LP-TOKENS', balance: 0, currency: '', issuer: '', sharePct: 0, estXrpOut: 0, estUsdcOut: 0 },
+        })),
       })
     }
 
