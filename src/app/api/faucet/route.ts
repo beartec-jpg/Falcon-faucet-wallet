@@ -121,7 +121,32 @@ export async function POST(req: NextRequest) {
     tx_blob = signed.tx_blob
     txHash = signed.hash
   } catch (e) {
-    console.error('Signing error:', e)
+    const msg = String(e instanceof Error ? e.message : e)
+    console.error('Signing error:', msg)
+    if (msg.includes('ALLOW_INSECURE_TRANSPORT') || msg.includes('must use https://')) {
+      return err(
+        'Signer proxy uses HTTP — set ALLOW_INSECURE_TRANSPORT=true in Vercel, then redeploy.',
+        500,
+      )
+    }
+    if (msg.includes('401') || msg.toLowerCase().includes('unauthorized')) {
+      return err('Signer proxy rejected the token — check SIGNER_PROXY_TOKEN matches the coordinator.', 500)
+    }
+    if (msg.includes('Secret does not match account')) {
+      return err(
+        'Faucet secret does not match TESTNET_FAUCET_ACCOUNT — use rwzhiWW4… + falcon_secret from faucet.json.',
+        500,
+      )
+    }
+    if (msg.includes('Invalid falcon_secret')) {
+      return err(
+        'Faucet secret is invalid or truncated — paste the full falcon_secret (~4300 chars, no quotes/newlines).',
+        500,
+      )
+    }
+    if (msg.includes('SIGNER_PROXY_URL is not configured')) {
+      return err('SIGNER_PROXY_URL is not set in Vercel.', 500)
+    }
     return err('Transaction signing failed', 500)
   }
 
