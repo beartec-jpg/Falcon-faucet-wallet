@@ -28,24 +28,49 @@ export interface BridgeDepositResult {
   depositId?: string
 }
 
+/** Public Sepolia RPC fallbacks — rpc.sepolia.org often returns 404 from browsers/serverless. */
+export const SEPOLIA_RPC_FALLBACKS = [
+  'https://ethereum-sepolia-rpc.publicnode.com',
+  'https://1rpc.io/sepolia',
+  'https://sepolia.drpc.org',
+] as const
+
 function provider(rpcUrl: string): JsonRpcProvider {
-  return new JsonRpcProvider(rpcUrl, undefined, { staticNetwork: true })
+  return new JsonRpcProvider(rpcUrl, 11155111, { staticNetwork: true })
+}
+
+async function withSepoliaProvider<T>(
+  primaryUrl: string,
+  fn: (p: JsonRpcProvider) => Promise<T>,
+): Promise<T> {
+  const urls = [primaryUrl, ...SEPOLIA_RPC_FALLBACKS.filter((u) => u !== primaryUrl)]
+  let lastErr: unknown
+  for (const url of urls) {
+    try {
+      return await fn(provider(url))
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('Sepolia RPC unavailable')
 }
 
 export async function fetchSepoliaBalances(
   cfg: SepoliaBridgeConfig,
   evmAddress: string,
 ): Promise<SepoliaBalances> {
-  const p = provider(cfg.rpc_url)
-  const [ethWei, usdcRaw, decimals] = await Promise.all([
-    p.getBalance(evmAddress),
-    new Contract(cfg.usdc_token, ERC20_ABI, p).balanceOf(evmAddress),
-    new Contract(cfg.usdc_token, ERC20_ABI, p).decimals().catch(() => cfg.usdc_decimals),
-  ])
-  return {
-    eth: formatUnits(ethWei, 18),
-    usdc: formatUnits(usdcRaw, decimals),
-  }
+  return withSepoliaProvider(cfg.rpc_url, async (p) => {
+    const usdc = new Contract(cfg.usdc_token, ERC20_ABI, p)
+    const [ethWei, usdcRaw, decimals] = await Promise.all([
+      p.getBalance(evmAddress),
+      usdc.balanceOf(evmAddress),
+      usdc.decimals().catch(() => cfg.usdc_decimals),
+    ])
+    return {
+      eth: formatUnits(ethWei, 18),
+      usdc: formatUnits(usdcRaw, decimals),
+    }
+  })
 }
 
 export async function depositUsdcToBridge(opts: {
@@ -56,7 +81,19 @@ export async function depositUsdcToBridge(opts: {
   onStep?: (step: string) => void
 }): Promise<BridgeDepositResult> {
   const { cfg, evmPrivateKey, amountUsdc, falconAccount, onStep } = opts
-  const p = provider(cfg.rpc_url)
+  const p = await (async () => {
+    const urls = [cfg.rpc_url, ...SEPOLIA_RPC_FALLBACKS.filter((u) => u !== cfg.rpc_url)]
+    for (const url of urls) {
+      try {
+        const prov = provider(url)
+        await prov.getBlockNumber()
+        return prov
+      } catch {
+        /* try next */
+      }
+    }
+    throw new Error('Cannot reach Sepolia RPC — try again shortly')
+  })()
   const signer = new Wallet(evmPrivateKey, p)
   const usdc = new Contract(cfg.usdc_token, ERC20_ABI, signer)
   const lock = new Contract(cfg.lock_contract, LOCK_ABI, signer)

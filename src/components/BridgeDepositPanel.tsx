@@ -60,6 +60,8 @@ interface Props {
 
 export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }: Props) {
   const [balances, setBalances] = useState<{ eth: string; usdc: string } | null>(null)
+  const [balanceError, setBalanceError] = useState<string | null>(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState<string | null>(null)
@@ -71,11 +73,18 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
 
   const refreshBalances = useCallback(async () => {
     if (!wallet.evmAddress) return
+    setBalanceLoading(true)
+    setBalanceError(null)
     try {
       const b = await fetchSepoliaBalances(bridgeCfg.sepolia, wallet.evmAddress)
       setBalances(b)
-    } catch {
+    } catch (e: unknown) {
       setBalances(null)
+      setBalanceError(
+        e instanceof Error ? e.message : 'Could not load Sepolia balances (RPC error)',
+      )
+    } finally {
+      setBalanceLoading(false)
     }
   }, [bridgeCfg.sepolia, wallet.evmAddress])
 
@@ -192,7 +201,17 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
         ) : (
           <div className="space-y-4">
             <div className="bg-slate-800/60 rounded-xl p-3 space-y-2">
-              <div className="text-xs text-slate-500">Your Sepolia wallet</div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs text-slate-500">Your Sepolia wallet (chain ID 11155111)</div>
+                <button
+                  type="button"
+                  onClick={() => refreshBalances()}
+                  disabled={balanceLoading}
+                  className="text-xs text-brand-400 hover:text-brand-300 disabled:opacity-40"
+                >
+                  {balanceLoading ? 'Refreshing…' : 'Refresh'}
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="font-mono text-slate-200 text-xs break-all flex-1">{wallet.evmAddress}</span>
                 <CopyButton text={wallet.evmAddress!} />
@@ -200,13 +219,30 @@ export default function BridgeDepositPanel({ wallet, bridgeCfg, onWalletUpdate }
               <div className="grid grid-cols-2 gap-2 text-xs pt-1">
                 <div>
                   <div className="text-slate-500">Sepolia ETH (gas)</div>
-                  <div className="text-slate-200 font-mono">{balances ? fmt(balances.eth, 6) : '—'}</div>
+                  <div className="text-slate-200 font-mono">
+                    {balanceLoading ? '…' : balances ? fmt(balances.eth, 6) : '—'}
+                  </div>
                 </div>
                 <div>
                   <div className="text-slate-500">Sepolia USDC</div>
-                  <div className="text-slate-200 font-mono">{balances ? fmt(balances.usdc, 2) : '—'}</div>
+                  <div className="text-slate-200 font-mono">
+                    {balanceLoading ? '…' : balances ? fmt(balances.usdc, 2) : '—'}
+                  </div>
                 </div>
               </div>
+              {balanceError && (
+                <p className="text-xs text-amber-400">
+                  Balance lookup failed: {balanceError}. Tap Refresh — funds may still be on Sepolia.
+                </p>
+              )}
+              <a
+                href={`${bridgeCfg.sepolia.explorer_url}/address/${wallet.evmAddress}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-brand-400 hover:text-brand-300 inline-block"
+              >
+                View on Sepolia Etherscan →
+              </a>
               {ethAvail < 0.001 && (
                 <p className="text-xs text-amber-400">
                   Need Sepolia ETH for gas.{' '}
