@@ -18,12 +18,8 @@ import {
   TF_IMMEDIATE_OR_CANCEL,
   type IouAmount,
 } from '@/lib/wallet-sign-client'
-import {
-  lockContractReady,
-  etherscanAddressUrl,
-  etherscanTokenUrl,
-  type UsdcBridgeManifest,
-} from '@/lib/bridge-config'
+import { type UsdcBridgeManifest } from '@/lib/bridge-config'
+import BridgeDepositPanel from '@/components/BridgeDepositPanel'
 
 const DROPS_PER_XRP = 1_000_000
 
@@ -260,7 +256,6 @@ export default function SwapPage() {
   }
 
   const swapAmtNum = parseFloat(swapAmt) || 0
-  const bridgeReady = bridgeCfg ? lockContractReady(bridgeCfg) : false
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -332,97 +327,13 @@ export default function SwapPage() {
               </div>
             </div>
 
-            {/* ── Bridge In (external wallet) ── */}
-            {tab === 'bridge' && (
-              <div className="space-y-4">
-                <div className="card p-5 space-y-4">
-                  <div>
-                    <h2 className="text-sm font-semibold text-white">Deposit Sepolia USDC</h2>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Use MetaMask or any external wallet on Sepolia. The Falcon wallet does not need ETH support —
-                      you only need your Falcon address below.
-                    </p>
-                  </div>
-
-                  {!bridgeReady && (
-                    <div className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2.5">
-                      Lock contract not deployed yet. Set <code className="text-amber-300">SEPOLIA_LOCK_CONTRACT</code> once
-                      FalconCollateralLock is live on Sepolia.
-                    </div>
-                  )}
-
-                  {bridgeCfg && (
-                    <>
-                      <div className="space-y-3 text-sm">
-                        <div className="bg-slate-800/60 rounded-xl p-3">
-                          <div className="text-xs text-slate-500 mb-1">1. Your Falcon destination</div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-slate-200 text-xs break-all flex-1">{wallet.address}</span>
-                            <CopyButton text={wallet.address} />
-                          </div>
-                          <div className="text-[10px] text-slate-500 mt-1">
-                            Pass this as the <code className="text-slate-400">falconAccount</code> argument to deposit()
-                          </div>
-                        </div>
-
-                        <div className="bg-slate-800/60 rounded-xl p-3">
-                          <div className="text-xs text-slate-500 mb-1">2. Sepolia USDC token</div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-slate-200 text-xs break-all flex-1">
-                              {bridgeCfg.sepolia.usdc_token}
-                            </span>
-                            <CopyButton text={bridgeCfg.sepolia.usdc_token} />
-                          </div>
-                          <a
-                            href={etherscanTokenUrl(bridgeCfg.sepolia.explorer_url, bridgeCfg.sepolia.usdc_token)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-brand-400 hover:text-brand-300 mt-1 inline-block"
-                          >
-                            View on Etherscan →
-                          </a>
-                        </div>
-
-                        {bridgeReady && (
-                          <div className="bg-slate-800/60 rounded-xl p-3">
-                            <div className="text-xs text-slate-500 mb-1">3. Lock contract</div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-slate-200 text-xs break-all flex-1">
-                                {bridgeCfg.sepolia.lock_contract}
-                              </span>
-                              <CopyButton text={bridgeCfg.sepolia.lock_contract} />
-                            </div>
-                            <a
-                              href={etherscanAddressUrl(bridgeCfg.sepolia.explorer_url, bridgeCfg.sepolia.lock_contract)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-brand-400 hover:text-brand-300 mt-1 inline-block"
-                            >
-                              Write contract on Etherscan →
-                            </a>
-                          </div>
-                        )}
-                      </div>
-
-                      <ol className="text-xs text-slate-400 space-y-2 list-decimal list-inside">
-                        {bridgeCfg.deposit_flow.steps.map((step, i) => (
-                          <li key={i}>{step}</li>
-                        ))}
-                      </ol>
-
-                      <div className="text-xs text-slate-500 bg-slate-800/40 rounded-lg px-3 py-2">
-                        {bridgeCfg.deposit_flow.note}
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                <div className="card p-4 text-xs text-slate-500">
-                  <span className="text-slate-400 font-medium">Crypto repo note:</span> The existing HTLC atomic swap
-                  system is P2P (two parties, hashlock). This bridge is unilateral deposit → protocol mint — different
-                  mechanism. EVM monitoring patterns from Crypto may be reused for the validator relay later.
-                </div>
-              </div>
+            {/* ── Bridge In (in-app passkey EVM wallet) ── */}
+            {tab === 'bridge' && bridgeCfg && (
+              <BridgeDepositPanel
+                wallet={wallet}
+                bridgeCfg={bridgeCfg}
+                onWalletUpdate={setWallet}
+              />
             )}
 
             {/* ── On-ledger swap ── */}

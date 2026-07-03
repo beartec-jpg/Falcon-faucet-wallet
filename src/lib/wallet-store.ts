@@ -17,6 +17,10 @@ export interface StoredWallet {
   encrypted:    EncryptedSeed
   hasPrf:       boolean  // true if PRF extension was available at creation
   createdAt:    number   // Date.now()
+  /** Passkey-encrypted Sepolia EVM private key (hex, no 0x) for bridge deposits */
+  evmEncrypted?: EncryptedSeed
+  /** Checksummed 0x… address on Sepolia */
+  evmAddress?: string
 }
 
 // ─── DB init ──────────────────────────────────────────────────────────────────

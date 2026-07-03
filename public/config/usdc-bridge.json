@@ -1,7 +1,7 @@
 {
   "version": 1,
   "status": "testnet",
-  "description": "Sepolia USDC → Falcon USDC bridge. Deposit from any external EVM wallet (MetaMask, etc.) — no ETH wallet built into Falcon wallet.",
+  "description": "Sepolia USDC → Falcon USDC bridge. Deposit from the in-app passkey Sepolia wallet (Swap → Bridge USDC In) or any external EVM wallet.",
   "sepolia": {
     "chain_id": 11155111,
     "chain_name": "Sepolia",
@@ -19,13 +19,13 @@
     "token_issuer": "rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt"
   },
   "deposit_flow": {
-    "type": "external_wallet",
+    "type": "passkey_evm_wallet",
     "steps": [
-      "Connect MetaMask (or any wallet) to Sepolia",
-      "Approve USDC spend for the lock contract",
-      "Call deposit(amount, yourFalconAddress) on the lock contract",
-      "Validators attest the deposit and mint Falcon USDC to your address"
+      "Open Swap → Bridge USDC In and create a Sepolia wallet with your passkey",
+      "Fund the Sepolia address with test ETH (gas) and Sepolia USDC",
+      "Enter amount and tap Deposit with Passkey (approve + lock in one flow)",
+      "Validators attest the deposit and mint Falcon USDC to your Falcon address"
     ],
-    "note": "You do not need ETH support inside the Falcon wallet. Use your existing EVM wallet for the Sepolia side only."
+    "note": "No MetaMask required. Sepolia keys are encrypted with your passkey and stored only on this device."
   }
 }

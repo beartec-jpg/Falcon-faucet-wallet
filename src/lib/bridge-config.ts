@@ -48,11 +48,11 @@ export async function fetchBridgeConfig(): Promise<UsdcBridgeManifest | null> {
   }
 }
 
-/** ABI fragment for deposit(uint256 amount, string falconAccount) */
+/** ABI fragments used by the in-app Sepolia bridge */
 export const DEPOSIT_ABI = [
-  'function deposit(uint256 amount, string falconAccount) external',
+  'function deposit(uint256 amount, string falconAccount) external returns (bytes32 depositId)',
   'function approve(address spender, uint256 amount) external returns (bool)',
-  'event Deposit(bytes32 indexed depositId, address indexed sender, uint256 amount, string falconAccount)',
+  'event DepositCreated(bytes32 indexed depositId, address indexed sender, uint256 amount, string falconAccount)',
 ] as const
 
 export function lockContractReady(cfg: UsdcBridgeManifest | null): boolean {
