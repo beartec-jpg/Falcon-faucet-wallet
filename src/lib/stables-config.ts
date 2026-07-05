@@ -45,7 +45,9 @@ export async function resolveNetworkTokens(networkKey: NetworkKey): Promise<Netw
   if (!manifest?.tokens?.length) return base
 
   return base.map((tok) => {
-    const fromManifest = manifest.tokens!.find((m) => m.symbol === tok.symbol)
+    const fromManifest = manifest.tokens!.find(
+      (m) => m.symbol === tok.symbol || m.currency === tok.currency,
+    )
     if (!tok.issuer && fromManifest?.issuer) {
       return { ...tok, issuer: fromManifest.issuer, currency: fromManifest.currency || tok.currency }
     }

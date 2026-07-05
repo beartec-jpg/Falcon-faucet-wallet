@@ -25,5 +25,5 @@ export async function loadStableToken(): Promise<StableTokenRef> {
       }
     }
   } catch { /* ignore */ }
-  return { symbol: 'USDC', displaySymbol: 'F-USDC', currency: 'QUC', issuer: '' }
+  return { symbol: 'F-USDC', displaySymbol: 'F-USDC', currency: 'QUC', issuer: '' }
 }

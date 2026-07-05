@@ -70,7 +70,7 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
       : current === 'swap'
         ? 'Swap · F-USDC'
         : current === 'pool'
-          ? 'Pool · Liquidity'
+          ? 'Pool · F-USDC'
           : current === 'scan'
           ? 'Explorer'
           : current === 'whitepaper'

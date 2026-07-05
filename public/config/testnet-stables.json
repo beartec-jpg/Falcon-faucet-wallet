@@ -8,7 +8,7 @@
   "bootstrap_liquidity_drained_at": "2026-07-05T08:39:35Z",
   "tokens": [
     {
-      "symbol": "USDC",
+      "symbol": "F-USDC",
       "currency": "QUC",
       "issuer": "rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt",
       "liquidity": "bridge"

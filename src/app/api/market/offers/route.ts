@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
 
   const token = await tokenRef(networkKey)
   if (!token.issuer) {
-    return NextResponse.json({ error: 'USDC issuer not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'F-USDC issuer not configured' }, { status: 503 })
   }
 
   const r = await serverRpcCall<{ offers?: Array<Record<string, unknown>> }>(

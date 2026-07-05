@@ -169,10 +169,21 @@ export default function PoolPage() {
                 </div>
               )}
 
-              <Link href="/swap" className="text-xs text-brand-400 hover:text-brand-300 inline-block">
-                Swap or post limit orders → Swap
-              </Link>
+              <div className="flex flex-wrap gap-3 text-xs">
+                <Link href="/swap" className="text-brand-400 hover:text-brand-300">
+                  Swap F-USDC →
+                </Link>
+                <Link href="/swap" className="text-emerald-400 hover:text-emerald-300">
+                  Bridge Sepolia USDC → F-USDC →
+                </Link>
+              </div>
             </div>
+
+            {!swapData?.token.configured && (
+              <div className="card p-4 text-sm text-amber-400">
+                F-USDC issuer not configured. Run issue-testnet-stables.py on the coordinator.
+              </div>
+            )}
 
             {swapData?.token && (
               <MarketLiquidityPanel

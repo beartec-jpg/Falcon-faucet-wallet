@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
   const token = await tokenRef(networkKey)
   if (!token.issuer) {
-    return NextResponse.json({ error: 'USDC issuer not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'F-USDC issuer not configured' }, { status: 503 })
   }
 
   const [asksR, bidsR, ammR] = await Promise.all([
