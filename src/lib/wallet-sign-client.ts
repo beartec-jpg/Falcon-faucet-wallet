@@ -21,6 +21,7 @@ import {
   signTrustSetTx,
   signOfferCreateTx,
   signOfferCancelTx,
+  signAmmCreateTx,
   signAmmDepositTx,
   signAmmWithdrawTx,
   signBridgeWithdrawTx,
@@ -194,6 +195,27 @@ export async function signOfferCancel(
 }
 
 export { TF_TWO_ASSET }
+
+export interface AmmCreateParams {
+  account: string
+  currency: string
+  issuer: string
+  amountXrpDrops: string
+  amountToken: string
+  tradingFee?: number
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  fee?: string
+}
+
+export async function signAmmCreate(
+  params: AmmCreateParams,
+  falcon_secret: string,
+): Promise<SignedTx> {
+  const { tx_blob } = await signAmmCreateTx(params, falcon_secret)
+  return { tx_blob }
+}
 
 export interface AmmDepositParams {
   account: string

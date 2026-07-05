@@ -19,6 +19,8 @@ import {
 } from '@/lib/wallet-sign-client'
 import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
+import DexOrdersPanel from '@/components/DexOrdersPanel'
+import OrderBookPanel from '@/components/OrderBookPanel'
 
 const DROPS_PER_XRP = 1_000_000
 
@@ -46,6 +48,7 @@ interface SwapQuote {
 }
 
 type Tab = 'swap' | 'bridge'
+type TradeMode = 'instant' | 'limit'
 
 function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
   return (
@@ -80,6 +83,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 export default function SwapPage() {
   const { networkKey, network } = useNetwork()
   const [tab, setTab] = useState<Tab>('swap')
+  const [tradeMode, setTradeMode] = useState<TradeMode>('instant')
   const [wallet, setWallet] = useState<StoredWallet | null>(null)
   const [xrpBalance, setXrpBalance] = useState<number | null>(null)
   const [sequence, setSequence] = useState(0)
@@ -349,6 +353,27 @@ export default function SwapPage() {
             {/* ── On-ledger swap ── */}
             {tab === 'swap' && (
               <div className="space-y-4">
+                <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setTradeMode('instant')}
+                    className={`flex-1 py-2 font-medium transition-colors ${
+                      tradeMode === 'instant' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    Instant Swap
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTradeMode('limit')}
+                    className={`flex-1 py-2 font-medium transition-colors ${
+                      tradeMode === 'limit' ? 'bg-cyan-500/10 text-cyan-400' : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    Limit Orders
+                  </button>
+                </div>
+
                 {!swapData?.token.configured && (
                   <div className="card p-4 text-sm text-amber-400">
                     USDC issuer not configured. Run issue-testnet-stables.py on the coordinator.
@@ -368,13 +393,13 @@ export default function SwapPage() {
                   </div>
                 )}
 
-                {swapData?.market && (
+                {tradeMode === 'instant' && swapData?.market && (
                   <div className="card p-4">
                     <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
                       <span className={`px-1.5 py-0.5 rounded font-mono ${
                         swapData.market.type === 'amm' ? 'bg-purple-500/10 text-purple-400' : 'bg-cyan-500/10 text-cyan-400'
                       }`}>
-                        {swapData.market.type === 'amm' ? 'AMM' : 'DEX'}
+                        {swapData.market.type === 'amm' ? 'AMM' : 'DEX book'}
                       </span>
                       <span>{fmt(swapData.market.price, 6)} FALCON per F-USDC</span>
                     </div>
@@ -391,10 +416,12 @@ export default function SwapPage() {
                   </div>
                 )}
 
-                {swapData?.market ? (
+                {tradeMode === 'instant' && swapData?.market ? (
                   <div className="card p-5 space-y-4">
                     <h2 className="text-sm font-semibold text-white">FALCON ↔ F-USDC</h2>
-                    <p className="text-xs text-slate-500">Mainnet-style swap via on-ledger Payment through the AMM pool.</p>
+                    <p className="text-xs text-slate-500">
+                      Market swap via on-ledger Payment — routes through AMM if a pool exists, otherwise the DEX book.
+                    </p>
 
                     <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
                       <button
@@ -480,14 +507,35 @@ export default function SwapPage() {
                       {busy ? <><Spinner /> Signing…</> : `Swap with Passkey`}
                     </button>
                   </div>
-                ) : swapData?.token.configured ? (
+                ) : tradeMode === 'instant' && swapData?.token.configured ? (
                   <div className="card p-4 text-sm text-slate-500 space-y-2">
-                    <p>No USDC liquidity yet. Bridge USDC in or add to the pool.</p>
-                    <Link href="/pool" className="text-brand-400 text-xs inline-block">
-                      Go to Pool →
-                    </Link>
+                    <p>No liquidity for instant swaps yet. Bridge USDC in, post a limit order, or create the AMM pool.</p>
+                    <div className="flex gap-3 text-xs">
+                      <button type="button" onClick={() => setTradeMode('limit')} className="text-cyan-400">
+                        Post limit order →
+                      </button>
+                      <Link href="/pool" className="text-brand-400">
+                        Create AMM pool →
+                      </Link>
+                    </div>
                   </div>
                 ) : null}
+
+                {tradeMode === 'limit' && swapData?.token && wallet && (
+                  <>
+                    <DexOrdersPanel
+                      wallet={wallet}
+                      token={swapData.token}
+                      xrpBalance={xrpBalance}
+                      usdcBalance={swapData.userBalance?.balance ?? null}
+                      onRefresh={() => refresh(wallet.address)}
+                    />
+                    <div className="card p-5">
+                      <h2 className="text-sm font-semibold text-white mb-4">Order Book</h2>
+                      <OrderBookPanel compact />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

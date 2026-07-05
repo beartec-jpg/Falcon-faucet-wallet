@@ -162,8 +162,8 @@ export default function OrderBookPanel({ compact = false, pollMs = 8000 }: Props
 
       {!data.ammEnabled && !compact && (
         <p className="text-xs text-slate-500">
-          AMM not enabled on testnet yet. Post DEX limit orders to provide liquidity; trading fees accrue to makers when orders fill.
-          Run <code className="text-slate-400">enable-amm-fleet.sh</code> on validators to enable AMM pools.
+          No AMM pool on-ledger — instant swaps use the DEX book only until someone creates a pool on the Pool tab.
+          Limit orders here are separate from AMM liquidity.
         </p>
       )}
 

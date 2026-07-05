@@ -359,6 +359,40 @@ export const TF_LP_TOKEN = 0x00010000
 /** tfWithdrawAll — redeem entire LP balance. */
 export const TF_WITHDRAW_ALL = 0x00020000
 
+export async function signAmmCreateTx(
+  params: {
+    account: string
+    currency: string
+    issuer: string
+    amountXrpDrops: string
+    amountToken: string
+    tradingFee?: number
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const core = baseTx(
+    params.account,
+    params.sequence,
+    params.lastLedgerSequence,
+    decoded.publicKeyHex,
+    params.networkId,
+    params.fee,
+  )
+  const tx = {
+    ...core,
+    TransactionType: 'AMMCreate',
+    Amount: params.amountXrpDrops,
+    Amount2: { currency: params.currency, issuer: params.issuer, value: params.amountToken },
+    TradingFee: params.tradingFee ?? 500,
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}
+
 export async function signAmmDepositTx(
   params: {
     account: string
@@ -419,8 +453,8 @@ export async function signAmmWithdrawTx(
     params.networkId,
     params.fee,
   )
-  let flags = TF_LP_TOKEN
-  if (params.withdrawAll) flags |= TF_WITHDRAW_ALL
+  // tfLPToken and tfWithdrawAll are mutually exclusive on ledger — burn full balance via LPTokenIn.
+  const flags = TF_LP_TOKEN
   const tx = {
     ...core,
     TransactionType: 'AMMWithdraw',

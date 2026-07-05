@@ -14,7 +14,6 @@ import { decryptSeed } from '@/lib/wallet-crypto'
 import { loadWallets, type StoredWallet } from '@/lib/wallet-store'
 import { signTrustSet } from '@/lib/wallet-sign-client'
 import MarketLiquidityPanel from '@/components/MarketLiquidityPanel'
-import OrderBookPanel from '@/components/OrderBookPanel'
 
 interface SwapData {
   token: { symbol: string; currency: string; issuer: string; configured: boolean }
@@ -63,7 +62,7 @@ export default function PoolPage() {
   const [wallet, setWallet] = useState<StoredWallet | null>(null)
   const [xrpBalance, setXrpBalance] = useState<number | null>(null)
   const [swapData, setSwapData] = useState<SwapData | null>(null)
-  const [ammEnabled, setAmmEnabled] = useState(false)
+  const [poolLive, setPoolLive] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -76,7 +75,7 @@ export default function PoolPage() {
     ])
     if (accR.exists) setXrpBalance(accR.balance)
     if (swapR.token) setSwapData(swapR)
-    if (!bookR.error) setAmmEnabled(!!bookR.ammEnabled)
+    if (!bookR.error) setPoolLive(!!bookR.ammEnabled)
   }, [networkKey])
 
   useEffect(() => {
@@ -154,9 +153,9 @@ export default function PoolPage() {
           <>
             <div className="card p-5 space-y-3">
               <div>
-                <h1 className="text-base font-semibold text-white">FALCON / USDC Pool</h1>
+                <h1 className="text-base font-semibold text-white">FALCON / USDC AMM Pool</h1>
                 <p className="text-xs text-slate-400 mt-1">
-                  Add liquidity to the AMM pool or post limit orders on the DEX. Fees from swaps and fills go to your Falcon wallet.
+                  Create, deposit into, or withdraw from the AMM pool using bridged F-USDC. DEX limit orders live on Swap.
                 </p>
               </div>
 
@@ -183,19 +182,15 @@ export default function PoolPage() {
                 </div>
               </div>
 
-              {swapData?.market && (
+              {poolLive && swapData?.market && (
                 <div className="bg-slate-800/40 rounded-xl p-3 space-y-2 text-xs">
                   <p className="text-slate-500">
-                    Total pool liquidity (whole AMM). Sides can differ after swaps — that is normal, not your deposit breaking.
+                    Whole-pool stats. Sides can drift after swaps — normal, not a broken deposit.
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <span className={`px-1.5 py-0.5 rounded font-mono ${
-                        swapData.market.type === 'amm' ? 'bg-purple-500/10 text-purple-400' : 'bg-cyan-500/10 text-cyan-400'
-                      }`}>
-                        {swapData.market.type === 'amm' ? 'AMM' : 'DEX'}
-                      </span>
-                      <div className="text-slate-500 mt-2">Price</div>
+                      <span className="px-1.5 py-0.5 rounded font-mono bg-purple-500/10 text-purple-400">AMM</span>
+                      <div className="text-slate-500 mt-2">Pool price</div>
                       <div className="font-mono text-slate-200">{fmt(swapData.market.price, 6)} FALCON/F-USDC</div>
                     </div>
                     <div className="text-right">
@@ -208,6 +203,12 @@ export default function PoolPage() {
                     </div>
                   </div>
                 </div>
+              )}
+
+              {!poolLive && (
+                <p className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2">
+                  No AMM pool on-ledger yet. Bridge USDC in, then create the pool below.
+                </p>
               )}
 
               {swapData?.token.configured && !swapData.userBalance && (
@@ -224,7 +225,7 @@ export default function PoolPage() {
               )}
 
               <Link href="/swap" className="text-xs text-brand-400 hover:text-brand-300 inline-block">
-                Need to swap? Go to Swap →
+                Swap or post limit orders → Swap
               </Link>
             </div>
 
@@ -234,16 +235,11 @@ export default function PoolPage() {
                 token={swapData.token}
                 xrpBalance={xrpBalance}
                 usdcBalance={swapData.userBalance?.balance ?? null}
-                ammEnabled={ammEnabled}
+                poolLive={poolLive}
                 poolPrice={swapData.market?.price ?? null}
                 onRefresh={() => refresh(wallet.address)}
               />
             )}
-
-            <div className="card p-5">
-              <h2 className="text-sm font-semibold text-white mb-4">Order Book</h2>
-              <OrderBookPanel compact />
-            </div>
 
             {error && (
               <div className="card p-4 border border-red-500/20 text-sm text-red-400">

@@ -4,12 +4,14 @@
   "issued_at": "2026-07-02T20:31:41Z",
   "genesis": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
   "liquidity_provider": "rQBwFcbG1qo89zuBG6PNBWL9vvdRe6YQ9w",
+  "bridge_only": true,
+  "bootstrap_liquidity_drained_at": "2026-07-05T08:39:35Z",
   "tokens": [
     {
       "symbol": "USDC",
       "currency": "QUC",
       "issuer": "rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt",
-      "liquidity": "amm"
+      "liquidity": "bridge"
     }
   ],
   "env": {
