@@ -305,7 +305,10 @@ export default function SwapPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setTab('bridge')}
+                onClick={() => {
+                  setTab('bridge')
+                  if (wallet) refresh(wallet.address)
+                }}
                 className={`flex-1 py-2.5 font-medium transition-colors ${
                   tab === 'bridge' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'
                 }`}

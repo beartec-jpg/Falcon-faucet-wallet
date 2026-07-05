@@ -115,9 +115,38 @@ export default function BridgeDepositPanel({
   const [restorePass, setRestorePass] = useState('')
   const [restoreKey, setRestoreKey] = useState('')
   const restoreFileRef = useRef<HTMLInputElement>(null)
+  const [fusdcLive, setFusdcLive] = useState<number | null>(fusdcBalance ?? null)
+  const [fusdcLoading, setFusdcLoading] = useState(false)
 
   const bridgeReady = lockContractReady(bridgeCfg)
   const hasEvm = !!(wallet.evmAddress && wallet.evmEncrypted)
+
+  const refreshFusdcBalance = useCallback(async () => {
+    setFusdcLoading(true)
+    try {
+      const res = await fetch(
+        withNetworkQuery(`/api/wallet/assets?address=${encodeURIComponent(wallet.address)}`, networkKey),
+      )
+      const data = await res.json()
+      if (res.ok && data.assets?.fusdc) {
+        setFusdcLive(data.assets.fusdc.hasTrustLine ? data.assets.fusdc.balance : 0)
+      }
+    } catch { /* ignore */ } finally {
+      setFusdcLoading(false)
+    }
+  }, [networkKey, wallet.address])
+
+  useEffect(() => {
+    if (fusdcBalance != null) setFusdcLive(fusdcBalance)
+  }, [fusdcBalance])
+
+  useEffect(() => {
+    refreshFusdcBalance()
+  }, [refreshFusdcBalance])
+
+  useEffect(() => {
+    if (mode === 'withdraw') refreshFusdcBalance()
+  }, [mode, refreshFusdcBalance])
 
   const refreshBalances = useCallback(async () => {
     if (!wallet.evmAddress) return
@@ -365,8 +394,8 @@ export default function BridgeDepositPanel({
       setError('Enter a valid F-USDC amount')
       return
     }
-    if ((fusdcBalance ?? 0) < amt) {
-      setError(`Insufficient F-USDC (have ${fmt(fusdcBalance ?? 0, 4)})`)
+    if ((fusdcLive ?? 0) < amt) {
+      setError(`Insufficient F-USDC (have ${fmt(fusdcLive ?? 0, 4)})`)
       return
     }
 
@@ -410,6 +439,7 @@ export default function BridgeDepositPanel({
       setWithdrawAmount('')
       setTimeout(() => {
         onFalconRefresh?.()
+        refreshFusdcBalance()
         refreshBalances()
       }, 4000)
     } catch (e: unknown) {
@@ -430,8 +460,8 @@ export default function BridgeDepositPanel({
       setError('Enter a valid F-USDC amount')
       return
     }
-    if ((fusdcBalance ?? 0) < amt) {
-      setError(`Insufficient F-USDC (have ${fmt(fusdcBalance ?? 0, 4)})`)
+    if ((fusdcLive ?? 0) < amt) {
+      setError(`Insufficient F-USDC (have ${fmt(fusdcLive ?? 0, 4)})`)
       return
     }
 
@@ -475,6 +505,7 @@ export default function BridgeDepositPanel({
       setWithdrawAmount('')
       setTimeout(() => {
         onFalconRefresh?.()
+        refreshFusdcBalance()
         refreshBalances()
       }, 4000)
     } catch (e: unknown) {
@@ -524,7 +555,7 @@ export default function BridgeDepositPanel({
   const amtNum = parseFloat(amount) || 0
   const withdrawAmtNum = parseFloat(withdrawAmount) || 0
   const sendAmtNum = parseFloat(sendAmount) || 0
-  const fusdcAvail = fusdcBalance ?? 0
+  const fusdcAvail = fusdcLive ?? fusdcBalance ?? 0
   const usdcAvail = balances ? parseFloat(balances.usdc) : 0
   const ethAvail = balances ? parseFloat(balances.eth) : 0
 
@@ -849,10 +880,22 @@ export default function BridgeDepositPanel({
                     Return F-USDC on Falcon to the bridge issuer. Validators release matching Sepolia USDC
                     to your passkey Sepolia wallet below (usually within a few minutes).
                   </p>
-                  <p className="text-slate-500">
-                    Falcon F-USDC available:{' '}
-                    <span className="font-mono text-slate-200">{fmt(fusdcAvail, 4)}</span>
-                  </p>
+                  <div className="flex items-center justify-between gap-2 text-slate-500">
+                    <p>
+                      Falcon F-USDC available:{' '}
+                      <span className="font-mono text-slate-200">
+                        {fusdcLoading ? '…' : fmt(fusdcAvail, 4)}
+                      </span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { refreshFusdcBalance(); onFalconRefresh?.() }}
+                      disabled={fusdcLoading}
+                      className="text-brand-400 hover:text-brand-300 disabled:opacity-40 shrink-0"
+                    >
+                      Refresh
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs text-slate-400">F-USDC to bridge out</label>

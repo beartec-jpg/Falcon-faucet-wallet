@@ -34,11 +34,19 @@ export function resolveNetworkKey(
   return isNetworkKey(value) ? value : fallback
 }
 
+function isUsableRpcUrl(url: string): boolean {
+  const t = url.trim()
+  return !!t && !t.includes('YOUR_NODE')
+}
+
 export function serverRpcUrl(networkKey: NetworkKey): string {
+  const networkRpc = getNetwork(networkKey).rpcUrl
   if (networkKey === 'mainnet') {
-    return rpcFromEnv('MAINNET', ['XRPLD_MAINNET_RPC_URL'])
+    const fromEnv = rpcFromEnv('MAINNET', ['XRPLD_MAINNET_RPC_URL'])
+    return isUsableRpcUrl(fromEnv) ? fromEnv : networkRpc
   }
-  return rpcFromEnv('TESTNET', ['XRPLD_RPC_URL', 'XRPLD_TESTNET_RPC_URL'])
+  const fromEnv = rpcFromEnv('TESTNET', ['XRPLD_RPC_URL', 'XRPLD_TESTNET_RPC_URL'])
+  return isUsableRpcUrl(fromEnv) ? fromEnv : networkRpc
 }
 
 export function serverNetworkConfig(networkKey: NetworkKey): NetworkConfig {

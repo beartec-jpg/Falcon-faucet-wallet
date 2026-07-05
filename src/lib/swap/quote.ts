@@ -5,6 +5,7 @@
 import type { NetworkKey } from '@/lib/networks'
 import { serverNetworkConfig, serverRpcCall } from '@/lib/network-server'
 import { ammAmountOut, applySlippage } from '@/lib/swap/amm-math'
+import { fetchWalletAssets } from '@/lib/swap/wallet-assets'
 
 const DROPS_PER_XRP = 1_000_000
 const DEFAULT_SLIPPAGE_BPS = 50
@@ -167,20 +168,10 @@ export async function getUsdcMarket(
 
   let userBalance: { balance: number; limit: number } | null = null
   if (address && token.issuer) {
-    try {
-      const r = await serverRpcCall<{
-        lines?: Array<{ currency: string; account: string; balance: string; limit: string }>
-      }>(networkKey, 'account_lines', {
-        account: address,
-        ledger_index: 'validated',
-      })
-      const line = (r?.lines ?? []).find(
-        (l) => l.currency === token.currency && l.account === token.issuer,
-      )
-      if (line) {
-        userBalance = { balance: parseFloat(line.balance), limit: parseFloat(line.limit) }
-      }
-    } catch { /* ignore */ }
+    const assets = await fetchWalletAssets(networkKey, address).catch(() => null)
+    if (assets?.fusdc.hasTrustLine) {
+      userBalance = { balance: assets.fusdc.balance, limit: 10_000_000 }
+    }
   }
 
   return {
