@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import NetworkBanner from '@/components/NetworkBanner'
@@ -41,6 +42,9 @@ import {
   dashboardUrl,
   type SavedValidatorNode,
 } from '@/lib/validator-node-store'
+import { isValidFalconAddress, parseFalconAddressFromScan } from '@/lib/parse-falcon-address'
+
+const AddressQrScanner = dynamic(() => import('@/components/AddressQrScanner'), { ssr: false })
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -243,6 +247,7 @@ export default function WalletPage() {
   const [sendResult, setSendResult] = useState<{
     success: boolean; hash?: string; message: string
   } | null>(null)
+  const [showSendScanner, setShowSendScanner] = useState(false)
 
   // Restore form
   const [restoreSeed,  setRestoreSeed]  = useState('')
@@ -587,7 +592,7 @@ export default function WalletPage() {
     const fusdc = account.assets?.fusdc
     const fusdcBal = fusdc?.balance ?? 0
 
-    if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(to)) {
+    if (!isValidFalconAddress(to)) {
       setError('Invalid destination address'); return
     }
     if (to === wallet.address) {
@@ -1084,7 +1089,7 @@ export default function WalletPage() {
                     disabled={!account?.exists || !network.live}
                     className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-brand-500 hover:bg-brand-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 transition-colors"
                   >
-                    Send
+                    Send FALCON / F-USDC
                   </button>
                   <button
                     onClick={() => setView(view === 'receive' ? 'dashboard' : 'receive')}
@@ -1165,6 +1170,22 @@ export default function WalletPage() {
                 </div>
               )}
 
+              {showSendScanner && (
+                <AddressQrScanner
+                  onScan={(raw) => {
+                    const addr = parseFalconAddressFromScan(raw)
+                    setShowSendScanner(false)
+                    if (!addr) {
+                      setError('QR code does not contain a valid Falcon r-address')
+                      return
+                    }
+                    setSendTo(addr)
+                    setError(null)
+                  }}
+                  onClose={() => setShowSendScanner(false)}
+                />
+              )}
+
               {/* ── Send panel ── */}
               {view === 'send' && (
                 <div className="card p-5 space-y-4">
@@ -1230,16 +1251,31 @@ export default function WalletPage() {
                     <form onSubmit={handleSend} className="space-y-4">
                       <div className="space-y-1.5">
                         <label className="text-xs text-slate-400">Destination address</label>
-                        <input
-                          type="text"
-                          value={sendTo}
-                          onChange={e => { setSendTo(e.target.value); setError(null) }}
-                          placeholder="rXXX…"
-                          className="input-field"
-                          disabled={busy}
-                          autoComplete="off"
-                          spellCheck={false}
-                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={sendTo}
+                            onChange={e => { setSendTo(e.target.value); setError(null) }}
+                            placeholder="rXXX…"
+                            className="input-field flex-1 min-w-0"
+                            disabled={busy}
+                            autoComplete="off"
+                            spellCheck={false}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => { setShowSendScanner(true); setError(null) }}
+                            disabled={busy}
+                            className="shrink-0 px-3 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white disabled:opacity-40 transition-colors"
+                            title="Scan QR code"
+                            aria-label="Scan QR code"
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
+                                d="M4 7V4h3M4 17v3h3M17 4h3v3M20 17v3h-3M7 7h3v3H7zm0 7h3v3H7zm7-7h3v3h-3zm0 7h3v3h-3z" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-xs text-slate-400">
