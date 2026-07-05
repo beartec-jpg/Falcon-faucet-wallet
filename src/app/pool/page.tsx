@@ -14,6 +14,7 @@ import { decryptSeed } from '@/lib/wallet-crypto'
 import { loadWallets, type StoredWallet } from '@/lib/wallet-store'
 import { signTrustSet } from '@/lib/wallet-sign-client'
 import MarketLiquidityPanel from '@/components/MarketLiquidityPanel'
+import PoolStatsPanel from '@/components/PoolStatsPanel'
 
 interface SwapData {
   token: { symbol: string; currency: string; issuer: string; configured: boolean }
@@ -38,23 +39,6 @@ function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
 
 function fmt(n: number, decimals = 4): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: decimals })
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <button
-      type="button"
-      onClick={async () => {
-        await navigator.clipboard.writeText(text)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-      }}
-      className="text-xs px-2 py-1 rounded-md bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors shrink-0"
-    >
-      {copied ? 'Copied' : 'Copy'}
-    </button>
-  )
 }
 
 export default function PoolPage() {
@@ -151,20 +135,10 @@ export default function PoolPage() {
 
         {!loading && wallet && (
           <>
-            <div className="card p-5 space-y-3">
-              <div>
-                <h1 className="text-base font-semibold text-white">FALCON / USDC AMM Pool</h1>
-                <p className="text-xs text-slate-400 mt-1">
-                  Create, deposit into, or withdraw from the AMM pool using bridged F-USDC. DEX limit orders live on Swap.
-                </p>
-              </div>
+            <PoolStatsPanel viewerAddress={wallet.address} />
 
-              <div className="text-xs text-slate-500">Your Falcon address</div>
-              <div className="flex items-center gap-2">
-                <div className="font-mono text-sm text-slate-300 break-all flex-1">{wallet.address}</div>
-                <CopyButton text={wallet.address} />
-              </div>
-
+            <div className="card p-4 space-y-3">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Your wallet</div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-slate-800/60 rounded-xl p-3 text-center">
                   <div className="text-xs text-slate-500 mb-1">FALCON</div>
@@ -173,7 +147,7 @@ export default function PoolPage() {
                   </div>
                 </div>
                 <div className="bg-slate-800/60 rounded-xl p-3 text-center">
-                  <div className="text-xs text-slate-500 mb-1">USDC</div>
+                  <div className="text-xs text-slate-500 mb-1">F-USDC</div>
                   {swapData?.userBalance ? (
                     <div className="text-lg font-bold text-white">{fmt(swapData.userBalance.balance, 2)}</div>
                   ) : (
@@ -181,35 +155,6 @@ export default function PoolPage() {
                   )}
                 </div>
               </div>
-
-              {poolLive && swapData?.market && (
-                <div className="bg-slate-800/40 rounded-xl p-3 space-y-2 text-xs">
-                  <p className="text-slate-500">
-                    Whole-pool stats. Sides can drift after swaps — normal, not a broken deposit.
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <span className="px-1.5 py-0.5 rounded font-mono bg-purple-500/10 text-purple-400">AMM</span>
-                      <div className="text-slate-500 mt-2">Pool price</div>
-                      <div className="font-mono text-slate-200">{fmt(swapData.market.price, 6)} FALCON/F-USDC</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-slate-500">Pool depth</div>
-                      <div className="font-mono text-slate-200">{fmt(swapData.market.xrpPool, 0)} FALCON</div>
-                      <div className="font-mono text-slate-400">{fmt(swapData.market.tokenPool, 0)} F-USDC</div>
-                      {swapData.market.tradingFee > 0 && (
-                        <div className="text-slate-500 mt-1">Fee {(swapData.market.tradingFee / 1000).toFixed(2)}%</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {!poolLive && (
-                <p className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2">
-                  No AMM pool on-ledger yet. Bridge USDC in, then create the pool below.
-                </p>
-              )}
 
               {swapData?.token.configured && !swapData.userBalance && (
                 <div className="flex items-center justify-between gap-3 text-sm">
