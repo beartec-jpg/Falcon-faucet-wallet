@@ -44,9 +44,15 @@ export const WHITEPAPER_SECTIONS: { id: string; title: string; body: string }[] 
     id: 'problem',
     title: '1. The Problem',
     body: `### 1.1 XRP Is Controlled by a Company
-Ripple, Inc. created 100 billion XRP at genesis and retained roughly 60% of the supply. Through a series of escrow agreements, Ripple releases up to 1 billion XRP per month into the market. The releases are real. The selling pressure is real. Holders of XRP are permanently exposed to a counterparty that has a nine-figure inventory of the same token they are holding.
+Ripple, Inc. created 100 billion XRP at genesis. The company received 80 billion XRP directly; the three co-founders (Chris Larsen, Jed McCaleb, and Arthur Britto) received the remaining 20 billion. In 2017, Ripple placed 55 billion XRP into a series of time-locked on-ledger escrow contracts to impose a transparent release schedule and cap monthly selling pressure.
 
-This is not decentralization. It is a public company with a vesting schedule that happens to run on a fast ledger.
+As of mid-2026, approximately 36–38 billion XRP remains locked in those escrow accounts, with a further ~4–6 billion held in Ripple's operational wallets for business activities, grants, and market-making. Ripple's combined control — escrow plus operational — totals roughly 40–44 billion XRP, or around 40% of the 100-billion total supply.
+
+The escrow mechanism releases up to 1 billion XRP per month. In practice, Ripple typically returns 700–800 million of that amount to new escrow contracts each cycle, so the net release reaching the open market runs closer to 200–400 million XRP per month. The schedule is on-chain and publicly verifiable, but the underlying reality does not change: Ripple remains the single largest holder of XRP by a wide margin, and every monthly unlock represents a latent supply overhang that the market must absorb or see returned to escrow.
+
+Holders of XRP are permanently exposed to a counterparty that controls tens of billions of tokens in the same asset they are holding. That is a structural risk that no escrow timetable eliminates.
+
+This is not decentralization. It is a company with a predictable vesting schedule that happens to run on a fast ledger.
 
 ### 1.2 Validators Have No Reason to Participate
 Running an XRP Ledger validator costs money — hardware, bandwidth, operations. The protocol pays validators nothing. The incentive to run a validator is reputational at best, and non-existent at worst. The result is a validator set that skews heavily toward Ripple-affiliated entities and large institutions with indirect business reasons to keep the network running.
@@ -192,7 +198,7 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
     title: '9. Falcon Ledger vs XRP',
     body: `| | XRP | Falcon Ledger |
 |--|-----|---------------|
-| Supply control | Company holds ~40B | Protocol treasury, no private key |
+| Supply control | Ripple controls ~40–44B (escrow + operational) | Protocol treasury, no private key |
 | Validator rewards | None | Paid every epoch on-chain |
 | Transaction crypto | ed25519/secp256k1 | Falcon-512 |
 | Validator consensus crypto | ed25519/secp256k1 | Falcon-512 (full rollout) |
