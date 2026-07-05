@@ -2,6 +2,7 @@
 
 **Report date:** 2026-07-05  
 **Application:** Falcon-faucet-wallet (`qXRP-faucet-wallet` / `Falcon-faucet-wallet`)  
+**See also:** [README](../README.md) · [ROADMAP](./ROADMAP.md) · [Whitepaper](/whitepaper)
 **Network:** Falcon Ledger Testnet (Network ID **1001**)  
 **RPC:** `http://46.224.0.140:6005`  
 **Validated ledger at report time:** ~83,188

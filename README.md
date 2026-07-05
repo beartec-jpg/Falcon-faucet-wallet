@@ -1,63 +1,181 @@
-# qXRP Web Portal
+# Falcon Ledger Web Portal
 
-Official public portal for the qXRP Falcon testnet (Network ID **1001**):
+Official public portal for the **Falcon Ledger** testnet (Network ID **1001**) — a post-quantum fork of the XRP Ledger using **Falcon-512** signatures everywhere.
 
-- Faucet (get testnet qXRP)
-- Passkey-secured Falcon wallet (create, restore, send, receive)
-- DEX marketplace
-- Explorer (scan)
-- **One-click "Run a Validator Node"** — generates the correct one-liner with your address pre-filled as `--payout`, plus the required 1,000 qXRP bond warning
+**Live:** [falcon-ledger.com](https://falcon-ledger.com) · **Repo:** [Falcon-faucet-wallet](https://github.com/beartec-jpg/Falcon-faucet-wallet)
 
-## Current Public Node (recommended)
+---
 
-- **Primary (full history)**: `http://46.224.0.140:6005` (public port only)
-- **Network ID**: `1001` (Falcon Ledger — post-quantum Falcon-512 accounts)
-- **Faucet**: dedicated Falcon account funded from bootstrap supply
+## Features
 
-## Falcon Signing
+### Faucet
+- Rate-limited testnet **FALCON** drip (default 2,000 per request)
+- Works with any Falcon `r…` address
 
-User accounts and the faucet use **Falcon-512** keys. Browser-side `ripple-keypairs` cannot sign Falcon transactions. Signing is delegated to a small HTTP proxy on node1 (`SIGNER_PROXY_URL`) that calls the local admin RPC.
+### Wallet (passkey-secured)
+- **Create** Falcon-512 wallets with WebAuthn passkeys — keys generated on-device
+- **Restore** from saved `falcon_secret` or unlock an existing passkey-encrypted wallet
+- **Send / receive FALCON** — manual address entry or **QR code scan** (`jsqr`)
+- **Send / receive F-USDC** — peer-to-peer IOU transfers (recipient needs trust line)
+- **Recent transactions** — correct asset labels for FALCON and F-USDC payments
+- **Validator onboarding** — one-click deploy command with your address as `--payout` (1,000 FALCON bond)
+- **PWA** — installable progressive web app with offline shell
 
-## Local Development
+### Swap
+- **Instant swap** — buy/sell **F-USDC** via the on-chain AMM (FALCON ↔ F-USDC)
+- **Limit orders** — DEX order book with crossing fills by default; **Post only** for passive resting orders
+- **Order book** — live bids/asks; dust remainders filtered from public book
+- **Open orders** — persistent panel with cancel and fill status
+- Price field is **FALCON per F-USDC** (inverse helper shown in UI)
+
+### Bridge (Sepolia ↔ Falcon)
+- **Passkey Sepolia wallet** — no MetaMask required; EVM keys encrypted on-device
+- **Bridge In** — lock Sepolia USDC on contract → relay mints **F-USDC** on Falcon
+- **Bridge Out** — send F-USDC to issuer with memo → relay releases **Sepolia USDC**
+- **Send Out** — move Sepolia ETH or USDC to any external `0x` address
+- **EVM backup** — encrypted export/import of Sepolia private key
+
+Sepolia testnet contract: `0x2dae31Cbf2E3a418d617081985661fCD0117b75C` (see `public/config/usdc-bridge.json`)
+
+### Pool
+- **Add liquidity** — deposit FALCON + F-USDC into the FALCON/F-USDC AMM
+- **Withdraw liquidity** — partial or full LP burn
+- Live pool stats, LP share %, and estimated withdrawal amounts
+
+### Explorer
+- Ledger and transaction lookup by hash or address
+
+### Rewards / Validator
+- Register, bond (1,000 FALCON), unbond, and **ClaimReward** from the portal
+- Composite score and epoch emission visibility
+
+### Whitepaper
+- In-app protocol overview at `/whitepaper`
+
+---
+
+## Asset labeling
+
+| UI label | What it is | Where used |
+|----------|------------|------------|
+| **FALCON** | Native ledger asset (XRP drops) | Wallet, Swap, Pool, DEX |
+| **F-USDC** | Falcon-ledger IOU (`QUC` from issuer) | Wallet, Swap, Pool, DEX |
+| **Sepolia USDC** | ERC-20 on Ethereum Sepolia | Bridge tab only |
+
+F-USDC and Sepolia USDC are **not** the same token — the bridge converts between them.
+
+---
+
+## Network
+
+| Item | Value |
+|------|-------|
+| Name | Falcon Ledger Testnet |
+| Network ID | `1001` |
+| Public RPC | `http://46.224.0.140:6005` |
+| F-USDC issuer | `rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt` (currency `QUC`) |
+| AMM pool | `rwwcutHZ17aRYZbgWGhZx7eGsRUyqRj1g5` |
+| Faucet | `rwzhiWW4GYK2sQVR5Lw4iDpYLANB5krJXY` |
+| Min validator bond | 1,000 FALCON |
+
+Always use the **public RPC port (6005)**. Admin ports (5005) stay on localhost via the signing proxy.
+
+---
+
+## Falcon signing
+
+User accounts and the faucet use **Falcon-512** keys. Classical `ripple-keypairs` cannot sign Falcon transactions.
+
+- **Browser:** Client-side signing via `@openforge-sh/liboqs` WASM (`src/lib/falcon-tx-sign.ts`)
+- **Server routes:** Optional signer proxy on node1 (`SIGNER_PROXY_URL`) for faucet and legacy API paths
+
+Store your `falcon_secret` when creating a wallet — it cannot be derived from a classical seed.
+
+---
+
+## Documentation
+
+| Doc | Description |
+|-----|-------------|
+| [docs/TESTNET-E2E-REPORT.md](docs/TESTNET-E2E-REPORT.md) | Full end-to-end test report with on-ledger seq/hash references |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Shipped features, in-progress work, and mainnet plan |
+| [public/config/usdc-bridge.json](public/config/usdc-bridge.json) | Sepolia bridge manifest |
+| [public/config/testnet-stables.json](public/config/testnet-stables.json) | F-USDC issuer config |
+| [.env.example](.env.example) | Environment variable reference |
+
+---
+
+## Local development
 
 ```bash
 cp .env.example .env.local
-# Set FAUCET_SECRET, SIGNER_PROXY_TOKEN from node1 bootstrap secrets
-pnpm install
+# Set TESTNET_FAUCET_SECRET, SIGNER_PROXY_TOKEN from node bootstrap secrets
+pnpm install   # not npm — keeps pnpm-lock.yaml in sync
 pnpm dev
 ```
 
-## Environment Variables
+### Scripts
 
-See `.env.example` for the full list. The important ones:
+| Command | Purpose |
+|---------|---------|
+| `pnpm dev` | Next.js dev server |
+| `pnpm build` | Production build (copies Falcon WASM) |
+| `pnpm type-check` | TypeScript validation |
+| `pnpm verify:sign` | Falcon signing smoke test |
 
-- `XRPLD_RPC_URL` — public node on port 6005
-- `FAUCET_ACCOUNT` / `FAUCET_SECRET` — Falcon faucet (`falcon_secret` hex, not a classical seed)
-- `SIGNER_PROXY_URL` / `SIGNER_PROXY_TOKEN` — Falcon signing proxy on node1
-- `NEXT_PUBLIC_NETWORK_ID` — `1001`
-- Upstash Redis credentials for rate limiting (when deployed on Vercel)
+---
+
+## Environment variables
+
+See [.env.example](.env.example) for the full list. Key variables:
+
+| Variable | Purpose |
+|----------|---------|
+| `XRPLD_RPC_URL` | Public node on port 6005 |
+| `TESTNET_FAUCET_ACCOUNT` / `TESTNET_FAUCET_SECRET` | Falcon faucet (`falcon_secret` hex) |
+| `SIGNER_PROXY_URL` / `SIGNER_PROXY_TOKEN` | Falcon signing proxy on node1 |
+| `NEXT_PUBLIC_TESTNET_USDC_ISSUER` | F-USDC issuer (or auto from `testnet-stables.json`) |
+| `NEXT_PUBLIC_SEPOLIA_LOCK_CONTRACT` | Sepolia bridge lock contract |
+| Upstash Redis | Rate limiting (Vercel production) |
+
+Use **`pnpm add`** for new dependencies — `npm install` will desync `pnpm-lock.yaml` and break CI.
+
+---
 
 ## Deploy to Vercel
 
 1. Import the repo in [Vercel](https://vercel.com).
 2. Set **Package Manager** to `pnpm`.
 3. Add environment variables (Production + Preview) — see `.env.example`.
-4. Deploy.
+4. Set `ALLOW_INSECURE_TRANSPORT=true` if the signer proxy is `http://`.
+5. Deploy.
 
-## Notes
+`next.config.mjs` sets `Permissions-Policy: camera=(self)` for the wallet QR scanner.
 
-- Always use public RPC ports (6005). Admin ports (5005) stay on localhost via the signing proxy.
-- Marketplace swaps require stablecoin issuers to be configured (`NEXT_PUBLIC_QUSDC_ISSUER`, etc.).
-- Store your `falcon_secret` securely when creating a wallet — it cannot be recovered from a seed.
+---
 
-## Becoming a Validator (Recommended Path)
+## Becoming a validator
 
 Inside the **Wallet** tab:
 
 1. Load your address (or create one).
-2. Click the **node / server icon** button in the action bar.
-3. You will see a prominent warning: **"You need 1,000 qXRP to bond."**
-4. Copy the ready-to-paste one-liner (your wallet address is automatically used as `--payout`).
-5. Run it on any Ubuntu 22.04/24.04 VPS with Docker.
+2. Click the **node / server icon** in the action bar.
+3. Confirm you have **1,000 FALCON** to bond.
+4. Copy the one-liner (your wallet address is pre-filled as `--payout`).
+5. Run on Ubuntu 22.04/24.04 with Docker.
 
-Full instructions: see the main qXRP repo → [docs/validator-onboarding.md](https://github.com/beartec-jpg/qXRP/blob/develop/docs/validator-onboarding.md)
+Full instructions: [qXRP validator onboarding](https://github.com/beartec-jpg/qXRP/blob/develop/docs/validator-onboarding.md)
+
+---
+
+## Recent releases (July 2026)
+
+- Passkey-secured Falcon wallet with client-side Falcon-512 signing
+- F-USDC swap, limit orders, and AMM instant swap
+- Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet)
+- Pool LP deposit/withdraw
+- Wallet F-USDC P2P send + QR scanner
+- Transaction history F-USDC label fix
+- Comprehensive E2E test documentation
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full feature timeline.

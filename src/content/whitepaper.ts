@@ -1,6 +1,6 @@
 /** Falcon Ledger whitepaper content — single source for /whitepaper */
 
-export const WHITEPAPER_VERSION = '2.1'
+export const WHITEPAPER_VERSION = '2.2'
 export const WHITEPAPER_DATE = 'July 2026'
 
 export const WHITEPAPER_SECTIONS: { id: string; title: string; body: string }[] = [
@@ -77,7 +77,9 @@ The consensus model is unchanged. RPCA stays. Finality stays sub-second. Fees st
 | Epoch length (testnet) | 100 ledgers (~6 min) for faster reward testing |
 | Validator quorum | 3 of 4+ validators |
 
-**What works today:** Falcon-512 account creation, Falcon-signed transactions, validator register/bond/unbond, epoch emission, composite scoring, ClaimReward, double-sign slashing, and on-chain governance.
+**Protocol (live):** Falcon-512 account creation, Falcon-signed transactions, validator register/bond/unbond, epoch emission, composite scoring, ClaimReward, double-sign slashing, and on-chain governance.
+
+**Portal (live):** Passkey wallet, FALCON + F-USDC P2P (with QR scan), instant AMM swap, DEX limit orders, FALCON/F-USDC liquidity pool, Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet), explorer, and validator onboarding. Full E2E test report: \`docs/TESTNET-E2E-REPORT.md\`.
 
 **Rolling out now:** Full Falcon validator consensus — \`[validation_falcon_secret]\` replaces classical \`[validation_seed]\`, and the trusted validator list (UNL) uses Falcon public keys (hex) instead of classical \`n9…\` keys. This requires a coordinated fleet upgrade and re-bond (consensus-breaking).`,
   },
@@ -145,13 +147,20 @@ composite = (uptime×40 + voteAccuracy×30 + latency×15 + consistency×10 + sla
   {
     id: 'liquidity',
     title: '8. Faucet, Wallet, and Built-In Liquidity',
-    body: `This portal (falcon-ledger.com) provides:
-- **Faucet** — fund new Falcon wallets
-- **Wallet** — passkey-secured Falcon-512 accounts, send/receive, validator onboarding
-- **Explorer** — ledger and transaction scan
-- **Market** — DEX/AMM interface (requires configured stablecoin issuers on testnet)
+    body: `This portal (falcon-ledger.com) provides a full testnet financial stack:
 
-Mainnet target: swap qXRP rewards to USDC/USDT entirely on-chain without a centralized exchange.`,
+| Area | Features |
+|------|----------|
+| **Faucet** | Rate-limited FALCON drip for new wallets |
+| **Wallet** | Passkey-secured Falcon-512 accounts; send/receive FALCON and F-USDC; QR scan; validator deploy one-liner |
+| **Swap** | Instant AMM swap (FALCON ↔ F-USDC); DEX limit orders (crossing + post-only passive); live order book |
+| **Pool** | Add/remove liquidity in the FALCON/F-USDC AMM; LP share and withdrawal estimates |
+| **Bridge** | Sepolia USDC ↔ F-USDC via lock contract + relay; passkey Sepolia wallet; send ETH/USDC to any \`0x\` |
+| **Explorer** | Ledger and transaction lookup |
+
+**Asset labels:** F-USDC is the Falcon-ledger IOU (\`QUC\`). Sepolia USDC is the EVM ERC-20 used only in the Bridge tab. They are bridged, not interchangeable.
+
+Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain without a centralized exchange.`,
   },
   {
     id: 'comparison',
@@ -170,7 +179,7 @@ Mainnet target: swap qXRP rewards to USDC/USDT entirely on-chain without a centr
   {
     id: 'milestones',
     title: '10. Milestones',
-    body: `### Completed
+    body: `### Completed — protocol
 - Direct fork of XRPL reference implementation (replay-protected)
 - Falcon-512 transaction signing — accounts, faucet, and wallet (verified end-to-end on testnet)
 - Protocol treasury, epoch emission, halving schedule
@@ -180,11 +189,19 @@ Mainnet target: swap qXRP rewards to USDC/USDT entirely on-chain without a centr
 - Drop conservation invariant
 - Sustained testnet load (850k+ payments, 71+ hours, zero consensus stalls)
 
+### Completed — portal (July 2026)
+- Passkey wallet with client-side Falcon-512 signing and PWA install
+- FALCON + F-USDC peer-to-peer transfers (QR scanner on send)
+- Instant AMM swap and DEX limit orders (crossing default, post-only passive)
+- FALCON/F-USDC liquidity pool (deposit, partial withdraw)
+- Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet, bridge in/out, send out)
+- Comprehensive E2E test documentation (\`docs/TESTNET-E2E-REPORT.md\`)
+
 ### In progress (July 2026)
 - Full Falcon validator consensus fleet upgrade (\`validation_falcon_secret\`, Falcon hex UNL)
-- Built-in DEX/AMM stablecoin pairs on testnet
 - Latency scoring and additional slashing offenses
-- Mainnet genesis validator set and production audit packages`,
+- Mainnet genesis validator set and production security audit
+- Additional stablecoin pairs (USDT) and deeper testnet liquidity`,
   },
   {
     id: 'technical',
