@@ -49,6 +49,12 @@ Sepolia testnet contract: `0x2dae31Cbf2E3a418d617081985661fCD0117b75C` (see `pub
 - Register, bond (1,000 FALCON), unbond, and **ClaimReward** from the portal
 - Composite score and epoch emission visibility
 
+### Message Board
+- **Community board** at `/board` — wallet address is your identity
+- **Sign to post** — Falcon signature proves ownership before publishing
+- **Threaded replies** — reply to any top-level post
+- Backed by **Neon Postgres** (`DATABASE_URL`)
+
 ### Whitepaper
 - In-app protocol overview at `/whitepaper`
 
@@ -97,6 +103,7 @@ Store your `falcon_secret` when creating a wallet — it cannot be derived from 
 
 | Doc | Description |
 |-----|-------------|
+| [docs/sql/board-schema.sql](docs/sql/board-schema.sql) | Neon SQL schema for the message board |
 | [docs/TESTNET-E2E-REPORT.md](docs/TESTNET-E2E-REPORT.md) | Full end-to-end test report with on-ledger seq/hash references |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Shipped features, in-progress work, and mainnet plan |
 | [public/config/usdc-bridge.json](public/config/usdc-bridge.json) | Sepolia bridge manifest |
@@ -136,6 +143,7 @@ See [.env.example](.env.example) for the full list. Key variables:
 | `SIGNER_PROXY_URL` / `SIGNER_PROXY_TOKEN` | Falcon signing proxy on node1 |
 | `NEXT_PUBLIC_TESTNET_USDC_ISSUER` | F-USDC issuer (or auto from `testnet-stables.json`) |
 | `NEXT_PUBLIC_SEPOLIA_LOCK_CONTRACT` | Sepolia bridge lock contract |
+| `DATABASE_URL` | Neon Postgres connection string (message board) |
 | Upstash Redis | Rate limiting (Vercel production) |
 
 Use **`pnpm add`** for new dependencies — `npm install` will desync `pnpm-lock.yaml` and break CI.

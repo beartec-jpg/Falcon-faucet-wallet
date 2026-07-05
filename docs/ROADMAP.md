@@ -66,6 +66,12 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 - [x] On-chain governance proposals and voting
 - [x] Sustained load testing (850k+ payments, 71+ hours)
 
+### Message board
+- [x] Neon Postgres-backed community board (`/board`)
+- [x] Falcon sign-to-post authentication
+- [x] Threaded replies (one level deep)
+- [x] Per-wallet rate limit (10 posts/hour)
+
 ### Documentation & QA
 - [x] Comprehensive E2E test report with on-ledger references
 - [x] Falcon signing verification script (`pnpm verify:sign`)
