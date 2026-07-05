@@ -68,7 +68,7 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
     (current === 'wallet'
       ? 'Wallet · Passkey secured'
       : current === 'swap'
-        ? 'Swap · USDC'
+        ? 'Swap · F-USDC'
         : current === 'pool'
           ? 'Pool · Liquidity'
           : current === 'scan'

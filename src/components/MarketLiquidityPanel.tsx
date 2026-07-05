@@ -166,7 +166,7 @@ export default function MarketLiquidityPanel({
         )
       }
       if (usdcBalance != null && usdcBalance < u) {
-        throw new Error(`Need ${fmt(u, 4)} bridged F-USDC — bridge USDC in first`)
+        throw new Error(`Need ${fmt(u, 4)} bridged F-USDC — bridge Sepolia USDC in first`)
       }
 
       const { tx_blob } = await signAmmCreate(
@@ -201,7 +201,7 @@ export default function MarketLiquidityPanel({
     const x = parseFloat(xrpAmt)
     const u = parseFloat(usdcAmt)
     if (!Number.isFinite(x) || x <= 0 || !Number.isFinite(u) || u <= 0) {
-      setError('Enter FALCON and USDC amounts for AMM deposit')
+      setError('Enter FALCON and F-USDC amounts for AMM deposit')
       return
     }
 
@@ -300,7 +300,7 @@ export default function MarketLiquidityPanel({
 
       const data = await submitTx(tx_blob)
       setResult(
-        `Withdrawn from pool: ${data.result ?? 'ok'} — FALCON and USDC returned to your wallet`,
+        `Withdrawn from pool: ${data.result ?? 'ok'} — FALCON and F-USDC returned to your wallet`,
       )
       setTimeout(() => { onRefresh(); loadLpPosition() }, 4000)
     } catch (e: unknown) {
@@ -392,7 +392,7 @@ export default function MarketLiquidityPanel({
         {!poolLive && (
           <div className="space-y-4">
             <p className="text-xs text-amber-200 bg-amber-500/10 rounded-xl px-3 py-2">
-              No AMM pool exists yet. Bridge USDC in, then create the pool with bridged F-USDC + FALCON.
+              No AMM pool exists yet. Bridge Sepolia USDC in for F-USDC, then create the pool with F-USDC + FALCON.
               You set the initial price (ratio of the two amounts). Creating the pool costs a one-time{' '}
               ~{fmt(parseInt(AMM_CREATE_FEE_DROPS, 10) / DROPS_PER_XRP, 0)} FALCON ledger fee on top of your deposit.
             </p>

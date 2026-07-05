@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    token: { ...token, symbol: 'USDC' },
+    token: { ...token, symbol: 'F-USDC' },
     amm,
     ammEnabled: !!amm,
     asks,

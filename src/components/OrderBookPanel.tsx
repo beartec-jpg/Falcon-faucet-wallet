@@ -61,7 +61,7 @@ function BookTable({
           <thead>
             <tr className="text-slate-500 border-b border-slate-800/50">
               <th className="text-left px-3 py-2 font-medium">Price</th>
-              <th className="text-right px-3 py-2 font-medium">USDC</th>
+              <th className="text-right px-3 py-2 font-medium">F-USDC</th>
               <th className="text-right px-3 py-2 font-medium hidden sm:table-cell">FALCON</th>
               <th className="text-right px-3 py-2 font-medium hidden md:table-cell">Owner</th>
             </tr>
@@ -154,7 +154,7 @@ export default function OrderBookPanel({ compact = false, pollMs = 8000 }: Props
             <div className="font-mono text-slate-200">{fmt(data.amm.xrp, 0)}</div>
           </div>
           <div>
-            <div className="text-slate-500">AMM USDC</div>
+            <div className="text-slate-500">AMM F-USDC</div>
             <div className="font-mono text-slate-200">{fmt(data.amm.usdc, 0)}</div>
           </div>
         </div>
@@ -168,8 +168,8 @@ export default function OrderBookPanel({ compact = false, pollMs = 8000 }: Props
       )}
 
       <div className={`grid gap-4 ${compact ? 'grid-cols-1' : 'lg:grid-cols-2'}`}>
-        <BookTable title="Bids (buy USDC)" rows={data.bids} accent="text-emerald-400" empty="No bids" />
-        <BookTable title="Asks (sell USDC)" rows={data.asks} accent="text-red-400" empty="No asks — post a sell limit order above" />
+        <BookTable title="Bids (buy F-USDC)" rows={data.bids} accent="text-emerald-400" empty="No bids" />
+        <BookTable title="Asks (sell F-USDC)" rows={data.asks} accent="text-red-400" empty="No asks — post a sell limit order above" />
       </div>
     </div>
   )

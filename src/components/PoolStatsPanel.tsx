@@ -100,7 +100,7 @@ export default function PoolStatsPanel({ viewerAddress, pollMs = 12000 }: Props)
       <div className="card p-6 border border-amber-500/20 bg-amber-500/5">
         <div className="text-sm font-semibold text-amber-200">No AMM pool yet</div>
         <p className="text-xs text-slate-400 mt-2">
-          Bridge USDC in, then create the pool below. Stats will appear once the pool is live on-ledger.
+          Bridge Sepolia USDC in for F-USDC, then create the pool below. Stats will appear once the pool is live on-ledger.
         </p>
       </div>
     )

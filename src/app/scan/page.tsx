@@ -321,7 +321,7 @@ export default function ScanPage() {
           <section>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-                FALCON / USDC Order Book
+                FALCON / F-USDC Order Book
               </h2>
               <div className="flex gap-3 text-xs">
                 <Link href="/swap" className="text-brand-400 hover:text-brand-300">

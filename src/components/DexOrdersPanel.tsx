@@ -99,7 +99,7 @@ export default function DexOrdersPanel({
     const amt = parseFloat(tokenAmt)
     const px = parseFloat(price)
     if (!Number.isFinite(amt) || amt <= 0 || !Number.isFinite(px) || px <= 0) {
-      setError('Enter valid amount and price (FALCON per USDC)')
+      setError('Enter valid amount and price (FALCON per F-USDC)')
       return
     }
 
@@ -212,7 +212,8 @@ export default function DexOrdersPanel({
           <h2 className="text-sm font-semibold text-white">DEX Limit Orders</h2>
           <p className="text-xs text-slate-400 mt-1">
             Post bids and asks on the DEX order book (separate from the AMM pool).
-            {marketPrice ? ` Market ≈ ${fmt(marketPrice, 4)} FALCON per F-USDC.` : ''}
+            {marketPrice ? ` Market ≈ ${fmt(marketPrice, 4)} FALCON per F-USDC (${fmt(1 / marketPrice, 4)} F-USDC per FALCON).` : ''}
+            {' '}Price field is FALCON per F-USDC — e.g. 10 F-USDC per 1 FALCON = enter 0.1.
             {' '}Orders far from market may fill instantly against the AMM.
           </p>
         </div>
@@ -223,20 +224,20 @@ export default function DexOrdersPanel({
             onClick={() => setSide('sell')}
             className={`flex-1 py-2 ${side === 'sell' ? 'bg-red-500/10 text-red-400' : 'text-slate-500'}`}
           >
-            Sell USDC
+            Sell F-USDC
           </button>
           <button
             type="button"
             onClick={() => setSide('buy')}
             className={`flex-1 py-2 ${side === 'buy' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
           >
-            Buy USDC (bid)
+            Buy F-USDC (bid)
           </button>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <label className="text-xs text-slate-400">USDC amount</label>
+            <label className="text-xs text-slate-400">F-USDC amount</label>
             <input
               type="number"
               value={tokenAmt}
@@ -248,7 +249,7 @@ export default function DexOrdersPanel({
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs text-slate-400">Price (FALCON per USDC)</label>
+            <label className="text-xs text-slate-400">Price (FALCON per F-USDC)</label>
             <input
               type="number"
               value={price}
@@ -258,6 +259,11 @@ export default function DexOrdersPanel({
               step="any"
               disabled={busy}
             />
+            {priceNum > 0 && (
+              <p className="text-[10px] text-slate-500">
+                = {fmt(1 / priceNum, 4)} F-USDC per 1 FALCON
+              </p>
+            )}
           </div>
         </div>
 
@@ -275,7 +281,7 @@ export default function DexOrdersPanel({
             onClick={() => setTokenAmt(String(usdcBalance))}
             className="text-xs text-brand-500"
           >
-            Max USDC ({fmt(usdcBalance, 4)})
+            Max F-USDC ({fmt(usdcBalance, 4)})
           </button>
         )}
         {side === 'buy' && xrpBalance != null && xrpBalance > 0.1 && priceNum > 0 && (
@@ -311,7 +317,7 @@ export default function DexOrdersPanel({
               <tr className="text-slate-500 border-b border-slate-800/50">
                 <th className="text-left px-3 py-2">Side</th>
                 <th className="text-right px-3 py-2">Price</th>
-                <th className="text-right px-3 py-2">USDC</th>
+                <th className="text-right px-3 py-2">F-USDC</th>
                 <th className="text-right px-3 py-2 hidden sm:table-cell">FALCON</th>
                 <th className="text-right px-3 py-2"></th>
               </tr>

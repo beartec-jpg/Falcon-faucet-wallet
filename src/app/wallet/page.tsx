@@ -1025,7 +1025,7 @@ export default function WalletPage() {
                         <div className="text-[10px] text-slate-600 mt-0.5">
                           {account.assets?.fusdc?.hasTrustLine === false
                             ? <Link href="/swap" className="text-brand-400">Add trust line →</Link>
-                            : 'Testnet bridged USDC'}
+                            : 'Testnet bridged F-USDC'}
                         </div>
                       </div>
                       <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">

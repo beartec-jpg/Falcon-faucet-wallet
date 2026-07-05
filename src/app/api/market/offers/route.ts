@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     address,
-    token: { ...token, symbol: 'USDC' },
+    token: { ...token, symbol: 'F-USDC' },
     offers,
     updatedAt: new Date().toISOString(),
   })

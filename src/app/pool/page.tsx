@@ -158,7 +158,7 @@ export default function PoolPage() {
 
               {swapData?.token.configured && !swapData.userBalance && (
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-slate-400">Add a USDC trust line to deposit</span>
+                  <span className="text-slate-400">Add a F-USDC trust line to deposit</span>
                   <button
                     onClick={handleTrustLine}
                     disabled={busy || !isPasskeySupported()}

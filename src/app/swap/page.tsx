@@ -380,13 +380,13 @@ export default function SwapPage() {
 
                 {!swapData?.token.configured && (
                   <div className="card p-4 text-sm text-amber-400">
-                    USDC issuer not configured. Run issue-testnet-stables.py on the coordinator.
+                    F-USDC issuer not configured. Run issue-testnet-stables.py on the coordinator.
                   </div>
                 )}
 
                 {swapData?.token.configured && !swapData.userBalance && (
                   <div className="card p-4 flex items-center justify-between gap-3">
-                    <div className="text-sm text-slate-400">Add a USDC trust line to receive tokens</div>
+                    <div className="text-sm text-slate-400">Add a F-USDC trust line to receive tokens</div>
                     <button
                       onClick={handleTrustLine}
                       disabled={busy || !isPasskeySupported()}
@@ -405,7 +405,12 @@ export default function SwapPage() {
                       }`}>
                         {swapData.market.type === 'amm' ? 'AMM' : 'DEX book'}
                       </span>
-                      <span>{fmt(swapData.market.price, 6)} FALCON per F-USDC</span>
+                      <span>
+                        {fmt(swapData.market.price, 6)} FALCON per F-USDC
+                        {swapData.market.price > 0 && (
+                          <> ({fmt(1 / swapData.market.price, 4)} F-USDC per FALCON)</>
+                        )}
+                      </span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="bg-slate-800/60 rounded-lg px-3 py-2">
@@ -413,7 +418,7 @@ export default function SwapPage() {
                         <div className="text-slate-200 font-mono">{fmt(swapData.market.xrpPool, 0)}</div>
                       </div>
                       <div className="bg-slate-800/60 rounded-lg px-3 py-2">
-                        <div className="text-slate-500">USDC pool</div>
+                        <div className="text-slate-500">F-USDC pool</div>
                         <div className="text-slate-200 font-mono">{fmt(swapData.market.tokenPool, 0)}</div>
                       </div>
                     </div>
@@ -435,7 +440,7 @@ export default function SwapPage() {
                           swapDir === 'buy' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'
                         }`}
                       >
-                        Buy USDC
+                        Buy F-USDC
                       </button>
                       <button
                         type="button"
@@ -444,13 +449,13 @@ export default function SwapPage() {
                           swapDir === 'sell' ? 'bg-red-500/10 text-red-400' : 'text-slate-500'
                         }`}
                       >
-                        Sell USDC
+                        Sell F-USDC
                       </button>
                     </div>
 
                     <div className="space-y-1.5">
                       <label className="text-xs text-slate-400">
-                        {swapDir === 'buy' ? 'Spend (FALCON)' : 'Sell (USDC)'}
+                        {swapDir === 'buy' ? 'Spend (FALCON)' : 'Sell (F-USDC)'}
                       </label>
                       <input
                         type="number"
@@ -466,7 +471,7 @@ export default function SwapPage() {
                         <span>
                           {swapDir === 'buy'
                             ? xrpBalance !== null ? `Available: ${fmt(xrpBalance, 4)} FALCON` : ''
-                            : swapData.userBalance ? `Available: ${fmt(swapData.userBalance.balance, 4)} USDC` : 'No trust line'}
+                            : swapData.userBalance ? `Available: ${fmt(swapData.userBalance.balance, 4)} F-USDC` : 'No trust line'}
                         </span>
                         {swapDir === 'buy' && xrpBalance != null && xrpBalance > 0.1 && (
                           <button
@@ -491,7 +496,7 @@ export default function SwapPage() {
                           <span>You receive ~</span>
                           <span className="text-white font-semibold">
                             {fmt(quote.outputAmount, 4)}{' '}
-                            <span className="text-brand-500">{swapDir === 'buy' ? 'USDC' : 'FALCON'}</span>
+                            <span className="text-brand-500">{swapDir === 'buy' ? 'F-USDC' : 'FALCON'}</span>
                           </span>
                         </div>
                       </div>
@@ -499,7 +504,7 @@ export default function SwapPage() {
 
                     {swapDir === 'buy' && !swapData.userBalance && (
                       <div className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2">
-                        Add a USDC trust line before buying.
+                        Add a F-USDC trust line before buying.
                       </div>
                     )}
 
@@ -513,7 +518,7 @@ export default function SwapPage() {
                   </div>
                 ) : tradeMode === 'instant' && swapData?.token.configured ? (
                   <div className="card p-4 text-sm text-slate-500 space-y-2">
-                    <p>No liquidity for instant swaps yet. Bridge USDC in, post a limit order, or create the AMM pool.</p>
+                    <p>No liquidity for instant swaps yet. Bridge Sepolia USDC in for F-USDC, post a limit order, or create the AMM pool.</p>
                     <div className="flex gap-3 text-xs">
                       <button type="button" onClick={() => setTradeMode('limit')} className="text-cyan-400">
                         Post limit order →
