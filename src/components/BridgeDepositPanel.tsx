@@ -572,7 +572,9 @@ export default function BridgeDepositPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">Sepolia Bridge Wallet</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Bridge USDC in from Sepolia, bridge F-USDC back out to your Sepolia wallet, or send Sepolia assets anywhere.
+            Bridge In locks <span className="text-emerald-400">Sepolia USDC</span> and mints{' '}
+            <span className="text-amber-400">F-USDC</span> on Falcon. Bridge Out returns{' '}
+            <span className="text-amber-400">F-USDC</span> and releases <span className="text-emerald-400">Sepolia USDC</span>.
           </p>
         </div>
 
@@ -583,14 +585,14 @@ export default function BridgeDepositPanel({
               onClick={() => { setMode('deposit'); setError(null) }}
               className={`flex-1 py-2 font-medium ${mode === 'deposit' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
             >
-              Bridge In
+              Bridge In · USDC
             </button>
             <button
               type="button"
-              onClick={() => { setMode('withdraw'); setError(null) }}
+              onClick={() => { setMode('withdraw'); setError(null); refreshFusdcBalance() }}
               className={`flex-1 py-2 font-medium ${mode === 'withdraw' ? 'bg-amber-500/10 text-amber-400' : 'text-slate-500'}`}
             >
-              Bridge Out
+              Bridge Out · F-USDC
             </button>
             <button
               type="button"
@@ -793,18 +795,48 @@ export default function BridgeDepositPanel({
           </div>
         ) : (
           <div className="space-y-4">
+            {mode === 'deposit' && (
+              <div className="card p-5 space-y-3 bg-emerald-500/5 border-emerald-500/25">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs text-emerald-400/80 mb-0.5">Bridge In — Sepolia USDC</div>
+                    <div className="font-mono text-sm text-slate-300">{shortEvmAddr(wallet.evmAddress!)}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => refreshBalances()}
+                    disabled={balanceLoading}
+                    className="text-xs px-2.5 py-1 rounded-md bg-slate-800 text-emerald-400 hover:bg-slate-700 disabled:opacity-40"
+                  >
+                    {balanceLoading ? '…' : 'Refresh'}
+                  </button>
+                </div>
+                <div>
+                  <div className="text-3xl font-bold text-white">
+                    {balanceLoading ? '…' : fmt(usdcAvail, 2)}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">
+                    Sepolia USDC you lock on-chain — validators mint matching F-USDC to your Falcon wallet
+                  </div>
+                </div>
+                {balanceError && (
+                  <p className="text-xs text-amber-400">Sepolia balance lookup failed: {balanceError}</p>
+                )}
+              </div>
+            )}
+
             {mode === 'withdraw' && (
               <div className="card p-5 space-y-3 bg-amber-500/5 border-amber-500/25">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <div className="text-xs text-amber-400/80 mb-0.5">Falcon Ledger — F-USDC</div>
+                    <div className="text-xs text-amber-400/80 mb-0.5">Bridge Out — Falcon F-USDC</div>
                     <div className="font-mono text-xs text-slate-400 break-all">{wallet.address}</div>
                   </div>
                   <button
                     type="button"
                     onClick={() => { refreshFusdcBalance(); onFalconRefresh?.() }}
                     disabled={fusdcLoading}
-                    className="text-xs px-2.5 py-1 rounded-md bg-slate-800 text-brand-400 hover:bg-slate-700 disabled:opacity-40"
+                    className="text-xs px-2.5 py-1 rounded-md bg-slate-800 text-amber-400 hover:bg-slate-700 disabled:opacity-40"
                   >
                     {fusdcLoading ? '…' : 'Refresh'}
                   </button>
@@ -814,7 +846,7 @@ export default function BridgeDepositPanel({
                     {fusdcLoading ? '…' : fmt(fusdcAvail, 2)}
                   </div>
                   <div className="text-[10px] text-slate-500 mt-1">
-                    On-ledger F-USDC you can bridge back to Sepolia (not Sepolia USDC above)
+                    Falcon ledger F-USDC you return to the bridge — Sepolia USDC is released to your Sepolia wallet
                   </div>
                 </div>
                 {fusdcError && (
@@ -856,17 +888,21 @@ export default function BridgeDepositPanel({
                 </div>
               </div>
 
-              <div>
-                <div className="text-xs text-slate-500 mb-1">Sepolia USDC</div>
-                <div className="text-3xl font-bold text-white">
-                  {balanceLoading ? '…' : balances ? fmt(balances.usdc, 2) : '—'}
+              {mode !== 'deposit' && (
+                <div>
+                  <div className="text-xs text-slate-500 mb-1">
+                    {mode === 'withdraw' ? 'Sepolia USDC (receive)' : 'Sepolia USDC'}
+                  </div>
+                  <div className={`font-bold text-white ${mode === 'withdraw' ? 'text-xl' : 'text-3xl'}`}>
+                    {balanceLoading ? '…' : balances ? fmt(balances.usdc, 2) : '—'}
+                  </div>
+                  <div className="text-[10px] text-slate-600 mt-1">
+                    {mode === 'withdraw'
+                      ? 'Released here after you bridge F-USDC out'
+                      : 'Sepolia testnet USDC'}
+                  </div>
                 </div>
-                <div className="text-[10px] text-slate-600 mt-1">
-                  {mode === 'withdraw'
-                    ? 'USDC released here after you bridge F-USDC out'
-                    : 'Sepolia testnet USDC for bridge in'}
-                </div>
-              </div>
+              )}
 
               <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
                 <div className="text-xs text-slate-500">Sepolia ETH</div>
@@ -967,7 +1003,7 @@ export default function BridgeDepositPanel({
                   }
                   className="btn-primary flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-500"
                 >
-                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge Out with Passkey'}
+                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge Out F-USDC with Passkey'}
                 </button>
                 <button
                   type="button"
@@ -991,8 +1027,11 @@ export default function BridgeDepositPanel({
 
             {mode === 'deposit' && (
               <>
+                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-xs text-slate-400">
+                  Lock Sepolia USDC below → validators mint F-USDC to your Falcon wallet (shown in the balance card above).
+                </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">USDC amount to bridge</label>
+                  <label className="text-xs text-slate-400">Sepolia USDC to bridge in</label>
                   <input
                     type="number"
                     value={amount}
@@ -1004,7 +1043,7 @@ export default function BridgeDepositPanel({
                     disabled={busy || !bridgeReady}
                   />
                   <div className="flex justify-between text-xs text-slate-600">
-                    <span>{balances ? `Available: ${fmt(usdcAvail, 4)} USDC` : ''}</span>
+                    <span>{balances ? `Available: ${fmt(usdcAvail, 4)} Sepolia USDC` : ''}</span>
                     {usdcAvail > 0 && (
                       <button type="button" onClick={() => setAmount(String(usdcAvail))} className="text-brand-500">
                         Max
@@ -1019,7 +1058,7 @@ export default function BridgeDepositPanel({
                   disabled={busy || !bridgeReady || amtNum <= 0 || ethAvail < 0.0001}
                   className="btn-primary flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500"
                 >
-                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Deposit with Passkey'}
+                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge In USDC with Passkey'}
                 </button>
 
                 {bridgeReady && (
@@ -1147,7 +1186,7 @@ export default function BridgeDepositPanel({
             <div className="text-xs text-slate-400 break-all">Deposit ID: {result.depositId}</div>
           )}
           <p className="text-xs text-slate-500">
-            Validators will attest this deposit and mint Falcon USDC to your address. This may take a few minutes on testnet.
+            Validators will attest this deposit and mint F-USDC to your Falcon wallet. This may take a few minutes on testnet.
           </p>
           <button type="button" onClick={() => setResult(null)} className="text-xs text-brand-400">
             Dismiss
