@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Wallet } from 'ethers'
 import {
   authenticatePasskey,
@@ -24,6 +24,14 @@ import {
   lockContractReady,
   type UsdcBridgeManifest,
 } from '@/lib/bridge-config'
+import {
+  createEncryptedEvmBackup,
+  decryptEvmBackupFile,
+  downloadEvmBackup,
+  normalizeEvmPrivateKey,
+  parseEvmBackupFile,
+  validateEvmBackupPassphrase,
+} from '@/lib/evm-wallet-backup'
 
 function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
   return (
@@ -66,6 +74,11 @@ interface Props {
 }
 
 type BridgeMode = 'deposit' | 'withdraw' | 'send'
+type EvmPanel = 'bridge' | 'backup' | 'restore'
+
+function shortEvmAddr(addr: string): string {
+  return addr.length > 12 ? `${addr.slice(0, 8)}…${addr.slice(-4)}` : addr
+}
 
 interface BridgeWithdrawResult {
   falconTxHash?: string
@@ -96,6 +109,12 @@ export default function BridgeDepositPanel({
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BridgeDepositResult | null>(null)
   const [withdrawResult, setWithdrawResult] = useState<BridgeWithdrawResult | null>(null)
+  const [evmPanel, setEvmPanel] = useState<EvmPanel>('bridge')
+  const [backupPass, setBackupPass] = useState('')
+  const [backupPassConfirm, setBackupPassConfirm] = useState('')
+  const [restorePass, setRestorePass] = useState('')
+  const [restoreKey, setRestoreKey] = useState('')
+  const restoreFileRef = useRef<HTMLInputElement>(null)
 
   const bridgeReady = lockContractReady(bridgeCfg)
   const hasEvm = !!(wallet.evmAddress && wallet.evmEncrypted)
@@ -121,6 +140,30 @@ export default function BridgeDepositPanel({
     if (hasEvm) refreshBalances()
   }, [hasEvm, refreshBalances])
 
+  const attachEvmWallet = async (
+    privateKey: string,
+    expectedAddress?: string,
+    auth?: { keyBytes: Uint8Array; hasPrf: boolean },
+  ) => {
+    const { keyBytes, hasPrf } = auth ?? await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+    const evm = new Wallet(privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`)
+    if (expectedAddress && evm.address.toLowerCase() !== expectedAddress.toLowerCase()) {
+      throw new Error('Private key does not match the address in the backup file')
+    }
+    const evmEncrypted = await encryptSeed(evm.privateKey, keyBytes, hasPrf)
+    const updated: StoredWallet = {
+      ...wallet,
+      evmAddress: evm.address,
+      evmEncrypted,
+    }
+    await saveWallet(updated)
+    onWalletUpdate(updated)
+    setEvmPanel('bridge')
+    setRestoreKey('')
+    setRestorePass('')
+    await refreshBalances()
+  }
+
   const setupSepoliaWallet = async () => {
     if (!isPasskeySupported()) {
       setError('Passkeys are required to secure your Sepolia wallet')
@@ -129,19 +172,120 @@ export default function BridgeDepositPanel({
     setBusy(true)
     setError(null)
     try {
-      const { keyBytes, hasPrf } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const auth = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const evm = Wallet.createRandom()
-      const evmEncrypted = await encryptSeed(evm.privateKey, keyBytes, hasPrf)
+      await attachEvmWallet(evm.privateKey, undefined, auth)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to create Sepolia wallet')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleEvmBackup = async () => {
+    if (!wallet.evmEncrypted || !wallet.evmAddress) return
+    const passErr = validateEvmBackupPassphrase(backupPass)
+    if (passErr) {
+      setError(passErr)
+      return
+    }
+    if (backupPass !== backupPassConfirm) {
+      setError('Backup passwords do not match')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const evmPrivateKey = await decryptSeed(wallet.evmEncrypted, keyBytes)
+      const file = await createEncryptedEvmBackup(
+        {
+          evm_private_key: evmPrivateKey.replace(/^0x/i, ''),
+          evm_address: wallet.evmAddress,
+          falcon_address: wallet.address,
+          label: 'Sepolia bridge wallet',
+          createdAt: Date.now(),
+        },
+        backupPass,
+      )
+      downloadEvmBackup(file)
+      setBackupPass('')
+      setBackupPassConfirm('')
+      setEvmPanel('bridge')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Backup failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRestoreBackupFile = async (file: File) => {
+    if (!restorePass) {
+      setError('Enter the backup password for this file')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const raw = JSON.parse(await file.text()) as unknown
+      const parsed = parseEvmBackupFile(raw)
+      let payload
+      if (parsed.encrypted) {
+        payload = await decryptEvmBackupFile(parsed, restorePass)
+      } else {
+        payload = parsed
+      }
+      const key = normalizeEvmPrivateKey(payload.evm_private_key)
+      if (!key) throw new Error('Backup file contains an invalid private key')
+      await attachEvmWallet(key, payload.evm_address)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Restore failed')
+    } finally {
+      setBusy(false)
+      if (restoreFileRef.current) restoreFileRef.current.value = ''
+    }
+  }
+
+  const handleRestorePrivateKey = async () => {
+    const key = normalizeEvmPrivateKey(restoreKey)
+    if (!key) {
+      setError('Paste a valid 64-character hex private key (with or without 0x)')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await attachEvmWallet(key)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Restore failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRemoveEvmWallet = async () => {
+    if (
+      !confirm(
+        'Remove this Sepolia wallet from this device? Save a backup first — you will need it to restore the same address.',
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const updated: StoredWallet = {
         ...wallet,
-        evmAddress: evm.address,
-        evmEncrypted,
+        evmAddress: undefined,
+        evmEncrypted: undefined,
       }
       await saveWallet(updated)
       onWalletUpdate(updated)
-      await refreshBalances()
+      setBalances(null)
+      setEvmPanel('bridge')
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to create Sepolia wallet')
+      setError(e instanceof Error ? e.message : 'Remove failed')
     } finally {
       setBusy(false)
     }
@@ -426,64 +570,241 @@ export default function BridgeDepositPanel({
           </div>
         )}
 
-        <div className="bg-slate-800/60 rounded-xl p-3">
-          <div className="text-xs text-slate-500 mb-1">Falcon destination (mint target)</div>
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-slate-200 text-xs break-all flex-1">{wallet.address}</span>
-            <CopyButton text={wallet.address} />
-          </div>
-        </div>
-
         {!hasEvm ? (
-          <div className="space-y-3">
-            <p className="text-xs text-slate-400">
-              Create a one-time Sepolia wallet secured by your passkey. You will need a small amount of
-              Sepolia ETH for gas and Sepolia USDC to deposit.
-            </p>
+          evmPanel === 'restore' ? (
+            <div className="space-y-4">
+              <button
+                type="button"
+                onClick={() => { setEvmPanel('bridge'); setError(null) }}
+                className="text-xs text-slate-500 hover:text-slate-300"
+              >
+                ← Back
+              </button>
+              <p className="text-xs text-slate-400">
+                Restore a Sepolia wallet from an encrypted backup file or paste the private key hex.
+                Not a mnemonic phrase — backups store the raw EVM key encrypted with your backup password.
+              </p>
+              <input
+                ref={restoreFileRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) handleRestoreBackupFile(f)
+                }}
+              />
+              <div className="space-y-1.5">
+                <label className="text-xs text-slate-400">Backup file password</label>
+                <input
+                  type="password"
+                  value={restorePass}
+                  onChange={(e) => setRestorePass(e.target.value)}
+                  className="input-field"
+                  placeholder="Password from when you downloaded backup"
+                  disabled={busy}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => restoreFileRef.current?.click()}
+                disabled={busy || !restorePass}
+                className="btn-primary w-full flex items-center justify-center gap-2"
+              >
+                {busy ? <><Spinner /> Restoring…</> : 'Upload sepolia-backup-….json'}
+              </button>
+              <div className="text-xs text-slate-500 text-center">or paste private key</div>
+              <textarea
+                value={restoreKey}
+                onChange={(e) => setRestoreKey(e.target.value)}
+                className="input-field font-mono text-xs min-h-[72px]"
+                placeholder="64-char hex private key (0x optional)"
+                disabled={busy}
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                onClick={handleRestorePrivateKey}
+                disabled={busy || !restoreKey.trim()}
+                className="w-full py-2.5 rounded-xl border border-slate-600 text-slate-300 text-sm hover:bg-slate-800/60 disabled:opacity-50"
+              >
+                Restore from private key
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-slate-400">
+                Create a Sepolia wallet secured by your Falcon passkey (random private key — not a mnemonic).
+                You need Sepolia ETH for gas and USDC to bridge in.
+              </p>
+              <button
+                type="button"
+                onClick={setupSepoliaWallet}
+                disabled={busy || !isPasskeySupported()}
+                className="btn-primary flex items-center justify-center gap-2"
+              >
+                {busy ? <><Spinner /> Creating…</> : 'Create Sepolia Wallet'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEvmPanel('restore'); setError(null) }}
+                className="text-xs text-brand-400 hover:text-brand-300 w-full text-center"
+              >
+                Restore from backup or private key →
+              </button>
+            </div>
+          )
+        ) : evmPanel === 'backup' ? (
+          <div className="space-y-4">
             <button
               type="button"
-              onClick={setupSepoliaWallet}
-              disabled={busy || !isPasskeySupported()}
-              className="btn-primary flex items-center justify-center gap-2"
+              onClick={() => { setEvmPanel('bridge'); setError(null) }}
+              className="text-xs text-slate-500 hover:text-slate-300"
             >
-              {busy ? <><Spinner /> Creating…</> : 'Create Sepolia Wallet with Passkey'}
+              ← Back
+            </button>
+            <p className="text-xs text-slate-400">
+              Download an encrypted backup of your Sepolia private key. Store the file and password safely —
+              you need both to restore on another device.
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-xs text-slate-400">Backup password</label>
+              <input
+                type="password"
+                value={backupPass}
+                onChange={(e) => setBackupPass(e.target.value)}
+                className="input-field"
+                disabled={busy}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-slate-400">Confirm password</label>
+              <input
+                type="password"
+                value={backupPassConfirm}
+                onChange={(e) => setBackupPassConfirm(e.target.value)}
+                className="input-field"
+                disabled={busy}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleEvmBackup}
+              disabled={busy || !backupPass || !backupPassConfirm}
+              className="btn-primary w-full flex items-center justify-center gap-2"
+            >
+              {busy ? <><Spinner /> Preparing…</> : 'Download encrypted backup'}
+            </button>
+          </div>
+        ) : evmPanel === 'restore' ? (
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => { setEvmPanel('bridge'); setError(null) }}
+              className="text-xs text-slate-500 hover:text-slate-300"
+            >
+              ← Back
+            </button>
+            <p className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2">
+              Restoring replaces the Sepolia wallet on this device. Back up the current wallet first if it holds funds.
+            </p>
+            <input
+              ref={restoreFileRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) handleRestoreBackupFile(f)
+              }}
+            />
+            <div className="space-y-1.5">
+              <label className="text-xs text-slate-400">Backup file password</label>
+              <input
+                type="password"
+                value={restorePass}
+                onChange={(e) => setRestorePass(e.target.value)}
+                className="input-field"
+                disabled={busy}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => restoreFileRef.current?.click()}
+              disabled={busy || !restorePass}
+              className="btn-primary w-full"
+            >
+              Upload backup file
+            </button>
+            <textarea
+              value={restoreKey}
+              onChange={(e) => setRestoreKey(e.target.value)}
+              className="input-field font-mono text-xs min-h-[72px]"
+              placeholder="Or paste private key hex"
+              disabled={busy}
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              onClick={handleRestorePrivateKey}
+              disabled={busy || !restoreKey.trim()}
+              className="w-full py-2.5 rounded-xl border border-slate-600 text-slate-300 text-sm"
+            >
+              Restore from private key
             </button>
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="bg-slate-800/60 rounded-xl p-3 space-y-2">
+            <div className="card p-5 space-y-4 bg-slate-900/40 border-slate-700/80">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-xs text-slate-500">Your Sepolia wallet (chain ID 11155111)</div>
-                <button
-                  type="button"
-                  onClick={() => refreshBalances()}
-                  disabled={balanceLoading}
-                  className="text-xs text-brand-400 hover:text-brand-300 disabled:opacity-40"
-                >
-                  {balanceLoading ? 'Refreshing…' : 'Refresh'}
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-slate-200 text-xs break-all flex-1">{wallet.evmAddress}</span>
-                <CopyButton text={wallet.evmAddress!} />
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs pt-1">
                 <div>
-                  <div className="text-slate-500">Sepolia ETH (gas)</div>
-                  <div className="text-slate-200 font-mono">
-                    {balanceLoading ? '…' : balances ? fmt(balances.eth, 6) : '—'}
-                  </div>
+                  <div className="text-xs text-slate-500 mb-0.5">Sepolia Wallet</div>
+                  <div className="font-mono text-sm text-slate-300">{shortEvmAddr(wallet.evmAddress!)}</div>
                 </div>
-                <div>
-                  <div className="text-slate-500">Sepolia USDC</div>
-                  <div className="text-slate-200 font-mono">
-                    {balanceLoading ? '…' : balances ? fmt(balances.usdc, 2) : '—'}
-                  </div>
+                <div className="flex items-center gap-1">
+                  <CopyButton text={wallet.evmAddress!} label="Copy" />
+                  <button
+                    type="button"
+                    onClick={() => refreshBalances()}
+                    disabled={balanceLoading}
+                    className="p-1.5 text-slate-500 hover:text-slate-300 disabled:opacity-40"
+                    title="Refresh balances"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
                 </div>
               </div>
+
+              <div>
+                <div className="text-xs text-slate-500 mb-1">USDC</div>
+                <div className="text-3xl font-bold text-white">
+                  {balanceLoading ? '…' : balances ? fmt(balances.usdc, 2) : '—'}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-1">Sepolia testnet USDC for bridge</div>
+              </div>
+
+              <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
+                <div className="text-xs text-slate-500">Sepolia ETH</div>
+                <div className="font-mono text-slate-100 mt-0.5 text-lg">
+                  {balanceLoading ? '…' : balances ? fmt(balances.eth, 6) : '—'}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-0.5">Gas for deposits and sends</div>
+              </div>
+
               {balanceError && (
                 <p className="text-xs text-amber-400">
-                  Balance lookup failed: {balanceError}. Tap Refresh — funds may still be on Sepolia.
+                  Balance lookup failed: {balanceError}
+                </p>
+              )}
+              {ethAvail < 0.001 && (
+                <p className="text-xs text-amber-400">
+                  Need Sepolia ETH for gas.{' '}
+                  <a href="https://sepoliafaucet.com" target="_blank" rel="noopener noreferrer" className="underline text-brand-400">
+                    Get test ETH
+                  </a>
                 </p>
               )}
               <a
@@ -492,33 +813,33 @@ export default function BridgeDepositPanel({
                 rel="noopener noreferrer"
                 className="text-xs text-brand-400 hover:text-brand-300 inline-block"
               >
-                View on Sepolia Etherscan →
+                Etherscan →
               </a>
-              {ethAvail < 0.001 && (
-                <p className="text-xs text-amber-400">
-                  Need Sepolia ETH for gas.{' '}
-                  <a
-                    href="https://sepoliafaucet.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-brand-400 hover:text-brand-300 underline"
-                  >
-                    Get test ETH
-                  </a>
-                  {' '}and send a little to your Sepolia address above.
-                </p>
-              )}
-              <p className="text-[10px] text-slate-500">
-                Send Sepolia USDC to this address from Circle faucet or any source, then deposit below.
-              </p>
-              <a
-                href={etherscanTokenUrl(bridgeCfg.sepolia.explorer_url, bridgeCfg.sepolia.usdc_token)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-brand-400 hover:text-brand-300 inline-block"
+            </div>
+
+            <div className="flex flex-wrap gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => { setEvmPanel('backup'); setError(null) }}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
               >
-                USDC token on Etherscan →
-              </a>
+                Backup
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEvmPanel('restore'); setError(null) }}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
+              >
+                Restore
+              </button>
+              <button
+                type="button"
+                onClick={handleRemoveEvmWallet}
+                disabled={busy}
+                className="px-3 py-1.5 rounded-lg text-red-400 hover:bg-red-500/10 border border-red-500/20"
+              >
+                Remove
+              </button>
             </div>
 
             {mode === 'withdraw' && (
@@ -777,9 +1098,10 @@ export default function BridgeDepositPanel({
       <div className="card p-4 text-xs text-slate-500 space-y-2">
         <div className="text-slate-400 font-medium">How it works</div>
         <ol className="list-decimal list-inside space-y-1">
-          <li>Create Sepolia wallet (passkey-encrypted, stored on this device)</li>
-          <li>Bridge In: lock Sepolia USDC → mint F-USDC on Falcon</li>
-          <li>Bridge Out: return F-USDC on Falcon → Sepolia USDC released to your Sepolia wallet</li>
+          <li>Create or restore Sepolia wallet (passkey-encrypted private key on this device)</li>
+          <li>Back up the Sepolia wallet before removing or switching devices</li>
+          <li>Bridge In: lock Sepolia USDC → mint F-USDC to your Falcon wallet</li>
+          <li>Bridge Out: return F-USDC → Sepolia USDC released here</li>
           <li>Send Out: move Sepolia ETH/USDC to any 0x address</li>
         </ol>
       </div>
