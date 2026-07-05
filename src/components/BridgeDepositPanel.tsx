@@ -117,27 +117,34 @@ export default function BridgeDepositPanel({
   const restoreFileRef = useRef<HTMLInputElement>(null)
   const [fusdcLive, setFusdcLive] = useState<number | null>(fusdcBalance ?? null)
   const [fusdcLoading, setFusdcLoading] = useState(false)
+  const [fusdcError, setFusdcError] = useState<string | null>(null)
 
   const bridgeReady = lockContractReady(bridgeCfg)
   const hasEvm = !!(wallet.evmAddress && wallet.evmEncrypted)
 
   const refreshFusdcBalance = useCallback(async () => {
     setFusdcLoading(true)
+    setFusdcError(null)
     try {
       const res = await fetch(
         withNetworkQuery(`/api/wallet/assets?address=${encodeURIComponent(wallet.address)}`, networkKey),
       )
       const data = await res.json()
-      if (res.ok && data.assets?.fusdc) {
+      if (!res.ok) {
+        throw new Error(data.error ?? `Balance lookup failed (${res.status})`)
+      }
+      if (data.assets?.fusdc) {
         setFusdcLive(data.assets.fusdc.hasTrustLine ? data.assets.fusdc.balance : 0)
       }
-    } catch { /* ignore */ } finally {
+    } catch (e: unknown) {
+      setFusdcError(e instanceof Error ? e.message : 'Could not load Falcon F-USDC balance')
+    } finally {
       setFusdcLoading(false)
     }
   }, [networkKey, wallet.address])
 
   useEffect(() => {
-    if (fusdcBalance != null) setFusdcLive(fusdcBalance)
+    if (fusdcBalance != null && fusdcBalance > 0) setFusdcLive(fusdcBalance)
   }, [fusdcBalance])
 
   useEffect(() => {
@@ -786,6 +793,43 @@ export default function BridgeDepositPanel({
           </div>
         ) : (
           <div className="space-y-4">
+            {mode === 'withdraw' && (
+              <div className="card p-5 space-y-3 bg-amber-500/5 border-amber-500/25">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs text-amber-400/80 mb-0.5">Falcon Ledger — F-USDC</div>
+                    <div className="font-mono text-xs text-slate-400 break-all">{wallet.address}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { refreshFusdcBalance(); onFalconRefresh?.() }}
+                    disabled={fusdcLoading}
+                    className="text-xs px-2.5 py-1 rounded-md bg-slate-800 text-brand-400 hover:bg-slate-700 disabled:opacity-40"
+                  >
+                    {fusdcLoading ? '…' : 'Refresh'}
+                  </button>
+                </div>
+                <div>
+                  <div className="text-3xl font-bold text-white">
+                    {fusdcLoading ? '…' : fmt(fusdcAvail, 2)}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">
+                    On-ledger F-USDC you can bridge back to Sepolia (not Sepolia USDC above)
+                  </div>
+                </div>
+                {fusdcError && (
+                  <p className="text-xs text-amber-400">Falcon balance lookup failed: {fusdcError}</p>
+                )}
+                {fusdcAvail <= 0 && !fusdcLoading && !fusdcError && (
+                  <p className="text-xs text-slate-500">
+                    Withdraw F-USDC from the{' '}
+                    <a href="/pool" className="text-brand-400 hover:text-brand-300">pool</a>
+                    {' '}or buy on Swap first.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="card p-5 space-y-4 bg-slate-900/40 border-slate-700/80">
               <div className="flex items-center justify-between gap-2">
                 <div>
@@ -796,8 +840,11 @@ export default function BridgeDepositPanel({
                   <CopyButton text={wallet.evmAddress!} label="Copy" />
                   <button
                     type="button"
-                    onClick={() => refreshBalances()}
-                    disabled={balanceLoading}
+                    onClick={() => {
+                      refreshBalances()
+                      if (mode === 'withdraw') refreshFusdcBalance()
+                    }}
+                    disabled={balanceLoading || fusdcLoading}
                     className="p-1.5 text-slate-500 hover:text-slate-300 disabled:opacity-40"
                     title="Refresh balances"
                   >
@@ -810,11 +857,15 @@ export default function BridgeDepositPanel({
               </div>
 
               <div>
-                <div className="text-xs text-slate-500 mb-1">USDC</div>
+                <div className="text-xs text-slate-500 mb-1">Sepolia USDC</div>
                 <div className="text-3xl font-bold text-white">
                   {balanceLoading ? '…' : balances ? fmt(balances.usdc, 2) : '—'}
                 </div>
-                <div className="text-[10px] text-slate-600 mt-1">Sepolia testnet USDC for bridge</div>
+                <div className="text-[10px] text-slate-600 mt-1">
+                  {mode === 'withdraw'
+                    ? 'USDC released here after you bridge F-USDC out'
+                    : 'Sepolia testnet USDC for bridge in'}
+                </div>
               </div>
 
               <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
@@ -875,27 +926,9 @@ export default function BridgeDepositPanel({
 
             {mode === 'withdraw' && (
               <>
-                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-slate-400 space-y-1">
-                  <p>
-                    Return F-USDC on Falcon to the bridge issuer. Validators release matching Sepolia USDC
-                    to your passkey Sepolia wallet below (usually within a few minutes).
-                  </p>
-                  <div className="flex items-center justify-between gap-2 text-slate-500">
-                    <p>
-                      Falcon F-USDC available:{' '}
-                      <span className="font-mono text-slate-200">
-                        {fusdcLoading ? '…' : fmt(fusdcAvail, 4)}
-                      </span>
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => { refreshFusdcBalance(); onFalconRefresh?.() }}
-                      disabled={fusdcLoading}
-                      className="text-brand-400 hover:text-brand-300 disabled:opacity-40 shrink-0"
-                    >
-                      Refresh
-                    </button>
-                  </div>
+                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-slate-400">
+                  Return F-USDC on Falcon to the bridge issuer. Validators release matching Sepolia USDC
+                  to your Sepolia wallet above (usually within a few minutes).
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs text-slate-400">F-USDC to bridge out</label>
@@ -953,13 +986,6 @@ export default function BridgeDepositPanel({
                   Use legacy cleanup before releasing old Sepolia USDC in the Crypto app. Bridge Out only works
                   for F-USDC backed by the new lock contract after a fresh bridge-in.
                 </p>
-                {fusdcAvail <= 0 && (
-                  <p className="text-xs text-slate-500">
-                    Need F-USDC first? Withdraw from the{' '}
-                    <a href="/pool" className="text-brand-400 hover:text-brand-300">pool</a>
-                    {' '}or swap FALCON on the Swap tab.
-                  </p>
-                )}
               </>
             )}
 
