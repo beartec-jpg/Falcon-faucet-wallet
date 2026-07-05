@@ -13,6 +13,7 @@ import {
   type IouAmount,
 } from '@/lib/wallet-sign-client'
 import { submitWalletTx } from '@/lib/wallet-submit'
+import { fmtOfferAmount } from '@/lib/swap/dust-offers'
 
 const DROPS_PER_XRP = 1_000_000
 
@@ -29,6 +30,7 @@ interface UserOffer {
   price: number
   amountToken: number
   amountXrp: number
+  dust?: boolean
 }
 
 interface Props {
@@ -371,13 +373,14 @@ export default function DexOrdersPanel({
             </thead>
             <tbody>
               {offers.map((o) => (
-                <tr key={o.seq} className="border-b border-slate-800/30">
+                <tr key={o.seq} className={`border-b border-slate-800/30 ${o.dust ? 'bg-amber-500/5' : ''}`}>
                   <td className={`px-3 py-2 ${o.side === 'sell' ? 'text-red-400' : 'text-emerald-400'}`}>
                     {o.side}
+                    {o.dust && <span className="block text-[10px] text-amber-400/80">dust</span>}
                   </td>
                   <td className="px-3 py-2 text-right font-mono">{fmt(o.price, 6)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmt(o.amountToken, 2)}</td>
-                  <td className="px-3 py-2 text-right font-mono hidden sm:table-cell">{fmt(o.amountXrp, 2)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtOfferAmount(o.amountToken)}</td>
+                  <td className="px-3 py-2 text-right font-mono hidden sm:table-cell">{fmtOfferAmount(o.amountXrp)}</td>
                   <td className="px-3 py-2 text-right">
                     <button
                       type="button"
@@ -385,7 +388,7 @@ export default function DexOrdersPanel({
                       disabled={busy}
                       className="text-red-400 hover:text-red-300 disabled:opacity-40"
                     >
-                      Cancel
+                      {o.dust ? 'Cancel dust' : 'Cancel'}
                     </button>
                   </td>
                 </tr>

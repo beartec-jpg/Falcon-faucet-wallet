@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
+import { isDustOffer } from '@/lib/swap/dust-offers'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -28,6 +29,7 @@ function parseUserOffer(
   price: number
   amountToken: number
   amountXrp: number
+  dust: boolean
 } | null {
   const gets = o.taker_gets ?? o.TakerGets
   const pays = o.taker_pays ?? o.TakerPays
@@ -42,13 +44,19 @@ function parseUserOffer(
     const token = parseFloat(String((gets as { value: string }).value))
     const xrp = parseInt(pays, 10) / DROPS
     if (token <= 0 || xrp <= 0) return null
-    return { seq, side: 'sell', price: xrp / token, amountToken: token, amountXrp: xrp }
+    return {
+      seq, side: 'sell', price: xrp / token, amountToken: token, amountXrp: xrp,
+      dust: isDustOffer(token, xrp),
+    }
   }
   if (typeof gets === 'string' && isToken(pays)) {
     const xrp = parseInt(gets, 10) / DROPS
     const token = parseFloat(String((pays as { value: string }).value))
     if (token <= 0 || xrp <= 0) return null
-    return { seq, side: 'buy', price: xrp / token, amountToken: token, amountXrp: xrp }
+    return {
+      seq, side: 'buy', price: xrp / token, amountToken: token, amountXrp: xrp,
+      dust: isDustOffer(token, xrp),
+    }
   }
   return null
 }

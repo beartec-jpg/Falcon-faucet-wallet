@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
+import { fmtOfferAmount } from '@/lib/swap/dust-offers'
 
 interface BookEntry {
   price: number
@@ -70,8 +71,8 @@ function BookTable({
             {rows.map((r) => (
               <tr key={r.seq} className="border-b border-slate-800/30 hover:bg-slate-800/30">
                 <td className="px-3 py-2 font-mono text-slate-200">{fmt(r.price, 6)}</td>
-                <td className="px-3 py-2 text-right font-mono text-slate-300">{fmt(r.amountToken, 2)}</td>
-                <td className="px-3 py-2 text-right font-mono text-slate-400 hidden sm:table-cell">{fmt(r.amountXrp, 2)}</td>
+                <td className="px-3 py-2 text-right font-mono text-slate-300">{fmtOfferAmount(r.amountToken)}</td>
+                <td className="px-3 py-2 text-right font-mono text-slate-400 hidden sm:table-cell">{fmtOfferAmount(r.amountXrp)}</td>
                 <td className="px-3 py-2 text-right font-mono text-slate-500 hidden md:table-cell">{shortAddr(r.owner)}</td>
               </tr>
             ))}

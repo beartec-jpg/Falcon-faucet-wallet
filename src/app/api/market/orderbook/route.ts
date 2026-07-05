@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
+import { isDustOffer } from '@/lib/swap/dust-offers'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -79,10 +80,10 @@ export async function GET(req: NextRequest) {
 
   const asks = (asksR.offers ?? [])
     .map((o) => parseOffer(o, 'ask'))
-    .filter(Boolean)
+    .filter((o): o is NonNullable<typeof o> => !!o && !isDustOffer(o.amountToken, o.amountXrp))
   const bids = (bidsR.offers ?? [])
     .map((o) => parseOffer(o, 'bid'))
-    .filter(Boolean)
+    .filter((o): o is NonNullable<typeof o> => !!o && !isDustOffer(o.amountToken, o.amountXrp))
 
   let amm: Record<string, unknown> | null = null
   if (ammR && 'amm' in ammR && ammR.amm) {
