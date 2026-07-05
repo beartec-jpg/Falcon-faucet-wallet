@@ -11,6 +11,7 @@ import {
   signOfferCancel,
   type IouAmount,
 } from '@/lib/wallet-sign-client'
+import { submitWalletTx } from '@/lib/wallet-submit'
 
 const DROPS_PER_XRP = 1_000_000
 
@@ -78,16 +79,7 @@ export default function DexOrdersPanel({
     loadOffers()
   }, [loadOffers])
 
-  const submitTx = async (tx_blob: string) => {
-    const res = await fetch('/api/wallet/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tx_blob, network: networkKey }),
-    })
-    const data = await res.json()
-    if (data.error) throw new Error(data.error)
-    return data
-  }
+  const submitTx = (tx_blob: string) => submitWalletTx(tx_blob, networkKey)
 
   const handleDexOrder = async () => {
     if (!token.issuer || !network.live) return

@@ -18,6 +18,8 @@ import { BRIDGE_WITHDRAW_MEMO_TYPE, utf8ToMemoHex } from './bridge-memo'
 import { networkIdForTx } from '@/lib/networks'
 
 const BASE_FEE = '12'
+/** AMMCreate base fee = one owner reserve (not the normal 12-drop increment). */
+export const AMM_CREATE_FEE_DROPS = '2000000'
 
 interface TxCore {
   TransactionType: string
@@ -381,7 +383,7 @@ export async function signAmmCreateTx(
     params.lastLedgerSequence,
     decoded.publicKeyHex,
     params.networkId,
-    params.fee,
+    params.fee ?? AMM_CREATE_FEE_DROPS,
   )
   const tx = {
     ...core,

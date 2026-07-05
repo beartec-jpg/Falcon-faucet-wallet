@@ -14,6 +14,7 @@ import {
   signAmmDeposit,
   signAmmWithdraw,
 } from '@/lib/wallet-sign-client'
+import { AMM_CREATE_FEE_DROPS, submitWalletTx } from '@/lib/wallet-submit'
 
 const DROPS_PER_XRP = 1_000_000
 
@@ -135,16 +136,7 @@ export default function MarketLiquidityPanel({
     if (poolLive) loadLpPosition()
   }, [loadLpPosition, poolLive])
 
-  const submitTx = async (tx_blob: string) => {
-    const res = await fetch('/api/wallet/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tx_blob, network: networkKey }),
-    })
-    const data = await res.json()
-    if (data.error) throw new Error(data.error)
-    return data
-  }
+  const submitTx = (tx_blob: string) => submitWalletTx(tx_blob, networkKey)
 
   const handleAmmCreate = async () => {
     if (!token.issuer || !network.live || poolLive) return
@@ -166,6 +158,17 @@ export default function MarketLiquidityPanel({
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
+      const createFeeFalcon = parseInt(AMM_CREATE_FEE_DROPS, 10) / DROPS_PER_XRP
+      if (xrpBalance != null && xrpBalance < x + createFeeFalcon + 0.5) {
+        throw new Error(
+          `Need ~${fmt(x + createFeeFalcon + 0.5, 2)} FALCON total ` +
+            `(${fmt(x, 0)} pool + ~${fmt(createFeeFalcon, 0)} create fee + reserve)`,
+        )
+      }
+      if (usdcBalance != null && usdcBalance < u) {
+        throw new Error(`Need ${fmt(u, 4)} bridged F-USDC — bridge USDC in first`)
+      }
+
       const { tx_blob } = await signAmmCreate(
         {
           account: wallet.address,
@@ -173,6 +176,7 @@ export default function MarketLiquidityPanel({
           issuer: token.issuer,
           amountXrpDrops: String(Math.round(x * DROPS_PER_XRP)),
           amountToken: String(u),
+          fee: AMM_CREATE_FEE_DROPS,
           sequence: accData.sequence,
           lastLedgerSequence: accData.currentLedger + 20,
           networkId: network.networkId,
@@ -181,7 +185,9 @@ export default function MarketLiquidityPanel({
       )
 
       const data = await submitTx(tx_blob)
-      setResult(`AMM pool created: ${data.result ?? 'ok'} — you are the first LP`)
+      setResult(`AMM pool created (${data.hash?.slice(0, 12) ?? data.result}) — refresh in a few seconds`)
+      setXrpAmt('')
+      setUsdcAmt('')
       setTimeout(() => { onRefresh(); loadLpPosition() }, 4000)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'AMM create failed')
@@ -374,11 +380,21 @@ export default function MarketLiquidityPanel({
           </p>
         </div>
 
+        {error && (
+          <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+            {error}
+            <button type="button" onClick={() => setError(null)} className="block text-slate-500 mt-1">
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {!poolLive && (
           <div className="space-y-4">
             <p className="text-xs text-amber-200 bg-amber-500/10 rounded-xl px-3 py-2">
-              No AMM pool exists yet. Bridge USDC in, then create the pool with your bridged F-USDC + FALCON.
-              You set the initial price (ratio of the two amounts).
+              No AMM pool exists yet. Bridge USDC in, then create the pool with bridged F-USDC + FALCON.
+              You set the initial price (ratio of the two amounts). Creating the pool costs a one-time{' '}
+              ~{fmt(parseInt(AMM_CREATE_FEE_DROPS, 10) / DROPS_PER_XRP, 0)} FALCON ledger fee on top of your deposit.
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -420,6 +436,11 @@ export default function MarketLiquidityPanel({
 
         {poolLive && (
           <div className="space-y-4">
+            {!lpPosition && (
+              <p className="text-xs text-slate-500">
+                Pool is live — deposit below to add liquidity, or refresh if you just created it.
+              </p>
+            )}
             {lpPosition && (
               <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3 space-y-2 text-xs">
                 <div className="font-medium text-purple-300">Your pool position</div>
