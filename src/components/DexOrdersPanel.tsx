@@ -9,6 +9,7 @@ import { type StoredWallet } from '@/lib/wallet-store'
 import {
   signOfferCreate,
   signOfferCancel,
+  TF_PASSIVE,
   type IouAmount,
 } from '@/lib/wallet-sign-client'
 import { submitWalletTx } from '@/lib/wallet-submit'
@@ -35,7 +36,9 @@ interface Props {
   token: SwapToken
   xrpBalance: number | null
   usdcBalance: number | null
+  marketPrice?: number | null
   onRefresh: () => void
+  onBookRefresh?: () => void
 }
 
 function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
@@ -56,12 +59,16 @@ export default function DexOrdersPanel({
   token,
   xrpBalance,
   usdcBalance,
+  marketPrice,
   onRefresh,
+  onBookRefresh,
 }: Props) {
   const { networkKey, network } = useNetwork()
   const [side, setSide] = useState<'sell' | 'buy'>('sell')
   const [tokenAmt, setTokenAmt] = useState('')
-  const [price, setPrice] = useState('1')
+  const [price, setPrice] = useState(
+    marketPrice != null && marketPrice > 0 ? String(marketPrice) : '10',
+  )
   const [offers, setOffers] = useState<UserOffer[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -78,6 +85,12 @@ export default function DexOrdersPanel({
   useEffect(() => {
     loadOffers()
   }, [loadOffers])
+
+  useEffect(() => {
+    if (marketPrice != null && marketPrice > 0) {
+      setPrice((p) => (p === '1' || p === '10' ? String(marketPrice) : p))
+    }
+  }, [marketPrice])
 
   const submitTx = (tx_blob: string) => submitWalletTx(tx_blob, networkKey)
 
@@ -126,15 +139,31 @@ export default function DexOrdersPanel({
           sequence: accData.sequence,
           lastLedgerSequence: accData.currentLedger + 20,
           networkId: network.networkId,
-          flags: 0,
+          flags: TF_PASSIVE,
         },
         falcon_secret,
       )
 
       const data = await submitTx(tx_blob)
-      setResult([data.result, data.message].filter(Boolean).join(' — ') || 'Submitted')
+      const msg = [data.result, data.message].filter(Boolean).join(' — ') || 'Submitted'
       setTokenAmt('')
-      setTimeout(() => { loadOffers(); onRefresh() }, 4000)
+      setResult(`${msg} — confirming…`)
+      setTimeout(async () => {
+        await loadOffers()
+        onRefresh()
+        onBookRefresh?.()
+        const r = await fetch(
+          withNetworkQuery(`/api/market/offers?address=${encodeURIComponent(wallet.address)}`, networkKey),
+        )
+        const offersNow: UserOffer[] = (await r.json()).offers ?? []
+        if (offersNow.length > 0) {
+          setResult(`${msg} — order is on the book (see Your open orders / bids & asks below).`)
+        } else {
+          setResult(
+            `${msg} — filled immediately against the AMM (price crossed market). Nothing left on the book.`,
+          )
+        }
+      }, 4000)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Order failed')
     } finally {
@@ -182,7 +211,9 @@ export default function DexOrdersPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">DEX Limit Orders</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Post bids and asks on the order book. Separate from the AMM pool — use bridged F-USDC only.
+            Post bids and asks on the DEX order book (separate from the AMM pool).
+            {marketPrice ? ` Market ≈ ${fmt(marketPrice, 4)} FALCON per F-USDC.` : ''}
+            {' '}Orders far from market may fill instantly against the AMM.
           </p>
         </div>
 

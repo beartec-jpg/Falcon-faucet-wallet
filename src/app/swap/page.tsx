@@ -98,6 +98,7 @@ export default function SwapPage() {
   const [swapDir, setSwapDir] = useState<'buy' | 'sell'>('buy')
   const [swapAmt, setSwapAmt] = useState('')
   const [quote, setQuote] = useState<SwapQuote | null>(null)
+  const [bookTick, setBookTick] = useState(0)
 
   const refresh = useCallback(async (address: string) => {
     const [accR, swapR, bridgeR] = await Promise.all([
@@ -531,11 +532,13 @@ export default function SwapPage() {
                       token={swapData.token}
                       xrpBalance={xrpBalance}
                       usdcBalance={swapData.userBalance?.balance ?? null}
+                      marketPrice={swapData.market?.price ?? null}
                       onRefresh={() => refresh(wallet.address)}
+                      onBookRefresh={() => setBookTick((n) => n + 1)}
                     />
                     <div className="card p-5">
                       <h2 className="text-sm font-semibold text-white mb-4">Order Book</h2>
-                      <OrderBookPanel compact />
+                      <OrderBookPanel compact key={bookTick} />
                     </div>
                   </>
                 )}

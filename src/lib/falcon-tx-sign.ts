@@ -322,7 +322,7 @@ export async function signOfferCreateTx(
     TransactionType: 'OfferCreate',
     TakerGets: params.takerGets,
     TakerPays: params.takerPays,
-    Flags: params.flags ?? 0x00020000,
+    Flags: params.flags ?? 0,
   }
   return { tx_blob: await signPrepared(tx, decoded) }
 }
