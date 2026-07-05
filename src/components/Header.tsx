@@ -122,9 +122,12 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
         </div>
       </div>
 
-      {/* Tablet / desktop — always visible */}
-      <div className="hidden sm:flex items-center justify-end gap-1 mt-2 text-sm">
-        <NavLinks current={current} className="flex items-center gap-1 flex-wrap justify-end" />
+      {/* Tablet / desktop — scroll horizontally when all tabs do not fit */}
+      <div className="hidden sm:block mt-2 -mx-4 px-4 overflow-x-auto nav-scroll">
+        <NavLinks
+          current={current}
+          className="flex items-center gap-1 flex-nowrap justify-start sm:justify-end min-w-max text-sm pb-0.5"
+        />
       </div>
 
       {/* Mobile — slide-down menu */}
