@@ -71,6 +71,7 @@ export default function DexOrdersPanel({
   )
   const [offers, setOffers] = useState<UserOffer[]>([])
   const [offersLoading, setOffersLoading] = useState(true)
+  const [postOnly, setPostOnly] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<string | null>(null)
@@ -145,13 +146,15 @@ export default function DexOrdersPanel({
           sequence: accData.sequence,
           lastLedgerSequence: accData.currentLedger + 20,
           networkId: network.networkId,
-          flags: TF_PASSIVE,
+          flags: postOnly ? TF_PASSIVE : 0,
         },
         falcon_secret,
       )
 
       const data = await submitTx(tx_blob)
       const msg = [data.result, data.message].filter(Boolean).join(' — ') || 'Submitted'
+      const submittedAmt = amt
+      const submittedSide = side
       setTokenAmt('')
       setResult(`${msg} — confirming…`)
       setTimeout(async () => {
@@ -162,12 +165,19 @@ export default function DexOrdersPanel({
           withNetworkQuery(`/api/market/offers?address=${encodeURIComponent(wallet.address)}`, networkKey),
         )
         const offersNow: UserOffer[] = (await r.json()).offers ?? []
-        if (offersNow.length > 0) {
-          setResult(`${msg} — order is on the book (see Your open orders / bids & asks below).`)
-        } else {
+        const sameSide = offersNow.filter((o) => o.side === submittedSide)
+        const remaining = sameSide.reduce((s, o) => s + o.amountToken, 0)
+
+        if (offersNow.length === 0) {
+          setResult(`${msg} — filled completely (matched book and/or AMM).`)
+        } else if (!postOnly && remaining > 0 && remaining < submittedAmt - 1e-6) {
           setResult(
-            `${msg} — filled immediately against the AMM (price crossed market). Nothing left on the book.`,
+            `${msg} — partially filled: ~${fmt(submittedAmt - remaining, 4)} F-USDC traded, ~${fmt(remaining, 4)} still on the book.`,
           )
+        } else if (postOnly) {
+          setResult(`${msg} — posted to book (post-only; did not take existing orders).`)
+        } else {
+          setResult(`${msg} — resting on the book (no matching orders at this price).`)
         }
       }, 4000)
     } catch (e: unknown) {
@@ -217,10 +227,11 @@ export default function DexOrdersPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">DEX Limit Orders</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Post bids and asks on the DEX order book (separate from the AMM pool).
+            Limit orders fill against matching bids/asks first; any remainder rests on the book.
+            Partial fills are automatic — no extra setting needed.
             {marketPrice ? ` Market ≈ ${fmt(marketPrice, 4)} FALCON per F-USDC (${fmt(1 / marketPrice, 4)} F-USDC per FALCON).` : ''}
-            {' '}Price field is FALCON per F-USDC — e.g. 10 F-USDC per 1 FALCON = enter 0.1.
-            {' '}Orders far from market may fill instantly against the AMM.
+            {' '}Price is FALCON per F-USDC — e.g. 10 F-USDC per 1 FALCON = enter 0.1.
+            {' '}Prices far from market may also hit the AMM pool.
           </p>
         </div>
 
@@ -302,6 +313,20 @@ export default function DexOrdersPanel({
             Max from FALCON balance
           </button>
         )}
+
+        <label className="flex items-start gap-2 text-xs text-slate-400 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={postOnly}
+            onChange={(e) => setPostOnly(e.target.checked)}
+            disabled={busy}
+            className="mt-0.5 rounded border-slate-600"
+          />
+          <span>
+            Post only — rest on the book without taking existing bids/asks (maker quote).
+            Leave unchecked to match the book immediately, including partial fills.
+          </span>
+        </label>
 
         <button
           type="button"

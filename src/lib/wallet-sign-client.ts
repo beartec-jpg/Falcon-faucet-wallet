@@ -145,7 +145,7 @@ export interface OfferCreateParams {
 }
 
 export const TF_IMMEDIATE_OR_CANCEL = 0x00020000
-/** Rest on the DEX book instead of immediately crossing AMM / matching offers. */
+/** Maker-only: rest on the book without crossing existing bids/asks (opt-in). */
 export const TF_PASSIVE = 0x00010000
 
 export interface ClaimRewardParams {
