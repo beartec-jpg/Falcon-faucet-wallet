@@ -23,6 +23,7 @@ import {
   keysFromFalconSecret,
   validateFalconSecret,
   signPayment,
+  signFusdcPayment,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
 import {
@@ -236,6 +237,7 @@ export default function WalletPage() {
   const [createLabel, setCreateLabel] = useState('')
 
   // Send form
+  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc'>('falcon')
   const [sendTo,     setSendTo]     = useState('')
   const [sendAmount, setSendAmount] = useState('')
   const [sendResult, setSendResult] = useState<{
@@ -580,17 +582,31 @@ export default function WalletPage() {
       return
     }
 
-    const to      = sendTo.trim()
-    const amtQxrp = parseFloat(sendAmount)
+    const to = sendTo.trim()
+    const amt = parseFloat(sendAmount)
+    const fusdc = account.assets?.fusdc
+    const fusdcBal = fusdc?.balance ?? 0
 
     if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(to)) {
       setError('Invalid destination address'); return
     }
-    if (isNaN(amtQxrp) || amtQxrp <= 0) {
+    if (to === wallet.address) {
+      setError('Destination must be a different Falcon address'); return
+    }
+    if (isNaN(amt) || amt <= 0) {
       setError('Invalid amount'); return
     }
-    if (amtQxrp > account.balance) {
-      setError('Insufficient balance'); return
+    if (sendAsset === 'falcon') {
+      if (amt > account.balance) {
+        setError('Insufficient FALCON balance'); return
+      }
+    } else {
+      if (!fusdc?.issuer || fusdc.hasTrustLine === false) {
+        setError('Add a F-USDC trust line on Swap before sending'); return
+      }
+      if (amt > fusdcBal) {
+        setError('Insufficient F-USDC balance'); return
+      }
     }
 
     setBusy(true)
@@ -614,17 +630,31 @@ export default function WalletPage() {
       const sequence           = freshAcct?.sequence           ?? account.sequence
       const lastLedgerSequence = (freshAcct?.currentLedger ?? account.currentLedger) + 20
 
-      const { tx_blob } = await signPayment(
-        {
-          account:            wallet.address,
-          destination:        to,
-          amountDrops:        qxrpToDrops(amtQxrp),
-          sequence,
-          lastLedgerSequence,
-          networkId:          network.networkId,
-        },
-        falcon_secret,
-      )
+      const { tx_blob } = sendAsset === 'falcon'
+        ? await signPayment(
+            {
+              account:            wallet.address,
+              destination:        to,
+              amountDrops:        qxrpToDrops(amt),
+              sequence,
+              lastLedgerSequence,
+              networkId:          network.networkId,
+            },
+            falcon_secret,
+          )
+        : await signFusdcPayment(
+            {
+              account:            wallet.address,
+              destination:        to,
+              issuer:             fusdc!.issuer,
+              currency:           fusdc!.currency,
+              amount:             String(amt),
+              sequence,
+              lastLedgerSequence,
+              networkId:          network.networkId,
+            },
+            falcon_secret,
+          )
 
       // 4. Submit signed blob
       const res = await fetch('/api/wallet/submit', {
@@ -1050,7 +1080,7 @@ export default function WalletPage() {
                 {/* Action buttons */}
                 <div className="flex gap-2">
                   <button
-                    onClick={() => { setView('send'); setError(null); setSendResult(null) }}
+                    onClick={() => { setView('send'); setSendAsset('falcon'); setError(null); setSendResult(null) }}
                     disabled={!account?.exists || !network.live}
                     className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-brand-500 hover:bg-brand-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 transition-colors"
                   >
@@ -1147,7 +1177,24 @@ export default function WalletPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
-                    <h3 className="font-semibold text-white text-sm">Send FALCON</h3>
+                    <h3 className="font-semibold text-white text-sm">Send on Falcon</h3>
+                  </div>
+
+                  <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
+                    <button
+                      type="button"
+                      onClick={() => { setSendAsset('falcon'); setSendAmount(''); setError(null) }}
+                      className={`flex-1 py-2 ${sendAsset === 'falcon' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
+                    >
+                      FALCON
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSendAsset('fusdc'); setSendAmount(''); setError(null) }}
+                      className={`flex-1 py-2 ${sendAsset === 'fusdc' ? 'bg-amber-500/10 text-amber-400' : 'text-slate-500'}`}
+                    >
+                      F-USDC
+                    </button>
                   </div>
 
                   {sendResult ? (
@@ -1195,7 +1242,9 @@ export default function WalletPage() {
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-xs text-slate-400">Amount (FALCON)</label>
+                        <label className="text-xs text-slate-400">
+                          Amount ({sendAsset === 'falcon' ? 'FALCON' : 'F-USDC'})
+                        </label>
                         <input
                           type="number"
                           value={sendAmount}
@@ -1206,7 +1255,7 @@ export default function WalletPage() {
                           className="input-field"
                           disabled={busy}
                         />
-                        {account?.exists && (
+                        {account?.exists && sendAsset === 'falcon' && (
                           <div className="flex justify-between text-xs text-slate-600">
                             <span>Available: {account.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })} FALCON</span>
                             <button
@@ -1218,7 +1267,32 @@ export default function WalletPage() {
                             </button>
                           </div>
                         )}
+                        {account?.exists && sendAsset === 'fusdc' && (
+                          <div className="flex justify-between text-xs text-slate-600">
+                            <span>
+                              Available: {(account.assets?.fusdc?.balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} F-USDC
+                            </span>
+                            {(account.assets?.fusdc?.balance ?? 0) > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setSendAmount(String(account.assets!.fusdc.balance))}
+                                className="text-brand-500 hover:text-brand-400 transition-colors"
+                              >
+                                Max
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {sendAsset === 'fusdc' && account?.assets?.fusdc?.hasTrustLine === false && (
+                          <p className="text-xs text-amber-400">
+                            Recipient and sender both need a F-USDC trust line. Add yours on{' '}
+                            <Link href="/swap" className="text-brand-400 underline">Swap</Link>.
+                          </p>
+                        )}
                       </div>
+                      <p className="text-xs text-slate-500">
+                        Peer-to-peer transfer on Falcon Ledger — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.
+                      </p>
                       <button
                         type="submit"
                         disabled={busy || !sendTo.trim() || !sendAmount}
