@@ -1138,7 +1138,7 @@ export default function BridgeDepositPanel({
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>
                       Available:{' '}
-                      {sendAsset === 'eth' ? fmt(ethAvail, 6) + ' ETH' : fmt(usdcAvail, 4) + ' USDC'}
+                      {sendAsset === 'eth' ? fmt(ethAvail, 6) + ' ETH' : `${usdcAvailRaw} USDC`}
                     </span>
                     <button
                       type="button"
