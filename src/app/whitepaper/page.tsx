@@ -3,7 +3,12 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import Header from '@/components/Header'
-import { WHITEPAPER_DATE, WHITEPAPER_SECTIONS, WHITEPAPER_VERSION } from '@/content/whitepaper'
+import {
+  WHITEPAPER_DATE,
+  WHITEPAPER_DOWNLOADS,
+  WHITEPAPER_SECTIONS,
+  WHITEPAPER_VERSION,
+} from '@/content/whitepaper'
 
 function renderMarkdownish(text: string) {
   const blocks = text.split(/\n\n+/)
@@ -98,6 +103,46 @@ export default function WhitepaperPage() {
             Quantum-Resistant · Validator-Rewarding · No Company · No Escrow
           </p>
         </div>
+
+        <section className="card p-5 mb-10" aria-labelledby="downloads-heading">
+          <div className="text-xs uppercase tracking-wider text-slate-500 mb-3" id="downloads-heading">
+            Downloads
+          </div>
+          <ul className="space-y-3">
+            {WHITEPAPER_DOWNLOADS.map((doc) => (
+              <li key={doc.href}>
+                <a
+                  href={doc.href}
+                  download={doc.filename}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-start gap-4 p-3 rounded-xl border border-slate-800 bg-slate-900/50 hover:border-brand-500/40 hover:bg-slate-800/60 transition-colors group"
+                >
+                  <span className="flex-shrink-0 w-10 h-10 rounded-lg bg-brand-500/10 text-brand-400 flex items-center justify-center mt-0.5">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={1.75}
+                        d="M12 10v6m0 0l-3-3m3 3l3-3M6 18h12a2 2 0 002-2V8a2 2 0 00-2-2H9.5a2 2 0 00-1.7.95l-1.3 2.17A2 2 0 004.5 11v5a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-white group-hover:text-brand-400 transition-colors">
+                      {doc.title}
+                    </span>
+                    <span className="block text-xs text-slate-500 mt-1 leading-relaxed">{doc.description}</span>
+                    <span className="block text-xs font-mono text-slate-600 mt-2">{doc.filename}</span>
+                  </span>
+                  <span className="flex-shrink-0 text-xs font-medium text-brand-500 group-hover:text-brand-400 pt-1">
+                    PDF ↓
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
 
         <nav className="card p-4 mb-10">
           <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">Contents</div>

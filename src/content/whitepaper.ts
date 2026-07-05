@@ -3,6 +3,31 @@
 export const WHITEPAPER_VERSION = '2.2'
 export const WHITEPAPER_DATE = 'July 2026'
 
+export interface WhitepaperDownload {
+  title: string
+  description: string
+  href: string
+  filename: string
+}
+
+/** PDFs live in repo Docs/ — copied to public/Docs/ on install/build. */
+export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
+  {
+    title: 'Testnet E2E Report',
+    description:
+      'Comprehensive end-to-end test documentation: wallet, P2P, bridge, pool, DEX, and on-ledger references.',
+    href: '/Docs/FALCON-TESTNET-E2E-REPORT.pdf',
+    filename: 'FALCON-TESTNET-E2E-REPORT.pdf',
+  },
+  {
+    title: 'Security Report — Wallet',
+    description:
+      'Security review of passkey wallet flows: send, receive, backup, and restore.',
+    href: '/Docs/FALCON-SECURITY-REPORT-wallet-send-receive-backup-restore.pdf',
+    filename: 'FALCON-SECURITY-REPORT-wallet-send-receive-backup-restore.pdf',
+  },
+]
+
 export const WHITEPAPER_SECTIONS: { id: string; title: string; body: string }[] = [
   {
     id: 'summary',

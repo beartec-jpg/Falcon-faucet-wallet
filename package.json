@@ -5,8 +5,9 @@
   "packageManager": "pnpm@9.15.9",
   "scripts": {
     "copy:wasm": "mkdir -p public/wasm && cp node_modules/@openforge-sh/liboqs/dist/falcon-512.min.js public/wasm/falcon-512.min.js",
-    "postinstall": "npm run copy:wasm",
-    "prebuild": "npm run copy:wasm",
+    "copy:docs": "mkdir -p public/Docs && cp -f Docs/*.pdf public/Docs/ 2>/dev/null || true",
+    "postinstall": "npm run copy:wasm && npm run copy:docs",
+    "prebuild": "npm run copy:wasm && npm run copy:docs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

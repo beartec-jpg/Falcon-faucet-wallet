@@ -1,5 +1,6 @@
 node_modules/
 public/wasm/falcon-512.min.js
+public/Docs/*.pdf
 tsconfig.tsbuildinfo
 .next/
 out/

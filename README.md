@@ -103,6 +103,8 @@ Store your `falcon_secret` when creating a wallet — it cannot be derived from 
 
 | Doc | Description |
 |-----|-------------|
+| [Docs/FALCON-TESTNET-E2E-REPORT.pdf](Docs/FALCON-TESTNET-E2E-REPORT.pdf) | Testnet E2E report (PDF) — also on [Whitepaper](/whitepaper) |
+| [Docs/FALCON-SECURITY-REPORT-wallet-send-receive-backup-restore.pdf](Docs/FALCON-SECURITY-REPORT-wallet-send-receive-backup-restore.pdf) | Wallet security report (PDF) |
 | [docs/sql/board-schema.sql](docs/sql/board-schema.sql) | Neon SQL schema for the message board |
 | [docs/TESTNET-E2E-REPORT.md](docs/TESTNET-E2E-REPORT.md) | Full end-to-end test report with on-ledger seq/hash references |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Shipped features, in-progress work, and mainnet plan |
