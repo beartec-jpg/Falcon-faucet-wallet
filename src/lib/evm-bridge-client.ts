@@ -109,9 +109,6 @@ export async function depositUsdcToBridge(opts: {
 
   onStep?.('Checking Sepolia balances…')
   const decimals: number = await usdc.decimals().catch(() => cfg.usdc_decimals)
-  const amount = parseUnits(amountUsdc, decimals)
-
-  if (amount <= 0n) throw new Error('Amount must be greater than zero')
 
   const ethBal = await p.getBalance(signer.address)
   if (ethBal === 0n) {
@@ -121,9 +118,12 @@ export async function depositUsdcToBridge(opts: {
   }
 
   const usdcBal: bigint = await usdc.balanceOf(signer.address)
-  if (usdcBal < amount) {
-    throw new Error(`Insufficient Sepolia USDC (have ${formatUnits(usdcBal, decimals)})`)
+  let amount = parseUnits(amountUsdc, decimals)
+  if (amount > usdcBal) {
+    amount = usdcBal
   }
+
+  if (amount <= 0n) throw new Error('Amount must be greater than zero')
 
   let approveHash: string | undefined
   const allowance: bigint = await usdc.allowance(signer.address, cfg.lock_contract)

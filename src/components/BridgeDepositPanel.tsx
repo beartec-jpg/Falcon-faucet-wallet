@@ -48,6 +48,15 @@ function fmt(n: string | number, decimals = 4): string {
   return v.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: decimals })
 }
 
+/** Display balance without rounding up (avoids showing 260 when wallet has 259.99985). */
+function fmtFloor(n: string | number, decimals = 2): string {
+  const v = typeof n === 'string' ? parseFloat(n) : n
+  if (!Number.isFinite(v)) return '—'
+  const scale = 10 ** decimals
+  const floored = Math.floor(v * scale) / scale
+  return floored.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: decimals })
+}
+
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
   return (
@@ -565,7 +574,8 @@ export default function BridgeDepositPanel({
   const withdrawAmtNum = parseFloat(withdrawAmount) || 0
   const sendAmtNum = parseFloat(sendAmount) || 0
   const fusdcAvail = fusdcLive ?? fusdcBalance ?? 0
-  const usdcAvail = balances ? parseFloat(balances.usdc) : 0
+  const usdcAvailRaw = balances?.usdc ?? '0'
+  const usdcAvail = parseFloat(usdcAvailRaw) || 0
   const ethAvail = balances ? parseFloat(balances.eth) : 0
 
   return (
@@ -815,7 +825,7 @@ export default function BridgeDepositPanel({
                 </div>
                 <div>
                   <div className="text-3xl font-bold text-white">
-                    {balanceLoading ? '…' : fmt(usdcAvail, 2)}
+                    {balanceLoading ? '…' : fmtFloor(usdcAvailRaw, 2)}
                   </div>
                   <div className="text-[10px] text-slate-500 mt-1">
                     Sepolia USDC you lock on-chain — validators mint matching F-USDC to your Falcon wallet
@@ -1049,9 +1059,9 @@ export default function BridgeDepositPanel({
                     disabled={busy || !bridgeReady}
                   />
                   <div className="flex justify-between text-xs text-slate-600">
-                    <span>{balances ? `Available: ${fmt(usdcAvail, 4)} Sepolia USDC` : ''}</span>
+                    <span>{balances ? `Available: ${usdcAvailRaw} Sepolia USDC` : ''}</span>
                     {usdcAvail > 0 && (
-                      <button type="button" onClick={() => setAmount(String(usdcAvail))} className="text-brand-500">
+                      <button type="button" onClick={() => setAmount(usdcAvailRaw)} className="text-brand-500">
                         Max
                       </button>
                     )}
@@ -1132,7 +1142,7 @@ export default function BridgeDepositPanel({
                     </span>
                     <button
                       type="button"
-                      onClick={() => setSendAmount(String(sendAsset === 'eth' ? Math.max(0, ethAvail - 0.002) : usdcAvail))}
+                      onClick={() => setSendAmount(sendAsset === 'eth' ? String(Math.max(0, ethAvail - 0.002)) : usdcAvailRaw)}
                       className="text-brand-500"
                     >
                       Max
