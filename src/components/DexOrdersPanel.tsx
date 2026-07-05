@@ -70,16 +70,22 @@ export default function DexOrdersPanel({
     marketPrice != null && marketPrice > 0 ? String(marketPrice) : '10',
   )
   const [offers, setOffers] = useState<UserOffer[]>([])
+  const [offersLoading, setOffersLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<string | null>(null)
 
   const loadOffers = useCallback(async () => {
-    const r = await fetch(
-      withNetworkQuery(`/api/market/offers?address=${encodeURIComponent(wallet.address)}`, networkKey),
-    )
-    const d = await r.json()
-    if (!d.error) setOffers(d.offers ?? [])
+    setOffersLoading(true)
+    try {
+      const r = await fetch(
+        withNetworkQuery(`/api/market/offers?address=${encodeURIComponent(wallet.address)}`, networkKey),
+      )
+      const d = await r.json()
+      if (!d.error) setOffers(d.offers ?? [])
+    } finally {
+      setOffersLoading(false)
+    }
   }, [wallet.address, networkKey])
 
   useEffect(() => {
@@ -307,11 +313,27 @@ export default function DexOrdersPanel({
         </button>
       </div>
 
-      {offers.length > 0 && (
-        <div className="card overflow-hidden">
-          <div className="px-4 py-2 text-xs font-semibold text-slate-400 border-b border-slate-800">
-            Your open orders ({offers.length})
+      <div className="card overflow-hidden">
+        <div className="px-4 py-2 text-xs font-semibold text-slate-400 border-b border-slate-800 flex items-center justify-between">
+          <span>Your open orders ({offers.length})</span>
+          <button
+            type="button"
+            onClick={() => loadOffers()}
+            disabled={offersLoading}
+            className="text-brand-400 hover:text-brand-300 disabled:opacity-40"
+          >
+            {offersLoading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
+        {offersLoading && offers.length === 0 ? (
+          <div className="px-4 py-6 text-center text-xs text-slate-600 flex items-center justify-center gap-2">
+            <Spinner className="w-3 h-3" /> Loading orders…
           </div>
+        ) : offers.length === 0 ? (
+          <div className="px-4 py-6 text-center text-xs text-slate-600">
+            No open limit orders — post a sell or buy above to add one to the book.
+          </div>
+        ) : (
           <table className="w-full text-xs">
             <thead>
               <tr className="text-slate-500 border-b border-slate-800/50">
@@ -345,8 +367,8 @@ export default function DexOrdersPanel({
               ))}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
 
       {result && (
         <div className="card p-4 border border-emerald-500/20 text-sm text-emerald-400">

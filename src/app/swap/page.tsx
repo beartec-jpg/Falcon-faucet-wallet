@@ -50,6 +50,15 @@ interface SwapQuote {
 type Tab = 'swap' | 'bridge'
 type TradeMode = 'instant' | 'limit'
 
+const TRADE_MODE_KEY = 'falcon-swap-trade-mode'
+
+interface FallbackToken {
+  symbol: string
+  currency: string
+  issuer: string
+  configured: boolean
+}
+
 function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
   return (
     <svg className={`animate-spin-slow ${className}`} fill="none" viewBox="0 0 24 24">
@@ -99,6 +108,39 @@ export default function SwapPage() {
   const [swapAmt, setSwapAmt] = useState('')
   const [quote, setQuote] = useState<SwapQuote | null>(null)
   const [bookTick, setBookTick] = useState(0)
+  const [openOrderCount, setOpenOrderCount] = useState(0)
+  const [fallbackToken, setFallbackToken] = useState<FallbackToken | null>(null)
+
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(TRADE_MODE_KEY)
+      if (saved === 'instant' || saved === 'limit') setTradeMode(saved)
+    } catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => {
+    fetch('/config/testnet-stables.json')
+      .then((r) => r.json())
+      .then((m: { tokens?: Array<{ currency: string; issuer: string }> }) => {
+        const t = m.tokens?.[0]
+        if (t?.issuer) {
+          setFallbackToken({
+            symbol: 'F-USDC',
+            currency: t.currency,
+            issuer: t.issuer,
+            configured: true,
+          })
+        }
+      })
+      .catch(() => { /* ignore */ })
+  }, [])
+
+  const setTradeModePersisted = (mode: TradeMode) => {
+    setTradeMode(mode)
+    try {
+      sessionStorage.setItem(TRADE_MODE_KEY, mode)
+    } catch { /* ignore */ }
+  }
 
   const refresh = useCallback(async (address: string) => {
     const [accR, swapR, bridgeR] = await Promise.all([
@@ -113,6 +155,11 @@ export default function SwapPage() {
     }
     if (swapR.token) setSwapData(swapR)
     if (!bridgeR.error) setBridgeCfg(bridgeR)
+
+    fetch(withNetworkQuery(`/api/market/offers?address=${encodeURIComponent(address)}`, networkKey))
+      .then((r) => r.json())
+      .then((d) => setOpenOrderCount(Array.isArray(d.offers) ? d.offers.length : 0))
+      .catch(() => setOpenOrderCount(0))
   }, [networkKey])
 
   useEffect(() => {
@@ -269,6 +316,7 @@ export default function SwapPage() {
   }
 
   const swapAmtNum = parseFloat(swapAmt) || 0
+  const limitToken = swapData?.token ?? fallbackToken
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -360,7 +408,7 @@ export default function SwapPage() {
                 <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
                   <button
                     type="button"
-                    onClick={() => setTradeMode('instant')}
+                    onClick={() => setTradeModePersisted('instant')}
                     className={`flex-1 py-2 font-medium transition-colors ${
                       tradeMode === 'instant' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500 hover:text-slate-300'
                     }`}
@@ -369,14 +417,29 @@ export default function SwapPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setTradeMode('limit')}
-                    className={`flex-1 py-2 font-medium transition-colors ${
+                    onClick={() => setTradeModePersisted('limit')}
+                    className={`flex-1 py-2 font-medium transition-colors relative ${
                       tradeMode === 'limit' ? 'bg-cyan-500/10 text-cyan-400' : 'text-slate-500 hover:text-slate-300'
                     }`}
                   >
                     Limit Orders
+                    {openOrderCount > 0 && tradeMode !== 'limit' && (
+                      <span className="absolute top-1 right-2 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-cyan-500 text-[10px] font-bold text-slate-900 leading-none flex items-center justify-center">
+                        {openOrderCount}
+                      </span>
+                    )}
                   </button>
                 </div>
+
+                {tradeMode === 'instant' && openOrderCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTradeModePersisted('limit')}
+                    className="card p-3 w-full text-left text-xs text-cyan-400/90 hover:bg-slate-800/40 transition-colors"
+                  >
+                    You have {openOrderCount} open limit order{openOrderCount === 1 ? '' : 's'} on the book — tap to view
+                  </button>
+                )}
 
                 {!swapData?.token.configured && (
                   <div className="card p-4 text-sm text-amber-400">
@@ -520,7 +583,7 @@ export default function SwapPage() {
                   <div className="card p-4 text-sm text-slate-500 space-y-2">
                     <p>No liquidity for instant swaps yet. Bridge Sepolia USDC in for F-USDC, post a limit order, or create the AMM pool.</p>
                     <div className="flex gap-3 text-xs">
-                      <button type="button" onClick={() => setTradeMode('limit')} className="text-cyan-400">
+                      <button type="button" onClick={() => setTradeModePersisted('limit')} className="text-cyan-400">
                         Post limit order →
                       </button>
                       <Link href="/pool" className="text-brand-400">
@@ -530,14 +593,19 @@ export default function SwapPage() {
                   </div>
                 ) : null}
 
-                {tradeMode === 'limit' && swapData?.token && wallet && (
+                {tradeMode === 'limit' && wallet && limitToken && (
                   <>
+                    {!swapData?.token && (
+                      <div className="card p-3 text-xs text-amber-400">
+                        Market data still loading — limit orders work; refresh if this persists.
+                      </div>
+                    )}
                     <DexOrdersPanel
                       wallet={wallet}
-                      token={swapData.token}
+                      token={limitToken}
                       xrpBalance={xrpBalance}
-                      usdcBalance={swapData.userBalance?.balance ?? null}
-                      marketPrice={swapData.market?.price ?? null}
+                      usdcBalance={swapData?.userBalance?.balance ?? null}
+                      marketPrice={swapData?.market?.price ?? null}
                       onRefresh={() => refresh(wallet.address)}
                       onBookRefresh={() => setBookTick((n) => n + 1)}
                     />
@@ -546,6 +614,12 @@ export default function SwapPage() {
                       <OrderBookPanel compact key={bookTick} />
                     </div>
                   </>
+                )}
+
+                {tradeMode === 'limit' && wallet && !limitToken && (
+                  <div className="card p-4 text-sm text-amber-400">
+                    F-USDC token config unavailable — check coordinator stables manifest.
+                  </div>
                 )}
               </div>
             )}
