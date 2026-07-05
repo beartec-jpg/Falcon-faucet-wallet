@@ -537,7 +537,9 @@ export default function BridgeDepositPanel({
     setStep(null)
 
     try {
+      setStep('Confirm passkey to unlock Sepolia wallet…')
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      setStep('Passkey OK — submitting Sepolia txs (approve + lock, may take ~1 min)…')
       const evmPrivateKey = await decryptSeed(wallet.evmEncrypted, keyBytes)
 
       const res = await depositUsdcToBridge({
@@ -1027,8 +1029,12 @@ export default function BridgeDepositPanel({
 
             {mode === 'deposit' && (
               <>
-                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-xs text-slate-400">
-                  Lock Sepolia USDC below → validators mint F-USDC to your Falcon wallet (shown in the balance card above).
+                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-xs text-slate-400 space-y-1">
+                  <p>Lock Sepolia USDC below → validators mint F-USDC to your Falcon wallet.</p>
+                  <p className="text-slate-500">
+                    One passkey unlocks your Sepolia wallet. Approve + lock happen on Sepolia automatically
+                    (no second passkey) — can take up to a minute. F-USDC mint follows in a few minutes.
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs text-slate-400">Sepolia USDC to bridge in</label>
@@ -1188,8 +1194,17 @@ export default function BridgeDepositPanel({
             <div className="text-xs text-slate-400 break-all">Deposit ID: {result.depositId}</div>
           )}
           <p className="text-xs text-slate-500">
-            Validators will attest this deposit and mint F-USDC to your Falcon wallet. This may take a few minutes on testnet.
+            Sepolia deposit confirmed. Validators will mint F-USDC to your Falcon wallet in a few minutes —
+            refresh the F-USDC balance on the Swap page.
           </p>
+          <a
+            href={`${bridgeCfg.sepolia.explorer_url}/tx/${result.depositHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-brand-400 hover:text-brand-300 inline-block"
+          >
+            View deposit on Etherscan →
+          </a>
           <button type="button" onClick={() => setResult(null)} className="text-xs text-brand-400">
             Dismiss
           </button>

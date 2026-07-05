@@ -31,6 +31,23 @@ export interface BridgeDepositResult {
   depositId?: string
 }
 
+const TX_CONFIRM_TIMEOUT_MS = 180_000
+
+async function waitForTx(
+  tx: { hash: string; wait: (conf?: number, timeout?: number) => Promise<{ status?: number | null; hash: string; logs?: unknown[] } | null> },
+  label: string,
+  onStep?: (step: string) => void,
+): Promise<{ status?: number | null; hash: string; logs?: unknown[] }> {
+  onStep?.(`${label} submitted — waiting for Sepolia confirmation…`)
+  onStep?.(`Tx ${tx.hash.slice(0, 10)}… (track on Etherscan if slow)`)
+  const rc = await tx.wait(1, TX_CONFIRM_TIMEOUT_MS)
+  if (!rc) {
+    throw new Error(`${label} timed out after 3 minutes. Check Etherscan for ${tx.hash}`)
+  }
+  if (rc.status !== 1) throw new Error(`${label} failed on-chain (${tx.hash})`)
+  return rc
+}
+
 /** Public Sepolia RPC fallbacks — rpc.sepolia.org often returns 404 from browsers/serverless. */
 export const SEPOLIA_RPC_FALLBACKS = [
   'https://ethereum-sepolia-rpc.publicnode.com',
@@ -84,11 +101,13 @@ export async function depositUsdcToBridge(opts: {
   onStep?: (step: string) => void
 }): Promise<BridgeDepositResult> {
   const { cfg, evmPrivateKey, amountUsdc, falconAccount, onStep } = opts
+  onStep?.('Connecting to Sepolia…')
   const p = await resolveProvider(cfg.rpc_url)
   const signer = new Wallet(evmPrivateKey, p)
   const usdc = new Contract(cfg.usdc_token, ERC20_ABI, signer)
   const lock = new Contract(cfg.lock_contract, LOCK_ABI, signer)
 
+  onStep?.('Checking Sepolia balances…')
   const decimals: number = await usdc.decimals().catch(() => cfg.usdc_decimals)
   const amount = parseUnits(amountUsdc, decimals)
 
@@ -109,22 +128,32 @@ export async function depositUsdcToBridge(opts: {
   let approveHash: string | undefined
   const allowance: bigint = await usdc.allowance(signer.address, cfg.lock_contract)
   if (allowance < amount) {
-    onStep?.('Approving USDC…')
-    const approveTx = await usdc.approve(cfg.lock_contract, amount)
-    const approveRc = await approveTx.wait()
-    if (!approveRc || approveRc.status !== 1) throw new Error('USDC approve failed')
+    onStep?.('Signing USDC approve (no second passkey — uses Sepolia wallet)…')
+    let approveTx
+    try {
+      approveTx = await usdc.approve(cfg.lock_contract, amount)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      throw new Error(`USDC approve failed: ${msg}`)
+    }
+    const approveRc = await waitForTx(approveTx, 'USDC approve', onStep)
     approveHash = approveRc.hash
   }
 
-  onStep?.('Locking USDC on bridge…')
-  const depositTx = await lock.deposit(amount, falconAccount)
-  const depositRc = await depositTx.wait()
-  if (!depositRc || depositRc.status !== 1) throw new Error('Bridge deposit failed')
+  onStep?.('Signing lock deposit on bridge contract…')
+  let depositTx
+  try {
+    depositTx = await lock.deposit(amount, falconAccount)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    throw new Error(`Bridge deposit failed to submit: ${msg}`)
+  }
+  const depositRc = await waitForTx(depositTx, 'Bridge deposit', onStep)
 
   let depositId: string | undefined
-  for (const log of depositRc.logs) {
+  for (const log of depositRc.logs ?? []) {
     try {
-      const parsed = lock.interface.parseLog(log)
+      const parsed = lock.interface.parseLog(log as { topics: readonly string[]; data: string })
       if (parsed?.name === 'DepositCreated') {
         depositId = parsed.args.depositId as string
         break
