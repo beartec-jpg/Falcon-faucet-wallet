@@ -1165,9 +1165,11 @@ export default function BridgeDepositPanel({
             <div className="text-xs text-slate-400 break-all">Falcon tx: {withdrawResult.falconTxHash}</div>
           )}
           <p className="text-xs text-slate-500">
-            Returned {withdrawResult.amount} F-USDC. Sepolia USDC will be sent to{' '}
-            <span className="font-mono">{withdrawResult.sepoliaRecipient.slice(0, 10)}…</span> once the
-            relay processes it — refresh Sepolia balance above, then use Send Out for MetaMask or elsewhere.
+            Returned {withdrawResult.amount} F-USDC on Falcon. The coordinator relay releases matching{' '}
+            <span className="text-emerald-400">Sepolia USDC</span> to{' '}
+            <span className="font-mono">{withdrawResult.sepoliaRecipient.slice(0, 10)}…</span> — usually
+            within a few minutes. Switch to <span className="text-emerald-400">Bridge In · USDC</span> and
+            refresh to see it; use Send Out to move it elsewhere.
           </p>
           <button type="button" onClick={() => setWithdrawResult(null)} className="text-xs text-brand-400">
             Dismiss
