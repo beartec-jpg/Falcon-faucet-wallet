@@ -4,6 +4,7 @@ import {
   serverRpcCall,
 } from '@/lib/network-server'
 import { fetchWalletAssets } from '@/lib/swap/wallet-assets'
+import { parseTxAmount } from '@/lib/tx-display'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
@@ -11,6 +12,7 @@ export interface TxRecord {
   hash:        string
   type:        string
   amount?:     string
+  amountAsset?: 'FALCON' | 'F-USDC'
   destination?: string
   account:     string
   result:      string
@@ -63,10 +65,12 @@ export async function GET(req: NextRequest) {
     const transactions: TxRecord[] = ((txR?.transactions ?? []) as any[])
       .map(t => {
         const tx = t.tx ?? t.tx_json ?? {}
+        const parsed = parseTxAmount(tx.Amount)
         return {
           hash:        (t.hash ?? tx.hash) as string,
           type:        (tx.TransactionType ?? 'Unknown') as string,
-          amount:      tx.Amount as string | undefined,
+          amount:      parsed?.display,
+          amountAsset: parsed?.asset,
           destination: tx.Destination as string | undefined,
           account:     (tx.Account ?? '') as string,
           result:      (t.meta?.TransactionResult ?? '') as string,

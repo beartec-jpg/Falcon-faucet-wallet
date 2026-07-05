@@ -20,7 +20,7 @@ async function mergeManifestTokens(tokens: NetworkToken[]): Promise<NetworkToken
     }
     if (!manifest.tokens?.length) return tokens
     return tokens.map((tok) => {
-      const m = manifest.tokens!.find((x) => x.symbol === tok.symbol)
+      const m = manifest.tokens!.find((x) => x.symbol === tok.symbol || x.currency === tok.currency)
       if (!tok.issuer && m?.issuer) {
         return { ...tok, issuer: m.issuer, currency: m.currency || tok.currency }
       }

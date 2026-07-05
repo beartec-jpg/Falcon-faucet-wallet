@@ -52,6 +52,7 @@ interface TxRecord {
   hash:         string
   type:         string
   amount?:      string
+  amountAsset?: 'FALCON' | 'F-USDC'
   destination?: string
   account:      string
   result:       string
@@ -1803,8 +1804,12 @@ export default function WalletPage() {
                   </div>
                   {account.transactions.map((tx, i) => {
                     const incoming = tx.destination === wallet.address
-                    const amt = fmtDrops(tx.amount)
                     const ok  = tx.result === 'tesSUCCESS'
+                    const asset = tx.amountAsset ?? 'FALCON'
+                    const amt = tx.amount ?? '—'
+                    const amountLabel = tx.type === 'Payment' && tx.amount
+                      ? `${incoming ? '+' : '-'}${amt} ${asset}`
+                      : tx.type
                     return (
                       <div key={tx.hash ?? i} className="px-4 py-3 flex items-center justify-between">
                         <div className="flex items-center gap-3 min-w-0">
@@ -1824,7 +1829,7 @@ export default function WalletPage() {
                           <div className={`text-sm font-medium ${
                             !ok ? 'text-red-400' : incoming ? 'text-emerald-400' : 'text-slate-300'
                           }`}>
-                            {!ok ? 'failed' : `${incoming ? '+' : '-'}${amt} FALCON`}
+                            {!ok ? 'failed' : amountLabel}
                           </div>
                           <div className="text-xs text-slate-600">{fmtDate(tx.date)}</div>
                         </div>
