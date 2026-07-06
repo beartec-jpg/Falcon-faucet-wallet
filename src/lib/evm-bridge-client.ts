@@ -231,6 +231,11 @@ export interface WithdrawalReleaseStatus {
   amount?: string
 }
 
+interface WithdrawalReleasedLog {
+  transactionHash?: string
+  args?: { amount?: bigint }
+}
+
 /**
  * Poll Sepolia for a WithdrawalReleased event crediting `recipient` after a
  * Falcon bridge-out. Best-effort: returns { released:false } if nothing is
@@ -260,7 +265,7 @@ export async function waitForWithdrawalRelease(opts: {
         const latest = await p.getBlockNumber()
         const events = await lock.queryFilter(filter, fromBlock, latest)
         if (events.length > 0) {
-          const ev = events[events.length - 1] as { transactionHash?: string; args?: { amount?: bigint } }
+          const ev = events[events.length - 1] as WithdrawalReleasedLog
           const raw = ev.args?.amount
           return {
             released: true,

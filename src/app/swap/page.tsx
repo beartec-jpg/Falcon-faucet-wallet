@@ -270,19 +270,23 @@ export default function SwapPage() {
         const qRes = await fetch(
           withNetworkQuery(`/api/swap?direction=${swapDir}&amount=${amt}`, networkKey),
         )
-        const qData = await qRes.json()
+        const qData = await qRes.json().catch(() => ({}))
         if (qRes.ok && qData.quote) {
           freshQuote = qData.quote
           setQuote(qData.quote)
         } else if (qRes.status === 404) {
-          throw new Error('No liquidity available — pool may be empty')
+          setError('No liquidity available — pool may be empty')
+          setBusy(false)
+          return
         } else if (!qRes.ok) {
-          throw new Error(qData.error ?? 'Could not refresh quote')
+          setError(qData.error ?? 'Could not refresh quote — try again')
+          setBusy(false)
+          return
         }
-      } catch (e) {
-        // Surface node/liquidity errors; fall back to the existing quote only
-        // for transient network blips where we still have a prior quote.
-        if (e instanceof Error && /liquidity|refresh/i.test(e.message)) throw e
+        // qRes.ok but no quote (unexpected): fall back to existing quote.
+      } catch {
+        // Transient network blip while re-quoting: proceed with the last quote,
+        // which is still bounded on-ledger by deliverMin/SendMax below.
       }
 
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
