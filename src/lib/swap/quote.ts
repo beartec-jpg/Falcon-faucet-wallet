@@ -34,27 +34,30 @@ async function ammPool(
   currency: string,
   issuer: string,
 ): Promise<{ price: number; xrpPool: number; tokenPool: number; tradingFee: number } | null> {
-  try {
-    const r = await serverRpcCall<{ amm?: Record<string, unknown> }>(networkKey, 'amm_info', {
+  // Transport/RPC failures propagate (caller maps to a 502 "node unavailable");
+  // a genuinely absent AMM returns null ("no liquidity").
+  const r = await serverRpcCall<{ amm?: Record<string, unknown>; error?: string }>(
+    networkKey,
+    'amm_info',
+    {
       asset: { currency: 'XRP' },
       asset2: { currency, issuer },
       ledger_index: 'validated',
-    })
-    if (!r?.amm) return null
-    const amm = r.amm
-    const xrpDrops = typeof amm.amount === 'string' ? amm.amount : '0'
-    const amount2 = amm.amount2 as { value?: string } | undefined
-    const xrpAmt = parseInt(xrpDrops, 10) / DROPS_PER_XRP
-    const tokAmt = parseFloat(amount2?.value ?? '0')
-    if (tokAmt <= 0) return null
-    return {
-      price: xrpAmt / tokAmt,
-      xrpPool: xrpAmt,
-      tokenPool: tokAmt,
-      tradingFee: typeof amm.trading_fee === 'number' ? amm.trading_fee : 0,
-    }
-  } catch {
-    return null
+    },
+    { allowError: true },
+  )
+  if (r?.error || !r?.amm) return null
+  const amm = r.amm
+  const xrpDrops = typeof amm.amount === 'string' ? amm.amount : '0'
+  const amount2 = amm.amount2 as { value?: string } | undefined
+  const xrpAmt = parseInt(xrpDrops, 10) / DROPS_PER_XRP
+  const tokAmt = parseFloat(amount2?.value ?? '0')
+  if (tokAmt <= 0) return null
+  return {
+    price: xrpAmt / tokAmt,
+    xrpPool: xrpAmt,
+    tokenPool: tokAmt,
+    tradingFee: typeof amm.trading_fee === 'number' ? amm.trading_fee : 0,
   }
 }
 

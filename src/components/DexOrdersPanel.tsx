@@ -125,9 +125,11 @@ export default function DexOrdersPanel({
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
-      const xrpTotal = amt * px
-      const xrpDrops = String(Math.round(xrpTotal * DROPS_PER_XRP))
-      const tokenValue = String(amt)
+      // Normalise to avoid float dust and sub-drop pricing: quantise the token
+      // amount to 6 dp (F-USDC precision) and derive integer XRP drops from it.
+      const tokenAmt = Math.round(amt * 1e6) / 1e6
+      const xrpDrops = String(Math.round(tokenAmt * px * DROPS_PER_XRP))
+      const tokenValue = String(tokenAmt)
 
       let takerGets: string | IouAmount
       let takerPays: string | IouAmount

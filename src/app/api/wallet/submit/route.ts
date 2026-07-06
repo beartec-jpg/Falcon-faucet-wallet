@@ -1,10 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isOriginAllowed } from '@/lib/origin'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
+import { peekSubmitRateLimit, consumeSubmitRateLimit } from '@/lib/rate-limit'
+
+function clientIp(req: NextRequest): string {
+  return (
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    req.headers.get('x-real-ip') ??
+    'unknown'
+  )
+}
 
 export async function POST(req: NextRequest) {
   if (!isOriginAllowed(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
+  }
+
+  // Rate-limit this unauthenticated RPC-relay proxy to protect the node from abuse.
+  const rlKey = `submit:ip:${clientIp(req)}`
+  const rl = await peekSubmitRateLimit(rlKey)
+  if (!rl.success) {
+    return NextResponse.json(
+      { error: 'Too many submissions — please slow down', reset: rl.reset },
+      { status: 429 },
+    )
   }
 
   let body: { tx_blob?: unknown; network?: string }
@@ -25,6 +44,7 @@ export async function POST(req: NextRequest) {
   const networkKey = resolveNetworkKey(body.network)
 
   try {
+    await consumeSubmitRateLimit(rlKey)
     const result = await serverRpcCall<{
       engine_result: string
       engine_result_message: string

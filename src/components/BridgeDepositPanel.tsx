@@ -15,6 +15,7 @@ import {
   fetchSepoliaBalances,
   sendSepoliaEth,
   sendSepoliaUsdc,
+  waitForWithdrawalRelease,
   type BridgeDepositResult,
 } from '@/lib/evm-bridge-client'
 import { signBridgeWithdraw, signFusdcPayment } from '@/lib/wallet-sign-client'
@@ -95,6 +96,8 @@ interface BridgeWithdrawResult {
   sepoliaRecipient: string
 }
 
+type ReleaseStatus = 'pending' | 'released' | 'unconfirmed' | null
+
 export default function BridgeDepositPanel({
   wallet,
   bridgeCfg,
@@ -118,6 +121,7 @@ export default function BridgeDepositPanel({
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BridgeDepositResult | null>(null)
   const [withdrawResult, setWithdrawResult] = useState<BridgeWithdrawResult | null>(null)
+  const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus>(null)
   const [evmPanel, setEvmPanel] = useState<EvmPanel>('bridge')
   const [backupPass, setBackupPass] = useState('')
   const [backupPassConfirm, setBackupPassConfirm] = useState('')
@@ -415,6 +419,16 @@ export default function BridgeDepositPanel({
       return
     }
 
+    if (
+      !confirm(
+        'Legacy cleanup: this sends F-USDC back to the issuer WITHOUT a bridge memo. ' +
+          'It does NOT release any Sepolia USDC and cannot be reversed. ' +
+          'Use "Bridge Out" instead if you want to receive Sepolia USDC. Continue?',
+      )
+    ) {
+      return
+    }
+
     setBusy(true)
     setError(null)
     setWithdrawResult(null)
@@ -484,6 +498,7 @@ export default function BridgeDepositPanel({
     setBusy(true)
     setError(null)
     setWithdrawResult(null)
+    setReleaseStatus(null)
     setStep(null)
 
     try {
@@ -519,6 +534,13 @@ export default function BridgeDepositPanel({
         sepoliaRecipient: wallet.evmAddress,
       })
       setWithdrawAmount('')
+      setReleaseStatus('pending')
+      const recipient = wallet.evmAddress
+      // Best-effort: watch Sepolia for the matching WithdrawalReleased event so
+      // the user sees whether the relay actually released their USDC.
+      waitForWithdrawalRelease({ cfg: bridgeCfg.sepolia, recipient })
+        .then((s) => setReleaseStatus(s.released ? 'released' : 'unconfirmed'))
+        .catch(() => setReleaseStatus('unconfirmed'))
       setTimeout(() => {
         onFalconRefresh?.()
         refreshFusdcBalance()
@@ -537,6 +559,11 @@ export default function BridgeDepositPanel({
     const amt = parseFloat(amount)
     if (!Number.isFinite(amt) || amt <= 0) {
       setError('Enter a valid USDC amount')
+      return
+    }
+    const availUsdc = parseFloat(balances?.usdc ?? '0')
+    if (Number.isFinite(availUsdc) && amt > availUsdc) {
+      setError(`Amount exceeds Sepolia USDC balance (${fmt(availUsdc, 4)} available)`)
       return
     }
 
@@ -588,6 +615,13 @@ export default function BridgeDepositPanel({
             <span className="text-amber-400">F-USDC</span> on Falcon. Bridge Out returns{' '}
             <span className="text-amber-400">F-USDC</span> and releases <span className="text-emerald-400">Sepolia USDC</span>.
           </p>
+        </div>
+
+        <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2.5">
+          <span className="font-semibold">Testnet · custodial bridge.</span> Mint and release are
+          performed by an off-chain relay operator, not by a trustless on-chain contract. If a
+          transfer does not complete, funds are recovered manually by the operator — do not bridge
+          amounts you cannot afford to wait on.
         </div>
 
         {hasEvm && (
@@ -1187,7 +1221,23 @@ export default function BridgeDepositPanel({
             within a few minutes. Switch to <span className="text-emerald-400">Bridge In · USDC</span> and
             refresh to see it; use Send Out to move it elsewhere.
           </p>
-          <button type="button" onClick={() => setWithdrawResult(null)} className="text-xs text-brand-400">
+          {releaseStatus === 'pending' && (
+            <div className="flex items-center gap-2 text-xs text-amber-400">
+              <Spinner /> Watching Sepolia for the release…
+            </div>
+          )}
+          {releaseStatus === 'released' && (
+            <div className="text-xs text-emerald-400">
+              ✓ Sepolia USDC released to your address.
+            </div>
+          )}
+          {releaseStatus === 'unconfirmed' && (
+            <div className="text-xs text-amber-400">
+              Release not detected yet. The relay may still be processing — check your Sepolia USDC
+              balance shortly, or contact the operator if it does not arrive.
+            </div>
+          )}
+          <button type="button" onClick={() => { setWithdrawResult(null); setReleaseStatus(null) }} className="text-xs text-brand-400">
             Dismiss
           </button>
         </div>

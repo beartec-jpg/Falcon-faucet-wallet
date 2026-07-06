@@ -40,11 +40,18 @@ export async function GET(req: NextRequest) {
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 })
     }
-    const quote = await quoteSwap(networkKey, token, direction, amount)
-    if (!quote) {
-      return NextResponse.json({ error: 'No liquidity available' }, { status: 404 })
+    try {
+      const quote = await quoteSwap(networkKey, token, direction, amount)
+      if (!quote) {
+        return NextResponse.json({ error: 'No liquidity available' }, { status: 404 })
+      }
+      return NextResponse.json({ quote, token })
+    } catch (e: unknown) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : 'Node unavailable' },
+        { status: 502 },
+      )
     }
-    return NextResponse.json({ quote, token })
   }
 
   try {

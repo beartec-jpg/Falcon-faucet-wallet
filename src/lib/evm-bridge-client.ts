@@ -31,6 +31,9 @@ export interface BridgeDepositResult {
   depositId?: string
 }
 
+/** Classic XRPL/Falcon address (r...) — deposits mint F-USDC to this account. */
+const FALCON_ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
+
 const TX_CONFIRM_TIMEOUT_MS = 180_000
 
 async function waitForTx(
@@ -101,6 +104,9 @@ export async function depositUsdcToBridge(opts: {
   onStep?: (step: string) => void
 }): Promise<BridgeDepositResult> {
   const { cfg, evmPrivateKey, amountUsdc, falconAccount, onStep } = opts
+  if (!FALCON_ADDRESS_RE.test(falconAccount.trim())) {
+    throw new Error('Invalid Falcon destination address — cannot bridge in')
+  }
   onStep?.('Connecting to Sepolia…')
   const p = await resolveProvider(cfg.rpc_url)
   const signer = new Wallet(evmPrivateKey, p)
@@ -118,12 +124,13 @@ export async function depositUsdcToBridge(opts: {
   }
 
   const usdcBal: bigint = await usdc.balanceOf(signer.address)
-  let amount = parseUnits(amountUsdc, decimals)
-  if (amount > usdcBal) {
-    amount = usdcBal
-  }
-
+  const amount = parseUnits(amountUsdc, decimals)
   if (amount <= 0n) throw new Error('Amount must be greater than zero')
+  if (amount > usdcBal) {
+    throw new Error(
+      `Amount exceeds Sepolia USDC balance (${formatUnits(usdcBal, decimals)} available)`,
+    )
+  }
 
   let approveHash: string | undefined
   const allowance: bigint = await usdc.allowance(signer.address, cfg.lock_contract)
@@ -216,4 +223,56 @@ async function resolveProvider(primaryUrl: string): Promise<JsonRpcProvider> {
     }
   }
   throw new Error('Cannot reach Sepolia RPC')
+}
+
+export interface WithdrawalReleaseStatus {
+  released: boolean
+  txHash?: string
+  amount?: string
+}
+
+/**
+ * Poll Sepolia for a WithdrawalReleased event crediting `recipient` after a
+ * Falcon bridge-out. Best-effort: returns { released:false } if nothing is
+ * found before the timeout (relay may still be processing). Never throws for
+ * missing releases — only for total RPC failure.
+ */
+export async function waitForWithdrawalRelease(opts: {
+  cfg: SepoliaBridgeConfig
+  recipient: string
+  fromBlock?: number
+  timeoutMs?: number
+  pollMs?: number
+}): Promise<WithdrawalReleaseStatus> {
+  const { cfg, recipient } = opts
+  const timeoutMs = opts.timeoutMs ?? 300_000
+  const pollMs = opts.pollMs ?? 15_000
+  const deadline = Date.now() + timeoutMs
+
+  return withSepoliaProvider(cfg.rpc_url, async (p) => {
+    const lock = new Contract(cfg.lock_contract, LOCK_ABI, p)
+    const decimals = cfg.usdc_decimals
+    const fromBlock = opts.fromBlock ?? Math.max(0, (await p.getBlockNumber()) - 1)
+    const filter = lock.filters.WithdrawalReleased(null, recipient)
+
+    for (;;) {
+      try {
+        const latest = await p.getBlockNumber()
+        const events = await lock.queryFilter(filter, fromBlock, latest)
+        if (events.length > 0) {
+          const ev = events[events.length - 1] as { transactionHash?: string; args?: { amount?: bigint } }
+          const raw = ev.args?.amount
+          return {
+            released: true,
+            txHash: ev.transactionHash,
+            amount: typeof raw === 'bigint' ? formatUnits(raw, decimals) : undefined,
+          }
+        }
+      } catch {
+        /* transient RPC hiccup — keep polling until deadline */
+      }
+      if (Date.now() >= deadline) return { released: false }
+      await new Promise((r) => setTimeout(r, pollMs))
+    }
+  })
 }
