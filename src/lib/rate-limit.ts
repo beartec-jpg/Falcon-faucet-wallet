@@ -145,8 +145,10 @@ export async function resetRateLimit(key: string): Promise<void> {
 // so it needs a far more generous budget than the faucet drip limiter. This is
 // per-instance (in-memory); it only guards a single node against abusive bursts.
 
-const SUBMIT_REQUESTS = parseInt(process.env.SUBMIT_RATE_LIMIT_REQUESTS ?? '30', 10)
-const SUBMIT_WINDOW_SECONDS = parseInt(process.env.SUBMIT_RATE_LIMIT_WINDOW_SECONDS ?? '60', 10)
+const SUBMIT_DEFAULT_REQUESTS = 30
+const SUBMIT_DEFAULT_WINDOW_SECONDS = 60
+const SUBMIT_REQUESTS = parseInt(process.env.SUBMIT_RATE_LIMIT_REQUESTS ?? String(SUBMIT_DEFAULT_REQUESTS), 10)
+const SUBMIT_WINDOW_SECONDS = parseInt(process.env.SUBMIT_RATE_LIMIT_WINDOW_SECONDS ?? String(SUBMIT_DEFAULT_WINDOW_SECONDS), 10)
 const submitStore = new Map<string, { count: number; resetAt: number }>()
 
 function submitPeek(key: string): LimitResult {

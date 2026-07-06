@@ -16,6 +16,8 @@ import { submitWalletTx } from '@/lib/wallet-submit'
 import { fmtOfferAmount } from '@/lib/swap/dust-offers'
 
 const DROPS_PER_XRP = 1_000_000
+/** F-USDC (and the QUC test token) settle to 6 decimal places. */
+const FUSDC_PRECISION = 1e6
 
 interface SwapToken {
   symbol: string
@@ -127,7 +129,7 @@ export default function DexOrdersPanel({
 
       // Normalise to avoid float dust and sub-drop pricing: quantise the token
       // amount to 6 dp (F-USDC precision) and derive integer XRP drops from it.
-      const tokenAmt = Math.round(amt * 1e6) / 1e6
+      const tokenAmt = Math.round(amt * FUSDC_PRECISION) / FUSDC_PRECISION
       const xrpDrops = String(Math.round(tokenAmt * px * DROPS_PER_XRP))
       const tokenValue = String(tokenAmt)
 

@@ -35,6 +35,8 @@ export interface BridgeDepositResult {
 const FALCON_ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
 const TX_CONFIRM_TIMEOUT_MS = 180_000
+/** How far back to start scanning for a WithdrawalReleased event by default. */
+const RELEASE_LOOKBACK_BLOCKS = 1
 
 async function waitForTx(
   tx: { hash: string; wait: (conf?: number, timeout?: number) => Promise<{ status?: number | null; hash: string; logs?: unknown[] } | null> },
@@ -257,7 +259,7 @@ export async function waitForWithdrawalRelease(opts: {
   return withSepoliaProvider(cfg.rpc_url, async (p) => {
     const lock = new Contract(cfg.lock_contract, LOCK_ABI, p)
     const decimals = cfg.usdc_decimals
-    const fromBlock = opts.fromBlock ?? Math.max(0, (await p.getBlockNumber()) - 1)
+    const fromBlock = opts.fromBlock ?? Math.max(0, (await p.getBlockNumber()) - RELEASE_LOOKBACK_BLOCKS)
     const filter = lock.filters.WithdrawalReleased(null, recipient)
 
     for (;;) {
