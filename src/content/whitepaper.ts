@@ -26,6 +26,13 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
     href: '/Docs/FALCON-SECURITY-REPORT-wallet-send-receive-backup-restore.pdf',
     filename: 'FALCON-SECURITY-REPORT-wallet-send-receive-backup-restore.pdf',
   },
+  {
+    title: 'Security Report — Bridge, Pool, AMM, Swap Orders',
+    description:
+      'Third-party security and functionality audit of bridge in/out, AMM pool deposit/withdraw, instant swap, and DEX limit orders.',
+    href: '/Docs/FALCON-SECURITY-REPORT-bridge-pool-amm-swap-orders.pdf',
+    filename: 'FALCON-SECURITY-REPORT-bridge-pool-amm-swap-orders.pdf',
+  },
 ]
 
 export const WHITEPAPER_SECTIONS: { id: string; title: string; body: string }[] = [
