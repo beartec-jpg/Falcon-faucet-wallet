@@ -11,6 +11,12 @@ export interface SepoliaBridgeConfig {
   usdc_token: string
   lock_contract: string
   usdc_decimals: number
+  /**
+   * How many blocks back the WithdrawalReleased watcher scans from the chain tip.
+   * Optional; when omitted a chain-appropriate default is used (deeper on mainnet
+   * for reorg safety). Env-overridable server-side via RELEASE_LOOKBACK_BLOCKS.
+   */
+  release_lookback_blocks?: number
 }
 
 export interface FalconBridgeToken {

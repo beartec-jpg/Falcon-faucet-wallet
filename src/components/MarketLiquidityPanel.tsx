@@ -24,6 +24,8 @@ import { applySlippage } from '@/lib/swap/amm-math'
 const DROPS_PER_XRP = 1_000_000
 /** Default AMM deposit/withdraw slippage tolerance (basis points); mirrors the swap default. */
 const DEFAULT_SLIPPAGE_BPS = 50
+// Small epsilon to absorb floating-point rounding when comparing pool amounts.
+const FP_COMPARE_EPSILON = 1e-9
 
 interface SwapToken {
   symbol: string
@@ -348,7 +350,7 @@ export default function MarketLiquidityPanel({
         const freshFraction = Math.min(1, parseFloat(lpAmt) / freshPosition.lpBalance)
         const freshXrp = freshPosition.estXrpOut * freshFraction
         const freshUsdc = freshPosition.estUsdcOut * freshFraction
-        if (freshXrp + 1e-9 < minXrp || freshUsdc + 1e-9 < minUsdc) {
+        if (freshXrp + FP_COMPARE_EPSILON < minXrp || freshUsdc + FP_COMPARE_EPSILON < minUsdc) {
           throw new Error(
             `Pool moved: withdrawing now returns ~${fmt(freshXrp, 4)} FALCON + ~${fmt(freshUsdc, 4)} F-USDC, ` +
               `below your minimum of ${fmt(minXrp, 4)} FALCON + ${fmt(minUsdc, 4)} F-USDC ` +
