@@ -14,9 +14,18 @@ import {
   signAmmDeposit,
   signAmmWithdraw,
 } from '@/lib/wallet-sign-client'
-import { AMM_CREATE_FEE_DROPS, submitWalletTx } from '@/lib/wallet-submit'
+import {
+  AMM_CREATE_FEE_DROPS,
+  submitWithSequenceRetry,
+  fetchSequenceInfo,
+} from '@/lib/wallet-submit'
+import { applySlippage } from '@/lib/swap/amm-math'
 
 const DROPS_PER_XRP = 1_000_000
+/** Default AMM deposit/withdraw slippage tolerance (basis points); mirrors the swap default. */
+const DEFAULT_SLIPPAGE_BPS = 50
+// Small epsilon to absorb floating-point rounding when comparing pool amounts.
+const FP_COMPARE_EPSILON = 1e-9
 
 interface SwapToken {
   symbol: string
@@ -115,28 +124,61 @@ export default function MarketLiquidityPanel({
   const [lpPosition, setLpPosition] = useState<LpPosition | null>(null)
   const [poolSnapshot, setPoolSnapshot] = useState<PoolSnapshot | null>(null)
   const [withdrawPct, setWithdrawPct] = useState('100')
+  const [slippagePct, setSlippagePct] = useState(String(DEFAULT_SLIPPAGE_BPS / 100))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<string | null>(null)
 
-  const loadLpPosition = useCallback(async () => {
+  /** Slippage tolerance in basis points, clamped to a sane 1bp–5% range. */
+  const slippageBps = (() => {
+    const pct = parseFloat(slippagePct)
+    if (!Number.isFinite(pct) || pct <= 0) return DEFAULT_SLIPPAGE_BPS
+    return Math.min(500, Math.max(1, Math.round(pct * 100)))
+  })()
+
+  /** Fetches the caller's LP position and the live pool reserves without mutating state. */
+  const fetchLpPosition = useCallback(async (): Promise<{
+    position: LpPosition | null
+    pool: PoolSnapshot | null
+  }> => {
     const r = await fetch(
       withNetworkQuery(`/api/market/lp-position?address=${encodeURIComponent(wallet.address)}`, networkKey),
     )
     const d = await r.json()
-    if (!d.error) {
-      setLpPosition(d.position ?? null)
-      if (d.pool) {
-        setPoolSnapshot({ xrp: d.pool.xrp, usdc: d.pool.usdc })
-      }
+    if (d.error) return { position: null, pool: null }
+    return {
+      position: d.position ?? null,
+      pool: d.pool ? { xrp: d.pool.xrp, usdc: d.pool.usdc } : null,
     }
   }, [wallet.address, networkKey])
+
+  const loadLpPosition = useCallback(async () => {
+    const { position, pool } = await fetchLpPosition()
+    setLpPosition(position)
+    if (pool) setPoolSnapshot(pool)
+  }, [fetchLpPosition])
 
   useEffect(() => {
     if (poolLive) loadLpPosition()
   }, [loadLpPosition, poolLive])
 
-  const submitTx = (tx_blob: string) => submitWalletTx(tx_blob, networkKey)
+  /** Sign + submit an AMM tx for this wallet with automatic sequence-race retry. */
+  const submitSequenced = (
+    falcon_secret: string,
+    sign: (
+      seq: { sequence: number; lastLedgerSequence: number },
+      falcon_secret: string,
+    ) => Promise<{ tx_blob: string }>,
+  ) =>
+    submitWithSequenceRetry({
+      networkKey,
+      fetchSequence: async () => {
+        const a = await fetchSequenceInfo(wallet.address, networkKey)
+        if (!a.exists) throw new Error('Failed to refresh account')
+        return { sequence: a.sequence, currentLedger: a.currentLedger }
+      },
+      sign: (seq) => sign(seq, falcon_secret),
+    })
 
   const handleAmmCreate = async () => {
     if (!token.issuer || !network.live || poolLive) return
@@ -151,10 +193,6 @@ export default function MarketLiquidityPanel({
     setError(null)
     setResult(null)
     try {
-      const accRes = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-      const accData = await accRes.json()
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
@@ -169,22 +207,22 @@ export default function MarketLiquidityPanel({
         throw new Error(`Need ${fmt(u, 4)} bridged F-USDC — bridge Sepolia USDC in first`)
       }
 
-      const { tx_blob } = await signAmmCreate(
-        {
-          account: wallet.address,
-          currency: token.currency,
-          issuer: token.issuer,
-          amountXrpDrops: String(Math.round(x * DROPS_PER_XRP)),
-          amountToken: String(u),
-          fee: AMM_CREATE_FEE_DROPS,
-          sequence: accData.sequence,
-          lastLedgerSequence: accData.currentLedger + 20,
-          networkId: network.networkId,
-        },
-        falcon_secret,
+      const data = await submitSequenced(falcon_secret, ({ sequence, lastLedgerSequence }, secret) =>
+        signAmmCreate(
+          {
+            account: wallet.address,
+            currency: token.currency,
+            issuer: token.issuer,
+            amountXrpDrops: String(Math.round(x * DROPS_PER_XRP)),
+            amountToken: String(u),
+            fee: AMM_CREATE_FEE_DROPS,
+            sequence,
+            lastLedgerSequence,
+            networkId: network.networkId,
+          },
+          secret,
+        ),
       )
-
-      const data = await submitTx(tx_blob)
       setResult(`AMM pool created (${data.hash?.slice(0, 12) ?? data.result}) — refresh in a few seconds`)
       setXrpAmt('')
       setUsdcAmt('')
@@ -221,28 +259,44 @@ export default function MarketLiquidityPanel({
     setError(null)
     setResult(null)
     try {
-      const accRes = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-      const accData = await accRes.json()
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
-      const { tx_blob } = await signAmmDeposit(
-        {
-          account: wallet.address,
-          currency: token.currency,
-          issuer: token.issuer,
-          amountXrpDrops: String(Math.round(x * DROPS_PER_XRP)),
-          amountToken: String(u),
-          sequence: accData.sequence,
-          lastLedgerSequence: accData.currentLedger + 20,
-          networkId: network.networkId,
-        },
-        falcon_secret,
-      )
+      // Slippage guard: re-fetch the live pool immediately before signing and abort
+      // if its ratio moved beyond tolerance versus the ratio the deposit was sized
+      // against. Amount/Amount2 are on-ledger maximums (tfTwoAsset), so this stops a
+      // shifted pool from consuming the deposit at an unexpected ratio.
+      const referenceRatio = activePoolRatio
+      if (referenceRatio > 0) {
+        const { pool: freshPool } = await fetchLpPosition()
+        if (freshPool) {
+          const freshRatio = poolRatioFromPools(freshPool.xrp, freshPool.usdc)
+          const drift = Math.abs(freshRatio - referenceRatio) / referenceRatio
+          if (freshRatio > 0 && drift > slippageBps / 10_000) {
+            throw new Error(
+              `Pool ratio moved ${fmt(drift * 100, 2)}% (now ${fmt(freshRatio, 4)} FALCON per F-USDC, ` +
+                `was ${fmt(referenceRatio, 4)}), beyond your ${fmt(slippageBps / 100, 2)}% tolerance. ` +
+                `Refresh and re-check the amounts.`,
+            )
+          }
+        }
+      }
 
-      const data = await submitTx(tx_blob)
+      const data = await submitSequenced(falcon_secret, ({ sequence, lastLedgerSequence }, secret) =>
+        signAmmDeposit(
+          {
+            account: wallet.address,
+            currency: token.currency,
+            issuer: token.issuer,
+            amountXrpDrops: String(Math.round(x * DROPS_PER_XRP)),
+            amountToken: String(u),
+            sequence,
+            lastLedgerSequence,
+            networkId: network.networkId,
+          },
+          secret,
+        ),
+      )
       setResult(`AMM deposit: ${data.result ?? 'ok'} — LP tokens credited; fees paid to your wallet when swaps occur`)
       setXrpAmt('')
       setUsdcAmt('')
@@ -275,30 +329,53 @@ export default function MarketLiquidityPanel({
     setError(null)
     setResult(null)
     try {
-      const accRes = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-      const accData = await accRes.json()
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
-      const { tx_blob } = await signAmmWithdraw(
-        {
-          account: wallet.address,
-          currency: token.currency,
-          issuer: token.issuer,
-          lpTokenCurrency: lpPosition.lpToken.currency,
-          lpTokenIssuer: lpPosition.lpToken.issuer,
-          lpTokenAmount: lpAmt,
-          withdrawAll,
-          sequence: accData.sequence,
-          lastLedgerSequence: accData.currentLedger + 20,
-          networkId: network.networkId,
-        },
-        falcon_secret,
-      )
+      // Min-out guard: XLS-30 proportional (tfLPToken) withdraw has no on-ledger
+      // minimum-received field, so bound it client-side. Compute the expected
+      // output for this LP amount from the position the user reviewed, then re-fetch
+      // the live pool right before signing and abort if it would now return less
+      // than that expectation minus slippage tolerance (adverse pool move / sandwich).
+      const lpFraction = lpPosition.lpBalance > 0
+        ? Math.min(1, parseFloat(lpAmt) / lpPosition.lpBalance)
+        : 0
+      const expectedXrp = lpPosition.estXrpOut * lpFraction
+      const expectedUsdc = lpPosition.estUsdcOut * lpFraction
+      const minXrp = applySlippage(expectedXrp, slippageBps, 'min')
+      const minUsdc = applySlippage(expectedUsdc, slippageBps, 'min')
 
-      const data = await submitTx(tx_blob)
+      const { position: freshPosition } = await fetchLpPosition()
+      if (freshPosition && freshPosition.lpBalance > 0) {
+        const freshFraction = Math.min(1, parseFloat(lpAmt) / freshPosition.lpBalance)
+        const freshXrp = freshPosition.estXrpOut * freshFraction
+        const freshUsdc = freshPosition.estUsdcOut * freshFraction
+        if (freshXrp + FP_COMPARE_EPSILON < minXrp || freshUsdc + FP_COMPARE_EPSILON < minUsdc) {
+          throw new Error(
+            `Pool moved: withdrawing now returns ~${fmt(freshXrp, 4)} FALCON + ~${fmt(freshUsdc, 4)} F-USDC, ` +
+              `below your minimum of ${fmt(minXrp, 4)} FALCON + ${fmt(minUsdc, 4)} F-USDC ` +
+              `(${fmt(slippageBps / 100, 2)}% tolerance). Refresh and try again.`,
+          )
+        }
+      }
+
+      const data = await submitSequenced(falcon_secret, ({ sequence, lastLedgerSequence }, secret) =>
+        signAmmWithdraw(
+          {
+            account: wallet.address,
+            currency: token.currency,
+            issuer: token.issuer,
+            lpTokenCurrency: lpPosition.lpToken.currency,
+            lpTokenIssuer: lpPosition.lpToken.issuer,
+            lpTokenAmount: lpAmt,
+            withdrawAll,
+            sequence,
+            lastLedgerSequence,
+            networkId: network.networkId,
+          },
+          secret,
+        ),
+      )
       setResult(
         `Withdrawn from pool: ${data.result ?? 'ok'} — FALCON and F-USDC returned to your wallet`,
       )
@@ -387,6 +464,26 @@ export default function MarketLiquidityPanel({
               Dismiss
             </button>
           </div>
+        )}
+
+        {poolLive && (
+          <label className="flex items-center justify-between gap-3 text-xs text-slate-400">
+            <span>Slippage tolerance for deposit &amp; withdraw</span>
+            <span className="flex items-center gap-1">
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0.01"
+                max="5"
+                step="0.05"
+                value={slippagePct}
+                onChange={(e) => setSlippagePct(e.target.value)}
+                className="input-field w-20 text-right px-2 py-1"
+                aria-label="Slippage tolerance percent"
+              />
+              <span>%</span>
+            </span>
+          </label>
         )}
 
         {!poolLive && (

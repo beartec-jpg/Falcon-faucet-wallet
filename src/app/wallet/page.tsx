@@ -27,6 +27,7 @@ import {
   signFusdcPayment,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
+import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
 import {
   createEncryptedBackup,
   decryptBackupFile,
@@ -260,6 +261,9 @@ export default function WalletPage() {
   const [backupPassConfirm,  setBackupPassConfirm]  = useState('')
   const [backupDownloaded,   setBackupDownloaded]   = useState(false)
   const [backupAcknowledged, setBackupAcknowledged] = useState(false)
+  // F-01: explicit, non-dismissable acknowledgment required before saving a
+  // wallet that fell back to weaker (non-PRF) at-rest encryption.
+  const [weakEncryptionAck,  setWeakEncryptionAck]  = useState(false)
   const [showRawSecret,      setShowRawSecret]      = useState(false)
   const [secretCopied,       setSecretCopied]       = useState(false)
 
@@ -381,6 +385,7 @@ export default function WalletPage() {
     setBackupPassConfirm('')
     setBackupDownloaded(false)
     setBackupAcknowledged(false)
+    setWeakEncryptionAck(false)
     setShowRawSecret(false)
     setSecretCopied(false)
     try {
@@ -404,6 +409,9 @@ export default function WalletPage() {
 
   const handleConfirmBackup = async () => {
     if (!pendingSave || !backupDownloaded || !backupAcknowledged) return
+    // F-01: a non-PRF (weaker-encryption) wallet may only be saved after the
+    // user explicitly acknowledges the reduced protection.
+    if (!pendingSave.hasPrf && !weakEncryptionAck) return
     setBusy(true)
     setError(null)
     try {
@@ -416,6 +424,7 @@ export default function WalletPage() {
       setBackupPassConfirm('')
       setBackupDownloaded(false)
       setBackupAcknowledged(false)
+      setWeakEncryptionAck(false)
       setView('dashboard')
       refreshBalance(stored.address)
     } catch (e: unknown) {
@@ -431,6 +440,7 @@ export default function WalletPage() {
     setBackupPassConfirm('')
     setBackupDownloaded(false)
     setBackupAcknowledged(false)
+    setWeakEncryptionAck(false)
     setShowRawSecret(false)
     setSecretCopied(false)
     setView('no-wallet')
@@ -527,17 +537,13 @@ export default function WalletPage() {
     setError(null)
     try {
       const parsed = parseBackupFile(JSON.parse(await file.text()))
-      if (parsed.encrypted) {
-        if (!restorePassphrase) {
-          setError('Enter the backup password for this file')
-          return
-        }
-        const payload = await decryptBackupFile(parsed, restorePassphrase)
-        await finishRestore(payload.falcon_secret, payload.label || restoreLabel)
+      // Only passphrase-encrypted backups are accepted (see wallet-backup.ts, F-04).
+      if (!restorePassphrase) {
+        setError('Enter the backup password for this file')
         return
       }
-      setRestoreLabel(parsed.label || restoreLabel)
-      await finishRestore(parsed.falcon_secret, parsed.label || restoreLabel)
+      const payload = await decryptBackupFile(parsed, restorePassphrase)
+      await finishRestore(payload.falcon_secret, payload.label || restoreLabel)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not read backup file')
     } finally {
@@ -627,48 +633,51 @@ export default function WalletPage() {
       //    the secret is never sent to any server.
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
-      // 3. Fetch fresh sequence + ledger index just before signing (avoids tefPAST_SEQ)
-      const freshAcct = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-        .then(r => r.ok ? r.json() as Promise<AccountData> : null)
-        .catch(() => null)
-      const sequence           = freshAcct?.sequence           ?? account.sequence
-      const lastLedgerSequence = (freshAcct?.currentLedger ?? account.currentLedger) + 20
+      // 3. Fetch fresh sequence + ledger index just before signing, and re-sign +
+      //    resubmit automatically if the ledger reports a sequence race (tefPAST_SEQ).
+      const fetchSequence = async () => {
+        try {
+          const a = await fetchSequenceInfo(wallet.address, networkKey)
+          return { sequence: a.sequence, currentLedger: a.currentLedger }
+        } catch {
+          // Fall back to the cached account snapshot if the node is briefly unreachable.
+          return { sequence: account.sequence, currentLedger: account.currentLedger }
+        }
+      }
 
-      const { tx_blob } = sendAsset === 'falcon'
-        ? await signPayment(
-            {
-              account:            wallet.address,
-              destination:        to,
-              amountDrops:        qxrpToDrops(amt),
-              sequence,
-              lastLedgerSequence,
-              networkId:          network.networkId,
-            },
-            falcon_secret,
-          )
-        : await signFusdcPayment(
-            {
-              account:            wallet.address,
-              destination:        to,
-              issuer:             fusdc!.issuer,
-              currency:           fusdc!.currency,
-              amount:             String(amt),
-              sequence,
-              lastLedgerSequence,
-              networkId:          network.networkId,
-            },
-            falcon_secret,
-          )
-
-      // 4. Submit signed blob
-      const res = await fetch('/api/wallet/submit', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ tx_blob, network: networkKey }),
-      })
-      const data = await res.json()
+      const data = await submitWithSequenceRetry({
+        networkKey,
+        fetchSequence,
+        sign: ({ sequence, lastLedgerSequence }) =>
+          sendAsset === 'falcon'
+            ? signPayment(
+                {
+                  account:            wallet.address,
+                  destination:        to,
+                  amountDrops:        qxrpToDrops(amt),
+                  sequence,
+                  lastLedgerSequence,
+                  networkId:          network.networkId,
+                },
+                falcon_secret,
+              )
+            : signFusdcPayment(
+                {
+                  account:            wallet.address,
+                  destination:        to,
+                  issuer:             fusdc!.issuer,
+                  currency:           fusdc!.currency,
+                  amount:             String(amt),
+                  sequence,
+                  lastLedgerSequence,
+                  networkId:          network.networkId,
+                },
+                falcon_secret,
+              ),
+      }).catch((e: unknown): SubmitResult => ({
+        success: false,
+        message: e instanceof Error ? e.message : 'Failed',
+      }))
 
       setSendResult({
         success: !!data.success,
@@ -702,6 +711,15 @@ export default function WalletPage() {
   // ─────────────────────────────────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────────────────────────────────
+
+  // Backup gate: a wallet may only be saved once the encrypted backup is
+  // downloaded and acknowledged; non-PRF (weaker-encryption) wallets also
+  // require the explicit weak-encryption acknowledgment (F-01).
+  const canConfirmBackup =
+    !busy &&
+    backupDownloaded &&
+    backupAcknowledged &&
+    (!!pendingSave?.hasPrf || weakEncryptionAck)
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -805,8 +823,19 @@ export default function WalletPage() {
               </div>
 
               {!pendingSave.hasPrf && (
-                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-                  <strong>Weaker device encryption:</strong> this device/browser does not support the passkey PRF extension, so the wallet on this device is encrypted with lower-strength key material. Keep your encrypted backup file safe and do not store significant value on this wallet.
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 space-y-3">
+                  <p>
+                    <strong>Weaker device encryption:</strong> this device/browser does not support the passkey PRF extension, so the wallet on this device is encrypted with lower-strength key material. Keep your encrypted backup file safe and do not store significant value on this wallet.
+                  </p>
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={weakEncryptionAck}
+                      onChange={e => setWeakEncryptionAck(e.target.checked)}
+                      className="mt-1 rounded border-amber-500/60"
+                    />
+                    <span>I understand this device uses weaker encryption and I will not store significant value on this wallet.</span>
+                  </label>
                 </div>
               )}
 
@@ -888,7 +917,7 @@ export default function WalletPage() {
 
                 <button
                   onClick={handleConfirmBackup}
-                  disabled={busy || !backupDownloaded || !backupAcknowledged}
+                  disabled={!canConfirmBackup}
                   className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {busy ? <><Spinner /> Saving wallet…</> : 'Continue to wallet'}

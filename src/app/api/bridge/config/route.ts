@@ -20,6 +20,18 @@ export async function GET() {
       config.sepolia?.usdc_token ||
       ''
 
+    // How far back the WithdrawalReleased watcher scans; env-overridable so mainnet
+    // deployments can widen the reorg/miss window without a config redeploy.
+    const lookbackRaw =
+      process.env.RELEASE_LOOKBACK_BLOCKS?.trim() ||
+      process.env.NEXT_PUBLIC_RELEASE_LOOKBACK_BLOCKS?.trim() ||
+      ''
+    const lookbackParsed = Number.parseInt(lookbackRaw, 10)
+    const releaseLookbackBlocks =
+      Number.isFinite(lookbackParsed) && lookbackParsed > 0
+        ? lookbackParsed
+        : config.sepolia?.release_lookback_blocks
+
     // The Falcon node RPC is server/relay infrastructure and must not leak an
     // internal plaintext (http://<ip>) endpoint to the browser. Only expose a
     // Falcon RPC URL if one is explicitly published via env; otherwise omit it.
@@ -41,6 +53,7 @@ export async function GET() {
         ...config.sepolia,
         lock_contract: lockContract,
         usdc_token: usdcToken,
+        ...(releaseLookbackBlocks ? { release_lookback_blocks: releaseLookbackBlocks } : {}),
       },
       lock_contract_ready: /^0x[a-fA-F0-9]{40}$/.test(lockContract),
     })

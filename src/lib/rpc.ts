@@ -12,11 +12,28 @@ export const PUBLIC_RPC_NODES: string[] = [
 
 const RPC_NODES = ENV_RPC ? [ENV_RPC, ...PUBLIC_RPC_NODES] : PUBLIC_RPC_NODES
 
-// Warn once if any configured RPC node uses plaintext HTTP in production. Signed
-// tx_blobs traverse this channel and are exposed to MITM over plain HTTP.
+// Signed tx_blobs traverse this channel; plaintext HTTP exposes them to MITM
+// (observation, suppression/delay). In production we warn on reads and hard-fail
+// the submit path unless the operator explicitly accepts the risk on a trusted
+// network via ALLOW_INSECURE_TRANSPORT=true (mirrors signer-proxy.ts).
 const IS_PRODUCTION = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
+const ALLOW_INSECURE_TRANSPORT = process.env.ALLOW_INSECURE_TRANSPORT === 'true'
 if (IS_PRODUCTION && RPC_NODES.some((n) => n.startsWith('http://'))) {
   console.warn('[rpc] An RPC node is configured over plaintext HTTP in production. Use https:// (port 6005) to protect signed transactions from MITM.')
+}
+
+// Fail closed on the submit path: a signed transaction must not be sent over
+// plaintext HTTP in production unless the risk is explicitly accepted.
+function assertSecureSubmitTransport(): void {
+  if (!IS_PRODUCTION) return
+  if (ALLOW_INSECURE_TRANSPORT) return
+  const insecure = RPC_NODES.filter((n) => n.startsWith('http://'))
+  if (insecure.length > 0) {
+    throw new Error(
+      'Refusing to submit a signed transaction over plaintext HTTP in production. ' +
+      'Configure XRPLD_RPC_URL with https:// (or set ALLOW_INSECURE_TRANSPORT=true to accept the risk on a trusted network).',
+    )
+  }
 }
 
 // Convenient default for files that still do their own RPC calls.
@@ -116,6 +133,7 @@ export async function getLedgerIndex(): Promise<number> {
 }
 
 export async function submitTx(tx_blob: string): Promise<{ tx_json: { hash: string }; engine_result: string; engine_result_message: string }> {
+  assertSecureSubmitTransport()
   return call('submit', { tx_blob })
 }
 

@@ -13,6 +13,7 @@ import {
 import { decryptSeed } from '@/lib/wallet-crypto'
 import { loadWallets, type StoredWallet } from '@/lib/wallet-store'
 import { signTrustSet } from '@/lib/wallet-sign-client'
+import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
 import MarketLiquidityPanel from '@/components/MarketLiquidityPanel'
 import PoolStatsPanel from '@/components/PoolStatsPanel'
 
@@ -79,32 +80,29 @@ export default function PoolPage() {
     setBusy(true)
     setError(null)
     try {
-      const accRes = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-      const accData = await accRes.json()
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-      const { tx_blob } = await signTrustSet(
-        {
-          account: wallet.address,
-          currency: swapData.token.currency,
-          issuer: swapData.token.issuer,
-          limit: '10000000',
-          sequence: accData.sequence,
-          lastLedgerSequence: accData.currentLedger + 20,
-          networkId: network.networkId,
+      const data = await submitWithSequenceRetry({
+        networkKey,
+        fetchSequence: async () => {
+          const a = await fetchSequenceInfo(wallet.address, networkKey)
+          return { sequence: a.sequence, currentLedger: a.currentLedger }
         },
-        falcon_secret,
-      )
-      const res = await fetch('/api/wallet/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tx_blob, network: networkKey }),
+        sign: ({ sequence, lastLedgerSequence }) =>
+          signTrustSet(
+            {
+              account: wallet.address,
+              currency: swapData.token.currency,
+              issuer: swapData.token.issuer,
+              limit: '10000000',
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+            },
+            falcon_secret,
+          ),
       })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setTimeout(() => refresh(wallet.address), 4000)
+      if (data.success) setTimeout(() => refresh(wallet.address), 4000)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed')
     } finally {

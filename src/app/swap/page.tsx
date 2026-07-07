@@ -17,6 +17,7 @@ import {
   signPaymentSwap,
   type IouAmount,
 } from '@/lib/wallet-sign-client'
+import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
 import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
 import DexOrdersPanel from '@/components/DexOrdersPanel'
@@ -205,33 +206,32 @@ export default function SwapPage() {
     setError(null)
     setTxResult(null)
     try {
-      const accRes = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-      const accData = await accRes.json()
-      if (!accRes.ok || !accData.exists) throw new Error('Failed to refresh account')
-
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-      const { tx_blob } = await signTrustSet(
-        {
-          account: wallet.address,
-          currency: swapData.token.currency,
-          issuer: swapData.token.issuer,
-          limit: '10000000',
-          sequence: accData.sequence,
-          lastLedgerSequence: accData.currentLedger + 20,
-          networkId: network.networkId,
+      const data = await submitWithSequenceRetry({
+        networkKey,
+        fetchSequence: async () => {
+          const a = await fetchSequenceInfo(wallet.address, networkKey)
+          if (!a.exists) throw new Error('Failed to refresh account')
+          return { sequence: a.sequence, currentLedger: a.currentLedger }
         },
-        falcon_secret,
-      )
-      const res = await fetch('/api/wallet/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tx_blob, network: networkKey }),
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
+        sign: ({ sequence, lastLedgerSequence }) =>
+          signTrustSet(
+            {
+              account: wallet.address,
+              currency: swapData.token.currency,
+              issuer: swapData.token.issuer,
+              limit: '10000000',
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+            },
+            falcon_secret,
+          ),
+      }).catch((e: unknown): SubmitResult => ({
+        success: false,
+        message: e instanceof Error ? e.message : 'Failed',
+      }))
       setTxResult({ ok: !!data.success, msg: [data.result, data.message].filter(Boolean).join(' — '), hash: data.hash })
       if (data.success) setTimeout(() => refresh(wallet.address), 4000)
     } catch (e: unknown) {
@@ -258,11 +258,6 @@ export default function SwapPage() {
     setTxResult(null)
 
     try {
-      const accRes = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-      const accData = await accRes.json()
-
       // Re-quote immediately before signing so slippage bounds reflect current
       // pool reserves rather than a stale on-screen quote.
       let freshQuote = quote
@@ -310,27 +305,30 @@ export default function SwapPage() {
         deliverMin = String(Math.round(minOut * DROPS_PER_XRP))
       }
 
-      const { tx_blob } = await signPaymentSwap(
-        {
-          account: wallet.address,
-          destination: wallet.address,
-          amount,
-          sendMax,
-          deliverMin,
-          sequence: accData.sequence,
-          lastLedgerSequence: accData.currentLedger + 20,
-          networkId: network.networkId,
+      const data = await submitWithSequenceRetry({
+        networkKey,
+        fetchSequence: async () => {
+          const a = await fetchSequenceInfo(wallet.address, networkKey)
+          return { sequence: a.sequence, currentLedger: a.currentLedger }
         },
-        falcon_secret,
-      )
-
-      const res = await fetch('/api/wallet/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tx_blob, network: networkKey }),
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
+        sign: ({ sequence, lastLedgerSequence }) =>
+          signPaymentSwap(
+            {
+              account: wallet.address,
+              destination: wallet.address,
+              amount,
+              sendMax,
+              deliverMin,
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+            },
+            falcon_secret,
+          ),
+      }).catch((e: unknown): SubmitResult => ({
+        success: false,
+        message: e instanceof Error ? e.message : 'Swap failed',
+      }))
       setTxResult({ ok: !!data.success, msg: [data.result, data.message].filter(Boolean).join(' — '), hash: data.hash })
       setSwapAmt('')
       if (data.success) setTimeout(() => refresh(wallet.address), 4000)

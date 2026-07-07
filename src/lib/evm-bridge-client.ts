@@ -35,8 +35,14 @@ export interface BridgeDepositResult {
 const FALCON_ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
 const TX_CONFIRM_TIMEOUT_MS = 180_000
-/** How far back to start scanning for a WithdrawalReleased event by default. */
-const RELEASE_LOOKBACK_BLOCKS = 1
+/**
+ * Default number of blocks to scan back from the chain tip for a WithdrawalReleased
+ * event, by EVM chain id. Mainnet uses a deeper window for reorg safety; testnets
+ * are shallower. Overridable per-call or via bridge config (release_lookback_blocks).
+ */
+function defaultReleaseLookbackBlocks(chainId: number): number {
+  return chainId === 1 ? 200 : 50
+}
 
 async function waitForTx(
   tx: { hash: string; wait: (conf?: number, timeout?: number) => Promise<{ status?: number | null; hash: string; logs?: unknown[] } | null> },
@@ -235,6 +241,7 @@ export interface WithdrawalReleaseStatus {
 
 interface WithdrawalReleasedLog {
   transactionHash?: string
+  logIndex?: number
   args?: { amount?: bigint }
 }
 
@@ -243,6 +250,11 @@ interface WithdrawalReleasedLog {
  * Falcon bridge-out. Best-effort: returns { released:false } if nothing is
  * found before the timeout (relay may still be processing). Never throws for
  * missing releases — only for total RPC failure.
+ *
+ * The scan window lags the chain tip by `lookbackBlocks` and is re-scanned with
+ * that same overlap on every poll, so an event that lands during a short reorg
+ * or between polls is still detected rather than dropped (previously only 1
+ * block back was scanned, which could miss releases on reorg or slow polling).
  */
 export async function waitForWithdrawalRelease(opts: {
   cfg: SepoliaBridgeConfig
@@ -250,31 +262,54 @@ export async function waitForWithdrawalRelease(opts: {
   fromBlock?: number
   timeoutMs?: number
   pollMs?: number
+  lookbackBlocks?: number
 }): Promise<WithdrawalReleaseStatus> {
   const { cfg, recipient } = opts
   const timeoutMs = opts.timeoutMs ?? 300_000
   const pollMs = opts.pollMs ?? 15_000
   const deadline = Date.now() + timeoutMs
+  const lookback = Math.max(
+    1,
+    opts.lookbackBlocks ?? cfg.release_lookback_blocks ?? defaultReleaseLookbackBlocks(cfg.chain_id),
+  )
 
   return withSepoliaProvider(cfg.rpc_url, async (p) => {
     const lock = new Contract(cfg.lock_contract, LOCK_ABI, p)
     const decimals = cfg.usdc_decimals
-    const fromBlock = opts.fromBlock ?? Math.max(0, (await p.getBlockNumber()) - RELEASE_LOOKBACK_BLOCKS)
     const filter = lock.filters.WithdrawalReleased(null, recipient)
+
+    // Cursor for the low end of the scan window; advances forward each poll but
+    // always keeps a `lookback` overlap so reorged/late events are re-scanned.
+    let scanFrom = opts.fromBlock ?? Math.max(0, (await p.getBlockNumber()) - lookback)
+    const seen = new Set<string>()
 
     for (;;) {
       try {
         const latest = await p.getBlockNumber()
-        const events = await lock.queryFilter(filter, fromBlock, latest)
-        if (events.length > 0) {
-          const ev = events[events.length - 1] as WithdrawalReleasedLog
-          const raw = ev.args?.amount
+        // Lower bound = the persisted cursor, but never newer than `latest - lookback`,
+        // so every poll re-scans at least the last `lookback` blocks (reorg/gap overlap).
+        const fromBlock = Math.max(0, Math.min(scanFrom, latest - lookback))
+        const events = (await lock.queryFilter(filter, fromBlock, latest)) as WithdrawalReleasedLog[]
+
+        // De-dup across overlapping windows and return the newest matching release.
+        let match: WithdrawalReleasedLog | undefined
+        for (const ev of events) {
+          const key = `${ev.transactionHash ?? ''}:${ev.logIndex ?? ''}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          match = ev
+        }
+        if (match) {
+          const raw = match.args?.amount
           return {
             released: true,
-            txHash: ev.transactionHash,
+            txHash: match.transactionHash,
             amount: typeof raw === 'bigint' ? formatUnits(raw, decimals) : undefined,
           }
         }
+
+        // Advance the cursor while retaining the lookback overlap for the next poll.
+        scanFrom = Math.max(scanFrom, latest - lookback)
       } catch {
         /* transient RPC hiccup — keep polling until deadline */
       }
