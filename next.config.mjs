@@ -46,7 +46,9 @@ const nextConfig = {
       process.env.NEXT_PUBLIC_MAINNET_RPC_URL,
     ]) {
       if (!envVar) continue
-      try { connectOrigins.add(new URL(envVar).origin) } catch { /* ignore malformed */ }
+      try { connectOrigins.add(new URL(envVar).origin) } catch (err) {
+        console.warn(`[csp] Ignoring malformed RPC URL in connect-src config: ${envVar}`, err)
+      }
     }
 
     return [

@@ -149,7 +149,7 @@ export function parseBackupFile(raw: unknown): WalletBackupFile {
   if (file.version !== BACKUP_VERSION) throw new Error('Unsupported backup version')
 
   // F-04: only passphrase-encrypted backups are accepted. Plaintext backup files
-  // (encrypted:false with a cleartext falcon_secret) are rejected so an
+  // (encrypted:false with a plaintext falcon_secret) are rejected so an
   // unprotected private key can never be imported from disk/cloud/messaging apps.
   if (file.encrypted !== true) {
     throw new Error('Unencrypted backup files are not supported. Restore from a passphrase-encrypted backup.')

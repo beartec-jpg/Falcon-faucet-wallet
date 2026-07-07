@@ -708,6 +708,15 @@ export default function WalletPage() {
   // Render
   // ─────────────────────────────────────────────────────────────────────────
 
+  // Backup gate: a wallet may only be saved once the encrypted backup is
+  // downloaded and acknowledged; non-PRF (weaker-encryption) wallets also
+  // require the explicit weak-encryption acknowledgment (F-01).
+  const canConfirmBackup =
+    !busy &&
+    backupDownloaded &&
+    backupAcknowledged &&
+    (!!pendingSave?.hasPrf || weakEncryptionAck)
+
   return (
     <div className="min-h-screen flex flex-col">
 
@@ -904,7 +913,7 @@ export default function WalletPage() {
 
                 <button
                   onClick={handleConfirmBackup}
-                  disabled={busy || !backupDownloaded || !backupAcknowledged || (!pendingSave.hasPrf && !weakEncryptionAck)}
+                  disabled={!canConfirmBackup}
                   className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {busy ? <><Spinner /> Saving wallet…</> : 'Continue to wallet'}
