@@ -527,17 +527,13 @@ export default function WalletPage() {
     setError(null)
     try {
       const parsed = parseBackupFile(JSON.parse(await file.text()))
-      if (parsed.encrypted) {
-        if (!restorePassphrase) {
-          setError('Enter the backup password for this file')
-          return
-        }
-        const payload = await decryptBackupFile(parsed, restorePassphrase)
-        await finishRestore(payload.falcon_secret, payload.label || restoreLabel)
+      // Only passphrase-encrypted backups are accepted (see wallet-backup.ts, F-04).
+      if (!restorePassphrase) {
+        setError('Enter the backup password for this file')
         return
       }
-      setRestoreLabel(parsed.label || restoreLabel)
-      await finishRestore(parsed.falcon_secret, parsed.label || restoreLabel)
+      const payload = await decryptBackupFile(parsed, restorePassphrase)
+      await finishRestore(payload.falcon_secret, payload.label || restoreLabel)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not read backup file')
     } finally {

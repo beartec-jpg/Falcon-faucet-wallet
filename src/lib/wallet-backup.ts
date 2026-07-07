@@ -28,13 +28,7 @@ export interface EncryptedBackupFile {
   }
 }
 
-export interface PlainBackupFile extends BackupPayload {
-  version: typeof BACKUP_VERSION
-  type: typeof BACKUP_TYPE
-  encrypted: false
-}
-
-export type WalletBackupFile = EncryptedBackupFile | PlainBackupFile
+export type WalletBackupFile = EncryptedBackupFile
 
 function toBase64(buf: ArrayBuffer | Uint8Array): string {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
@@ -154,16 +148,18 @@ export function parseBackupFile(raw: unknown): WalletBackupFile {
   if (file.type !== BACKUP_TYPE) throw new Error('Not a Falcon Ledger wallet backup file')
   if (file.version !== BACKUP_VERSION) throw new Error('Unsupported backup version')
 
-  if (file.encrypted === true) {
-    const payload = file.payload as EncryptedBackupFile['payload'] | undefined
-    if (!payload?.data || !payload?.iv || !payload?.salt || typeof file.address !== 'string') {
-      throw new Error('Invalid encrypted backup file')
-    }
-    return file as unknown as EncryptedBackupFile
+  // F-04: only passphrase-encrypted backups are accepted. Plaintext backup files
+  // (encrypted:false with a cleartext falcon_secret) are rejected so an
+  // unprotected private key can never be imported from disk/cloud/messaging apps.
+  if (file.encrypted !== true) {
+    throw new Error('Unencrypted backup files are not supported. Restore from a passphrase-encrypted backup.')
   }
 
-  if (typeof file.falcon_secret !== 'string') throw new Error('Invalid backup file')
-  return file as unknown as PlainBackupFile
+  const payload = file.payload as EncryptedBackupFile['payload'] | undefined
+  if (!payload?.data || !payload?.iv || !payload?.salt || typeof file.address !== 'string') {
+    throw new Error('Invalid encrypted backup file')
+  }
+  return file as unknown as EncryptedBackupFile
 }
 
 export function backupFilename(address: string): string {
