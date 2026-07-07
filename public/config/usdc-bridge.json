@@ -13,7 +13,7 @@
   },
   "falcon": {
     "network_id": 1001,
-    "rpc_url": "http://46.224.0.140:6005",
+    "rpc_url": "",
     "token_symbol": "USDC",
     "token_currency": "QUC",
     "token_issuer": "rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt"

@@ -15,7 +15,7 @@ export interface SepoliaBridgeConfig {
 
 export interface FalconBridgeToken {
   network_id: number
-  rpc_url: string
+  rpc_url?: string
   token_symbol: string
   token_currency: string
   token_issuer: string

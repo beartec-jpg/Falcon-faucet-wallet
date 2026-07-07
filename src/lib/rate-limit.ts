@@ -139,3 +139,44 @@ export async function resetRateLimit(key: string): Promise<void> {
   }
   memStore.delete(key)
 }
+
+// ── Dedicated limiter for the tx-submit proxy ────────────────────────────────
+// Submitting signed blobs is a normal user action (swaps, orders, LP, bridge)
+// so it needs a far more generous budget than the faucet drip limiter. This is
+// per-instance (in-memory); it only guards a single node against abusive bursts.
+
+const SUBMIT_DEFAULT_REQUESTS = 30
+const SUBMIT_DEFAULT_WINDOW_SECONDS = 60
+const SUBMIT_REQUESTS = parseInt(process.env.SUBMIT_RATE_LIMIT_REQUESTS ?? String(SUBMIT_DEFAULT_REQUESTS), 10)
+const SUBMIT_WINDOW_SECONDS = parseInt(process.env.SUBMIT_RATE_LIMIT_WINDOW_SECONDS ?? String(SUBMIT_DEFAULT_WINDOW_SECONDS), 10)
+const submitStore = new Map<string, { count: number; resetAt: number }>()
+
+function submitPeek(key: string): LimitResult {
+  const now = Date.now()
+  const entry = submitStore.get(key)
+  if (!entry || now > entry.resetAt) {
+    return {
+      success: true,
+      reset: new Date(now + SUBMIT_WINDOW_SECONDS * 1000).toISOString(),
+      remaining: SUBMIT_REQUESTS,
+    }
+  }
+  const remaining = Math.max(0, SUBMIT_REQUESTS - entry.count)
+  return { success: remaining > 0, reset: new Date(entry.resetAt).toISOString(), remaining }
+}
+
+/** Check the submit-proxy quota without consuming a token. */
+export async function peekSubmitRateLimit(key: string): Promise<LimitResult> {
+  return submitPeek(key)
+}
+
+/** Consume one submit-proxy token. */
+export async function consumeSubmitRateLimit(key: string): Promise<void> {
+  const now = Date.now()
+  const entry = submitStore.get(key)
+  if (!entry || now > entry.resetAt) {
+    submitStore.set(key, { count: 1, resetAt: now + SUBMIT_WINDOW_SECONDS * 1000 })
+    return
+  }
+  entry.count++
+}

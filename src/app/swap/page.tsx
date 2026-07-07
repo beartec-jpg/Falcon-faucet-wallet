@@ -263,11 +263,37 @@ export default function SwapPage() {
       )
       const accData = await accRes.json()
 
+      // Re-quote immediately before signing so slippage bounds reflect current
+      // pool reserves rather than a stale on-screen quote.
+      let freshQuote = quote
+      try {
+        const qRes = await fetch(
+          withNetworkQuery(`/api/swap?direction=${swapDir}&amount=${amt}`, networkKey),
+        )
+        const qData = await qRes.json().catch(() => ({}))
+        if (qRes.ok && qData.quote) {
+          freshQuote = qData.quote
+          setQuote(qData.quote)
+        } else if (qRes.status === 404) {
+          setError('No liquidity available — pool may be empty')
+          setBusy(false)
+          return
+        } else if (!qRes.ok) {
+          setError(qData.error ?? 'Could not refresh quote — try again')
+          setBusy(false)
+          return
+        }
+        // qRes.ok but no quote (unexpected): fall back to existing quote.
+      } catch {
+        // Transient network blip while re-quoting: proceed with the last quote,
+        // which is still bounded on-ledger by deliverMin/SendMax below.
+      }
+
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
-      const outAmt = quote.outputAmount
-      const minOut = quote.minOutputAmount ?? outAmt * 0.995
+      const outAmt = freshQuote.outputAmount
+      const minOut = freshQuote.minOutputAmount ?? outAmt * 0.995
       const token = swapData.token
 
       let amount: string | IouAmount

@@ -20,8 +20,23 @@ export async function GET() {
       config.sepolia?.usdc_token ||
       ''
 
+    // The Falcon node RPC is server/relay infrastructure and must not leak an
+    // internal plaintext (http://<ip>) endpoint to the browser. Only expose a
+    // Falcon RPC URL if one is explicitly published via env; otherwise omit it.
+    const falconRpc =
+      process.env.NEXT_PUBLIC_FALCON_BRIDGE_RPC_URL?.trim() ||
+      process.env.FALCON_BRIDGE_RPC_URL?.trim() ||
+      ''
+    const falcon = { ...(config.falcon ?? {}) }
+    if (falconRpc) {
+      falcon.rpc_url = falconRpc
+    } else {
+      delete falcon.rpc_url
+    }
+
     return NextResponse.json({
       ...config,
+      falcon,
       sepolia: {
         ...config.sepolia,
         lock_contract: lockContract,
