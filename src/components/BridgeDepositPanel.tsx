@@ -19,6 +19,7 @@ import {
   type BridgeDepositResult,
 } from '@/lib/evm-bridge-client'
 import { signBridgeWithdraw, signFusdcPayment } from '@/lib/wallet-sign-client'
+import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
 import {
   etherscanAddressUrl,
   etherscanTokenUrl,
@@ -393,16 +394,23 @@ export default function BridgeDepositPanel({
     }
   }
 
-  const submitFalconTx = async (tx_blob: string) => {
-    const res = await fetch('/api/wallet/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tx_blob, network: networkKey }),
+  /**
+   * Sign + submit for the wallet, transparently re-fetching the sequence and
+   * re-signing on a tefPAST_SEQ/terPRE_SEQ sequence race. Signing stays in the
+   * callback so the falcon_secret never leaves the browser.
+   */
+  const submitFalconSequenced = (
+    sign: (seq: { sequence: number; lastLedgerSequence: number }) => Promise<{ tx_blob: string }>,
+  ) =>
+    submitWithSequenceRetry({
+      networkKey,
+      fetchSequence: async () => {
+        const a = await fetchSequenceInfo(wallet.address, networkKey)
+        if (!a.exists) throw new Error('Failed to refresh Falcon account')
+        return { sequence: a.sequence, currentLedger: a.currentLedger }
+      },
+      sign,
     })
-    const data = await res.json()
-    if (data.error) throw new Error(data.error)
-    return data
-  }
 
   const handleReturnFusdcToIssuer = async () => {
     const issuer = bridgeCfg.falcon?.token_issuer
@@ -435,32 +443,26 @@ export default function BridgeDepositPanel({
     setStep(null)
 
     try {
-      const accRes = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-      const accData = await accRes.json()
-      if (!accRes.ok || !accData.exists) throw new Error('Failed to refresh Falcon account')
-
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
       const amountStr = String(Math.round(amt * 1e6) / 1e6)
 
       setStep('Returning F-USDC to issuer…')
-      const { tx_blob } = await signFusdcPayment(
-        {
-          account: wallet.address,
-          destination: issuer,
-          issuer,
-          currency,
-          amount: amountStr,
-          sequence: accData.sequence,
-          lastLedgerSequence: accData.currentLedger + 20,
-          networkId: network.networkId,
-        },
-        falcon_secret,
+      const data = await submitFalconSequenced(({ sequence, lastLedgerSequence }) =>
+        signFusdcPayment(
+          {
+            account: wallet.address,
+            destination: issuer,
+            issuer,
+            currency,
+            amount: amountStr,
+            sequence,
+            lastLedgerSequence,
+            networkId: network.networkId,
+          },
+          falcon_secret,
+        ),
       )
-
-      const data = await submitFalconTx(tx_blob)
       setWithdrawResult({
         falconTxHash: data.hash,
         amount: amountStr,
@@ -502,32 +504,26 @@ export default function BridgeDepositPanel({
     setStep(null)
 
     try {
-      const accRes = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-      const accData = await accRes.json()
-      if (!accRes.ok || !accData.exists) throw new Error('Failed to refresh Falcon account')
-
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
       const amountStr = String(Math.round(amt * 1e6) / 1e6)
       setStep('Returning F-USDC to bridge…')
-      const { tx_blob } = await signBridgeWithdraw(
-        {
-          account: wallet.address,
-          issuer,
-          currency,
-          amount: amountStr,
-          sepoliaRecipient: wallet.evmAddress,
-          sequence: accData.sequence,
-          lastLedgerSequence: accData.currentLedger + 20,
-          networkId: network.networkId,
-        },
-        falcon_secret,
+      const data = await submitFalconSequenced(({ sequence, lastLedgerSequence }) =>
+        signBridgeWithdraw(
+          {
+            account: wallet.address,
+            issuer,
+            currency,
+            amount: amountStr,
+            sepoliaRecipient: wallet.evmAddress!,
+            sequence,
+            lastLedgerSequence,
+            networkId: network.networkId,
+          },
+          falcon_secret,
+        ),
       )
-
-      const data = await submitFalconTx(tx_blob)
       setWithdrawResult({
         falconTxHash: data.hash,
         amount: amountStr,

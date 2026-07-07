@@ -32,6 +32,7 @@ import {
   type StoredValidatorCredentials,
 } from '@/lib/validator-credentials-store'
 import { resolveNetworkTokens } from '@/lib/stables-config'
+import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
 
 interface BondInfo {
   registered: boolean
@@ -116,14 +117,23 @@ export default function RewardsPage() {
     }).catch(() => setLoading(false))
   }, [networkKey, refreshBond])
 
-  const submitBlob = async (tx_blob: string) => {
-    const res = await fetch('/api/wallet/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tx_blob, network: networkKey }),
+  /**
+   * Sign + submit for `account`, re-fetching the sequence and re-signing if the
+   * ledger reports a sequence race (tefPAST_SEQ). Signing stays in the callback so
+   * the secret never leaves the browser, and txResult is reported on completion.
+   */
+  const submitSequenced = async (
+    account: string,
+    sign: (seq: { sequence: number; lastLedgerSequence: number }) => Promise<{ tx_blob: string }>,
+  ) => {
+    const data = await submitWithSequenceRetry({
+      networkKey,
+      fetchSequence: async () => {
+        const a = await fetchSequenceInfo(account, networkKey)
+        return { sequence: a.sequence, currentLedger: a.currentLedger }
+      },
+      sign,
     })
-    const data = await res.json()
-    if (data.error) throw new Error(data.error)
     const msg = [data.result, data.message].filter(Boolean).join(' — ')
     setTxResult({ ok: !!data.success, msg, hash: data.hash })
     return data
@@ -185,18 +195,18 @@ export default function RewardsPage() {
         )
       }
       const data = await withValidatorSecret(async (secret) => {
-        const seq = fresh.sequence ?? 0
-        const { tx_blob } = await signClaimReward(
-          {
-            account: valCreds.address,
-            consensusKeyHex: consensusKeyFromSecret(secret),
-            sequence: seq,
-            lastLedgerSequence: ledger + 20,
-            networkId: network.networkId,
-          },
-          secret,
+        return submitSequenced(valCreds.address, ({ sequence, lastLedgerSequence }) =>
+          signClaimReward(
+            {
+              account: valCreds.address,
+              consensusKeyHex: consensusKeyFromSecret(secret),
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+            },
+            secret,
+          ),
         )
-        return submitBlob(tx_blob)
       })
       if (data.success) {
         setTimeout(() => refreshBond(valCreds.address), 4000)
@@ -216,20 +226,20 @@ export default function RewardsPage() {
     setError(null)
     setTxResult(null)
     try {
-      const fresh = await refreshBond(valCreds.address)
       await withValidatorSecret(async (secret) => {
-        const { tx_blob } = await signPayment(
-          {
-            account: valCreds.address,
-            destination: payoutWallet.address,
-            amountDrops: qxrpToDrops(amt),
-            sequence: fresh.sequence ?? 0,
-            lastLedgerSequence: ledger + 20,
-            networkId: network.networkId,
-          },
-          secret,
+        return submitSequenced(valCreds.address, ({ sequence, lastLedgerSequence }) =>
+          signPayment(
+            {
+              account: valCreds.address,
+              destination: payoutWallet.address,
+              amountDrops: qxrpToDrops(amt),
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+            },
+            secret,
+          ),
         )
-        return submitBlob(tx_blob)
       })
       setTransferAmt('')
       setTimeout(() => {
@@ -261,10 +271,6 @@ export default function RewardsPage() {
     setTxResult(null)
     try {
       const account = sourceSecret ? sourceSecret.address : payoutWallet!.address
-      const accRes = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(account)}`, networkKey),
-      )
-      const accData = await accRes.json()
 
       const signAndSubmit = async (falcon_secret: string) => {
         const xrpDrops = String(Math.round(amt * DROPS_PER_XRP))
@@ -275,19 +281,20 @@ export default function RewardsPage() {
           issuer: swapToken.issuer,
           value: tokenAmt.toFixed(8).replace(/\.?0+$/, ''),
         }
-        const { tx_blob } = await signOfferCreate(
-          {
-            account,
-            takerGets,
-            takerPays,
-            sequence: accData.sequence,
-            lastLedgerSequence: accData.currentLedger + 20,
-            networkId: network.networkId,
-            flags: TF_IMMEDIATE_OR_CANCEL,
-          },
-          falcon_secret,
+        return submitSequenced(account, ({ sequence, lastLedgerSequence }) =>
+          signOfferCreate(
+            {
+              account,
+              takerGets,
+              takerPays,
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+              flags: TF_IMMEDIATE_OR_CANCEL,
+            },
+            falcon_secret,
+          ),
         )
-        return submitBlob(tx_blob)
       }
 
       if (sourceSecret) {
@@ -311,21 +318,21 @@ export default function RewardsPage() {
     setBusy(true)
     setError(null)
     try {
-      const fresh = await refreshBond(valCreds.address)
       await withValidatorSecret(async (secret) => {
-        const { tx_blob } = await signTrustSet(
-          {
-            account: valCreds.address,
-            currency: tok.currency,
-            issuer: tok.issuer,
-            limit: '10000000',
-            sequence: fresh.sequence ?? 0,
-            lastLedgerSequence: ledger + 20,
-            networkId: network.networkId,
-          },
-          secret,
+        return submitSequenced(valCreds.address, ({ sequence, lastLedgerSequence }) =>
+          signTrustSet(
+            {
+              account: valCreds.address,
+              currency: tok.currency,
+              issuer: tok.issuer,
+              limit: '10000000',
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+            },
+            secret,
+          ),
         )
-        return submitBlob(tx_blob)
       })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'TrustSet failed')
