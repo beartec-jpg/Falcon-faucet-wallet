@@ -12,7 +12,7 @@ import {
   TF_PASSIVE,
   type IouAmount,
 } from '@/lib/wallet-sign-client'
-import { submitWalletTx } from '@/lib/wallet-submit'
+import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
 import { fmtOfferAmount } from '@/lib/swap/dust-offers'
 
 const DROPS_PER_XRP = 1_000_000
@@ -103,8 +103,6 @@ export default function DexOrdersPanel({
     }
   }, [marketPrice])
 
-  const submitTx = (tx_blob: string) => submitWalletTx(tx_blob, networkKey)
-
   const handleDexOrder = async () => {
     if (!token.issuer || !network.live) return
     const amt = parseFloat(tokenAmt)
@@ -118,12 +116,6 @@ export default function DexOrdersPanel({
     setError(null)
     setResult(null)
     try {
-      const accRes = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-      const accData = await accRes.json()
-      if (!accRes.ok || !accData.exists) throw new Error('Failed to refresh account')
-
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
@@ -144,20 +136,27 @@ export default function DexOrdersPanel({
         takerPays = { currency: token.currency, issuer: token.issuer, value: tokenValue }
       }
 
-      const { tx_blob } = await signOfferCreate(
-        {
-          account: wallet.address,
-          takerGets,
-          takerPays,
-          sequence: accData.sequence,
-          lastLedgerSequence: accData.currentLedger + 20,
-          networkId: network.networkId,
-          flags: postOnly ? TF_PASSIVE : 0,
+      const data = await submitWithSequenceRetry({
+        networkKey,
+        fetchSequence: async () => {
+          const a = await fetchSequenceInfo(wallet.address, networkKey)
+          if (!a.exists) throw new Error('Failed to refresh account')
+          return { sequence: a.sequence, currentLedger: a.currentLedger }
         },
-        falcon_secret,
-      )
-
-      const data = await submitTx(tx_blob)
+        sign: ({ sequence, lastLedgerSequence }) =>
+          signOfferCreate(
+            {
+              account: wallet.address,
+              takerGets,
+              takerPays,
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+              flags: postOnly ? TF_PASSIVE : 0,
+            },
+            falcon_secret,
+          ),
+      })
       const msg = [data.result, data.message].filter(Boolean).join(' — ') || 'Submitted'
       const submittedAmt = amt
       const submittedSide = side
@@ -197,23 +196,26 @@ export default function DexOrdersPanel({
     setBusy(true)
     setError(null)
     try {
-      const accRes = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-      const accData = await accRes.json()
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-      const { tx_blob } = await signOfferCancel(
-        {
-          account: wallet.address,
-          offerSequence: offerSeq,
-          sequence: accData.sequence,
-          lastLedgerSequence: accData.currentLedger + 20,
-          networkId: network.networkId,
+      const data = await submitWithSequenceRetry({
+        networkKey,
+        fetchSequence: async () => {
+          const a = await fetchSequenceInfo(wallet.address, networkKey)
+          return { sequence: a.sequence, currentLedger: a.currentLedger }
         },
-        falcon_secret,
-      )
-      const data = await submitTx(tx_blob)
+        sign: ({ sequence, lastLedgerSequence }) =>
+          signOfferCancel(
+            {
+              account: wallet.address,
+              offerSequence: offerSeq,
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+            },
+            falcon_secret,
+          ),
+      })
       setResult(`Cancelled offer #${offerSeq}: ${data.result ?? 'ok'}`)
       setTimeout(() => { loadOffers(); onRefresh() }, 4000)
     } catch (e: unknown) {

@@ -27,6 +27,7 @@ import {
   signFusdcPayment,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
+import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
 import {
   createEncryptedBackup,
   decryptBackupFile,
@@ -632,48 +633,51 @@ export default function WalletPage() {
       //    the secret is never sent to any server.
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
 
-      // 3. Fetch fresh sequence + ledger index just before signing (avoids tefPAST_SEQ)
-      const freshAcct = await fetch(
-        withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(wallet.address)}`, networkKey),
-      )
-        .then(r => r.ok ? r.json() as Promise<AccountData> : null)
-        .catch(() => null)
-      const sequence           = freshAcct?.sequence           ?? account.sequence
-      const lastLedgerSequence = (freshAcct?.currentLedger ?? account.currentLedger) + 20
+      // 3. Fetch fresh sequence + ledger index just before signing, and re-sign +
+      //    resubmit automatically if the ledger reports a sequence race (tefPAST_SEQ).
+      const fetchSequence = async () => {
+        try {
+          const a = await fetchSequenceInfo(wallet.address, networkKey)
+          return { sequence: a.sequence, currentLedger: a.currentLedger }
+        } catch {
+          // Fall back to the cached account snapshot if the node is briefly unreachable.
+          return { sequence: account.sequence, currentLedger: account.currentLedger }
+        }
+      }
 
-      const { tx_blob } = sendAsset === 'falcon'
-        ? await signPayment(
-            {
-              account:            wallet.address,
-              destination:        to,
-              amountDrops:        qxrpToDrops(amt),
-              sequence,
-              lastLedgerSequence,
-              networkId:          network.networkId,
-            },
-            falcon_secret,
-          )
-        : await signFusdcPayment(
-            {
-              account:            wallet.address,
-              destination:        to,
-              issuer:             fusdc!.issuer,
-              currency:           fusdc!.currency,
-              amount:             String(amt),
-              sequence,
-              lastLedgerSequence,
-              networkId:          network.networkId,
-            },
-            falcon_secret,
-          )
-
-      // 4. Submit signed blob
-      const res = await fetch('/api/wallet/submit', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ tx_blob, network: networkKey }),
-      })
-      const data = await res.json()
+      const data = await submitWithSequenceRetry({
+        networkKey,
+        fetchSequence,
+        sign: ({ sequence, lastLedgerSequence }) =>
+          sendAsset === 'falcon'
+            ? signPayment(
+                {
+                  account:            wallet.address,
+                  destination:        to,
+                  amountDrops:        qxrpToDrops(amt),
+                  sequence,
+                  lastLedgerSequence,
+                  networkId:          network.networkId,
+                },
+                falcon_secret,
+              )
+            : signFusdcPayment(
+                {
+                  account:            wallet.address,
+                  destination:        to,
+                  issuer:             fusdc!.issuer,
+                  currency:           fusdc!.currency,
+                  amount:             String(amt),
+                  sequence,
+                  lastLedgerSequence,
+                  networkId:          network.networkId,
+                },
+                falcon_secret,
+              ),
+      }).catch((e: unknown): SubmitResult => ({
+        success: false,
+        message: e instanceof Error ? e.message : 'Failed',
+      }))
 
       setSendResult({
         success: !!data.success,
