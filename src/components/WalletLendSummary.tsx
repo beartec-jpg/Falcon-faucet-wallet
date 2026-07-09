@@ -24,32 +24,33 @@ export default function WalletLendSummary({ address }: { address: string }) {
     return () => { cancelled = true }
   }, [address, networkKey])
 
-  const e = data?.epoch
+  const w = data?.wallet
+  const ready = data?.protocol.lendingReady
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2.5 space-y-1">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-slate-400">Lend · PoPL</span>
+        <span className="text-xs font-medium text-slate-400">Lend</span>
         <Link href="/lend" className="text-xs text-brand-400 hover:text-brand-300">
           Open Lend →
         </Link>
       </div>
-      <div className="grid grid-cols-3 gap-2 text-[10px]">
+      <div className="grid grid-cols-2 gap-2 text-[10px]">
         <div>
-          <div className="text-slate-600">Epoch</div>
-          <div className="font-mono text-slate-300">{e?.number ?? '—'}</div>
+          <div className="text-slate-600">F-USDC</div>
+          <div className="font-mono text-slate-300">
+            {w?.hasFusdcTrustLine ? fmt(w.fusdcBalance, 2) : 'No trust line'}
+          </div>
         </div>
         <div>
-          <div className="text-slate-600">CID target</div>
-          <div className="font-mono text-brand-400/90">{e?.cidEmissionPct != null ? `${fmt(e.cidEmissionPct)}%` : '—'}</div>
-        </div>
-        <div>
-          <div className="text-slate-600">LP share</div>
-          <div className="font-mono text-brand-400/90">{e?.lpAllocationPct != null ? `${fmt(e.lpAllocationPct)}%` : '—'}</div>
+          <div className="text-slate-600">Status</div>
+          <div className={`font-mono ${ready ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {ready ? 'Active' : 'Preview'}
+          </div>
         </div>
       </div>
-      {!data?.protocol.lendingReady && (
-        <p className="text-[10px] text-slate-600">Supply/borrow live after genesis restart.</p>
+      {!ready && (
+        <p className="text-[10px] text-slate-600">Supply and borrow go live after genesis restart.</p>
       )}
     </div>
   )

@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNetwork } from '@/components/NetworkProvider'
 import NetworkSwitcher from '@/components/NetworkSwitcher'
@@ -39,19 +39,25 @@ function NavLinks({
     <nav className={className}>
       {NAV_ITEMS.map((item) => {
         const isActive = item.key === current
-        return isActive ? (
-          <span
-            key={item.key}
-            className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-brand-500/10 text-brand-500 font-medium whitespace-nowrap"
-          >
-            {item.label}
-          </span>
-        ) : (
+        const itemClass = 'px-2.5 sm:px-3 py-1.5 rounded-lg whitespace-nowrap scroll-mx-4'
+        if (isActive) {
+          return (
+            <span
+              key={item.key}
+              id={`nav-item-${item.key}`}
+              className={`${itemClass} bg-brand-500/10 text-brand-500 font-medium text-sm`}
+            >
+              {item.label}
+            </span>
+          )
+        }
+        return (
           <Link
             key={item.key}
+            id={`nav-item-${item.key}`}
             href={item.href}
             onClick={onNavigate}
-            className="px-2.5 sm:px-3 py-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors whitespace-nowrap"
+            className={`${itemClass} text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors text-sm`}
           >
             {item.label}
           </Link>
@@ -64,6 +70,10 @@ function NavLinks({
 export default function Header({ current, subtitle, children }: HeaderProps) {
   const { network } = useNetwork()
   const [menuOpen, setMenuOpen] = useState(false)
+  useEffect(() => {
+    const el = document.getElementById(`nav-item-${current}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  }, [current])
 
   const subtitleText =
     subtitle ||
@@ -74,14 +84,14 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
         : current === 'pool'
           ? 'Pool · F-USDC'
           : current === 'lend'
-            ? 'Lend · PoPL'
+            ? 'Lend · F-USDC vault'
             : current === 'board'
-            ? 'Board · Community'
-            : current === 'scan'
-          ? 'Explorer'
-          : current === 'whitepaper'
-            ? 'White paper'
-            : 'Faucet')
+              ? 'Board · Community'
+              : current === 'scan'
+                ? 'Explorer'
+                : current === 'whitepaper'
+                  ? 'White paper'
+                  : 'Faucet')
 
   return (
     <header className="relative border-b border-slate-800/60 px-4 py-3 sticky top-0 bg-slate-950/95 backdrop-blur-md z-20">
@@ -125,15 +135,15 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
         </div>
       </div>
 
-      {/* Tablet / desktop — scroll horizontally when all tabs do not fit */}
-      <div className="hidden sm:block mt-2 -mx-4 px-4 overflow-x-auto nav-scroll">
+      {/* Tablet / desktop — horizontal scroll; active tab auto-centers */}
+      <div className="hidden sm:block mt-2 -mx-4 px-4 overflow-x-auto nav-scroll nav-scroll-hint">
         <NavLinks
           current={current}
-          className="flex items-center gap-1 flex-nowrap justify-start sm:justify-end min-w-max text-sm pb-0.5"
+          className="flex items-center gap-1 flex-nowrap justify-start min-w-max text-sm pb-0.5"
         />
       </div>
 
-      {/* Mobile — slide-down menu */}
+      {/* Mobile — full vertical menu (all tabs always visible) */}
       {menuOpen && (
         <div className="sm:hidden mt-3 pt-3 border-t border-slate-800/60">
           <NavLinks

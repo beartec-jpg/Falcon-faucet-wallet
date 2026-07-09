@@ -9,7 +9,6 @@ import { loadWallets, type StoredWallet } from '@/lib/wallet-store'
 import type { LendOverview } from '@/lib/lend-model'
 import {
   LendProtocolBanner,
-  LendEmissionsCard,
   LendWalletCard,
   LendHealthCalculator,
   LendSupplyPanel,
@@ -116,7 +115,6 @@ export default function LendPage() {
 
             {tab === 'overview' && (
               <div className="space-y-4">
-                <LendEmissionsCard data={data} />
                 <LendWalletCard data={data} />
                 <LendHealthCalculator data={data} />
               </div>

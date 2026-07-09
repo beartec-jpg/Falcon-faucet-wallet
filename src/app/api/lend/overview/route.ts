@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverRpcCall, serverNetworkConfig } from '@/lib/network-server'
 import { getUsdcMarket } from '@/lib/swap/quote'
-import { cidEmissionPct, lpAllocationPct } from '@/lib/lend-model'
+
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -69,22 +69,6 @@ export async function GET(req: NextRequest) {
           }
         }
       } catch { /* no pool */ }
-    }
-
-    const epochR = await serverRpcCall<{ node?: Record<string, unknown> }>(
-      networkKey,
-      'ledger_entry',
-      { reward_epoch: true, ledger_index: 'validated' },
-      { allowError: true },
-    )
-    const epochNode = epochR?.node
-    const epochNum = typeof epochNode?.EpochNumber === 'number' ? epochNode.EpochNumber : null
-    const epoch = {
-      number: epochNum,
-      poolBalanceFalcon: dropsToFalcon(epochNode?.EpochPoolBalance as string),
-      emissionRateFalcon: dropsToFalcon(epochNode?.EmissionRate as string),
-      lpAllocationPct: epochNum != null ? lpAllocationPct(epochNum) : null,
-      cidEmissionPct: epochNum != null ? cidEmissionPct(epochNum) : null,
     }
 
     let wallet: {
@@ -172,7 +156,6 @@ export async function GET(req: NextRequest) {
       },
       token,
       market,
-      epoch,
       wallet,
       vaults,
       loans,

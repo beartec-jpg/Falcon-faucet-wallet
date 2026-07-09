@@ -16,11 +16,6 @@ function fmt(n: number | null | undefined, digits = 4): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
-function pct(n: number | null | undefined, digits = 2): string {
-  if (n == null || Number.isNaN(n)) return '—'
-  return `${n.toFixed(digits)}%`
-}
-
 const HF_COLORS: Record<ReturnType<typeof hfStatus>, string> = {
   healthy: 'text-emerald-400',
   warning: 'text-amber-400',
@@ -48,42 +43,10 @@ export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
         <code className="text-amber-100/90">LendingProtocol</code> enabled.
       </p>
       <p className="text-xs text-amber-200/80">
-        Live now: wallet balances, AMM price, health-factor calculator, and epoch / emission displays.
+        Live now: wallet balances, AMM price, and health-factor calculator.
         Vault={protocol.singleAssetVault ? 'on' : 'off'} · Lending={protocol.lendingProtocol ? 'on' : 'off'}
       </p>
     </div>
-  )
-}
-
-export function LendEmissionsCard({ data }: { data: LendOverview | null }) {
-  if (!data) return null
-  const e = data.epoch
-  return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
-      <h2 className="text-sm font-semibold text-white">Epoch &amp; PoPL emissions</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-        <div>
-          <div className="text-slate-500">Epoch</div>
-          <div className="font-mono text-slate-200">{e.number ?? '—'}</div>
-        </div>
-        <div>
-          <div className="text-slate-500">Pool (live)</div>
-          <div className="font-mono text-slate-200">{fmt(e.poolBalanceFalcon, 0)} FALCON</div>
-        </div>
-        <div>
-          <div className="text-slate-500">CID target</div>
-          <div className="font-mono text-brand-400">{pct(e.cidEmissionPct)} / epoch</div>
-        </div>
-        <div>
-          <div className="text-slate-500">LP share (PoPL)</div>
-          <div className="font-mono text-brand-400">{pct(e.lpAllocationPct)}</div>
-        </div>
-      </div>
-      <p className="text-xs text-slate-500">
-        After genesis + new build, epoch boundaries use CID linear decline and the validator/LP split. Current
-        epoch pool reflects the running ledger until restart.
-      </p>
-    </section>
   )
 }
 
@@ -203,11 +166,10 @@ export function LendSupplyPanel({ data }: { data: LendOverview | null }) {
       <h2 className="text-sm font-semibold text-white">Supply F-USDC</h2>
       <p className="text-xs text-slate-500">
         Deposit into a lending vault (upstream <code className="text-slate-400">VaultDeposit</code>). Earn
-        borrower interest + PoPL FALCON emissions on vault share MPT.
+        borrower interest on your vault share MPT.
       </p>
       <div className="text-xs text-slate-400">
-        Fixed pool APR: {(LEND_FIXED_APR_BPS / 100).toFixed(2)}% · LP emission share:{' '}
-        {pct(data?.epoch.lpAllocationPct ?? null)}
+        Fixed pool APR: {(LEND_FIXED_APR_BPS / 100).toFixed(2)}%
       </div>
       <label className="block text-xs">
         <span className="text-slate-500">Amount (F-USDC)</span>
@@ -353,7 +315,7 @@ export function LendPositionsPanel({ data }: { data: LendOverview | null }) {
         <p className="text-sm text-slate-500">No lending positions on this account.</p>
       )}
 
-      <DisabledAction label="Claim LP rewards (ClaimLPReward)" reason={PENDING} />
+      <DisabledAction label="Claim supply rewards" reason={PENDING} />
       <DisabledAction label="Repay / withdraw" reason={PENDING} />
     </section>
   )

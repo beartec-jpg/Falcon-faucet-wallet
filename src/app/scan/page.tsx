@@ -6,6 +6,15 @@ import Header from '@/components/Header'
 import Logo from '@/components/Logo'
 import type { ScanData, LedgerSummary, TxSummary } from '@/app/api/scan/route'
 import OrderBookPanel from '@/components/OrderBookPanel'
+import ClickableStatCard from '@/components/explorer/ClickableStatCard'
+import EpochEmissionsCard from '@/components/explorer/EpochEmissionsCard'
+import MetricChartModal from '@/components/explorer/MetricChartModal'
+import {
+  appendMetricPoint,
+  getMetricSeries,
+  mergeMetricSeries,
+  type MetricKey,
+} from '@/lib/metric-history'
 
 const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
 const RIPPLE_EPOCH = 946684800
@@ -43,18 +52,6 @@ function fmtUptime(secs: number): string {
   if (d > 0) return `${d}d ${h}h ${m}m`
   if (h > 0) return `${h}h ${m}m`
   return `${m}m`
-}
-
-// ─── Stat card ────────────────────────────────────────────────────────────────
-
-function StatCard({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: string }) {
-  return (
-    <div className="card p-4 flex flex-col gap-1">
-      <span className="text-xs text-slate-500 uppercase tracking-wider">{label}</span>
-      <span className={`text-2xl font-bold font-mono ${accent ?? 'text-slate-100'}`}>{value}</span>
-      {sub && <span className="text-xs text-slate-500">{sub}</span>}
-    </div>
-  )
 }
 
 // ─── Tx type badge ─────────────────────────────────────────────────────────────
@@ -225,11 +222,23 @@ function Row({ k, v }: { k: string; v: string }) {
 
 // ─── Main explorer page ───────────────────────────────────────────────────────
 
+function recordScanMetrics(d: ScanData) {
+  appendMetricPoint('tps', d.tps_estimate)
+  appendMetricPoint('avg_close', d.avg_close_seconds)
+  appendMetricPoint('base_fee', d.current_fee_drops)
+  appendMetricPoint('median_fee', d.median_fee_drops)
+  appendMetricPoint('tx_queue', d.tx_queue_size)
+  appendMetricPoint('peers', d.peers)
+}
+
 export default function ScanPage() {
   const [data, setData]       = useState<ScanData | null>(null)
   const [error, setError]     = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [chartMetric, setChartMetric] = useState<MetricKey | null>(null)
+  const [chartTick, setChartTick] = useState(0)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const historyLoaded = useRef(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -237,11 +246,29 @@ export default function ScanPage() {
       const d = await r.json()
       if (d.error) throw new Error(d.error)
       setData(d)
+      recordScanMetrics(d as ScanData)
+      setChartTick((n) => n + 1)
       setError(null)
       setLastUpdate(new Date())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Node unavailable')
     }
+  }, [])
+
+  useEffect(() => {
+    if (historyLoaded.current) return
+    historyLoaded.current = true
+    fetch('/api/scan/history')
+      .then((r) => r.json())
+      .then((j) => {
+        const series = j.series as Partial<Record<MetricKey, Array<{ t: number; v: number }>>> | undefined
+        if (!series) return
+        for (const key of Object.keys(series) as MetricKey[]) {
+          if (series[key]?.length) mergeMetricSeries(key, series[key]!)
+        }
+        setChartTick((n) => n + 1)
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -284,16 +311,29 @@ export default function ScanPage() {
           <SearchBar data={d} />
         </section>
 
-        {/* ── KPI grid ────────────────────────────────────────────────────── */}
+        {/* ── KPI grid (click metrics for 24h chart) ─────────────────────── */}
         {d && (
           <section>
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">Network Overview</h2>
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Network Overview</h2>
+            <p className="text-[10px] text-slate-600 mb-3">Click TPS, close time, fee, or queue tiles for a 24h chart.</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-              <StatCard label="Latest Ledger"    value={`#${d.validated_ledger.toLocaleString()}`} accent="text-brand-500" />
-              <StatCard label="TPS (est.)"        value={d.tps_estimate}   sub={`${d.avg_txs_per_ledger} tx/ledger`} />
-              <StatCard label="Avg Close"         value={`${d.avg_close_seconds}s`} sub="per ledger" />
-              <StatCard label="Peers"             value={d.peers} />
-              <StatCard
+              <ClickableStatCard label="Latest Ledger" value={`#${d.validated_ledger.toLocaleString()}`} accent="text-brand-500" />
+              <ClickableStatCard
+                label="TPS (est.)"
+                value={d.tps_estimate}
+                sub={`${d.avg_txs_per_ledger} tx/ledger`}
+                chartKey="tps"
+                onChart={setChartMetric}
+              />
+              <ClickableStatCard
+                label="Avg Close"
+                value={`${d.avg_close_seconds}s`}
+                sub="per ledger"
+                chartKey="avg_close"
+                onChart={setChartMetric}
+              />
+              <ClickableStatCard label="Peers" value={d.peers} chartKey="peers" onChart={setChartMetric} />
+              <ClickableStatCard
                 label="Validators"
                 value={d.validators.filter(v => v.bond_status === 'bonded').length || d.validators.length}
                 sub={
@@ -302,26 +342,79 @@ export default function ScanPage() {
                     : `${d.validators.length} on ledger`
                 }
               />
-              <StatCard label="State"             value={d.server_state} accent={d.server_state === 'proposing' ? 'text-emerald-400' : 'text-amber-400'} />
-              <StatCard label="Uptime"            value={fmtUptime(d.uptime_seconds)} />
-              <StatCard label="Base Fee"          value={`${d.current_fee_drops} drops`} sub={`${(d.current_fee_drops / 1e6).toFixed(6)} FALCON`} />
-              <StatCard label="Open Ledger Fee"   value={`${d.open_ledger_fee} drops`} />
-              <StatCard label="TX Queue"          value={d.tx_queue_size} sub="pending" />
+              <ClickableStatCard
+                label="State"
+                value={d.server_state}
+                accent={d.server_state === 'proposing' ? 'text-emerald-400' : 'text-amber-400'}
+              />
+              <ClickableStatCard label="Uptime" value={fmtUptime(d.uptime_seconds)} />
+              <ClickableStatCard
+                label="Base Fee"
+                value={`${d.current_fee_drops} drops`}
+                sub={`${(d.current_fee_drops / 1e6).toFixed(6)} FALCON`}
+                chartKey="base_fee"
+                onChart={setChartMetric}
+              />
+              <ClickableStatCard label="Open Ledger Fee" value={`${d.open_ledger_fee} drops`} />
+              <ClickableStatCard
+                label="TX Queue"
+                value={d.tx_queue_size}
+                sub="pending"
+                chartKey="tx_queue"
+                onChart={setChartMetric}
+              />
             </div>
           </section>
         )}
+
+        {d && <EpochEmissionsCard epoch={d.epoch} />}
 
         {/* ── Load / fee ──────────────────────────────────────────────────── */}
         {d && (
           <section>
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">Fee & Load</h2>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <StatCard label="Minimum Fee"    value={`${d.current_fee_drops} drops`} />
-              <StatCard label="Median Fee"     value={`${d.median_fee_drops} drops`} />
-              <StatCard label="Load Factor"    value={`${(d.load_factor / (d.load_base || 256) * 100).toFixed(1)}%`} sub={`${d.load_factor} / ${d.load_base}`} />
-              <StatCard label="Reserve Base"   value={`${(d.reserve_base / 1e6).toFixed(2)} FALCON`} sub={`+${(d.reserve_inc / 1e6).toFixed(2)} per object`} />
+              <ClickableStatCard
+                label="Minimum Fee"
+                value={`${d.current_fee_drops} drops`}
+                chartKey="base_fee"
+                onChart={setChartMetric}
+              />
+              <ClickableStatCard
+                label="Median Fee"
+                value={`${d.median_fee_drops} drops`}
+                chartKey="median_fee"
+                onChart={setChartMetric}
+              />
+              <ClickableStatCard
+                label="Load Factor"
+                value={`${(d.load_factor / (d.load_base || 256) * 100).toFixed(1)}%`}
+                sub={`${d.load_factor} / ${d.load_base}`}
+              />
+              <ClickableStatCard
+                label="Reserve Base"
+                value={`${(d.reserve_base / 1e6).toFixed(2)} FALCON`}
+                sub={`+${(d.reserve_inc / 1e6).toFixed(2)} per object`}
+              />
             </div>
           </section>
+        )}
+
+        {chartMetric && d && (
+          <MetricChartModal
+            metric={chartMetric}
+            series={getMetricSeries(chartMetric)}
+            currentValue={
+              chartMetric === 'tps' ? d.tps_estimate
+              : chartMetric === 'avg_close' ? `${d.avg_close_seconds}s`
+              : chartMetric === 'base_fee' || chartMetric === 'median_fee'
+                ? `${chartMetric === 'median_fee' ? d.median_fee_drops : d.current_fee_drops} drops`
+              : chartMetric === 'tx_queue' ? d.tx_queue_size
+              : d.peers
+            }
+            onClose={() => setChartMetric(null)}
+            key={chartTick}
+          />
         )}
 
         {/* ── DEX order book ─────────────────────────────────────────────── */}

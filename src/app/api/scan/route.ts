@@ -2,6 +2,7 @@
 // Returns a full suite of network stats for the explorer page.
 
 import { NextResponse } from 'next/server'
+import { cidEmissionPct, lpAllocationPct, type EpochOverview } from '@/lib/epoch-model'
 import { DEFAULT_RPC_URL } from '@/lib/rpc'
 
 export const runtime = 'nodejs'
@@ -150,6 +151,8 @@ export interface ScanData {
   tps_estimate:       number
   avg_txs_per_ledger: number
   avg_close_seconds:  number
+
+  epoch: EpochOverview
 }
 
 // Ripple epoch offset
@@ -160,14 +163,50 @@ function rippleToIso(rippleTime: number): string {
   return new Date((rippleTime + RIPPLE_EPOCH) * 1000).toISOString()
 }
 
+const DROPS = 1_000_000
+
+function dropsToFalcon(v: string | number | undefined | null): number | null {
+  if (v == null || v === '') return null
+  const n = typeof v === 'string' ? parseInt(v, 10) : v
+  if (!Number.isFinite(n)) return null
+  return n / DROPS
+}
+
+async function fetchEpoch(): Promise<EpochOverview> {
+  try {
+    const epochR = await rpc<{ node?: Record<string, unknown> }>('ledger_entry', {
+      reward_epoch: true,
+      ledger_index: 'validated',
+    })
+    const epochNode = epochR?.node
+    const epochNum = typeof epochNode?.EpochNumber === 'number' ? epochNode.EpochNumber : null
+    return {
+      number: epochNum,
+      poolBalanceFalcon: dropsToFalcon(epochNode?.EpochPoolBalance as string),
+      emissionRateFalcon: dropsToFalcon(epochNode?.EmissionRate as string),
+      lpAllocationPct: epochNum != null ? lpAllocationPct(epochNum) : null,
+      cidEmissionPct: epochNum != null ? cidEmissionPct(epochNum) : null,
+    }
+  } catch {
+    return {
+      number: null,
+      poolBalanceFalcon: null,
+      emissionRateFalcon: null,
+      lpAllocationPct: null,
+      cidEmissionPct: null,
+    }
+  }
+}
+
 export async function GET() {
   try {
     // ── Parallel: server_info + fee + bonded validators ───────────────────
     // Admin `validators` RPC is 403 on public :6005 — use on-ledger bonds instead.
-    const [srvR, feeR, validators] = await Promise.all([
+    const [srvR, feeR, validators, epoch] = await Promise.all([
       rpc<{ info: Record<string, unknown> }>('server_info', {}),
       rpc<Record<string, unknown>>('fee', {}),
       fetchBondedValidators().catch(() => [] as ValidatorEntry[]),
+      fetchEpoch(),
     ])
 
     const info    = srvR.info as Record<string, unknown>
@@ -279,6 +318,8 @@ export async function GET() {
       tps_estimate:       Math.round(tps * 100) / 100,
       avg_txs_per_ledger: Math.round(avgTxPerL * 10) / 10,
       avg_close_seconds:  Math.round(avgClose * 10) / 10,
+
+      epoch,
     } satisfies ScanData)
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 503 })

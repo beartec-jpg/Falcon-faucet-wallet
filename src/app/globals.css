@@ -31,8 +31,12 @@
            focus:ring-brand-500/50 focus:ring-offset-2 focus:ring-offset-slate-900;
   }
   .nav-scroll {
+    scroll-behavior: smooth;
     scrollbar-width: thin;
     scrollbar-color: rgb(51 65 85) transparent;
+  }
+  .nav-scroll-hint {
+    mask-image: linear-gradient(to right, transparent, black 12px, black calc(100% - 12px), transparent);
   }
   .nav-scroll::-webkit-scrollbar {
     height: 4px;
