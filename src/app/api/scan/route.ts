@@ -3,6 +3,7 @@
 
 import { NextResponse } from 'next/server'
 import { cidEmissionPct, cidYearlyAvgPct, lpAllocationPct, type EpochOverview } from '@/lib/epoch-model'
+import { appendMetricSamples } from '@/lib/metric-store'
 import { DEFAULT_RPC_URL } from '@/lib/rpc'
 
 export const runtime = 'nodejs'
@@ -291,7 +292,7 @@ export async function GET() {
     const curFeeDrops  = parseInt((drops.minimum_fee      ?? '12')                   as string, 10)
     const txQueue      = (feeR.current_queue_size as number) ?? 0
 
-    return NextResponse.json({
+    const payload = {
       server_state:       info.server_state as string,
       uptime_seconds:     info.uptime as number ?? 0,
       complete_ledgers:   info.complete_ledgers as string ?? '',
@@ -322,7 +323,18 @@ export async function GET() {
       avg_close_seconds:  Math.round(avgClose * 10) / 10,
 
       epoch,
-    } satisfies ScanData)
+    } satisfies ScanData
+
+    appendMetricSamples({
+      tps: payload.tps_estimate,
+      avg_close: payload.avg_close_seconds,
+      base_fee: payload.current_fee_drops,
+      median_fee: payload.median_fee_drops,
+      tx_queue: payload.tx_queue_size,
+      peers: payload.peers,
+    }).catch(() => {})
+
+    return NextResponse.json(payload)
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 503 })
   }

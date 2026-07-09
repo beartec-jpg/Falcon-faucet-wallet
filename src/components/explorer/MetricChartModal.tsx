@@ -4,6 +4,8 @@ import { useEffect, useMemo } from 'react'
 import type { MetricKey, MetricPoint } from '@/lib/metric-history'
 import { METRIC_LABELS } from '@/lib/metric-history'
 
+const HOURS_24_MS = 24 * 60 * 60 * 1000
+
 interface MetricChartModalProps {
   metric: MetricKey
   series: MetricPoint[]
@@ -36,13 +38,19 @@ export default function MetricChartModal({ metric, series, currentValue, onClose
     const innerW = W - pad.l - pad.r
     const innerH = H - pad.t - pad.b
 
+    const now = Date.now()
+    const minT = now - HOURS_24_MS
+    const maxT = now
+
     if (series.length < 2) {
-      return { W, H, path: '', area: '', min: 0, max: 0, yTicks: [] as number[], sparse: true }
+      return { W, H, path: '', area: '', min: 0, max: 0, yTicks: [] as number[], sparse: true, minT, maxT }
     }
 
-    const minT = series[0].t
-    const maxT = series[series.length - 1].t
-    const vals = series.map((p) => p.v)
+    const inWindow = series.filter((p) => p.t >= minT && p.t <= maxT)
+    if (inWindow.length < 2) {
+      return { W, H, path: '', area: '', min: 0, max: 0, yTicks: [] as number[], sparse: true, minT, maxT }
+    }
+    const vals = inWindow.map((p) => p.v)
     let min = Math.min(...vals)
     let max = Math.max(...vals)
     if (min === max) {
@@ -51,7 +59,7 @@ export default function MetricChartModal({ metric, series, currentValue, onClose
     }
     const range = max - min
 
-    const coords = series.map((p) => {
+    const coords = inWindow.map((p) => {
       const x = pad.l + ((p.t - minT) / Math.max(maxT - minT, 1)) * innerW
       const y = pad.t + innerH - ((p.v - min) / range) * innerH
       return { x, y }
@@ -102,8 +110,8 @@ export default function MetricChartModal({ metric, series, currentValue, onClose
         <div className="px-5 py-4">
           {chart.sparse ? (
             <div className="h-48 flex flex-col items-center justify-center text-sm text-slate-500 gap-2">
-              <p>Collecting data — chart fills in as the explorer polls the network.</p>
-              <p className="text-xs text-slate-600">Leave this tab open or return later for a full 24h view.</p>
+              <p>Building 24h history — samples are stored centrally every 5 minutes.</p>
+              <p className="text-xs text-slate-600">Check back shortly; all users share the same chart data.</p>
             </div>
           ) : (
             <svg viewBox={`0 0 ${chart.W} ${chart.H}`} className="w-full h-auto" aria-hidden>

@@ -9,12 +9,7 @@ import OrderBookPanel from '@/components/OrderBookPanel'
 import ClickableStatCard from '@/components/explorer/ClickableStatCard'
 import EpochEmissionsCard from '@/components/explorer/EpochEmissionsCard'
 import MetricChartModal from '@/components/explorer/MetricChartModal'
-import {
-  appendMetricPoint,
-  getMetricSeries,
-  mergeMetricSeries,
-  type MetricKey,
-} from '@/lib/metric-history'
+import type { MetricKey, MetricPoint } from '@/lib/metric-history'
 
 const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
 const RIPPLE_EPOCH = 946684800
@@ -222,23 +217,22 @@ function Row({ k, v }: { k: string; v: string }) {
 
 // ─── Main explorer page ───────────────────────────────────────────────────────
 
-function recordScanMetrics(d: ScanData) {
-  appendMetricPoint('tps', d.tps_estimate)
-  appendMetricPoint('avg_close', d.avg_close_seconds)
-  appendMetricPoint('base_fee', d.current_fee_drops)
-  appendMetricPoint('median_fee', d.median_fee_drops)
-  appendMetricPoint('tx_queue', d.tx_queue_size)
-  appendMetricPoint('peers', d.peers)
-}
-
 export default function ScanPage() {
   const [data, setData]       = useState<ScanData | null>(null)
   const [error, setError]     = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [chartMetric, setChartMetric] = useState<MetricKey | null>(null)
-  const [chartTick, setChartTick] = useState(0)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const historyLoaded = useRef(false)
+  const [chartSeries, setChartSeries] = useState<Partial<Record<MetricKey, MetricPoint[]>>>({})
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const historyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      const r = await fetch('/api/scan/history')
+      const j = await r.json()
+      if (j.series) setChartSeries(j.series as Partial<Record<MetricKey, MetricPoint[]>>)
+    } catch { /* keep last good series */ }
+  }, [])
 
   const fetchData = useCallback(async () => {
     try {
@@ -246,8 +240,6 @@ export default function ScanPage() {
       const d = await r.json()
       if (d.error) throw new Error(d.error)
       setData(d)
-      recordScanMetrics(d as ScanData)
-      setChartTick((n) => n + 1)
       setError(null)
       setLastUpdate(new Date())
     } catch (e) {
@@ -256,20 +248,10 @@ export default function ScanPage() {
   }, [])
 
   useEffect(() => {
-    if (historyLoaded.current) return
-    historyLoaded.current = true
-    fetch('/api/scan/history')
-      .then((r) => r.json())
-      .then((j) => {
-        const series = j.series as Partial<Record<MetricKey, Array<{ t: number; v: number }>>> | undefined
-        if (!series) return
-        for (const key of Object.keys(series) as MetricKey[]) {
-          if (series[key]?.length) mergeMetricSeries(key, series[key]!)
-        }
-        setChartTick((n) => n + 1)
-      })
-      .catch(() => {})
-  }, [])
+    fetchHistory()
+    historyTimerRef.current = setInterval(fetchHistory, 30_000)
+    return () => { if (historyTimerRef.current) clearInterval(historyTimerRef.current) }
+  }, [fetchHistory])
 
   useEffect(() => {
     fetchData()
@@ -403,7 +385,7 @@ export default function ScanPage() {
         {chartMetric && d && (
           <MetricChartModal
             metric={chartMetric}
-            series={getMetricSeries(chartMetric)}
+            series={chartSeries[chartMetric] ?? []}
             currentValue={
               chartMetric === 'tps' ? d.tps_estimate
               : chartMetric === 'avg_close' ? `${d.avg_close_seconds}s`
@@ -413,7 +395,6 @@ export default function ScanPage() {
               : d.peers
             }
             onClose={() => setChartMetric(null)}
-            key={chartTick}
           />
         )}
 
