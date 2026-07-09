@@ -48,7 +48,7 @@ import { isValidFalconAddress, parseFalconAddressFromScan } from '@/lib/parse-fa
 import { createEvmWalletForPasskey } from '@/lib/create-evm-wallet'
 import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
-import WalletLendSummary from '@/components/WalletLendSummary'
+
 
 const AddressQrScanner = dynamic(() => import('@/components/AddressQrScanner'), { ssr: false })
 
@@ -91,6 +91,11 @@ interface AccountData {
   transactions: TxRecord[]
   currentLedger: number
   assets?:      WalletAssets
+}
+
+interface LendSupplySummary {
+  shares: number
+  sharePct: number | null
 }
 
 type View = 'loading' | 'no-wallet' | 'restore' | 'backup' | 'dashboard' | 'send' | 'receive' | 'node'
@@ -235,6 +240,7 @@ export default function WalletPage() {
   const [view,    setView]    = useState<View>('loading')
   const [wallet,  setWallet]  = useState<StoredWallet | null>(null)
   const [account, setAccount] = useState<AccountData | null>(null)
+  const [lendSupply, setLendSupply] = useState<LendSupplySummary | null>(null)
   const [error,   setError]   = useState<string | null>(null)
   const [busy,    setBusy]    = useState(false)
   const [copied,  setCopied]  = useState(false)
@@ -297,9 +303,10 @@ export default function WalletPage() {
 
   const refreshBalance = useCallback(async (address: string) => {
     try {
-      const [accR, assetsR] = await Promise.all([
+      const [accR, assetsR, lendR] = await Promise.all([
         fetch(withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, networkKey)),
         fetch(withNetworkQuery(`/api/wallet/assets?address=${encodeURIComponent(address)}`, networkKey)),
+        fetch(withNetworkQuery(`/api/lend/overview?address=${encodeURIComponent(address)}`, networkKey)),
       ])
       if (!accR.ok) return
       const data: AccountData = await accR.json()
@@ -308,6 +315,27 @@ export default function WalletPage() {
         if (assetsData.assets) data.assets = assetsData.assets
       }
       setAccount(data)
+
+      if (lendR.ok) {
+        const lend = await lendR.json() as {
+          lpPositions?: Array<{ vaultId: string; shareBalance: number }>
+          vaults?: Array<{ id: string; sharesOutstanding: number }>
+        }
+        const positions = lend.lpPositions ?? []
+        const shares = positions.reduce((s, p) => s + (p.shareBalance ?? 0), 0)
+        const vaultById = new Map((lend.vaults ?? []).map((v) => [v.id, v.sharesOutstanding]))
+        let sharePct: number | null = null
+        if (shares > 0) {
+          const totals = positions.map((p) => {
+            const outstanding = vaultById.get(p.vaultId) ?? 0
+            return outstanding > 0 ? (p.shareBalance / outstanding) * 100 : null
+          }).filter((x): x is number => x != null)
+          if (totals.length > 0) {
+            sharePct = totals.reduce((a, b) => a + b, 0) / totals.length
+          }
+        }
+        setLendSupply({ shares, sharePct })
+      }
     } catch { /* non-fatal */ }
   }, [networkKey])
 
@@ -1145,7 +1173,7 @@ export default function WalletPage() {
                   </div>
 
                   {account?.exists && (
-                    <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="grid grid-cols-3 gap-2 text-sm">
                       <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
                         <div className="text-xs text-slate-500">F-USDC</div>
                         <div className="font-mono text-slate-100 mt-0.5">
@@ -1162,21 +1190,38 @@ export default function WalletPage() {
                         <div className="font-mono text-slate-100 mt-0.5">
                           {(account.assets?.lp?.balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </div>
-                        {(account.assets?.lp?.balance ?? 0) > 0 ? (
-                          <div className="text-[10px] text-slate-600 mt-0.5">
-                            ~{account.assets!.lp.estXrpOut.toFixed(2)} FALCON + {account.assets!.lp.estUsdcOut.toFixed(2)} F-USDC
-                          </div>
-                        ) : (
-                          <div className="text-[10px] text-slate-600 mt-0.5">
+                        <div className="text-[10px] text-slate-600 mt-0.5">
+                          {(account.assets?.lp?.balance ?? 0) > 0 ? (
+                            <>
+                              {(account.assets!.lp.sharePct).toFixed(2)}% of pool
+                              <span className="text-slate-700 mx-1">·</span>
+                              <Link href="/pool" className="text-brand-400 hover:text-brand-300">Pool →</Link>
+                            </>
+                          ) : (
                             <Link href="/pool" className="text-brand-400 hover:text-brand-300">Add on Pool →</Link>
-                          </div>
-                        )}
+                          )}
+                        </div>
+                      </div>
+                      <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
+                        <div className="text-xs text-slate-500">Lend share</div>
+                        <div className="font-mono text-slate-100 mt-0.5">
+                          {(lendSupply?.shares ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </div>
+                        <div className="text-[10px] text-slate-600 mt-0.5">
+                          {(lendSupply?.shares ?? 0) > 0 && lendSupply?.sharePct != null ? (
+                            <>
+                              {lendSupply.sharePct.toFixed(2)}% of vault
+                              <span className="text-slate-700 mx-1">·</span>
+                              <Link href="/lend" className="text-brand-400 hover:text-brand-300">Lend →</Link>
+                            </>
+                          ) : (
+                            <Link href="/lend" className="text-brand-400 hover:text-brand-300">Supply on Lend →</Link>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
                 </div>
-
-                {account?.exists && <WalletLendSummary address={wallet.address} />}
 
                 <div className="flex gap-2 flex-wrap">
                   <button
