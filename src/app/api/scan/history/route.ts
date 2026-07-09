@@ -7,6 +7,7 @@ import {
   mergeIntoStore,
   metricStoreBackend,
   METRIC_KEYS,
+  type MetricStoreBackend,
 } from '@/lib/metric-store'
 import { ledgerMetricBackfill } from '@/lib/scan-metrics'
 
@@ -15,7 +16,7 @@ export const dynamic = 'force-dynamic'
 
 export interface HistoryResponse {
   series: Partial<Record<MetricKey, Array<{ t: number; v: number }>>>
-  backend: 'redis' | 'memory'
+  backend: MetricStoreBackend
   points: number
 }
 
