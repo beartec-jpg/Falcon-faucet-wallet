@@ -1,0 +1,96 @@
+FalconLedger PoPL Lending - Economic Model
+v0.9 | 2026-07-08
+Page 1
+ FalconLedger PoPL Lending Protocol — Economic Model
+0.5% Emission per Epoch | 50/50 Bootstrap → Linear Taper to 70/30 over 24 Epochs | Fixed 5% APR
+1. Key Assumptions (Locked)
+Parameter
+Value
+Notes
+Emission Rate
+0.5% per epoch
+Recurring every epoch
+Bootstrap Split (Epoch 1)
+50% Validators / 50% LPs
+Mainnet launch
+Taper Duration
+24 epochs (~6 months)
+Linear reduction
+LP Allocation at End
+30%
+Final steady state
+Validator Allocation at End
+70%
+After epoch 24
+Taper Step
+≈ 0.833 pp per epoch
+20 percentage points ÷ 24
+Fixed Lending APR
+5%
+Pool-level fixed rate
+2. LP Yield Example (Single Pool)
+Example: User supplies 10,000 FUsd into a pool with 500,000 FUsd total supplied. Pool has 65% utilization and 5% fixed APR. LP emissions allocation = 50% of 0.5% per epoch.
+Metric
+Value
+Calculation / Note
+Your Share of Pool
+2.0%
+10,000 / 500,000
+Annualized Borrower Interest (Pool)
+~16,250 FUsd
+500k × 65% × 5%
+Your Share of Interest
+~325 FUsd / epoch
+Pro-rata
+Your Share of Falcon Emissions
+Pro-rata of 50% of 0.5%
+Depends on total epoch emission
+Effective Yield
+Interest + Falcon emissions
+Dual yield model
+3. Emission Split per Epoch (Launch Phase)
+Bucket
+Allocation
+Purpose
+Validators
+50%
+Consensus security
+Lending LPs (PoPL)
+50%
+Bootstrap liquidity & usage
+
+FalconLedger PoPL Lending - Economic Model
+v0.9 | 2026-07-08
+Page 2
+Total
+100% of 0.5%
+No treasury or dev allocation from emission
+4. Linear Taper Schedule (24 Epochs)
+LP allocation reduces linearly from 50% to 30% over 24 epochs (≈ 0.833 percentage points per epoch).
+Epoch
+LP Allocation
+Validator Allocation
+Notes
+1 (Launch)
+50%
+50%
+Maximum bootstrap incentive
+6
+45.8%
+54.2%
+12
+41.7%
+58.3%
+Mid-taper
+18
+37.5%
+62.5%
+24 (Steady)
+30%
+70%
+Permanent final split
+Notes
+ All figures are illustrative and depend on actual epoch emission size and total LP participation.
+ The 0.5% emission is recurring every epoch. The split only changes during the 24-epoch taper window.
+ After epoch 24 the split locks at 70/30 permanently.
+ No treasury, development, or reserve allocation is taken from the 0.5% emission.

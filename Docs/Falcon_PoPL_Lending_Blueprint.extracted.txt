@@ -1,0 +1,229 @@
+FalconLedger PoPL Lending Protocol
+Blueprint v0.9 - Draft
+Confidential - July 08, 2026
+Page 1
+ FALCONLEDGER
+ PoPL Lending Protocol Blueprint
+ Proof of Participation & Liquidity
+ Native Fixed-Rate Open-Ended Lending with Protocol Emissions
+Version
+0.9 - Draft for Internal Review
+Date
+July 08, 2026
+Status
+Design Phase - Ready for Implementation Planning
+Related
+Falcon-faucet-wallet, AMM Pools, Quantum-Resistant Ledger
+
+FalconLedger PoPL Lending Protocol
+Blueprint v0.9 - Draft
+Confidential - July 08, 2026
+Page 2
+1. Executive Summary
+This blueprint defines a native protocol-level lending system for FalconLedger, a quantum-resistant fork of
+the XRP Ledger. The system introduces open-ended fixed-rate lending pools with over-collateralization,
+combined with a powerful Proof of Participation & Liquidity (PoPL) incentive mechanism.
+Key Innovations:
+ Open-ended fixed-rate lending — Borrowers get predictable rates without hard maturity dates; repay
+anytime.
+ Native over-collateralized model — Falcon as primary collateral for borrowing FUsd (or other pool
+assets).
+ PoPL Emissions — Fixed 0.5% network emission split between validators and liquidity providers. LPs
+earn Falcon proportionally to their share of supplied liquidity (no oracle dependency for rewards).
+ Dual yield for LPs — Organic interest from borrowers + protocol Falcon emissions.
+ Reuses existing AMM infrastructure — Share accounting, pool UI patterns, and liquidation paths from
+current AMM pools.
+The design prioritizes simplicity, auditability, and strong bootstrap incentives for mainnet launch while
+maintaining the security and performance characteristics of the underlying ledger.
+2. Vision: Proof of Participation & Liquidity (PoPL)
+FalconLedger evolves beyond traditional validator-only rewards. In the PoPL model, economic security
+(validators) and economic activity (liquidity provision) are both first-class citizens rewarded from a fixed
+emission pool.
+This creates a flywheel: More liquidity → more borrowing capacity → more organic interest + protocol emissions
+→ higher effective APY → more liquidity.
+Emission Philosophy
+Total network emission remains fixed at 0.5%. The split between validators and LPs is a
+governance-configurable parameter. Early in the network's life, a larger share goes to LPs to bootstrap real
+usage. Over time, as organic interest volume grows, the LP allocation can be tapered.
+3. System Overview
+Core Components
+ LendingPool — Protocol object representing a supply pool for a specific asset (e.g. FUsd). Tracks total
+supplied, borrowed, interest accrued, and LP shares.
+ LendingPosition / Shares — Per-user share ownership in a pool. Used for both interest distribution and
+PoPL emissions.
+ Collateral Tracking — Separate from the pool. Borrowers post Falcon (or supported assets) as collateral
+against borrowed FUsd.
+
+FalconLedger PoPL Lending Protocol
+Blueprint v0.9 - Draft
+Confidential - July 08, 2026
+Page 3
+ Reward Accumulator — Tracks claimable Falcon emissions per LP share. Updated periodically or on
+claim.
+ Health Factor Engine — Calculates collateralization ratio in real time for liquidation triggers.
+The system is designed so that the majority of logic lives in the C++ daemon (rippled fork), with the TypeScript
+wallet/client providing the user interface and transaction construction (reusing existing patterns from
+Falcon-faucet-wallet).
+4. Core Lending Mechanics
+4.1 Supply Side (Liquidity Providers)
+Users supply the pool's primary asset (initially FUsd) and receive LendingShares proportional to their deposit.
+They earn two revenue streams: (1) interest paid by borrowers, and (2) Falcon emissions from the PoPL
+program.
+4.2 Borrow Side
+Borrowers post collateral (primarily Falcon) and borrow the pool asset (FUsd). The position is
+over-collateralized at a configurable ratio (target: 150% minimum). Interest accrues continuously based on
+ledger close time using the pool's fixed APR.
+Example — 150% Over-Collateralization
+Action
+Details
+Borrow
+1,000 FUsd
+Collateral Required (150%)
+~1,500 FUsd worth of Falcon (at oracle price)
+Fixed APR
+5% (set at pool creation)
+Accrual
+Continuous — calculated on repay/claim using ledger time delta
+4.3 Interest Accrual (Open-Ended)
+No hard maturity. Interest is calculated on every relevant transaction (repay, partial repay, liquidation, claim)
+using:
+Accrued = Principal × (APR / SecondsPerYear) × ΔLedgerCloseTime
+This keeps the system simple while giving borrowers flexibility.
+5. PoPL Emissions & LP Rewards
+5.1 Fixed Emission Pool
+The network maintains a fixed emission rate (currently parameterized at 0.5%). This emission is split between:
+ Validators (security / consensus)
+
+FalconLedger PoPL Lending Protocol
+Blueprint v0.9 - Draft
+Confidential - July 08, 2026
+Page 4
+ Liquidity Providers in incentivized pools (lending + optionally AMM)
+ Other buckets (development, community treasury, reserves) — configurable
+5.2 LP Reward Calculation (Share-Ratio Only)
+Rewards are distributed purely based on ownership share within each pool — no USD valuation or oracles
+required for the emissions math. This reuses the same share accounting used for interest distribution.
+Example (Total supplied = 1,000 units)
+Provider
+Supplied
+Share
+Emissions %
+LP1
+500
+50%
+50% of lending emissions
+LP2
+200
+20%
+20%
+LP3
+200
+20%
+20%
+LP4
+100
+10%
+10%
+Formula: FalconReward_user = E_lending × (UserShares / TotalShares)
+5.3 Dual Yield
+LPs receive the sum of (a) their pro-rata share of borrower-paid interest and (b) their pro-rata Falcon emissions.
+This creates highly competitive effective APY, especially during the bootstrap phase.
+6. Data Model (Ledger Objects)
+6.1 LendingPool (new ledger entry type)
+ PoolID / Key (derived from asset + parameters)
+ SuppliedAsset (e.g. FUsd)
+ TotalSupplied
+ TotalBorrowed
+ FixedAPR_bps
+ LastAccrualTime
+ TotalShares (for LP accounting)
+ RewardAccumulator (for PoPL emissions)
+ CollateralRequirements (min ratio, supported collateral assets)
+ Status (active, paused, deprecated)
+6.2 LendingPosition / Share Ownership
+Implemented via account-owned objects or extended trustline-style entries. Tracks per-user share balance, last
+claim time for interest, and last claim time for emissions.
+6.3 Collateral Positions
+
+FalconLedger PoPL Lending Protocol
+Blueprint v0.9 - Draft
+Confidential - July 08, 2026
+Page 5
+Separate tracking (not inside the LendingPool object) for clean risk isolation. Contains collateral asset/amount,
+associated borrow position, health factor snapshot, and maturity/liquidation state if applicable.
+7. Transaction Types (New)
+Tx Type
+Purpose
+LendingPoolCreate
+Create a new supply pool with fixed rate and parameters
+LendingSupply
+Deposit asset, mint shares
+LendingBorrow
+Post collateral, draw funds (checks health factor)
+LendingRepay
+Repay principal + accrued interest (triggers accrual)
+LendingWithdraw
+Burn shares, withdraw available liquidity
+LendingLiquidate
+Liquidate under-collateralized positions
+LendingClaimRewards
+Claim accrued interest + Falcon emissions
+8. Liquidation & Risk Management
+Liquidation is triggered when a position's Health Factor falls below the configured threshold (typically 1.0–1.1).
+Anyone can initiate liquidation. The liquidator repays part or all of the debt and receives collateral at a discount
+(bonus). The repaid amount (including interest) flows back to the pool for LPs.
+Because collateral (Falcon) and borrowed asset (FUsd) are different, liquidation can optionally route through
+the existing AMM for efficient swaps.
+9. Tokenomics & Emissions Parameters
+Final Parameters (Locked)
+Parameter
+Value
+Notes
+Emission Rate
+0.5% per epoch
+Recurring every epoch
+Bootstrap Split (Epoch 1)
+50% Validators / 50% LPs
+Mainnet launch incentive
+Taper Period
+24 epochs (~6 months)
+Linear reduction
+LP Allocation Drop
+20 percentage points total
+50% → 30% LP share
+Taper Step
+≈ 0.833 pp reduction per epoch
+Linear: 20 ÷ 24
+Final Steady State
+70% Validators / 30% LPs
+After epoch 24, permanent
+Fixed Lending APR
+5%
+Pool-level fixed rate
+
+FalconLedger PoPL Lending Protocol
+Blueprint v0.9 - Draft
+Confidential - July 08, 2026
+Page 6
+10. Implementation Roadmap
+ Phase 0 (Current) — Finalize blueprint, tokenomics parameters, and economic model. Community /
+validator alignment on PoPL split.
+ Phase 1 — Core lending objects + transactions in daemon (LendingPool,
+Supply/Borrow/Repay/Withdraw). Testnet deployment.
+ Phase 2 — Collateral & health factor engine + basic liquidation. PoPL reward accumulator (share-ratio
+only).
+ Phase 3 — Client integration in Falcon-faucet-wallet (new lending UI, borrow/repay flows, position
+dashboard). Full testnet E2E.
+ Phase 4 — Security review, invariant testing, economic simulations. Amendment proposal & validator
+voting.
+ Phase 5 — Mainnet activation with aggressive LP emissions for launch. Ongoing monitoring + taper
+schedule activation.
+11. Security Considerations
+ All new logic must pass through standard preclaim/apply/invariant checks.
+ Health factor and liquidation math must be deterministic and resistant to manipulation.
+ Reward distribution must be fair and resistant to flash-liquidity gaming (time-weighting or minimum
+participation periods can be added).
+ Oracle usage is isolated to collateral pricing only — reward math does not depend on oracles.
+ Full security report and audit process (following the pattern already used for AMM/bridge features).
+ This blueprint represents the current consensus design. It is intended as a living document that will be refined during implementation and
+ community review.

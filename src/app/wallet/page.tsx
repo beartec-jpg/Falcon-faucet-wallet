@@ -44,6 +44,10 @@ import {
   type SavedValidatorNode,
 } from '@/lib/validator-node-store'
 import { isValidFalconAddress, parseFalconAddressFromScan } from '@/lib/parse-falcon-address'
+import { createEvmWalletForPasskey } from '@/lib/create-evm-wallet'
+import { type UsdcBridgeManifest } from '@/lib/bridge-config'
+import BridgeDepositPanel from '@/components/BridgeDepositPanel'
+import WalletLendSummary from '@/components/WalletLendSummary'
 
 const AddressQrScanner = dynamic(() => import('@/components/AddressQrScanner'), { ssr: false })
 
@@ -98,6 +102,8 @@ interface PendingWalletSave {
   encrypted:    StoredWallet['encrypted']
   hasPrf:       boolean
   falcon_secret: string
+  evmAddress?: string
+  evmEncrypted?: StoredWallet['evmEncrypted']
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -238,6 +244,8 @@ export default function WalletPage() {
   const [nodeStatsError, setNodeStatsError] = useState<string | null>(null)
   const [nodeStatsLoading, setNodeStatsLoading] = useState(false)
   const [showNodeSetup, setShowNodeSetup] = useState(false)
+  const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
+  const [walletSection, setWalletSection] = useState<'falcon' | 'bridge'>('falcon')
 
   // Create-wallet form
   const [createLabel, setCreateLabel] = useState('')
@@ -300,6 +308,14 @@ export default function WalletPage() {
       refreshBalance(wallet.address)
     }
   }, [networkKey, wallet?.address, refreshBalance])
+
+  useEffect(() => {
+    if (!wallet || view === 'loading' || view === 'no-wallet') return
+    fetch('/api/bridge/config')
+      .then((r) => r.json())
+      .then((j) => { if (!j.error) setBridgeCfg(j) })
+      .catch(() => {})
+  }, [wallet, view])
 
   // ── On mount: load wallet from IndexedDB ──────────────────────────────────
 
@@ -394,10 +410,19 @@ export default function WalletPage() {
       const { falcon_secret, address, publicKey } = await generateWallet()
       const { credentialId, keyBytes, hasPrf } = await registerPasskey(label)
       const encrypted = await encryptSeed(falcon_secret, keyBytes, hasPrf)
+      const evm = await createEvmWalletForPasskey(keyBytes, hasPrf)
 
       // Hold in memory until user confirms backup — not written to IndexedDB yet
       setPendingSave({
-        credentialId, address, publicKey, label, encrypted, hasPrf, falcon_secret,
+        credentialId,
+        address,
+        publicKey,
+        label,
+        encrypted,
+        hasPrf,
+        falcon_secret,
+        evmAddress: evm.address,
+        evmEncrypted: evm.evmEncrypted,
       })
       setView('backup')
     } catch (e: unknown) {
@@ -416,7 +441,12 @@ export default function WalletPage() {
     setError(null)
     try {
       const { falcon_secret: _secret, ...rest } = pendingSave
-      const stored: StoredWallet = { ...rest, createdAt: Date.now() }
+      const stored: StoredWallet = {
+        ...rest,
+        createdAt: Date.now(),
+        evmAddress: pendingSave.evmAddress,
+        evmEncrypted: pendingSave.evmEncrypted,
+      }
       await saveWallet(stored)
       setWallet(stored)
       setPendingSave(null)
@@ -507,10 +537,18 @@ export default function WalletPage() {
       const walletLabel = label.trim() || 'Restored Wallet'
       const { credentialId, keyBytes, hasPrf } = await registerPasskey(walletLabel)
       const encrypted = await encryptSeed(falconSecret, keyBytes, hasPrf)
+      const evm = await createEvmWalletForPasskey(keyBytes, hasPrf)
 
       const stored: StoredWallet = {
-        credentialId, address, publicKey, label: walletLabel, encrypted, hasPrf,
+        credentialId,
+        address,
+        publicKey,
+        label: walletLabel,
+        encrypted,
+        hasPrf,
         createdAt: Date.now(),
+        evmAddress: evm.address,
+        evmEncrypted: evm.evmEncrypted,
       }
       await saveWallet(stored)
 
@@ -746,7 +784,7 @@ export default function WalletPage() {
                   Falcon <span className="text-brand-500">Wallet</span>
                 </h1>
                 <p className="text-slate-400 text-sm">
-                  Falcon keys are generated and signed on your device. Testnet only — not for real funds.
+                  One passkey creates both your Falcon ledger wallet and Sepolia bridge wallet on this device.
                 </p>
               </div>
 
@@ -814,7 +852,7 @@ export default function WalletPage() {
               <div className="text-center space-y-2 pb-1">
                 <h2 className="text-xl font-bold text-white">Save your wallet backup</h2>
                 <p className="text-slate-400 text-sm">
-                  Download an encrypted file — no need to copy 4,000+ characters of hex.
+                  Falcon + Sepolia bridge wallets are ready. Download an encrypted Falcon backup — back up the bridge key from the Wallet tab later.
                 </p>
               </div>
 
@@ -1037,11 +1075,30 @@ export default function WalletPage() {
           {/* ── Dashboard / Send / Receive ── */}
           {(view === 'dashboard' || view === 'send' || view === 'receive' || view === 'node') && wallet && (
             <>
-              {/* Address + Balance card */}
+              {view === 'dashboard' && (
+                <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setWalletSection('falcon')}
+                    className={`flex-1 py-2.5 font-medium ${walletSection === 'falcon' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
+                  >
+                    My Falcon Wallet
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWalletSection('bridge')}
+                    className={`flex-1 py-2.5 font-medium ${walletSection === 'bridge' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
+                  >
+                    My Bridge Wallet
+                  </button>
+                </div>
+              )}
+
+              {view === 'dashboard' && walletSection === 'falcon' && (
               <div className="card p-5 space-y-4">
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="text-xs text-slate-500 mb-0.5">{wallet.label}</div>
+                    <div className="text-xs text-slate-500 mb-0.5">{wallet.label} · Falcon</div>
                     <div className="font-mono text-slate-300 text-sm">{shortAddr(wallet.address)}</div>
                   </div>
                   <button
@@ -1062,7 +1119,6 @@ export default function WalletPage() {
                   </button>
                 </div>
 
-                {/* Balances */}
                 <div className="space-y-3">
                   <div>
                     <div className="text-xs text-slate-500 mb-1">FALCON</div>
@@ -1090,17 +1146,17 @@ export default function WalletPage() {
                         <div className="text-[10px] text-slate-600 mt-0.5">
                           {account.assets?.fusdc?.hasTrustLine === false
                             ? <Link href="/swap" className="text-brand-400">Add trust line →</Link>
-                            : 'Testnet bridged F-USDC'}
+                            : 'Bridged F-USDC'}
                         </div>
                       </div>
                       <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
-                        <div className="text-xs text-slate-500">LP-TOKENS</div>
+                        <div className="text-xs text-slate-500">LP tokens</div>
                         <div className="font-mono text-slate-100 mt-0.5">
                           {(account.assets?.lp?.balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </div>
                         {(account.assets?.lp?.balance ?? 0) > 0 ? (
                           <div className="text-[10px] text-slate-600 mt-0.5">
-                            Withdrawable: {account.assets!.lp.estXrpOut.toFixed(2)} FALCON + {account.assets!.lp.estUsdcOut.toFixed(2)} F-USDC
+                            ~{account.assets!.lp.estXrpOut.toFixed(2)} FALCON + {account.assets!.lp.estUsdcOut.toFixed(2)} F-USDC
                           </div>
                         ) : (
                           <div className="text-[10px] text-slate-600 mt-0.5">
@@ -1112,59 +1168,67 @@ export default function WalletPage() {
                   )}
                 </div>
 
-                {/* Action buttons */}
-                <div className="flex gap-2">
+                {account?.exists && <WalletLendSummary address={wallet.address} />}
+
+                <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={() => { setView('send'); setSendAsset('falcon'); setError(null); setSendResult(null) }}
                     disabled={!account?.exists || !network.live}
-                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-brand-500 hover:bg-brand-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 transition-colors"
+                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-brand-500 hover:bg-brand-400 disabled:opacity-40 text-slate-950"
                   >
-                    Send FALCON / F-USDC
+                    Send
                   </button>
                   <button
-                    onClick={() => setView(view === 'receive' ? 'dashboard' : 'receive')}
-                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+                    onClick={() => setView('receive')}
+                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200"
                   >
-                    {view === 'receive' ? 'Done' : 'Receive'}
+                    Receive
                   </button>
+                  <Link
+                    href="/swap"
+                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 text-center"
+                  >
+                    Bridge →
+                  </Link>
                   <button
                     onClick={() => {
-                      if (view === 'node') {
-                        setView('dashboard')
-                      } else {
-                        setShowNodeSetup(!savedNode)
-                        setView('node')
-                      }
+                      setShowNodeSetup(!savedNode)
+                      setView('node')
                     }}
-                    className={`py-2.5 px-3 rounded-xl text-sm font-semibold transition-colors flex items-center gap-1.5 ${
-                      view === 'node'
-                        ? 'bg-cyan-600 text-white'
-                        : savedNode
-                          ? 'bg-cyan-950/60 hover:bg-cyan-900/50 text-cyan-300 border border-cyan-500/30'
-                          : 'bg-slate-800 hover:bg-slate-700 text-slate-400'
+                    className={`py-2.5 px-3 rounded-xl text-sm font-semibold ${
+                      savedNode
+                        ? 'bg-cyan-950/60 text-cyan-300 border border-cyan-500/30'
+                        : 'bg-slate-800 text-slate-400'
                     }`}
-                    title={savedNode ? 'Validator dashboard' : 'Run a validator node'}
+                    title="Validator node"
                   >
-                    <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d={savedNode && view !== 'node'
-                          ? 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'
-                          : 'M5 12H3m2 0a2 2 0 100-4 2 2 0 000 4zm0 0a2 2 0 100 4 2 2 0 000-4zm8-4H9m4 0a2 2 0 100-4 2 2 0 000 4zm0 0a2 2 0 100 4 2 2 0 000-4zm8-4h-2m2 0a2 2 0 100-4 2 2 0 000 4zm0 0a2 2 0 100 4 2 2 0 000-4'} />
-                    </svg>
-                    <span className="hidden sm:inline">{savedNode ? 'Dashboard' : 'Node'}</span>
+                    Node
                   </button>
                   <button
                     onClick={() => refreshBalance(wallet.address)}
-                    className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 transition-colors"
-                    title="Refresh balance"
+                    className="p-2.5 rounded-xl bg-slate-800 text-slate-400"
+                    title="Refresh"
                   >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
+                    ↻
                   </button>
                 </div>
               </div>
+              )}
+
+              {view === 'dashboard' && walletSection === 'bridge' && bridgeCfg && (
+                <BridgeDepositPanel
+                  variant="full"
+                  wallet={wallet}
+                  bridgeCfg={bridgeCfg}
+                  fusdcBalance={account?.assets?.fusdc?.balance ?? null}
+                  onWalletUpdate={setWallet}
+                  onFalconRefresh={() => refreshBalance(wallet.address)}
+                />
+              )}
+
+              {view === 'dashboard' && walletSection === 'bridge' && !bridgeCfg && (
+                <div className="card p-4 text-sm text-slate-500">Loading bridge config…</div>
+              )}
 
               {/* ── Receive panel ── */}
               {view === 'receive' && (

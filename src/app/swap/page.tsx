@@ -390,7 +390,7 @@ export default function SwapPage() {
               </button>
             </div>
 
-            {/* Balances */}
+            {tab === 'swap' && (
             <div className="card p-5">
               <div className="text-xs text-slate-500 mb-1">Your Falcon address</div>
               <div className="flex items-center gap-2 mb-4">
@@ -414,10 +414,11 @@ export default function SwapPage() {
                 </div>
               </div>
             </div>
+            )}
 
-            {/* ── Bridge (in-app passkey EVM wallet) ── */}
             {tab === 'bridge' && bridgeCfg && (
               <BridgeDepositPanel
+                variant="simple"
                 wallet={wallet}
                 bridgeCfg={bridgeCfg}
                 fusdcBalance={swapData?.userBalance?.balance ?? null}

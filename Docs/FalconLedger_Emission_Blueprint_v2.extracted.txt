@@ -1,0 +1,57 @@
+FalconLedger Emission Blueprint v2
+ My notes on solving the inflation concerns
+1. Current Programmed Model (What I Have Now)
+From the code I already have (epoch-emission.md), the model works like this:
+ Starts at 0.5% of treasury per epoch
+ Halves every 208 epochs (~4 years)
+ Floors at 0.01% around year 24 and stays there forever
+ Treasury shrinks over time (double decay)
+ Currently only pays validators — LPs not included yet
+Problems I'm seeing:
+ Year 1 inflation is ~23-26% — way too aggressive
+ Takes until year 12+ before it even gets to reasonable levels
+ Permanent 0.01% floor means infinite slow dilution forever
+ Hard to explain and probably won't look great to people coming in later
+2. What I'm Thinking About Now
+Instead of big step changes every 4 years, what if the rate declines smoothly every epoch?
+This would feel much cleaner and more professional.
+Idea I'm exploring:
+ Start at 12%
+ Decline gradually every single epoch (very small reduction each time)
+ Hit around 3.5% by year 6
+ Then keep drifting down toward 1.5% long term
+ Total emission still around 196B
+3. Quick Comparison (Current vs What I'm Considering)
+Aspect
+Current Programmed Model
+Continuous Decline Idea
+Year 1 Inflation
+~26%
+12%
+Reaches ~5%
+Year 8-9
+Year 5
+Reaches ~3.5%
+Year 12+
+Year 6
+Long term rate
+0.01% floor forever
+1.5%
+Decline style
+Big steps every 4 years
+Smooth every epoch
+How it feels
+Aggressive then flat
+Steady and controlled
+LP support
+Not built in yet
+Designed for PoPL
+4. Benefits of C.I.D Model (Continuous Inflationary Decline)
+ Gets to reasonable/good inflation levels much faster (by year 6 instead of year 12+)
+ Much smoother decline — no big sudden drops that can feel aggressive
+ Long-term rate of 1.5% feels more sustainable than a permanent tiny floor
+ Easier and cleaner to explain as a steady, controlled reduction
+ Still provides strong early incentives for the first 2–3 years
+ Better market perception overall — aligns with how successful chains eventually behaved
+ Designed with PoPL in mind from the beginning (LPs can be included cleanly)
+These are just my current working thoughts. Nothing is locked in yet.
