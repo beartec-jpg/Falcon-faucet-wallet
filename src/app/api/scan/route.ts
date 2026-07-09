@@ -2,7 +2,7 @@
 // Returns a full suite of network stats for the explorer page.
 
 import { NextResponse } from 'next/server'
-import { cidEmissionPct, lpAllocationPct, type EpochOverview } from '@/lib/epoch-model'
+import { cidEmissionPct, cidYearlyAvgPct, lpAllocationPct, type EpochOverview } from '@/lib/epoch-model'
 import { DEFAULT_RPC_URL } from '@/lib/rpc'
 
 export const runtime = 'nodejs'
@@ -186,6 +186,7 @@ async function fetchEpoch(): Promise<EpochOverview> {
       emissionRateFalcon: dropsToFalcon(epochNode?.EmissionRate as string),
       lpAllocationPct: epochNum != null ? lpAllocationPct(epochNum) : null,
       cidEmissionPct: epochNum != null ? cidEmissionPct(epochNum) : null,
+      cidYearlyAvgPct: epochNum != null ? cidYearlyAvgPct(epochNum) : null,
     }
   } catch {
     return {
@@ -194,6 +195,7 @@ async function fetchEpoch(): Promise<EpochOverview> {
       emissionRateFalcon: null,
       lpAllocationPct: null,
       cidEmissionPct: null,
+      cidYearlyAvgPct: null,
     }
   }
 }

@@ -37,8 +37,9 @@ export default function EpochEmissionsCard({ epoch }: { epoch: EpochOverview | n
             </div>
           </div>
           <div>
-            <div className="text-slate-500">CID target</div>
-            <div className="font-mono text-brand-400 text-lg">{pct(epoch.cidEmissionPct)} / epoch</div>
+            <div className="text-slate-500">CID rate</div>
+            <div className="font-mono text-brand-400 text-lg">{pct(epoch.cidEmissionPct, 3)} / epoch</div>
+            <div className="text-slate-600 mt-0.5">{pct(epoch.cidYearlyAvgPct)} yearly avg</div>
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs pt-1 border-t border-slate-800">
@@ -54,7 +55,8 @@ export default function EpochEmissionsCard({ epoch }: { epoch: EpochOverview | n
           </div>
           <div className="sm:col-span-1 col-span-2">
             <p className="text-slate-600 leading-relaxed">
-              Epoch boundaries follow CID linear decline with a validator / LP split after genesis restart.
+              12% is the year-1 treasury average over 52 epochs; each epoch declines slightly. Yearly
+              average steps down from there. Validator / LP split follows PoPL after genesis restart.
               Pool balance reflects the live ledger.
             </p>
           </div>
