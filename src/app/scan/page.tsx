@@ -237,8 +237,18 @@ export default function ScanPage() {
   const fetchData = useCallback(async () => {
     try {
       const r = await fetch('/api/scan')
-      const d = await r.json()
-      if (d.error) throw new Error(d.error)
+      const text = await r.text()
+      let d: ScanData & { error?: string }
+      try {
+        d = JSON.parse(text) as ScanData & { error?: string }
+      } catch {
+        throw new Error(
+          r.ok
+            ? 'Invalid response from explorer API'
+            : text.slice(0, 120) || `Explorer API error (${r.status})`,
+        )
+      }
+      if (!r.ok || d.error) throw new Error(d.error ?? `Explorer API error (${r.status})`)
       setData(d)
       setError(null)
       setLastUpdate(new Date())

@@ -198,7 +198,6 @@ export async function appendMetricSamples(
 export async function getStoredMetricSeries(key: MetricKey): Promise<MetricPoint[]> {
   const backend = metricStoreBackend()
   const cutoff = retentionCutoff()
-  await pruneMetricSamples()
 
   if (backend === 'postgres') {
     return getPgSeries(key, cutoff)
@@ -220,7 +219,27 @@ export async function getStoredMetricSeries(key: MetricKey): Promise<MetricPoint
 }
 
 export async function getAllStoredSeries(): Promise<Partial<Record<MetricKey, MetricPoint[]>>> {
+  await pruneMetricSamples()
+  const cutoff = retentionCutoff()
+  const backend = metricStoreBackend()
   const out: Partial<Record<MetricKey, MetricPoint[]>> = {}
+
+  if (backend === 'postgres' && isDbConfigured()) {
+    await ensurePgTable()
+    const sql = getSql()
+    const rows = await sql`
+      SELECT metric_key, sampled_at, value FROM explorer_metric_samples
+      WHERE sampled_at >= ${cutoff}
+      ORDER BY metric_key ASC, sampled_at ASC
+    `
+    for (const row of rows) {
+      const key = row.metric_key as MetricKey
+      if (!METRIC_KEYS.includes(key)) continue
+      ;(out[key] ??= []).push({ t: Number(row.sampled_at), v: Number(row.value) })
+    }
+    return out
+  }
+
   await Promise.all(
     METRIC_KEYS.map(async (key) => {
       const series = await getStoredMetricSeries(key)

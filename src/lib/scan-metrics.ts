@@ -1,26 +1,10 @@
 // Lightweight network metric sampler (RPC) — used by /api/scan, cron, and history backfill.
 
-import { DEFAULT_RPC_URL } from '@/lib/rpc'
+import { rpcCall } from '@/lib/rpc'
 import type { MetricKey } from '@/lib/metric-history'
 
-const RPC = process.env.XRPLD_RPC_URL ?? DEFAULT_RPC_URL
 const RIPPLE_EPOCH = 946684800
 const CLOSE_EST_SEC = 3.5
-
-async function rpc<T = Record<string, unknown>>(
-  method: string,
-  params: Record<string, unknown> = {},
-): Promise<T> {
-  const res = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ method, params: [params] }),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`RPC ${res.status}`)
-  const body = await res.json()
-  return body.result as T
-}
 
 export interface NetworkMetricSample extends Partial<Record<MetricKey, number>> {
   validated_ledger?: number
@@ -28,8 +12,8 @@ export interface NetworkMetricSample extends Partial<Record<MetricKey, number>> 
 
 export async function collectNetworkMetrics(): Promise<NetworkMetricSample> {
   const [srvR, feeR] = await Promise.all([
-    rpc<{ info: Record<string, unknown> }>('server_info', {}),
-    rpc<Record<string, unknown>>('fee', {}),
+    rpcCall<{ info: Record<string, unknown> }>('server_info', {}),
+    rpcCall<Record<string, unknown>>('fee', {}),
   ])
 
   const info = srvR.info
@@ -39,7 +23,7 @@ export async function collectNetworkMetrics(): Promise<NetworkMetricSample> {
   const ledgerNums = Array.from({ length: 10 }, (_, i) => valSeq - i).filter((s) => s > 0)
   const ledgerResults = await Promise.all(
     ledgerNums.map((seq) =>
-      rpc<{ ledger: Record<string, unknown> }>('ledger', {
+      rpcCall<{ ledger: Record<string, unknown> }>('ledger', {
         ledger_index: seq,
         transactions: true,
         expand: false,
@@ -88,9 +72,9 @@ export async function collectNetworkMetrics(): Promise<NetworkMetricSample> {
   }
 }
 
-/** Ledger-sampled backfill for metrics that exist on-chain (TPS, close, base fee). */
-export async function ledgerMetricBackfill(points = 72): Promise<Partial<Record<MetricKey, Array<{ t: number; v: number }>>>> {
-  const srvR = await rpc<{ info: Record<string, unknown> }>('server_info', {})
+/** Ledger-sampled backfill for on-chain metrics (TPS, close, base fee). Cron only — not for user requests. */
+export async function ledgerMetricBackfill(points = 24): Promise<Partial<Record<MetricKey, Array<{ t: number; v: number }>>>> {
+  const srvR = await rpcCall<{ info: Record<string, unknown> }>('server_info', {})
   const valSeq = ((srvR.info.validated_ledger as Record<string, unknown>)?.seq as number) ?? 0
   if (valSeq <= 0) return {}
 
@@ -103,7 +87,7 @@ export async function ledgerMetricBackfill(points = 72): Promise<Partial<Record<
 
   const ledgerResults = await Promise.all(
     indices.map((seq) =>
-      rpc<{ ledger: Record<string, unknown> }>('ledger', {
+      rpcCall<{ ledger: Record<string, unknown> }>('ledger', {
         ledger_index: seq,
         transactions: true,
         expand: false,

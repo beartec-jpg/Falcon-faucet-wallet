@@ -4,28 +4,10 @@
 import { NextResponse } from 'next/server'
 import { cidEmissionPct, cidYearlyAvgPct, lpAllocationPct, type EpochOverview } from '@/lib/epoch-model'
 import { appendMetricSamples } from '@/lib/metric-store'
-import { DEFAULT_RPC_URL } from '@/lib/rpc'
+import { rpcCall } from '@/lib/rpc'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-// Public RPC only (Node 1 full-history recommended)
-const RPC = process.env.XRPLD_RPC_URL ?? DEFAULT_RPC_URL
-
-async function rpc<T = Record<string, unknown>>(
-  method: string,
-  params: Record<string, unknown> = {},
-): Promise<T> {
-  const res = await fetch(RPC, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ method, params: [params] }),
-    cache:   'no-store',
-  })
-  if (!res.ok) throw new Error(`RPC ${res.status}`)
-  const body = await res.json()
-  return body.result as T
-}
 
 export interface ValidatorEntry {
   /** Operator account (r…) */
@@ -59,7 +41,7 @@ async function fetchBondedValidators(): Promise<ValidatorEntry[]> {
     }
     if (marker !== undefined && marker !== null) params.marker = marker
 
-    const data = await rpc<{
+    const data = await rpcCall<{
       state?:  Record<string, unknown>[]
       marker?: unknown
     }>('ledger_data', params)
@@ -175,7 +157,7 @@ function dropsToFalcon(v: string | number | undefined | null): number | null {
 
 async function fetchEpoch(): Promise<EpochOverview> {
   try {
-    const epochR = await rpc<{ node?: Record<string, unknown> }>('ledger_entry', {
+    const epochR = await rpcCall<{ node?: Record<string, unknown> }>('ledger_entry', {
       reward_epoch: true,
       ledger_index: 'validated',
     })
@@ -206,8 +188,8 @@ export async function GET() {
     // ── Parallel: server_info + fee + bonded validators ───────────────────
     // Admin `validators` RPC is 403 on public :6005 — use on-ledger bonds instead.
     const [srvR, feeR, validators, epoch] = await Promise.all([
-      rpc<{ info: Record<string, unknown> }>('server_info', {}),
-      rpc<Record<string, unknown>>('fee', {}),
+      rpcCall<{ info: Record<string, unknown> }>('server_info', {}),
+      rpcCall<Record<string, unknown>>('fee', {}),
       fetchBondedValidators().catch(() => [] as ValidatorEntry[]),
       fetchEpoch(),
     ])
@@ -222,7 +204,7 @@ export async function GET() {
     const ledgerNums = Array.from({ length: 10 }, (_, i) => valSeq - i).filter(s => s > 0)
     const ledgerResults = await Promise.all(
       ledgerNums.map(seq =>
-        rpc<{ ledger: Record<string, unknown> }>('ledger', {
+        rpcCall<{ ledger: Record<string, unknown> }>('ledger', {
           ledger_index: seq,
           transactions: true,
           expand: false,
@@ -248,7 +230,7 @@ export async function GET() {
 
     // ── Fetch recent TXs from latest ledger ───────────────────────────────
     let recentTxs: TxSummary[] = []
-    const latestFull = await rpc<{ ledger: Record<string, unknown> }>('ledger', {
+    const latestFull = await rpcCall<{ ledger: Record<string, unknown> }>('ledger', {
       ledger_index: valSeq,
       transactions: true,
       expand:       true,

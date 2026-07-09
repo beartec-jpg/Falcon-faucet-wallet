@@ -78,7 +78,7 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   }
 }
 
-async function call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+export async function rpcCall<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   let lastError: Error | null = null
 
   for (const nodeUrl of RPC_NODES) {
@@ -116,12 +116,12 @@ async function call<T>(method: string, params: Record<string, unknown> = {}): Pr
 }
 
 export async function getServerInfo(): Promise<ServerInfo> {
-  const result = await call<{ info: ServerInfo }>('server_info')
+  const result = await rpcCall<{ info: ServerInfo }>('server_info')
   return result.info
 }
 
 export async function getAccountInfo(account: string): Promise<AccountInfo> {
-  return call<AccountInfo>('account_info', {
+  return rpcCall<AccountInfo>('account_info', {
     account,
     ledger_index: 'current',
   })
@@ -134,12 +134,12 @@ export async function getLedgerIndex(): Promise<number> {
 
 export async function submitTx(tx_blob: string): Promise<{ tx_json: { hash: string }; engine_result: string; engine_result_message: string }> {
   assertSecureSubmitTransport()
-  return call('submit', { tx_blob })
+  return rpcCall('submit', { tx_blob })
 }
 
 export async function getTx(hash: string): Promise<{
   validated?: boolean
   meta?: { TransactionResult?: string }
 }> {
-  return call('tx', { transaction: hash })
+  return rpcCall('tx', { transaction: hash })
 }
