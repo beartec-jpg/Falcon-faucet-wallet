@@ -1,15 +1,15 @@
 {
   "network_id": 1001,
   "rpc_url": "http://46.224.0.140:6005",
-  "issued_at": "",
+  "issued_at": "2026-07-09T23:28:08Z",
   "asset": {
     "symbol": "F-USDC",
     "currency": "QUC",
     "issuer": "rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N"
   },
-  "broker_owner": "",
-  "vault_id": "",
-  "loan_broker_id": "",
+  "broker_owner": "rJePmBhHoerhB4gJPAPEqvVBgQ7xbmY6bh",
+  "vault_id": "0DB363B417A560EDD7EA8306188F5592F2388A054BF7F6AC1FB5A99A30BC99B2",
+  "loan_broker_id": "0DF028DFE8928921B9474B5EB09531E1E7A3655441C53ECFECF41C82F374D334",
   "interest_rate_tenth_bps": 500,
   "payment_interval": 86400,
   "payment_total": 1,
