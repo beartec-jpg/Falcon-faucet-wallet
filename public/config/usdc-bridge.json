@@ -21,7 +21,8 @@
   "deposit_flow": {
     "type": "passkey_evm_wallet",
     "steps": [
-      "Open Swap → Bridge and create a Sepolia wallet with your passkey",
+      "Open Wallet → Bridge and create a Sepolia wallet with your passkey",
+      "Add F-USDC trust line on the Bridge tab (required before Bridge In)",
       "Fund the Sepolia address with test ETH (gas) and Sepolia USDC",
       "Bridge In: approve + lock USDC; relay mints F-USDC on Falcon",
       "Bridge Out: return F-USDC on Falcon; relay releases Sepolia USDC to your Sepolia wallet",

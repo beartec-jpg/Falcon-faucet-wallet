@@ -18,8 +18,8 @@ import {
   waitForWithdrawalRelease,
   type BridgeDepositResult,
 } from '@/lib/evm-bridge-client'
-import { signBridgeWithdraw, signFusdcPayment } from '@/lib/wallet-sign-client'
-import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
+import { signBridgeWithdraw, signFusdcPayment, signTrustSet } from '@/lib/wallet-sign-client'
+import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
 import {
   etherscanAddressUrl,
   etherscanTokenUrl,
@@ -91,6 +91,10 @@ function shortEvmAddr(addr: string): string {
   return addr.length > 12 ? `${addr.slice(0, 8)}…${addr.slice(-4)}` : addr
 }
 
+function shortFalconAddr(addr: string): string {
+  return addr.length > 12 ? `${addr.slice(0, 8)}…${addr.slice(-4)}` : addr
+}
+
 interface BridgeWithdrawResult {
   falconTxHash?: string
   amount: string
@@ -132,9 +136,14 @@ export default function BridgeDepositPanel({
   const [fusdcLive, setFusdcLive] = useState<number | null>(fusdcBalance ?? null)
   const [fusdcLoading, setFusdcLoading] = useState(false)
   const [fusdcError, setFusdcError] = useState<string | null>(null)
+  const [hasFusdcTrustLine, setHasFusdcTrustLine] = useState(false)
+  const [trustLineResult, setTrustLineResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
   const bridgeReady = lockContractReady(bridgeCfg)
   const hasEvm = !!(wallet.evmAddress && wallet.evmEncrypted)
+  const falconIssuer = bridgeCfg.falcon?.token_issuer?.trim() ?? ''
+  const falconCurrency = bridgeCfg.falcon?.token_currency?.trim() ?? 'QUC'
+  const canBridgeIn = hasFusdcTrustLine && !!falconIssuer
 
   const refreshFusdcBalance = useCallback(async () => {
     setFusdcLoading(true)
@@ -148,7 +157,10 @@ export default function BridgeDepositPanel({
         throw new Error(data.error ?? `Balance lookup failed (${res.status})`)
       }
       if (data.assets?.fusdc) {
+        setHasFusdcTrustLine(!!data.assets.fusdc.hasTrustLine)
         setFusdcLive(data.assets.fusdc.hasTrustLine ? data.assets.fusdc.balance : 0)
+      } else {
+        setHasFusdcTrustLine(false)
       }
     } catch (e: unknown) {
       setFusdcError(e instanceof Error ? e.message : 'Could not load Falcon F-USDC balance')
@@ -550,8 +562,63 @@ export default function BridgeDepositPanel({
     }
   }
 
+  const handleTrustLine = async () => {
+    if (!falconIssuer || !network.live) return
+    setBusy(true)
+    setError(null)
+    setTrustLineResult(null)
+    try {
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+      const data = await submitWithSequenceRetry({
+        networkKey,
+        fetchSequence: async () => {
+          const a = await fetchSequenceInfo(wallet.address, networkKey)
+          if (!a.exists) throw new Error('Failed to refresh account')
+          return { sequence: a.sequence, currentLedger: a.currentLedger }
+        },
+        sign: ({ sequence, lastLedgerSequence }) =>
+          signTrustSet(
+            {
+              account: wallet.address,
+              currency: falconCurrency,
+              issuer: falconIssuer,
+              limit: '10000000',
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+            },
+            falcon_secret,
+          ),
+      }).catch((e: unknown): SubmitResult => ({
+        success: false,
+        message: e instanceof Error ? e.message : 'Failed',
+      }))
+      const ok = !!data.success
+      setTrustLineResult({
+        ok,
+        msg: [data.result, data.message].filter(Boolean).join(' — ') || (ok ? 'Trust line ready' : 'TrustSet failed'),
+      })
+      if (ok) {
+        setHasFusdcTrustLine(true)
+        setTimeout(() => {
+          refreshFusdcBalance()
+          onFalconRefresh?.()
+        }, 4000)
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Trust line failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handleDeposit = async () => {
     if (!wallet.evmEncrypted || !wallet.evmAddress || !bridgeReady) return
+    if (!canBridgeIn) {
+      setError('Add a F-USDC trust line on this page before bridging in — otherwise minted tokens cannot be delivered.')
+      return
+    }
     const amt = parseFloat(amount)
     if (!Number.isFinite(amt) || amt <= 0) {
       setError('Enter a valid USDC amount')
@@ -585,6 +652,10 @@ export default function BridgeDepositPanel({
       setResult(res)
       setAmount('')
       await refreshBalances()
+      setTimeout(() => {
+        refreshFusdcBalance()
+        onFalconRefresh?.()
+      }, 8000)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Bridge deposit failed')
     } finally {
@@ -1078,11 +1149,43 @@ export default function BridgeDepositPanel({
 
             {mode === 'deposit' && (
               <>
+                {!hasFusdcTrustLine ? (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
+                    <div>
+                      <p className="text-sm font-medium text-amber-200">Step 1 — F-USDC trust line required</p>
+                      <p className="text-xs text-amber-100/80 mt-1">
+                        Bridge In mints F-USDC to your Falcon wallet ({shortFalconAddr(wallet.address)}). Without a
+                        trust line to issuer{' '}
+                        <span className="font-mono text-amber-100/90">{falconIssuer ? `${falconIssuer.slice(0, 8)}…` : '—'}</span>,
+                        the relay cannot deliver tokens — deposits stay queued.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleTrustLine}
+                      disabled={busy || !falconIssuer || !network.live}
+                      className="w-full py-2.5 rounded-xl bg-amber-500 text-slate-950 text-sm font-semibold hover:bg-amber-400 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {busy ? <><Spinner /> Adding trust line…</> : 'Add F-USDC trust line (passkey)'}
+                    </button>
+                    {trustLineResult && (
+                      <p className={`text-xs ${trustLineResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {trustLineResult.msg}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">
+                    F-USDC trust line active — you can bridge in. Minted F-USDC balance:{' '}
+                    <span className="font-mono">{fusdcLoading ? '…' : fmt(fusdcAvail, 2)}</span>
+                  </div>
+                )}
+
                 <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-xs text-slate-400 space-y-1">
-                  <p>Lock Sepolia USDC below → validators mint F-USDC to your Falcon wallet.</p>
+                  <p>Lock Sepolia USDC below → relay mints F-USDC to your Falcon wallet.</p>
                   <p className="text-slate-500">
                     One passkey unlocks your Sepolia wallet. Approve + lock happen on Sepolia automatically
-                    (no second passkey) — can take up to a minute. F-USDC mint follows in a few minutes.
+                    (no second passkey) — can take up to a minute. F-USDC mint usually follows within ~30s.
                   </p>
                 </div>
                 <div className="space-y-1.5">
@@ -1095,11 +1198,11 @@ export default function BridgeDepositPanel({
                     min="0.000001"
                     step="any"
                     className="input-field"
-                    disabled={busy || !bridgeReady}
+                    disabled={busy || !bridgeReady || !canBridgeIn}
                   />
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>{balances ? `Available: ${usdcAvailRaw} Sepolia USDC` : ''}</span>
-                    {usdcAvail > 0 && (
+                    {usdcAvail > 0 && canBridgeIn && (
                       <button type="button" onClick={() => setAmount(usdcAvailRaw)} className="text-brand-500">
                         Max
                       </button>
@@ -1110,11 +1213,14 @@ export default function BridgeDepositPanel({
                 <button
                   type="button"
                   onClick={handleDeposit}
-                  disabled={busy || !bridgeReady || amtNum <= 0 || ethAvail < 0.0001}
+                  disabled={busy || !bridgeReady || !canBridgeIn || amtNum <= 0 || ethAvail < 0.0001}
                   className="btn-primary flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500"
                 >
                   {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge In USDC with Passkey'}
                 </button>
+                {!canBridgeIn && (
+                  <p className="text-[10px] text-amber-400/90">Add the F-USDC trust line above to enable Bridge In.</p>
+                )}
 
                 {bridgeReady && (
                   <div className="text-[10px] text-slate-500">
