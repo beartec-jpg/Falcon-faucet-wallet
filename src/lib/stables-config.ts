@@ -35,11 +35,10 @@ export async function fetchStablesManifest(): Promise<StablesManifest | null> {
   return fetchPromise
 }
 
-/** Merge env-based network tokens with on-chain manifest issuers when env is empty. */
+/** Testnet: manifest in public/config/testnet-stables.json wins over stale env issuers. */
 export async function resolveNetworkTokens(networkKey: NetworkKey): Promise<NetworkConfig['tokens']> {
   const base = getNetwork(networkKey).tokens
   if (networkKey !== 'testnet') return base
-  if (base.every((t) => t.issuer)) return base
 
   const manifest = await fetchStablesManifest()
   if (!manifest?.tokens?.length) return base
@@ -48,7 +47,7 @@ export async function resolveNetworkTokens(networkKey: NetworkKey): Promise<Netw
     const fromManifest = manifest.tokens!.find(
       (m) => m.symbol === tok.symbol || m.currency === tok.currency,
     )
-    if (!tok.issuer && fromManifest?.issuer) {
+    if (fromManifest?.issuer) {
       return { ...tok, issuer: fromManifest.issuer, currency: fromManifest.currency || tok.currency }
     }
     return tok

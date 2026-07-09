@@ -1,21 +1,20 @@
 {
   "network_id": 1001,
   "rpc_url": "http://46.224.0.140:6005",
-  "issued_at": "2026-07-02T20:31:41Z",
+  "issued_at": "2026-07-09T20:35:12Z",
   "genesis": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
-  "liquidity_provider": "rQBwFcbG1qo89zuBG6PNBWL9vvdRe6YQ9w",
-  "bridge_only": true,
-  "bootstrap_liquidity_drained_at": "2026-07-05T08:39:35Z",
+  "bridge_only": false,
+  "liquidity_provider": "rJePmBhHoerhB4gJPAPEqvVBgQ7xbmY6bh",
   "tokens": [
     {
       "symbol": "F-USDC",
       "currency": "QUC",
-      "issuer": "rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt",
-      "liquidity": "bridge"
+      "issuer": "rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N",
+      "liquidity": "dex"
     }
   ],
   "env": {
     "NEXT_PUBLIC_TESTNET_USDC_CURRENCY": "QUC",
-    "NEXT_PUBLIC_TESTNET_USDC_ISSUER": "rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt"
+    "NEXT_PUBLIC_TESTNET_USDC_ISSUER": "rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N"
   }
 }

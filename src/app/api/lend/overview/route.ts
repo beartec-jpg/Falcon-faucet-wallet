@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveNetworkKey, serverRpcCall, serverNetworkConfig } from '@/lib/network-server'
+import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { getUsdcMarket } from '@/lib/swap/quote'
 
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
+import { loadStableToken } from '@/lib/swap/token-config'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const DROPS = 1_000_000
@@ -15,22 +14,14 @@ function dropsToFalcon(v: string | number | undefined | null): number | null {
   return n / DROPS
 }
 
-async function resolveToken(networkKey: ReturnType<typeof resolveNetworkKey>) {
-  const cfg = serverNetworkConfig(networkKey)
-  let currency = cfg.tokens[0]?.currency ?? ''
-  let issuer = cfg.tokens[0]?.issuer ?? ''
-  if (!issuer && networkKey === 'testnet') {
-    try {
-      const raw = await readFile(path.join(process.cwd(), 'public', 'config', 'testnet-stables.json'), 'utf8')
-      const m = JSON.parse(raw) as { tokens?: Array<{ currency: string; issuer: string }> }
-      const t = m.tokens?.[0]
-      if (t) {
-        currency = t.currency
-        issuer = t.issuer
-      }
-    } catch { /* ignore */ }
+async function resolveToken(_networkKey: ReturnType<typeof resolveNetworkKey>) {
+  const stable = await loadStableToken()
+  return {
+    symbol: 'F-USDC',
+    currency: stable.currency,
+    issuer: stable.issuer,
+    configured: !!stable.issuer,
   }
-  return { symbol: 'F-USDC', currency, issuer, configured: !!issuer }
 }
 
 async function featureFlags(networkKey: ReturnType<typeof resolveNetworkKey>) {
