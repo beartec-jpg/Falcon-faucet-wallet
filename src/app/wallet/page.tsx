@@ -15,9 +15,9 @@ import {
 } from '@/lib/passkey'
 import { encryptSeed, decryptSeed } from '@/lib/wallet-crypto'
 import {
-  saveWallet,
-  loadWallets,
-  deleteWallet,
+  loadPrimaryWallet,
+  removeWalletFromDevice,
+  replacePrimaryWallet,
   type StoredWallet,
 } from '@/lib/wallet-store'
 import {
@@ -413,11 +413,11 @@ export default function WalletPage() {
   }, [view, savedNode, showNodeSetup, refreshNodeStats])
 
   useEffect(() => {
-    loadWallets().then(wallets => {
-      if (wallets.length > 0) {
-        setWallet(wallets[0])
+    loadPrimaryWallet().then(primary => {
+      if (primary) {
+        setWallet(primary)
         setView('dashboard')
-        refreshBalance(wallets[0].address)
+        refreshBalance(primary.address)
       } else {
         setView('no-wallet')
       }
@@ -483,7 +483,7 @@ export default function WalletPage() {
         evmAddress: pendingSave.evmAddress,
         evmEncrypted: pendingSave.evmEncrypted,
       }
-      await saveWallet(stored)
+      await replacePrimaryWallet(stored)
       setWallet(stored)
       setPendingSave(null)
       setBackupPassphrase('')
@@ -586,7 +586,7 @@ export default function WalletPage() {
         evmAddress: evm.address,
         evmEncrypted: evm.evmEncrypted,
       }
-      await saveWallet(stored)
+      await replacePrimaryWallet(stored)
 
       setWallet(stored)
       setRestoreSeed('')
@@ -653,6 +653,31 @@ export default function WalletPage() {
       setExportPassConfirm('')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Export failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleRemoveWallet = async () => {
+    if (!wallet) return
+    if (
+      !confirm(
+        'Remove this wallet from this device? This deletes your Falcon wallet and Sepolia bridge wallet (0x address). Save backups first — on-chain balances at old addresses are not erased.',
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await removeWalletFromDevice()
+      clearValidatorNode()
+      setPendingSave(null)
+      setWallet(null)
+      setAccount(null)
+      setView('no-wallet')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to remove wallet')
     } finally {
       setBusy(false)
     }
@@ -2041,14 +2066,10 @@ export default function WalletPage() {
 
               {view === 'dashboard' && (
                 <button
-                  onClick={async () => {
-                    if (!confirm('Remove this wallet from this device? Make sure you have your backup file first.')) return
-                    await deleteWallet(wallet.credentialId)
-                    setWallet(null)
-                    setAccount(null)
-                    setView('no-wallet')
-                  }}
-                  className="text-xs text-slate-700 hover:text-red-500 transition-colors w-full text-center py-2"
+                  type="button"
+                  onClick={handleRemoveWallet}
+                  disabled={busy}
+                  className="text-xs text-slate-700 hover:text-red-500 transition-colors w-full text-center py-2 disabled:opacity-50"
                 >
                   Remove wallet from this device
                 </button>

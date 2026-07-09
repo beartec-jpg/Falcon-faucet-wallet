@@ -12,7 +12,7 @@ import {
   registerPasskey,
 } from '@/lib/passkey'
 import { encryptSeed, decryptSeed } from '@/lib/wallet-crypto'
-import { loadWallets, type StoredWallet } from '@/lib/wallet-store'
+import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
 import {
   signClaimReward,
   signPayment,
@@ -100,11 +100,11 @@ export default function RewardsPage() {
 
   useEffect(() => {
     Promise.all([
-      loadWallets(),
+      loadPrimaryWallet(),
       Promise.resolve(loadValidatorCredentials()),
       resolveNetworkTokens(networkKey),
-    ]).then(([wallets, creds, toks]) => {
-      if (wallets.length > 0) setPayoutWallet(wallets[0])
+    ]).then(([primary, creds, toks]) => {
+      if (primary) setPayoutWallet(primary)
       setValCreds(creds)
       const configured = toks.filter((t) => t.issuer)
       setTokens(configured)

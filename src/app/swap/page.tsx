@@ -11,7 +11,7 @@ import {
   authenticatePasskey,
 } from '@/lib/passkey'
 import { decryptSeed } from '@/lib/wallet-crypto'
-import { loadWallets, type StoredWallet } from '@/lib/wallet-store'
+import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
 import {
   signTrustSet,
   signPaymentSwap,
@@ -157,11 +157,11 @@ export default function SwapPage() {
   }, [networkKey, wallet?.address, refresh])
 
   useEffect(() => {
-    loadWallets()
-      .then((wallets) => {
-        if (wallets.length > 0) {
-          setWallet(wallets[0])
-          return refresh(wallets[0].address).finally(() => setLoading(false))
+    loadPrimaryWallet()
+      .then((primary) => {
+        if (primary) {
+          setWallet(primary)
+          return refresh(primary.address).finally(() => setLoading(false))
         }
         setLoading(false)
       })

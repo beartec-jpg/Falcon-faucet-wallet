@@ -5,7 +5,7 @@ import Header from '@/components/Header'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
-import { loadWallets, type StoredWallet } from '@/lib/wallet-store'
+import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
 import type { LendOverview } from '@/lib/lend-model'
 import {
   LendProtocolBanner,
@@ -56,9 +56,8 @@ export default function LendPage() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    loadWallets()
-      .then(async (wallets) => {
-        const w = wallets[0] ?? null
+    loadPrimaryWallet()
+      .then(async (w) => {
         if (!cancelled) setWallet(w)
         await refresh(w?.address)
       })

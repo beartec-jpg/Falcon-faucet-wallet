@@ -9,7 +9,7 @@ import {
   authenticatePasskey,
 } from '@/lib/passkey'
 import { decryptSeed } from '@/lib/wallet-crypto'
-import { loadWallets, type StoredWallet } from '@/lib/wallet-store'
+import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
 import { signBoardMessage } from '@/lib/board-sign-client'
 import { BOARD_BODY_MAX } from '@/lib/board-constants'
 
@@ -75,8 +75,8 @@ export default function BoardPage() {
   const [dbUnavailable, setDbUnavailable] = useState(false)
 
   useEffect(() => {
-    loadWallets().then(wallets => {
-      if (wallets.length > 0) setWallet(wallets[0])
+    loadPrimaryWallet().then(primary => {
+      if (primary) setWallet(primary)
     })
   }, [])
 

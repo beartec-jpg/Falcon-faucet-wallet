@@ -58,6 +58,17 @@ export async function loadWallets(): Promise<StoredWallet[]> {
   })
 }
 
+/** Newest wallet first — the app only supports one active wallet per browser. */
+export function sortWalletsNewestFirst(wallets: StoredWallet[]): StoredWallet[] {
+  return [...wallets].sort((a, b) => b.createdAt - a.createdAt)
+}
+
+/** Load the single active wallet (newest by createdAt), or null if none stored. */
+export async function loadPrimaryWallet(): Promise<StoredWallet | null> {
+  const wallets = sortWalletsNewestFirst(await loadWallets())
+  return wallets[0] ?? null
+}
+
 export async function deleteWallet(credentialId: string): Promise<void> {
   const db = await openDB()
   return new Promise((resolve, reject) => {
@@ -66,4 +77,33 @@ export async function deleteWallet(credentialId: string): Promise<void> {
     tx.oncomplete = () => resolve()
     tx.onerror    = () => reject(tx.error)
   })
+}
+
+/** Wipe every stored wallet (Falcon + bundled Sepolia keys) from this browser. */
+export async function deleteAllWallets(): Promise<void> {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite')
+    tx.objectStore(STORE).clear()
+    tx.oncomplete = () => resolve()
+    tx.onerror    = () => reject(tx.error)
+  })
+}
+
+/**
+ * Remove wallet from device: clears IndexedDB entirely and verifies nothing remains.
+ * Falcon address, passkey-encrypted seed, and Sepolia EVM key all live on the same record.
+ */
+export async function removeWalletFromDevice(): Promise<void> {
+  await deleteAllWallets()
+  const remaining = await loadWallets()
+  if (remaining.length > 0) {
+    throw new Error('Wallet removal failed — please try again or clear site data for this site')
+  }
+}
+
+/** Replace any existing wallet(s) with a single new record (create / restore). */
+export async function replacePrimaryWallet(w: StoredWallet): Promise<void> {
+  await deleteAllWallets()
+  await saveWallet(w)
 }
