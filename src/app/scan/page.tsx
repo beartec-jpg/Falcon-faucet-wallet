@@ -293,7 +293,15 @@ export default function ScanPage() {
               <StatCard label="TPS (est.)"        value={d.tps_estimate}   sub={`${d.avg_txs_per_ledger} tx/ledger`} />
               <StatCard label="Avg Close"         value={`${d.avg_close_seconds}s`} sub="per ledger" />
               <StatCard label="Peers"             value={d.peers} />
-              <StatCard label="Validators"        value={d.validators.length} sub="on UNL" />
+              <StatCard
+                label="Validators"
+                value={d.validators.filter(v => v.bond_status === 'bonded').length || d.validators.length}
+                sub={
+                  d.proposers > 0
+                    ? `${d.proposers} proposing · ${d.validators.length} on ledger`
+                    : `${d.validators.length} on ledger`
+                }
+              />
               <StatCard label="State"             value={d.server_state} accent={d.server_state === 'proposing' ? 'text-emerald-400' : 'text-amber-400'} />
               <StatCard label="Uptime"            value={fmtUptime(d.uptime_seconds)} />
               <StatCard label="Base Fee"          value={`${d.current_fee_drops} drops`} sub={`${(d.current_fee_drops / 1e6).toFixed(6)} FALCON`} />
@@ -369,25 +377,52 @@ export default function ScanPage() {
               </div>
             </div>
 
-            {/* Validators */}
+            {/* Validators (bonded on-ledger) */}
             <div>
-              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">Validators</h2>
-              <div className="card overflow-hidden">
+              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
+                Bonded Validators
+                {d.proposers > 0 && (
+                  <span className="ml-2 font-normal normal-case tracking-normal text-slate-600">
+                    · {d.proposers} proposing last close
+                  </span>
+                )}
+              </h2>
+              <div className="card overflow-hidden overflow-x-auto">
                 {d.validators.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-slate-600 text-sm">No validators returned by node</div>
+                  <div className="px-4 py-8 text-center text-slate-600 text-sm">No bonded validators on ledger</div>
                 ) : (
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm min-w-[420px]">
                     <thead>
                       <tr className="border-b border-slate-800 text-xs text-slate-500">
-                        <th className="text-left px-4 py-2.5 font-medium">Public Key</th>
-                        <th className="text-right px-4 py-2.5 font-medium">Ledger</th>
+                        <th className="text-left px-4 py-2.5 font-medium">Account</th>
+                        <th className="text-left px-4 py-2.5 font-medium">Status</th>
+                        <th className="text-right px-4 py-2.5 font-medium">Score</th>
+                        <th className="text-right px-4 py-2.5 font-medium hidden sm:table-cell">Bond</th>
                       </tr>
                     </thead>
                     <tbody>
                       {d.validators.map((v, i) => (
-                        <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/40 transition-colors">
-                          <td className="px-4 py-2.5 font-mono text-xs text-slate-400">{shortHash(v.pubkey)}</td>
-                          <td className="px-4 py-2.5 text-right font-mono text-slate-400">#{v.ledger_index?.toLocaleString() ?? '—'}</td>
+                        <tr key={v.account || i} className="border-b border-slate-800/50 hover:bg-slate-800/40 transition-colors">
+                          <td className="px-4 py-2.5 font-mono text-xs text-brand-400" title={v.account || v.pubkey}>
+                            {shortAddr(v.account) !== '—' ? shortAddr(v.account) : shortHash(v.pubkey)}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                              v.bond_status === 'bonded'
+                                ? 'bg-emerald-500/20 text-emerald-400'
+                                : v.bond_status === 'unbonding'
+                                  ? 'bg-amber-500/20 text-amber-400'
+                                  : 'bg-slate-500/20 text-slate-400'
+                            }`}>
+                              {v.bond_status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-mono text-slate-300">
+                            {v.composite_score?.toLocaleString() ?? '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-mono text-slate-400 text-xs hidden sm:table-cell">
+                            {dropsToQxrp(v.bonded_amount)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

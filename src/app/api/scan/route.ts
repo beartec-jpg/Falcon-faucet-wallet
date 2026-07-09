@@ -26,9 +26,67 @@ async function rpc<T = Record<string, unknown>>(
 }
 
 export interface ValidatorEntry {
-  pubkey:       string
-  ledger_index: number
-  vote_hash?:   string
+  /** Operator account (r…) */
+  account:         string
+  /** Falcon consensus / public key (0xFB…) */
+  pubkey:          string
+  bond_status:     'registered' | 'bonded' | 'unbonding' | string
+  bonded_amount:   string   // drops
+  composite_score: number
+  /** Last ledger that mutated this bond object */
+  ledger_index:    number
+}
+
+const BOND_STATUS: Record<number, ValidatorEntry['bond_status']> = {
+  0: 'registered',
+  1: 'bonded',
+  2: 'unbonding',
+}
+
+/** Public path: bonded validators live on-ledger (admin `validators` RPC is 403 on :6005). */
+async function fetchBondedValidators(): Promise<ValidatorEntry[]> {
+  const out: ValidatorEntry[] = []
+  let marker: unknown
+
+  // Paginate in case the validator set grows beyond one page.
+  for (let page = 0; page < 16; page++) {
+    const params: Record<string, unknown> = {
+      ledger_index: 'validated',
+      type:         'validator_bond',
+      limit:        32,
+    }
+    if (marker !== undefined && marker !== null) params.marker = marker
+
+    const data = await rpc<{
+      state?:  Record<string, unknown>[]
+      marker?: unknown
+    }>('ledger_data', params)
+
+    for (const entry of data.state ?? []) {
+      if (entry.LedgerEntryType !== 'ValidatorBond') continue
+      const statusRaw = entry.BondStatus
+      const statusNum = typeof statusRaw === 'number' ? statusRaw : Number(statusRaw)
+      const pubkey = String(entry.PublicKey ?? entry.ConsensusKey ?? '')
+      out.push({
+        account:         String(entry.Account ?? ''),
+        pubkey,
+        bond_status:     BOND_STATUS[statusNum] ?? String(statusRaw ?? 'unknown'),
+        bonded_amount:   String(entry.BondedAmount ?? '0'),
+        composite_score: Number(entry.CompositeScore ?? 0),
+        ledger_index:    Number(entry.PreviousTxnLgrSeq ?? 0),
+      })
+    }
+
+    marker = data.marker
+    if (marker === undefined || marker === null) break
+  }
+
+  // Stable order: highest score first, then account.
+  out.sort((a, b) => {
+    if (b.composite_score !== a.composite_score) return b.composite_score - a.composite_score
+    return a.account.localeCompare(b.account)
+  })
+  return out
 }
 
 export interface LedgerSummary {
@@ -83,8 +141,10 @@ export interface ScanData {
   // Recent transactions (last 20 from latest ledger)
   recent_txs:         TxSummary[]
 
-  // Validators on UNL
+  // Bonded validators (from on-ledger ValidatorBond objects)
   validators:         ValidatorEntry[]
+  /** Proposers in last closed ledger (from server_info) */
+  proposers:          number
 
   // TPS estimate (avg over last 10 ledgers)
   tps_estimate:       number
@@ -102,17 +162,19 @@ function rippleToIso(rippleTime: number): string {
 
 export async function GET() {
   try {
-    // ── Parallel: server_info + fee + validators ───────────────────────────
-    const [srvR, feeR, valR] = await Promise.all([
+    // ── Parallel: server_info + fee + bonded validators ───────────────────
+    // Admin `validators` RPC is 403 on public :6005 — use on-ledger bonds instead.
+    const [srvR, feeR, validators] = await Promise.all([
       rpc<{ info: Record<string, unknown> }>('server_info', {}),
       rpc<Record<string, unknown>>('fee', {}),
-      // validators is admin-only on port 6005 — catch 403 and return empty list
-      rpc<{ validators: ValidatorEntry[] }>('validators', {}).catch(() => ({ validators: [] as ValidatorEntry[] })),
+      fetchBondedValidators().catch(() => [] as ValidatorEntry[]),
     ])
 
     const info    = srvR.info as Record<string, unknown>
     const valLedger = info.validated_ledger as Record<string, unknown>
     const valSeq: number = (valLedger?.seq as number) ?? 0
+    const lastClose = (info.last_close as Record<string, unknown> | undefined) ?? {}
+    const proposers = Number(lastClose.proposers ?? 0)
 
     // ── Fetch last 10 ledgers ──────────────────────────────────────────────
     const ledgerNums = Array.from({ length: 10 }, (_, i) => valSeq - i).filter(s => s > 0)
@@ -211,7 +273,8 @@ export async function GET() {
 
       recent_ledgers:     recentLedgers,
       recent_txs:         recentTxs,
-      validators:         valR.validators ?? [],
+      validators,
+      proposers,
 
       tps_estimate:       Math.round(tps * 100) / 100,
       avg_txs_per_ledger: Math.round(avgTxPerL * 10) / 10,
