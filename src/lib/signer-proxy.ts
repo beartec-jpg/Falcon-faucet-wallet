@@ -24,6 +24,8 @@ export interface ProxyOptions {
   proxyUrl?: string
   proxyToken?: string
   networkId?: number
+  /** e.g. CounterpartySignature for LoanSet co-sign */
+  signatureTarget?: string
 }
 
 function proxyBase(explicitUrl?: string): string {
@@ -72,6 +74,9 @@ export async function proxySign(
   const body: Record<string, unknown> = isClassicSeed(secret)
     ? { tx_json: enriched, secret }
     : { tx_json: enriched, falcon_secret: secret }
+  if (opts.signatureTarget) {
+    body.signature_target = opts.signatureTarget
+  }
 
   const res = await fetch(`${proxyBase(opts.proxyUrl)}/sign`, {
     method: 'POST',

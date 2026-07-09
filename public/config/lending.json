@@ -1,0 +1,17 @@
+{
+  "network_id": 1001,
+  "rpc_url": "http://46.224.0.140:6005",
+  "issued_at": "",
+  "asset": {
+    "symbol": "F-USDC",
+    "currency": "QUC",
+    "issuer": "rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N"
+  },
+  "broker_owner": "",
+  "vault_id": "",
+  "loan_broker_id": "",
+  "interest_rate_tenth_bps": 500,
+  "payment_interval": 86400,
+  "payment_total": 1,
+  "grace_period": 3600
+}

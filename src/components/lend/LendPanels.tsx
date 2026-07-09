@@ -26,19 +26,21 @@ const HF_COLORS: Record<ReturnType<typeof hfStatus>, string> = {
 
 export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
   if (!data) return null
-  const { protocol } = data
+  const { protocol, lending } = data
   if (protocol.lendingReady) {
     return (
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-200 space-y-1">
         <p>
           <span className="font-medium">Lending protocol is live on-chain.</span>{' '}
-          <code className="text-emerald-100/90">SingleAssetVault</code> and{' '}
-          <code className="text-emerald-100/90">LendingProtocol</code> amendments are enabled.
+          <code className="text-emerald-100/90">SingleAssetVault</code> +{' '}
+          <code className="text-emerald-100/90">LendingProtocol</code> enabled.
         </p>
         <p className="text-xs text-emerald-200/80">
           {protocol.txSigningReady
-            ? 'Supply, borrow, and claim are available from this portal.'
-            : 'Portal preview: balances, AMM price, and health-factor calculator. Supply / borrow buttons are not wired to VaultDeposit / LoanSet yet — use the CLI or wait for the next portal release.'}
+            ? lending.cosignReady
+              ? 'Supply (VaultDeposit), borrow (LoanSet + broker co-sign), claim (ClaimLPReward), and repay (LoanPay) are wired.'
+              : 'Supply and claim work from the portal. Borrow needs TESTNET_LENDING_BROKER_SECRET on the server for co-sign.'
+            : 'Run bootstrap-testnet-lending.py on the coordinator to create the F-USDC vault and loan broker.'}
         </p>
       </div>
     )
@@ -46,12 +48,9 @@ export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
   return (
     <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-100 space-y-1">
       <p>
-        <span className="font-medium text-amber-200">Lending not active.</span> This network needs{' '}
+        <span className="font-medium text-amber-200">Lending not active.</span> Enable{' '}
         <code className="text-amber-100/90">SingleAssetVault</code> and{' '}
-        <code className="text-amber-100/90">LendingProtocol</code> amendments enabled.
-      </p>
-      <p className="text-xs text-amber-200/80">
-        Vault={protocol.singleAssetVault ? 'on' : 'off'} · Lending={protocol.lendingProtocol ? 'on' : 'off'}
+        <code className="text-amber-100/90">LendingProtocol</code> on validators.
       </p>
     </div>
   )
@@ -109,11 +108,11 @@ export function LendHealthCalculator({ data }: { data: LendOverview | null }) {
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
       <h2 className="text-sm font-semibold text-white">Health factor calculator</h2>
       <p className="text-xs text-slate-500">
-        Uses live AMM mid price. Min collateral {LEND_MIN_COLLATERAL_RATIO * 100}% · liquidation below{' '}
-        {LEND_LIQUIDATION_THRESHOLD} · {LEND_GRACE_HOURS}h grace before liquidation (manual top-up).
+        Preview calculator (XRPL loans use broker cover, not on-ledger FALCON collateral). Min ratio{' '}
+        {LEND_MIN_COLLATERAL_RATIO * 100}% · liquidation below {LEND_LIQUIDATION_THRESHOLD}.
       </p>
       {price == null ? (
-        <p className="text-sm text-amber-400/90">No AMM pool — add liquidity on the Pool tab first.</p>
+        <p className="text-sm text-amber-400/90">No DEX price — add liquidity on Pool or Swap first.</p>
       ) : (
         <>
           <div className="grid sm:grid-cols-2 gap-3">
@@ -150,35 +149,39 @@ export function LendHealthCalculator({ data }: { data: LendOverview | null }) {
   )
 }
 
-function DisabledAction({ label, reason }: { label: string; reason: string }) {
-  return (
-    <button
-      type="button"
-      disabled
-      title={reason}
-      className="w-full rounded-lg bg-slate-800 text-slate-500 px-4 py-2.5 text-sm font-medium cursor-not-allowed"
-    >
-      {label}
-    </button>
-  )
-}
-
-const PENDING_CHAIN = 'Lending amendments are not enabled on this network.'
-const PENDING_UI = 'VaultDeposit signing is not wired in the portal yet — protocol is live on-chain.'
-
-export function LendSupplyPanel({ data }: { data: LendOverview | null }) {
+export function LendSupplyPanel({
+  data,
+  busy,
+  onSupply,
+}: {
+  data: LendOverview | null
+  busy?: boolean
+  onSupply?: (amount: string) => void
+}) {
   const [amount, setAmount] = useState('')
-  const ready = data?.protocol.lendingReady && data?.protocol.txSigningReady
+  const ready = data?.protocol.txSigningReady && !!onSupply
+
+  const handle = () => {
+    const n = parseFloat(amount)
+    if (!Number.isFinite(n) || n <= 0) return
+    if (!data?.wallet?.hasFusdcTrustLine) return
+    onSupply?.(amount)
+  }
+
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
       <h2 className="text-sm font-semibold text-white">Supply F-USDC</h2>
       <p className="text-xs text-slate-500">
-        Deposit into a lending vault (upstream <code className="text-slate-400">VaultDeposit</code>). Earn
-        borrower interest on your vault share MPT.
+        Deposit into the lending vault via <code className="text-slate-400">VaultDeposit</code>. You receive vault
+        share MPTs and earn borrower interest plus PoPL epoch emissions.
       </p>
       <div className="text-xs text-slate-400">
-        Fixed pool APR: {(LEND_FIXED_APR_BPS / 100).toFixed(2)}%
+        Pool APR: {(LEND_FIXED_APR_BPS / 100).toFixed(2)}% · Vault{' '}
+        {data?.lending.vaultId ? `${data.lending.vaultId.slice(0, 8)}…` : 'not configured'}
       </div>
+      {data?.wallet && !data.wallet.hasFusdcTrustLine && (
+        <p className="text-xs text-amber-400">Add a F-USDC trust line on Wallet → Bridge or Swap first.</p>
+      )}
       <label className="block text-xs">
         <span className="text-slate-500">Amount (F-USDC)</span>
         <input
@@ -186,157 +189,182 @@ export function LendSupplyPanel({ data }: { data: LendOverview | null }) {
           min="0"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          disabled={!ready}
+          disabled={!ready || busy}
           className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm disabled:opacity-50"
         />
       </label>
-      {ready ? (
-        <button type="button" className="w-full rounded-lg bg-brand-500 text-white px-4 py-2.5 text-sm font-medium">
-          Supply (sign with passkey)
-        </button>
-      ) : (
-        <DisabledAction
-          label={data?.protocol.lendingReady ? 'Supply — portal wiring pending' : 'Supply — pending chain'}
-          reason={data?.protocol.lendingReady ? PENDING_UI : PENDING_CHAIN}
-        />
-      )}
+      <button
+        type="button"
+        onClick={handle}
+        disabled={!ready || busy || !amount}
+        className="w-full rounded-lg bg-brand-500 text-white px-4 py-2.5 text-sm font-medium disabled:opacity-50"
+      >
+        {busy ? 'Signing…' : 'Supply (sign with passkey)'}
+      </button>
     </section>
   )
 }
 
-export function LendBorrowPanel({ data }: { data: LendOverview | null }) {
+export function LendBorrowPanel({
+  data,
+  busy,
+  onBorrow,
+}: {
+  data: LendOverview | null
+  busy?: boolean
+  onBorrow?: (principal: string) => void
+}) {
   const [borrow, setBorrow] = useState('')
-  const [collateral, setCollateral] = useState('')
-  const price = data?.market.falconPerFusdc ?? null
-  const ready = data?.protocol.lendingReady && data?.protocol.txSigningReady
+  const ready =
+    data?.protocol.txSigningReady && data?.lending.cosignReady && !!onBorrow
 
-  const needCollateral = useMemo(() => {
-    const b = parseFloat(borrow)
-    if (!Number.isFinite(b) || b <= 0 || price == null || price <= 0) return null
-    return (b * LEND_MIN_COLLATERAL_RATIO) / price
-  }, [borrow, price])
+  const handle = () => {
+    const n = parseFloat(borrow)
+    if (!Number.isFinite(n) || n <= 0) return
+    onBorrow?.(borrow)
+  }
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
       <h2 className="text-sm font-semibold text-white">Borrow F-USDC</h2>
       <p className="text-xs text-slate-500">
-        Post FALCON collateral via <code className="text-slate-400">LoanSet</code>. Non-custodial — you sign
-        collateral top-ups; alerts fire when health factor drops.
+        Open a loan via <code className="text-slate-400">LoanSet</code>. You sign as borrower; the testnet broker
+        owner co-signs <code className="text-slate-400">CounterpartySignature</code> server-side.
       </p>
-      <div className="grid sm:grid-cols-2 gap-3">
-        <label className="block text-xs">
-          <span className="text-slate-500">Borrow (F-USDC)</span>
-          <input
-            type="number"
-            min="0"
-            value={borrow}
-            onChange={(e) => setBorrow(e.target.value)}
-            disabled={!ready}
-            className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm disabled:opacity-50"
-          />
-        </label>
-        <label className="block text-xs">
-          <span className="text-slate-500">Collateral (FALCON)</span>
-          <input
-            type="number"
-            min="0"
-            value={collateral}
-            onChange={(e) => setCollateral(e.target.value)}
-            disabled={!ready}
-            placeholder={needCollateral != null ? `min ~${fmt(needCollateral, 0)}` : ''}
-            className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm disabled:opacity-50"
-          />
-        </label>
-      </div>
-      {ready ? (
-        <button type="button" className="w-full rounded-lg bg-brand-500 text-white px-4 py-2.5 text-sm font-medium">
-          Borrow (sign with passkey)
-        </button>
-      ) : (
-        <DisabledAction
-          label={data?.protocol.lendingReady ? 'Borrow — portal wiring pending' : 'Borrow — pending chain'}
-          reason={data?.protocol.lendingReady ? PENDING_UI : PENDING_CHAIN}
-        />
+      {!data?.lending.cosignReady && data?.protocol.txSigningReady && (
+        <p className="text-xs text-amber-400">
+          Broker co-sign secret not on server — borrow disabled until TESTNET_LENDING_BROKER_SECRET is set.
+        </p>
       )}
+      <label className="block text-xs">
+        <span className="text-slate-500">Borrow (F-USDC)</span>
+        <input
+          type="number"
+          min="0"
+          value={borrow}
+          onChange={(e) => setBorrow(e.target.value)}
+          disabled={!ready || busy}
+          className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm disabled:opacity-50"
+        />
+      </label>
+      <button
+        type="button"
+        onClick={handle}
+        disabled={!ready || busy || !borrow}
+        className="w-full rounded-lg bg-brand-500 text-white px-4 py-2.5 text-sm font-medium disabled:opacity-50"
+      >
+        {busy ? 'Signing…' : 'Borrow (sign with passkey)'}
+      </button>
     </section>
   )
 }
 
-export function LendPositionsPanel({ data }: { data: LendOverview | null }) {
-  const [demo, setDemo] = useState(true)
-  const price = data?.market.falconPerFusdc ?? 0.5
-  const demoLoan = {
-    principalFusdc: 1000,
-    collateralFalcon: 1500,
-    hf: healthFactor(1500, 1000, price),
-  }
+export function LendPositionsPanel({
+  data,
+  busy,
+  onClaim,
+  onWithdraw,
+  onRepay,
+}: {
+  data: LendOverview | null
+  busy?: boolean
+  onClaim?: () => void
+  onWithdraw?: (amount: string) => void
+  onRepay?: (loanId: string, amount: string) => void
+}) {
+  const [withdrawAmt, setWithdrawAmt] = useState('')
+  const [repayAmt, setRepayAmt] = useState('')
+  const ready = data?.protocol.txSigningReady
 
-  const hasOnChain = (data?.loans.length ?? 0) > 0 || (data?.lpPositions.length ?? 0) > 0
+  const loans = data?.loans ?? []
+  const lpPositions = data?.lpPositions ?? []
+  const hasOnChain = loans.length > 0 || lpPositions.length > 0
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-white">Positions</h2>
-        {!hasOnChain && (
-          <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={demo}
-              onChange={(e) => setDemo(e.target.checked)}
-              className="rounded border-slate-600"
-            />
-            Show demo layout
-          </label>
-        )}
-      </div>
+      <h2 className="text-sm font-semibold text-white">Positions</h2>
 
-      {hasOnChain ? (
-        <p className="text-xs text-slate-500">On-chain loans and LP positions will list here.</p>
-      ) : demo ? (
+      {!hasOnChain ? (
+        <p className="text-sm text-slate-500">No supply or borrow positions on this account yet.</p>
+      ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="text-slate-500 border-b border-slate-800">
                 <th className="text-left py-2 pr-2">Type</th>
-                <th className="text-right py-2 px-2">Principal / Shares</th>
-                <th className="text-right py-2 px-2">Collateral</th>
-                <th className="text-right py-2 pl-2">HF</th>
+                <th className="text-right py-2 px-2">Amount</th>
               </tr>
             </thead>
             <tbody>
-              <tr className="border-b border-slate-800/60 text-slate-300">
-                <td className="py-2 pr-2">
-                  Borrow <span className="text-slate-600">(demo)</span>
-                </td>
-                <td className="text-right font-mono py-2 px-2">{fmt(demoLoan.principalFusdc, 0)} F-USDC</td>
-                <td className="text-right font-mono py-2 px-2">{fmt(demoLoan.collateralFalcon, 0)} FALCON</td>
-                <td className={`text-right font-mono py-2 pl-2 ${HF_COLORS[hfStatus(demoLoan.hf)]}`}>
-                  {demoLoan.hf?.toFixed(2) ?? '—'}
-                </td>
-              </tr>
-              <tr className="text-slate-300">
-                <td className="py-2 pr-2">
-                  Supply <span className="text-slate-600">(demo)</span>
-                </td>
-                <td className="text-right font-mono py-2 px-2">500 shares</td>
-                <td className="text-right py-2 px-2 text-slate-500">—</td>
-                <td className="text-right py-2 pl-2 text-slate-500">—</td>
-              </tr>
+              {loans.map((loan) => (
+                <tr key={loan.id} className="border-b border-slate-800/60 text-slate-300">
+                  <td className="py-2 pr-2">Borrow</td>
+                  <td className="text-right font-mono py-2 px-2">
+                    {fmt(loan.principalFusdc, 2)} F-USDC
+                  </td>
+                </tr>
+              ))}
+              {lpPositions.map((lp, i) => (
+                <tr key={`lp-${i}`} className="text-slate-300">
+                  <td className="py-2 pr-2">Supply (vault shares)</td>
+                  <td className="text-right font-mono py-2 px-2">{fmt(lp.shareBalance, 0)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
-      ) : (
-        <p className="text-sm text-slate-500">No lending positions on this account.</p>
       )}
 
-      <DisabledAction
-        label="Claim supply rewards"
-        reason={data?.protocol.lendingReady ? PENDING_UI : PENDING_CHAIN}
-      />
-      <DisabledAction
-        label="Repay / withdraw"
-        reason={data?.protocol.lendingReady ? PENDING_UI : PENDING_CHAIN}
-      />
+      <button
+        type="button"
+        onClick={() => onClaim?.()}
+        disabled={!ready || busy || !onClaim}
+        className="w-full rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 text-sm font-medium disabled:opacity-50"
+      >
+        Claim LP epoch rewards
+      </button>
+
+      <div className="flex gap-2">
+        <input
+          type="number"
+          min="0"
+          placeholder="Withdraw F-USDC"
+          value={withdrawAmt}
+          onChange={(e) => setWithdrawAmt(e.target.value)}
+          disabled={!ready || busy}
+          className="flex-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-xs"
+        />
+        <button
+          type="button"
+          onClick={() => withdrawAmt && onWithdraw?.(withdrawAmt)}
+          disabled={!ready || busy || !withdrawAmt || !onWithdraw}
+          className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-sm disabled:opacity-50"
+        >
+          Withdraw supply
+        </button>
+      </div>
+
+      {loans[0] && (
+        <div className="flex gap-2">
+          <input
+            type="number"
+            min="0"
+            placeholder="Repay F-USDC"
+            value={repayAmt}
+            onChange={(e) => setRepayAmt(e.target.value)}
+            disabled={!ready || busy}
+            className="flex-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-xs"
+          />
+          <button
+            type="button"
+            onClick={() => repayAmt && onRepay?.(loans[0].id, repayAmt)}
+            disabled={!ready || busy || !repayAmt || !onRepay}
+            className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-sm disabled:opacity-50"
+          >
+            Repay loan
+          </button>
+        </div>
+      )}
     </section>
   )
 }

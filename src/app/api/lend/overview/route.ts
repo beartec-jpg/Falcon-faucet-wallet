@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { getUsdcMarket } from '@/lib/swap/quote'
-
 import { loadStableToken } from '@/lib/swap/token-config'
+import { loadLendingManifestServer } from '@/lib/lending-config'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const DROPS = 1_000_000
@@ -12,6 +12,18 @@ function dropsToFalcon(v: string | number | undefined | null): number | null {
   const n = typeof v === 'string' ? parseInt(v, 10) : v
   if (!Number.isFinite(n)) return null
   return n / DROPS
+}
+
+function iouValue(v: unknown): number | null {
+  if (v == null) return null
+  if (typeof v === 'string' || typeof v === 'number') {
+    const n = parseFloat(String(v))
+    return Number.isFinite(n) ? n : null
+  }
+  if (typeof v === 'object' && v !== null && 'value' in v) {
+    return iouValue((v as { value: unknown }).value)
+  }
+  return null
 }
 
 async function resolveToken(_networkKey: ReturnType<typeof resolveNetworkKey>) {
@@ -46,6 +58,20 @@ export async function GET(req: NextRequest) {
   try {
     const token = await resolveToken(networkKey)
     const protocol = await featureFlags(networkKey)
+    const manifest = await loadLendingManifestServer()
+    const cosignReady = !!process.env.TESTNET_LENDING_BROKER_SECRET?.trim()
+
+    let vaultAssetsAvailable: number | null = null
+    if (manifest?.vault_id) {
+      try {
+        const v = await serverRpcCall<{ node?: Record<string, unknown> }>(
+          networkKey,
+          'ledger_entry',
+          { vault: manifest.vault_id, ledger_index: 'validated' },
+        )
+        vaultAssetsAvailable = iouValue(v.node?.AssetsAvailable)
+      } catch { /* optional */ }
+    }
 
     let market = { live: false, falconPerFusdc: null as number | null, falconPool: null as number | null, usdcPool: null as number | null }
     if (token.configured) {
@@ -70,7 +96,6 @@ export async function GET(req: NextRequest) {
       hasFusdcTrustLine: boolean
     } | null = null
 
-    const vaults: Array<{ id: string; asset: string; sharesOutstanding: number }> = []
     const loans: Array<{
       id: string
       vaultId: string
@@ -116,27 +141,53 @@ export async function GET(req: NextRequest) {
         hasFusdcTrustLine,
       }
 
-      if (protocol.lendingReady) {
+      if (protocol.lendingReady && manifest) {
         try {
-          const objsR = await serverRpcCall<{
+          const loanR = await serverRpcCall<{
             account_objects?: Array<Record<string, unknown>>
           }>(networkKey, 'account_objects', {
             account: address,
-            type: 'vault',
+            type: 'loan',
             ledger_index: 'validated',
           }, { allowError: true })
-          for (const obj of objsR.account_objects ?? []) {
-            if (obj.LedgerEntryType === 'Vault' || obj.ledger_entry_type === 'Vault') {
-              vaults.push({
-                id: String(obj.index ?? obj.VaultID ?? ''),
-                asset: String(obj.Asset ?? 'unknown'),
-                sharesOutstanding: 0,
-              })
-            }
+          for (const obj of loanR.account_objects ?? []) {
+            if (obj.LedgerEntryType !== 'Loan' && obj.ledger_entry_type !== 'Loan') continue
+            const principal = iouValue(obj.PrincipalOutstanding) ?? iouValue(obj.TotalValueOutstanding) ?? 0
+            loans.push({
+              id: String(obj.index ?? obj.LoanID ?? ''),
+              vaultId: String(obj.VaultID ?? manifest.vault_id),
+              principalFusdc: principal,
+              collateralFalcon: 0,
+              healthFactor: null,
+            })
           }
-        } catch { /* vault scan optional */ }
+        } catch { /* optional */ }
+
+        try {
+          const mptR = await serverRpcCall<{
+            account_objects?: Array<Record<string, unknown>>
+          }>(networkKey, 'account_objects', {
+            account: address,
+            type: 'mptoken',
+            ledger_index: 'validated',
+          }, { allowError: true })
+          for (const obj of mptR.account_objects ?? []) {
+            const mptId = String(obj.MPTokenIssuanceID ?? obj.mpt_issuance_id ?? '')
+            if (!mptId) continue
+            const bal = parseFloat(String(obj.MPTAmount ?? obj.Balance ?? '0'))
+            if (bal <= 0) continue
+            lpPositions.push({
+              vaultId: manifest.vault_id,
+              shareBalance: bal,
+              claimableEpoch: null,
+            })
+          }
+        } catch { /* optional */ }
       }
     }
+
+    const lendingConfigured = !!(manifest?.vault_id && manifest?.loan_broker_id)
+    const txSigningReady = protocol.lendingReady && lendingConfigured
 
     return NextResponse.json({
       updatedAt: new Date().toISOString(),
@@ -144,14 +195,23 @@ export async function GET(req: NextRequest) {
         ...protocol,
         chainBuildPending: false,
         genesisRestartNeeded: false,
-        txSigningReady: false,
+        txSigningReady,
       },
       token,
       market,
       wallet,
-      vaults,
+      vaults: [],
       loans,
       lpPositions,
+      lending: {
+        configured: lendingConfigured,
+        vaultId: manifest?.vault_id ?? null,
+        loanBrokerId: manifest?.loan_broker_id ?? null,
+        brokerOwner: manifest?.broker_owner ?? null,
+        vaultAssetsAvailable,
+        interestRateTenthBps: manifest?.interest_rate_tenth_bps ?? null,
+        cosignReady,
+      },
     })
   } catch (e: unknown) {
     return NextResponse.json(

@@ -58,4 +58,13 @@ export interface LendOverview {
     healthFactor: number | null
   }>
   lpPositions: Array<{ vaultId: string; shareBalance: number; claimableEpoch: number | null }>
+  lending: {
+    configured: boolean
+    vaultId: string | null
+    loanBrokerId: string | null
+    brokerOwner: string | null
+    vaultAssetsAvailable: number | null
+    interestRateTenthBps: number | null
+    cosignReady: boolean
+  }
 }
