@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+
 import Header from '@/components/Header'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
@@ -246,6 +247,13 @@ export default function WalletPage() {
   const [showNodeSetup, setShowNodeSetup] = useState(false)
   const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
   const [walletSection, setWalletSection] = useState<'falcon' | 'bridge'>('falcon')
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('bridge') === '1' || params.get('section') === 'bridge') {
+      setWalletSection('bridge')
+    }
+  }, [])
 
   // Create-wallet form
   const [createLabel, setCreateLabel] = useState('')
@@ -1184,12 +1192,13 @@ export default function WalletPage() {
                   >
                     Receive
                   </button>
-                  <Link
-                    href="/swap"
-                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 text-center"
+                  <button
+                    type="button"
+                    onClick={() => setWalletSection('bridge')}
+                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25"
                   >
                     Bridge →
-                  </Link>
+                  </button>
                   <button
                     onClick={() => {
                       setShowNodeSetup(!savedNode)
@@ -1217,7 +1226,6 @@ export default function WalletPage() {
 
               {view === 'dashboard' && walletSection === 'bridge' && bridgeCfg && (
                 <BridgeDepositPanel
-                  variant="full"
                   wallet={wallet}
                   bridgeCfg={bridgeCfg}
                   fusdcBalance={account?.assets?.fusdc?.balance ?? null}

@@ -171,7 +171,7 @@ export default function PoolPage() {
                 <Link href="/swap" className="text-brand-400 hover:text-brand-300">
                   Swap F-USDC →
                 </Link>
-                <Link href="/swap" className="text-emerald-400 hover:text-emerald-300">
+                <Link href="/wallet?bridge=1" className="text-emerald-400 hover:text-emerald-300">
                   Bridge Sepolia USDC → F-USDC →
                 </Link>
               </div>

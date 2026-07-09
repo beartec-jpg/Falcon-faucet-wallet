@@ -18,8 +18,6 @@ import {
   type IouAmount,
 } from '@/lib/wallet-sign-client'
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
-import { type UsdcBridgeManifest } from '@/lib/bridge-config'
-import BridgeDepositPanel from '@/components/BridgeDepositPanel'
 import DexOrdersPanel from '@/components/DexOrdersPanel'
 import OrderBookPanel from '@/components/OrderBookPanel'
 
@@ -48,7 +46,6 @@ interface SwapQuote {
   tradingFeeBps: number
 }
 
-type Tab = 'swap' | 'bridge'
 type TradeMode = 'instant' | 'limit'
 
 const TRADE_MODE_KEY = 'falcon-swap-trade-mode'
@@ -92,14 +89,10 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 
 export default function SwapPage() {
   const { networkKey, network } = useNetwork()
-  const [tab, setTab] = useState<Tab>('swap')
   const [tradeMode, setTradeMode] = useState<TradeMode>('instant')
   const [wallet, setWallet] = useState<StoredWallet | null>(null)
   const [xrpBalance, setXrpBalance] = useState<number | null>(null)
-  const [sequence, setSequence] = useState(0)
-  const [ledger, setLedger] = useState(0)
   const [swapData, setSwapData] = useState<SwapData | null>(null)
-  const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -144,18 +137,14 @@ export default function SwapPage() {
   }
 
   const refresh = useCallback(async (address: string) => {
-    const [accR, swapR, bridgeR] = await Promise.all([
+    const [accR, swapR] = await Promise.all([
       fetch(withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, networkKey)).then((r) => r.json()),
       fetch(withNetworkQuery(`/api/swap?address=${encodeURIComponent(address)}`, networkKey)).then((r) => r.json()),
-      fetch('/api/bridge/config').then((r) => r.json()),
     ])
     if (accR.exists) {
       setXrpBalance(accR.balance)
-      setSequence(accR.sequence)
-      setLedger(accR.currentLedger)
     }
     if (swapR.token) setSwapData(swapR)
-    if (!bridgeR.error) setBridgeCfg(bridgeR)
 
     fetch(withNetworkQuery(`/api/market/offers?address=${encodeURIComponent(address)}`, networkKey))
       .then((r) => r.json())
@@ -365,32 +354,6 @@ export default function SwapPage() {
 
         {!loading && wallet && (
           <>
-            {/* Tab switcher */}
-            <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
-              <button
-                type="button"
-                onClick={() => setTab('swap')}
-                className={`flex-1 py-2.5 font-medium transition-colors ${
-                  tab === 'swap' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                Swap on Falcon
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setTab('bridge')
-                  if (wallet) refresh(wallet.address)
-                }}
-                className={`flex-1 py-2.5 font-medium transition-colors ${
-                  tab === 'bridge' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                Bridge
-              </button>
-            </div>
-
-            {tab === 'swap' && (
             <div className="card p-5">
               <div className="text-xs text-slate-500 mb-1">Your Falcon address</div>
               <div className="flex items-center gap-2 mb-4">
@@ -414,22 +377,8 @@ export default function SwapPage() {
                 </div>
               </div>
             </div>
-            )}
 
-            {tab === 'bridge' && bridgeCfg && (
-              <BridgeDepositPanel
-                variant="simple"
-                wallet={wallet}
-                bridgeCfg={bridgeCfg}
-                fusdcBalance={swapData?.userBalance?.balance ?? null}
-                onWalletUpdate={setWallet}
-                onFalconRefresh={() => wallet && refresh(wallet.address)}
-              />
-            )}
-
-            {/* ── On-ledger swap ── */}
-            {tab === 'swap' && (
-              <div className="space-y-4">
+            <div className="space-y-4">
                 <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
                   <button
                     type="button"
@@ -606,8 +555,11 @@ export default function SwapPage() {
                   </div>
                 ) : tradeMode === 'instant' && swapData?.token.configured ? (
                   <div className="card p-4 text-sm text-slate-500 space-y-2">
-                    <p>No liquidity for instant swaps yet. Bridge Sepolia USDC in for F-USDC, post a limit order, or create the AMM pool.</p>
-                    <div className="flex gap-3 text-xs">
+                    <p>No liquidity for instant swaps yet. Bridge Sepolia USDC in from the Wallet tab, post a limit order, or create the AMM pool.</p>
+                    <div className="flex flex-wrap gap-3 text-xs">
+                      <Link href="/wallet?bridge=1" className="text-emerald-400">
+                        Bridge USDC in Wallet →
+                      </Link>
                       <button type="button" onClick={() => setTradeModePersisted('limit')} className="text-cyan-400">
                         Post limit order →
                       </button>
@@ -647,7 +599,6 @@ export default function SwapPage() {
                   </div>
                 )}
               </div>
-            )}
 
             {txResult && (
               <div className={`card p-4 space-y-2 ${txResult.ok ? 'border border-emerald-500/20' : 'border border-red-500/20'}`}>
