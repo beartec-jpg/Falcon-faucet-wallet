@@ -713,7 +713,7 @@ export default function WalletPage() {
       }
     } else {
       if (!fusdc?.issuer || fusdc.hasTrustLine === false) {
-        setError('Add a F-USDC trust line on Swap before sending'); return
+        setError('Add a F-USDC trust line on Swap or Bridge before sending'); return
       }
       if (amt > fusdcBal) {
         setError('Insufficient F-USDC balance'); return
@@ -1206,7 +1206,14 @@ export default function WalletPage() {
                         </div>
                         <div className="text-[10px] text-slate-600 mt-0.5">
                           {account.assets?.fusdc?.hasTrustLine === false
-                            ? <Link href="/swap" className="text-brand-400">Add trust line →</Link>
+                            ? (
+                              <span>
+                                <Link href="/wallet?bridge=1" className="text-brand-400">Bridge</Link>
+                                {' or '}
+                                <Link href="/swap" className="text-brand-400">Swap</Link>
+                                {' → trust line'}
+                              </span>
+                            )
                             : 'Bridged F-USDC'}
                         </div>
                       </div>
@@ -1494,6 +1501,8 @@ export default function WalletPage() {
                         {sendAsset === 'fusdc' && account?.assets?.fusdc?.hasTrustLine === false && (
                           <p className="text-xs text-amber-400">
                             Recipient and sender both need a F-USDC trust line. Add yours on{' '}
+                            <Link href="/wallet?bridge=1" className="text-brand-400 underline">Bridge</Link>
+                            {' or '}
                             <Link href="/swap" className="text-brand-400 underline">Swap</Link>.
                           </p>
                         )}

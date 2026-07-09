@@ -55,9 +55,9 @@ export default function EpochEmissionsCard({ epoch }: { epoch: EpochOverview | n
           </div>
           <div className="sm:col-span-1 col-span-2">
             <p className="text-slate-600 leading-relaxed">
-              Per-epoch rate declines linearly (~0.07 bps/week) with no year-end reset. Year-1
-              averages 12% of treasury; year-5 ~4.5%; floor 1.5% around year 7. PoPL split after restart.
-              Pool balance reflects the live ledger.
+              CID emission declines linearly each epoch (~0.07 bps/week); year-1 averages 12% of
+              treasury. LP share is participation-based: each active vault depositor adds 1% (cap 50
+              providers). Validators receive the remainder. Epoch length is 172,800 ledgers (~7 days).
             </p>
           </div>
         </div>

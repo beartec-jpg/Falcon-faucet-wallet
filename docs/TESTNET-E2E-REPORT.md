@@ -1,6 +1,8 @@
 # Falcon Ledger Testnet — End-to-End Test Report
 
-**Report date:** 2026-07-05  
+> **Historical snapshot (pre-genesis, July 2026).** This report documents the first integrated E2E run at ledger ~83k with issuer `rfftKWu…` and AMM pool `rwwcutHZ…`. After a genesis wipe the live network uses issuer **`rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N`**, epoch length **172,800 ledgers**, Falcon validator consensus, and lending amendments enabled. For current parameters see `public/config/testnet-stables.json`, the [whitepaper](/whitepaper), and [README](../README.md). On-ledger seq/hash references below are from the pre-genesis chain unless noted otherwise.
+
+**Report date:** 2026-07-05
 **Application:** Falcon-faucet-wallet (`qXRP-faucet-wallet` / `Falcon-faucet-wallet`)  
 **See also:** [README](../README.md) · [ROADMAP](./ROADMAP.md) · [Whitepaper](/whitepaper)
 **Network:** Falcon Ledger Testnet (Network ID **1001**)  

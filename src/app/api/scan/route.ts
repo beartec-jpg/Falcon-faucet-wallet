@@ -2,7 +2,12 @@
 // Returns a full suite of network stats for the explorer page.
 
 import { NextResponse } from 'next/server'
-import { cidEmissionPct, cidYearlyAvgPct, lpAllocationPct, type EpochOverview } from '@/lib/epoch-model'
+import {
+  cidEmissionPct,
+  cidYearlyAvgPct,
+  lpAllocationPctFromBps,
+  type EpochOverview,
+} from '@/lib/epoch-model'
 import { appendMetricSamples } from '@/lib/metric-store'
 import { rpcCall } from '@/lib/rpc'
 
@@ -163,11 +168,18 @@ async function fetchEpoch(): Promise<EpochOverview> {
     })
     const epochNode = epochR?.node
     const epochNum = typeof epochNode?.EpochNumber === 'number' ? epochNode.EpochNumber : null
+    const lpBps =
+      typeof epochNode?.LPAllocationBps === 'number'
+        ? epochNode.LPAllocationBps
+        : typeof epochNode?.lp_allocation_bps === 'number'
+          ? epochNode.lp_allocation_bps
+          : null
     return {
       number: epochNum,
       poolBalanceFalcon: dropsToFalcon(epochNode?.EpochPoolBalance as string),
       emissionRateFalcon: dropsToFalcon(epochNode?.EmissionRate as string),
-      lpAllocationPct: epochNum != null ? lpAllocationPct(epochNum) : null,
+      lpAllocationPct: lpAllocationPctFromBps(lpBps),
+      lpProviderCount: lpBps != null ? Math.round(lpBps / 100) : null,
       cidEmissionPct: epochNum != null ? cidEmissionPct(epochNum) : null,
       cidYearlyAvgPct: epochNum != null ? cidYearlyAvgPct(epochNum) : null,
     }
@@ -177,6 +189,7 @@ async function fetchEpoch(): Promise<EpochOverview> {
       poolBalanceFalcon: null,
       emissionRateFalcon: null,
       lpAllocationPct: null,
+      lpProviderCount: null,
       cidEmissionPct: null,
       cidYearlyAvgPct: null,
     }

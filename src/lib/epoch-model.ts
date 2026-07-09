@@ -9,15 +9,19 @@ export const CID_DECLINE_NUM = 750
 export const CID_DECLINE_DEN = 10816
 export const CID_EPOCH_FLOOR_BPS = 3
 
-export const POPL_LP_START_PCT = 50
-export const POPL_LP_END_PCT = 30
-export const POPL_TAPER_EPOCHS = 24
+/** Each active vault depositor adds 1% to the LP basket; capped at 50 providers → 50%. */
+export const POPL_LP_BPS_PER_PROVIDER = 100
+export const POPL_LP_MAX_PROVIDERS = 50
+export const POPL_LP_MAX_PCT = 50
+
+export const LEDGERS_PER_EPOCH = 172_800
 
 export interface EpochOverview {
   number: number | null
   poolBalanceFalcon: number | null
   emissionRateFalcon: number | null
   lpAllocationPct: number | null
+  lpProviderCount: number | null
   cidEmissionPct: number | null
   cidYearlyAvgPct: number | null
 }
@@ -34,10 +38,16 @@ function cidEpochBpsDenominator(): number {
   return EPOCHS_PER_YEAR * CID_DECLINE_DEN
 }
 
-export function lpAllocationPct(epoch: number): number {
-  if (epoch <= 1) return POPL_LP_START_PCT
-  if (epoch >= POPL_TAPER_EPOCHS) return POPL_LP_END_PCT
-  return POPL_LP_START_PCT - ((POPL_LP_START_PCT - POPL_LP_END_PCT) * (epoch - 1)) / (POPL_TAPER_EPOCHS - 1)
+/** LP share of epoch emission from active lending vault provider count (1% each, cap 50%). */
+export function lpAllocationPctFromProviders(providerCount: number): number {
+  if (providerCount <= 0) return 0
+  return Math.min(providerCount, POPL_LP_MAX_PROVIDERS)
+}
+
+/** Convert on-chain sfLPAllocationBps (0–5000) to a display percentage. */
+export function lpAllocationPctFromBps(lpAllocationBps: number | null | undefined): number | null {
+  if (lpAllocationBps == null || !Number.isFinite(lpAllocationBps)) return null
+  return lpAllocationBps / 100
 }
 
 /** Yearly-average CID target (% of treasury per calendar year). */

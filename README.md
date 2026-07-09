@@ -30,6 +30,7 @@ Official public portal for the **Falcon Ledger** testnet (Network ID **1001**) �
 
 ### Bridge (Sepolia ↔ Falcon)
 - **Passkey Sepolia wallet** — no MetaMask required; EVM keys encrypted on-device
+- **F-USDC trust line** — required on the Bridge tab before Bridge In (relay will not mint without it)
 - **Bridge In** — lock Sepolia USDC on contract → relay mints **F-USDC** on Falcon
 - **Bridge Out** — send F-USDC to issuer with memo → relay releases **Sepolia USDC**
 - **Send Out** — move Sepolia ETH or USDC to any external `0x` address
@@ -41,6 +42,11 @@ Sepolia testnet contract: `0x2dae31Cbf2E3a418d617081985661fCD0117b75C` (see `pub
 - **Add liquidity** — deposit FALCON + F-USDC into the FALCON/F-USDC AMM
 - **Withdraw liquidity** — partial or full LP burn
 - Live pool stats, LP share %, and estimated withdrawal amounts
+
+### Lend
+- **Protocol live** — `SingleAssetVault` and `LendingProtocol` amendments enabled on testnet
+- **Overview** — wallet balances, live AMM mid price, health-factor calculator
+- **Supply / Borrow** — UI preview only; `VaultDeposit` / `LoanSet` portal signing not wired yet
 
 ### Explorer
 - Ledger and transaction lookup by hash or address
@@ -79,10 +85,12 @@ F-USDC and Sepolia USDC are **not** the same token — the bridge converts betwe
 | Name | Falcon Ledger Testnet |
 | Network ID | `1001` |
 | Public RPC | `http://46.224.0.140:6005` |
-| F-USDC issuer | `rfftKWuA7Dk7PF1YrH8NA7262oY3tejhqt` (currency `QUC`) |
-| AMM pool | `rwwcutHZ17aRYZbgWGhZx7eGsRUyqRj1g5` |
+| F-USDC issuer | `rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N` (currency `QUC`) |
+| F-USDC liquidity | DEX offers + AMM (see Pool / Swap tabs) |
 | Faucet | `rwzhiWW4GYK2sQVR5Lw4iDpYLANB5krJXY` |
+| Epoch length | 172,800 ledgers (~7 days) |
 | Min validator bond | 1,000 FALCON |
+| Lending | `SingleAssetVault` + `LendingProtocol` enabled |
 
 Always use the **public RPC port (6005)**. Admin ports (5005) stay on localhost via the signing proxy.
 

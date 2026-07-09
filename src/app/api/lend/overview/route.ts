@@ -142,8 +142,9 @@ export async function GET(req: NextRequest) {
       updatedAt: new Date().toISOString(),
       protocol: {
         ...protocol,
-        chainBuildPending: !protocol.lendingReady,
-        genesisRestartNeeded: true,
+        chainBuildPending: false,
+        genesisRestartNeeded: false,
+        txSigningReady: false,
       },
       token,
       market,

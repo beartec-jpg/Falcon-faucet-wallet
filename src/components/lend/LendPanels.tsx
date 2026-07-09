@@ -29,21 +29,28 @@ export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
   const { protocol } = data
   if (protocol.lendingReady) {
     return (
-      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-200">
-        Lending protocol is active on this network. Supply, borrow, and claim flows are enabled.
+      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-200 space-y-1">
+        <p>
+          <span className="font-medium">Lending protocol is live on-chain.</span>{' '}
+          <code className="text-emerald-100/90">SingleAssetVault</code> and{' '}
+          <code className="text-emerald-100/90">LendingProtocol</code> amendments are enabled.
+        </p>
+        <p className="text-xs text-emerald-200/80">
+          {protocol.txSigningReady
+            ? 'Supply, borrow, and claim are available from this portal.'
+            : 'Portal preview: balances, AMM price, and health-factor calculator. Supply / borrow buttons are not wired to VaultDeposit / LoanSet yet — use the CLI or wait for the next portal release.'}
+        </p>
       </div>
     )
   }
   return (
     <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-100 space-y-1">
       <p>
-        <span className="font-medium text-amber-200">Preview mode.</span> Vault / loan transactions need the
-        updated node build plus a genesis restart with{' '}
+        <span className="font-medium text-amber-200">Lending not active.</span> This network needs{' '}
         <code className="text-amber-100/90">SingleAssetVault</code> and{' '}
-        <code className="text-amber-100/90">LendingProtocol</code> enabled.
+        <code className="text-amber-100/90">LendingProtocol</code> amendments enabled.
       </p>
       <p className="text-xs text-amber-200/80">
-        Live now: wallet balances, AMM price, and health-factor calculator.
         Vault={protocol.singleAssetVault ? 'on' : 'off'} · Lending={protocol.lendingProtocol ? 'on' : 'off'}
       </p>
     </div>
@@ -156,11 +163,12 @@ function DisabledAction({ label, reason }: { label: string; reason: string }) {
   )
 }
 
-const PENDING = 'Available after genesis restart and lending amendments are active.'
+const PENDING_CHAIN = 'Lending amendments are not enabled on this network.'
+const PENDING_UI = 'VaultDeposit signing is not wired in the portal yet — protocol is live on-chain.'
 
 export function LendSupplyPanel({ data }: { data: LendOverview | null }) {
   const [amount, setAmount] = useState('')
-  const ready = data?.protocol.lendingReady
+  const ready = data?.protocol.lendingReady && data?.protocol.txSigningReady
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
       <h2 className="text-sm font-semibold text-white">Supply F-USDC</h2>
@@ -187,7 +195,10 @@ export function LendSupplyPanel({ data }: { data: LendOverview | null }) {
           Supply (sign with passkey)
         </button>
       ) : (
-        <DisabledAction label="Supply — pending chain" reason={PENDING} />
+        <DisabledAction
+          label={data?.protocol.lendingReady ? 'Supply — portal wiring pending' : 'Supply — pending chain'}
+          reason={data?.protocol.lendingReady ? PENDING_UI : PENDING_CHAIN}
+        />
       )}
     </section>
   )
@@ -197,7 +208,7 @@ export function LendBorrowPanel({ data }: { data: LendOverview | null }) {
   const [borrow, setBorrow] = useState('')
   const [collateral, setCollateral] = useState('')
   const price = data?.market.falconPerFusdc ?? null
-  const ready = data?.protocol.lendingReady
+  const ready = data?.protocol.lendingReady && data?.protocol.txSigningReady
 
   const needCollateral = useMemo(() => {
     const b = parseFloat(borrow)
@@ -242,7 +253,10 @@ export function LendBorrowPanel({ data }: { data: LendOverview | null }) {
           Borrow (sign with passkey)
         </button>
       ) : (
-        <DisabledAction label="Borrow — pending chain" reason={PENDING} />
+        <DisabledAction
+          label={data?.protocol.lendingReady ? 'Borrow — portal wiring pending' : 'Borrow — pending chain'}
+          reason={data?.protocol.lendingReady ? PENDING_UI : PENDING_CHAIN}
+        />
       )}
     </section>
   )
@@ -315,8 +329,14 @@ export function LendPositionsPanel({ data }: { data: LendOverview | null }) {
         <p className="text-sm text-slate-500">No lending positions on this account.</p>
       )}
 
-      <DisabledAction label="Claim supply rewards" reason={PENDING} />
-      <DisabledAction label="Repay / withdraw" reason={PENDING} />
+      <DisabledAction
+        label="Claim supply rewards"
+        reason={data?.protocol.lendingReady ? PENDING_UI : PENDING_CHAIN}
+      />
+      <DisabledAction
+        label="Repay / withdraw"
+        reason={data?.protocol.lendingReady ? PENDING_UI : PENDING_CHAIN}
+      />
     </section>
   )
 }

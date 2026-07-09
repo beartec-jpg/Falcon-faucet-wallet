@@ -58,9 +58,15 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 - [x] ClaimReward from portal
 - [x] Bond status and composite score display
 
+### Lending
+- [x] `SingleAssetVault` and `LendingProtocol` amendments enabled on testnet
+- [x] Lend tab: balances, AMM price, health-factor calculator
+- [ ] Portal wiring for `VaultDeposit` / `LoanSet` supply and borrow
+
 ### Protocol (testnet)
 - [x] Falcon-512 account creation and transaction signing
-- [x] Protocol treasury, epoch emission, halving schedule
+- [x] Falcon validator consensus fleet upgrade (`validation_falcon_secret`, Falcon hex UNL)
+- [x] Protocol treasury, CID epoch emission, participation-based LP split (1% per vault depositor, cap 50%)
 - [x] Validator PoP scoring and ClaimReward
 - [x] Double-sign slashing (100% bond)
 - [x] On-chain governance proposals and voting
@@ -82,12 +88,12 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 ## In progress — July 2026
 
 ### Protocol
-- [ ] Full Falcon validator consensus fleet upgrade (`validation_falcon_secret`, Falcon hex UNL)
-- [ ] Coordinated re-bond after consensus-breaking UNL migration
 - [ ] Real latency scoring (currently neutral floor at 5,000 bps)
 - [ ] Additional slashing offenses (absence, invalid-vote — currently `temDISABLED` on testnet)
 
 ### Portal
+- [ ] Lend supply/borrow: wire `VaultDeposit` and `LoanSet` to passkey signing
+- [ ] Post-genesis E2E PDF report regeneration
 - [ ] Mainnet network config and go-live toggle (`NEXT_PUBLIC_MAINNET_LIVE`)
 - [ ] Production security audit for passkey + bridge flows
 - [ ] Mobile-native wallet app (PWA is live; native TBD)
@@ -129,7 +135,8 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 | AMM | High slippage on thin pool | Add LP before large swaps |
 | Bridge | Relay polling latency (seconds–minutes) | Monitor relay process |
 | DEX | Partial-fill dust remainders | Cancel manually; hidden from book |
-| F-USDC | Requires trust line before receive | Auto TrustSet on first bridge-in |
+| F-USDC | Requires trust line before receive / bridge mint | Explicit TrustSet step on Bridge tab (and Swap tab for P2P) |
+| Lend | Supply/Borrow buttons are preview-only | Wire VaultDeposit / LoanSet in portal |
 | Passkeys | rawId fallback weaker than PRF | Testnet only — see `src/lib/passkey.ts` |
 | Signing | Server routes need signer proxy on node1 | Documented in `.env.example` |
 
@@ -148,6 +155,7 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 
 | Date | Highlights |
 |------|------------|
+| Jul 2026 | Post-genesis issuer, lending amendments, bridge trust-line gate, PoPL LP participation, whitepaper v2.3 |
 | Jul 2026 | Bridge, pool, DEX limit orders, F-USDC P2P, QR scanner, tx label fix, E2E report |
 | Jun 2026 | Client-side Falcon signing, passkey PWA wallet |
 | Earlier | Faucet, explorer, validator onboarding, whitepaper |
