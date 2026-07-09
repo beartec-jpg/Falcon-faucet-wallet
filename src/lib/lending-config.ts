@@ -1,5 +1,7 @@
 /** Testnet lending manifest — vault + loan broker IDs (public/config/lending.json). */
 
+import lendingManifestJson from '../../public/config/lending.json'
+
 export interface LendingManifest {
   network_id: number
   rpc_url: string
@@ -34,17 +36,9 @@ export async function loadLendingManifest(): Promise<LendingManifest | null> {
   }
 }
 
-/** Server-side: read manifest from public folder. */
+/** Server-side: bundled at build time (Vercel serverless has no public/ on disk). */
 export async function loadLendingManifestServer(): Promise<LendingManifest | null> {
-  try {
-    const fs = await import('fs/promises')
-    const path = await import('path')
-    const file = path.join(process.cwd(), 'public', 'config', 'lending.json')
-    const raw = await fs.readFile(file, 'utf8')
-    const data = JSON.parse(raw) as LendingManifest
-    if (!data.vault_id || !data.loan_broker_id) return null
-    return data
-  } catch {
-    return null
-  }
+  const data = lendingManifestJson as LendingManifest
+  if (!data.vault_id || !data.loan_broker_id) return null
+  return data
 }
