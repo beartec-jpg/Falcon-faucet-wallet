@@ -1,7 +1,7 @@
 // Vercel cron — sample network metrics every 5 min into shared Redis (24h retention).
 
 import { NextRequest, NextResponse } from 'next/server'
-import { appendMetricSamples } from '@/lib/metric-store'
+import { appendMetricSamples, pruneMetricSamples } from '@/lib/metric-store'
 import { collectNetworkMetrics } from '@/lib/scan-metrics'
 
 export const runtime = 'nodejs'
@@ -20,12 +20,15 @@ export async function GET(req: NextRequest) {
   try {
     const sample = await collectNetworkMetrics()
     const { validated_ledger, ...metrics } = sample
-    await appendMetricSamples(metrics)
+    const at = Date.now()
+    await appendMetricSamples(metrics, at)
+    const pruned = await pruneMetricSamples(at)
     return NextResponse.json({
       ok: true,
-      at: Date.now(),
+      at,
       ledger: validated_ledger ?? null,
       metrics,
+      pruned,
     })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 503 })

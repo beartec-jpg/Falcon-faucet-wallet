@@ -15,7 +15,8 @@ export const METRIC_KEYS: MetricKey[] = [
 
 export type MetricStoreBackend = 'postgres' | 'redis' | 'memory'
 
-const HOURS_24_MS = 24 * 60 * 60 * 1000
+export const METRIC_RETENTION_MS = 24 * 60 * 60 * 1000
+const HOURS_24_MS = METRIC_RETENTION_MS
 const DEDUPE_MS = 55_000
 const REDIS_PREFIX = 'falcon:metrics:v1'
 
@@ -83,7 +84,41 @@ export function metricStoreBackend(): MetricStoreBackend {
   return 'memory'
 }
 
-async function appendPg(key: MetricKey, value: number, at: number, cutoff: number): Promise<void> {
+function retentionCutoff(at = Date.now()): number {
+  return at - HOURS_24_MS
+}
+
+/** Drop samples older than 24h. Called after every batch write and on cron. */
+export async function pruneMetricSamples(at = Date.now()): Promise<number> {
+  const cutoff = retentionCutoff(at)
+  const backend = metricStoreBackend()
+
+  if (backend === 'postgres' && isDbConfigured()) {
+    await ensurePgTable()
+    const sql = getSql()
+    const deleted = await sql`
+      DELETE FROM explorer_metric_samples WHERE sampled_at < ${cutoff}
+    `
+    return deleted.length
+  }
+
+  if (backend === 'redis') {
+    const redis = redisClient()
+    if (redis) {
+      for (const key of METRIC_KEYS) {
+        await redis.zremrangebyscore(`${REDIS_PREFIX}:${key}`, 0, cutoff)
+      }
+    }
+    return 0
+  }
+
+  for (const key of METRIC_KEYS) {
+    memStore.set(key, trim(memStore.get(key) ?? [], at))
+  }
+  return 0
+}
+
+async function appendPg(key: MetricKey, value: number, at: number): Promise<void> {
   await ensurePgTable()
   const sql = getSql()
   const recent = await sql`
@@ -104,7 +139,6 @@ async function appendPg(key: MetricKey, value: number, at: number, cutoff: numbe
     VALUES (${key}, ${at}, ${value})
     ON CONFLICT (metric_key, sampled_at) DO UPDATE SET value = EXCLUDED.value
   `
-  await sql`DELETE FROM explorer_metric_samples WHERE sampled_at < ${cutoff}`
 }
 
 async function getPgSeries(key: MetricKey, cutoff: number): Promise<MetricPoint[]> {
@@ -129,7 +163,6 @@ async function mergePg(key: MetricKey, points: MetricPoint[], cutoff: number): P
       ON CONFLICT (metric_key, sampled_at) DO UPDATE SET value = EXCLUDED.value
     `
   }
-  await sql`DELETE FROM explorer_metric_samples WHERE sampled_at < ${cutoff}`
 }
 
 /** Append live samples (deduped ~1/min per metric). */
@@ -138,7 +171,6 @@ export async function appendMetricSamples(
   at = Date.now(),
 ): Promise<void> {
   const backend = metricStoreBackend()
-  const cutoff = at - HOURS_24_MS
   const redis = backend === 'redis' ? redisClient() : null
 
   for (const key of METRIC_KEYS) {
@@ -146,7 +178,7 @@ export async function appendMetricSamples(
     if (value == null || !Number.isFinite(value)) continue
 
     if (backend === 'postgres') {
-      await appendPg(key, value, at, cutoff)
+      await appendPg(key, value, at)
     } else if (redis) {
       const zkey = `${REDIS_PREFIX}:${key}`
       const rows = await redis.zrange(zkey, -1, -1, { withScores: true })
@@ -155,16 +187,18 @@ export async function appendMetricSamples(
         await redis.zrem(zkey, rows[0] as string)
       }
       await redis.zadd(zkey, { score: at, member: `${at}:${value}` })
-      await redis.zremrangebyscore(zkey, 0, cutoff)
     } else {
       appendMem(key, value, at)
     }
   }
+
+  await pruneMetricSamples(at)
 }
 
 export async function getStoredMetricSeries(key: MetricKey): Promise<MetricPoint[]> {
   const backend = metricStoreBackend()
-  const cutoff = Date.now() - HOURS_24_MS
+  const cutoff = retentionCutoff()
+  await pruneMetricSamples()
 
   if (backend === 'postgres') {
     return getPgSeries(key, cutoff)
@@ -173,7 +207,6 @@ export async function getStoredMetricSeries(key: MetricKey): Promise<MetricPoint
   const redis = backend === 'redis' ? redisClient() : null
   if (redis) {
     const zkey = `${REDIS_PREFIX}:${key}`
-    await redis.zremrangebyscore(zkey, 0, cutoff)
     const rows = await redis.zrange(zkey, 0, -1, { withScores: true })
     const out: MetricPoint[] = []
     for (let i = 0; i < rows.length; i += 2) {
@@ -200,7 +233,7 @@ export async function getAllStoredSeries(): Promise<Partial<Record<MetricKey, Me
 export async function mergeIntoStore(incoming: Partial<Record<MetricKey, MetricPoint[]>>): Promise<void> {
   const backend = metricStoreBackend()
   const now = Date.now()
-  const cutoff = now - HOURS_24_MS
+  const cutoff = retentionCutoff(now)
   const redis = backend === 'redis' ? redisClient() : null
 
   for (const key of METRIC_KEYS) {
@@ -217,10 +250,11 @@ export async function mergeIntoStore(incoming: Partial<Record<MetricKey, MetricP
       for (const p of fresh) {
         pipe.zadd(zkey, { score: p.t, member: `${p.t}:${p.v}` })
       }
-      pipe.zremrangebyscore(zkey, 0, cutoff)
       await pipe.exec()
     } else {
       memStore.set(key, mergePoints(memStore.get(key) ?? [], fresh))
     }
   }
+
+  await pruneMetricSamples(now)
 }
