@@ -55,8 +55,8 @@ export default function EpochEmissionsCard({ epoch }: { epoch: EpochOverview | n
           </div>
           <div className="sm:col-span-1 col-span-2">
             <p className="text-slate-600 leading-relaxed">
-              12% is the year-1 treasury average over 52 epochs; each epoch declines slightly. Yearly
-              average steps down from there. Validator / LP split follows PoPL after genesis restart.
+              Per-epoch rate declines linearly (~0.07 bps/week) with no year-end reset. Year-1
+              averages 12% of treasury; year-5 ~4.5%; floor 1.5% around year 7. PoPL split after restart.
               Pool balance reflects the live ledger.
             </p>
           </div>
