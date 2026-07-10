@@ -707,10 +707,15 @@ export default function WalletPage() {
         return
       }
       const payload = await decryptBackupFile(parsed, restorePassphrase)
-      const bridgeFromBackup = backupHasBridgeKeys(payload)
-        ? { evm_private_key: payload.evm_private_key, evm_address: payload.evm_address }
-        : undefined
-      await finishRestore(payload.falcon_secret, payload.label || restoreLabel, bridgeFromBackup)
+      if (!backupHasBridgeKeys(payload)) {
+        throw new Error(
+          'This backup file only contains Falcon keys. Export a new falcon-backup file from Wallet — current backups include Falcon and Sepolia together.',
+        )
+      }
+      await finishRestore(payload.falcon_secret, payload.label || restoreLabel, {
+        evm_private_key: payload.evm_private_key,
+        evm_address: payload.evm_address,
+      })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not read backup file')
     } finally {

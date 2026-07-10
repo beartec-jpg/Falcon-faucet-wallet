@@ -1,7 +1,7 @@
 // Falcon Ledger Wallet — Service Worker
 // Network-first for API + WASM; stale-while-revalidate for static assets
 
-const CACHE = 'falcon-wallet-v6'
+const CACHE = 'falcon-wallet-v7'
 
 const PRECACHE_URLS = [
   '/',
