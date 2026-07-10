@@ -65,6 +65,8 @@ export interface LendOverview {
     principalFusdc: number
     /** Minimum installment (principal + accrued interest/fees), rounded up on-chain. */
     paymentDueFusdc: number | null
+    /** Exact installment string from ledger (use when signing LoanPay). */
+    paymentDueRaw: string | null
     /** Full balance owed if paying off now. */
     totalOutstandingFusdc: number | null
     collateralFalcon: number

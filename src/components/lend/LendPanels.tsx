@@ -1,8 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { LEND_FIXED_APR_BPS, type LendOverview } from '@/lib/lend-model'
-import { borrowBlockedReason, minBrokerCoverForPrincipal } from '@/lib/lend-borrow-errors'
+import {
+  borrowBlockedReason,
+  minBrokerCoverForPrincipal,
+  repayBlockedReason,
+  suggestedRepayAmount,
+} from '@/lib/lend-borrow-errors'
 
 function fmt(n: number | null | undefined, digits = 4): string {
   if (n == null || Number.isNaN(n)) return '—'
@@ -461,8 +466,23 @@ export function LendPositionsPanel({
   const loans = data?.loans ?? []
   const activeLoan = loans[0] ?? null
   const repayDue = activeLoan?.paymentDueFusdc ?? activeLoan?.totalOutstandingFusdc ?? null
+  const suggestedRepay = suggestedRepayAmount(activeLoan)
+  const walletFusdc = data?.wallet?.fusdcBalance ?? null
+  const interestFees =
+    repayDue != null && activeLoan != null
+      ? Math.max(0, repayDue - activeLoan.principalFusdc)
+      : null
+  const repayBlocked = activeLoan && repayAmt
+    ? repayBlockedReason(data, activeLoan.id, repayAmt)
+    : null
   const lpPositions = data?.lpPositions ?? []
   const hasOnChain = loans.length > 0 || lpPositions.length > 0
+
+  useEffect(() => {
+    if (!activeLoan) return
+    const fill = suggestedRepayAmount(activeLoan)
+    if (fill) setRepayAmt(fill)
+  }, [activeLoan?.id, activeLoan?.paymentDueRaw, activeLoan?.paymentDueFusdc])
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
@@ -546,45 +566,72 @@ export function LendPositionsPanel({
       </div>
 
       {activeLoan && (
-        <div className="space-y-2">
-          {repayDue != null && repayDue > 0 && (
-            <p className="text-[10px] text-slate-500">
-              Installment due (principal + interest/fees):{' '}
-              <span className="font-mono text-slate-300">{fmt(repayDue, 6)} F-USDC</span>
-              {' '}— paying only {fmt(activeLoan.principalFusdc, 0)} F-USDC will fail with{' '}
-              <span className="font-mono">tecINSUFFICIENT_PAYMENT</span>.
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 space-y-3">
+          <div>
+            <div className="text-xs font-medium text-amber-200">Repay borrow</div>
+            <p className="text-[10px] text-slate-400 mt-1">
+              Your wallet balance is separate from the amount due. Repay must cover the full
+              installment (principal + interest/fees). Smaller partial payments are not supported
+              on-chain for this loan type.
             </p>
-          )}
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">Principal borrowed</div>
+              <div className="font-mono text-slate-200 mt-0.5">{fmt(activeLoan.principalFusdc, 2)} F-USDC</div>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">Interest + fees (this installment)</div>
+              <div className="font-mono text-slate-200 mt-0.5">
+                {interestFees != null ? `${fmt(interestFees, 6)} F-USDC` : '—'}
+              </div>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">Total repayment due</div>
+              <div className="font-mono text-amber-200 font-semibold mt-0.5">
+                {suggestedRepay ?? (repayDue != null ? `${fmt(repayDue, 6)} F-USDC` : '—')}
+                {suggestedRepay ? ' F-USDC' : ''}
+              </div>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">Your F-USDC balance</div>
+              <div className="font-mono text-emerald-300 mt-0.5">
+                {walletFusdc != null ? `${fmt(walletFusdc, 4)} F-USDC` : '—'}
+              </div>
+            </div>
+          </div>
           <div className="flex gap-2">
             <input
-              type="number"
-              min="0"
-              step="any"
-              placeholder={repayDue != null ? String(repayDue) : 'Repay F-USDC'}
+              type="text"
+              inputMode="decimal"
+              placeholder={suggestedRepay ?? 'Repay F-USDC'}
               value={repayAmt}
               onChange={(e) => setRepayAmt(e.target.value)}
               disabled={!ready || busy}
               className="flex-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-xs"
             />
-            {repayDue != null && repayDue > 0 && (
+            {suggestedRepay && (
               <button
                 type="button"
-                onClick={() => setRepayAmt(String(repayDue))}
+                onClick={() => setRepayAmt(suggestedRepay)}
                 disabled={!ready || busy}
                 className="px-3 py-2 rounded-lg bg-slate-800 text-brand-400 text-xs shrink-0"
               >
-                Fill due
+                Use due
               </button>
             )}
             <button
               type="button"
               onClick={() => repayAmt && onRepay?.(activeLoan.id, repayAmt)}
-              disabled={!ready || busy || !repayAmt || !onRepay}
-              className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-sm disabled:opacity-50"
+              disabled={!ready || busy || !repayAmt || !onRepay || !!repayBlocked}
+              className="px-4 py-2 rounded-lg bg-brand-500 text-slate-950 text-sm font-medium disabled:opacity-50"
             >
               Repay loan
             </button>
           </div>
+          {repayBlocked && (
+            <p className="text-xs text-amber-300">{repayBlocked}</p>
+          )}
         </div>
       )}
     </section>

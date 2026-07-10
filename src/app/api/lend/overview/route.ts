@@ -189,6 +189,7 @@ export async function GET(req: NextRequest) {
       vaultId: string
       principalFusdc: number
       paymentDueFusdc: number | null
+      paymentDueRaw: string | null
       totalOutstandingFusdc: number | null
       collateralFalcon: number
       healthFactor: number | null
@@ -253,12 +254,17 @@ export async function GET(req: NextRequest) {
             if (obj.LedgerEntryType !== 'Loan' && obj.ledger_entry_type !== 'Loan') continue
             const principal = iouValue(obj.PrincipalOutstanding) ?? iouValue(obj.TotalValueOutstanding) ?? 0
             const paymentDue = iouValue(obj.PeriodicPayment)
+            const paymentDueRaw =
+              typeof obj.PeriodicPayment === 'string' || typeof obj.PeriodicPayment === 'number'
+                ? String(obj.PeriodicPayment)
+                : null
             const totalOutstanding = iouValue(obj.TotalValueOutstanding)
             loans.push({
               id: String(obj.index ?? obj.LoanID ?? ''),
               vaultId: String(obj.VaultID ?? manifest.vault_id),
               principalFusdc: principal,
               paymentDueFusdc: paymentDue,
+              paymentDueRaw,
               totalOutstandingFusdc: totalOutstanding,
               collateralFalcon: 0,
               healthFactor: null,

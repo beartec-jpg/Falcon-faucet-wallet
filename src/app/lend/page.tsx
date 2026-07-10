@@ -24,7 +24,11 @@ import {
   signLoanSetBorrowerTx,
   signLoanPayTx,
 } from '@/lib/falcon-lend-tx-sign'
-import { borrowBlockedReason, explainLendSubmitError } from '@/lib/lend-borrow-errors'
+import {
+  borrowBlockedReason,
+  explainLendSubmitError,
+  repayBlockedReason,
+} from '@/lib/lend-borrow-errors'
 
 type Tab = 'overview' | 'supply' | 'borrow' | 'positions'
 
@@ -261,6 +265,11 @@ export default function LendPage() {
       const tok = data?.token
       if (!wallet || !tok?.issuer) return
       const loan = data?.loans?.find((l) => l.id === loanId)
+      const blocked = repayBlockedReason(data, loanId, amount)
+      if (blocked) {
+        setError(blocked)
+        return
+      }
       await withSecret(async (falcon_secret) => {
         try {
           await submitWithSequenceRetry({

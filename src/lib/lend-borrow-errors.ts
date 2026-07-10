@@ -36,6 +36,40 @@ export function borrowBlockedReason(
   return null
 }
 
+/** Suggested LoanPay amount: exact ledger periodic payment when available. */
+export function suggestedRepayAmount(loan: {
+  paymentDueRaw?: string | null
+  paymentDueFusdc?: number | null
+  totalOutstandingFusdc?: number | null
+} | null | undefined): string | null {
+  if (!loan) return null
+  if (loan.paymentDueRaw?.trim()) return loan.paymentDueRaw.trim()
+  const due = loan.paymentDueFusdc ?? loan.totalOutstandingFusdc
+  if (due == null || due <= 0) return null
+  return due.toFixed(6)
+}
+
+export function repayBlockedReason(
+  data: LendOverview | null,
+  loanId: string,
+  amountStr: string,
+): string | null {
+  const loan = data?.loans?.find((l) => l.id === loanId) ?? data?.loans?.[0]
+  if (!loan) return 'No active loan found on this account.'
+  const amount = parseFloat(amountStr)
+  if (!Number.isFinite(amount) || amount <= 0) return 'Enter a repay amount.'
+  const due = loan.paymentDueFusdc ?? loan.totalOutstandingFusdc
+  if (due != null && amount + 1e-9 < due) {
+    const suggested = suggestedRepayAmount(loan)
+    return `Repay amount is too low. This installment requires at least ${suggested ?? due.toLocaleString(undefined, { maximumFractionDigits: 6 })} F-USDC (principal ${loan.principalFusdc} + interest/fees). Partial payments below the installment are not supported on-chain.`
+  }
+  const balance = data?.wallet?.fusdcBalance
+  if (balance != null && amount > balance + 1e-9) {
+    return `Insufficient F-USDC in wallet (${balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} available).`
+  }
+  return null
+}
+
 export function explainLendSubmitError(
   engineResult: string | undefined,
   engineMessage: string | undefined,
