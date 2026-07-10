@@ -168,6 +168,7 @@ export default function BridgeDepositPanel({
       } else {
         setHasFusdcTrustLine(false)
       }
+      onFalconRefresh?.()
     } catch (e: unknown) {
       setFusdcError(e instanceof Error ? e.message : 'Could not load Falcon F-USDC balance')
     } finally {

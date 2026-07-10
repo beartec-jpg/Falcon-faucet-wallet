@@ -314,10 +314,11 @@ export default function WalletPage() {
 
   const refreshBalance = useCallback(async (address: string) => {
     try {
+      const fetchOpts: RequestInit = { cache: 'no-store' }
       const [accR, assetsR, lendR] = await Promise.all([
-        fetch(withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, networkKey)),
-        fetch(withNetworkQuery(`/api/wallet/assets?address=${encodeURIComponent(address)}`, networkKey)),
-        fetch(withNetworkQuery(`/api/lend/overview?address=${encodeURIComponent(address)}`, networkKey)),
+        fetch(withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, networkKey), fetchOpts),
+        fetch(withNetworkQuery(`/api/wallet/assets?address=${encodeURIComponent(address)}`, networkKey), fetchOpts),
+        fetch(withNetworkQuery(`/api/lend/overview?address=${encodeURIComponent(address)}`, networkKey), fetchOpts),
       ])
       if (!accR.ok) return
       const data: AccountData = await accR.json()
@@ -1271,14 +1272,20 @@ export default function WalletPage() {
                 <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
                   <button
                     type="button"
-                    onClick={() => setWalletSection('falcon')}
+                    onClick={() => {
+                      setWalletSection('falcon')
+                      refreshBalance(wallet.address)
+                    }}
                     className={`flex-1 py-2.5 font-medium ${walletSection === 'falcon' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
                   >
                     My Falcon Wallet
                   </button>
                   <button
                     type="button"
-                    onClick={() => setWalletSection('bridge')}
+                    onClick={() => {
+                      setWalletSection('bridge')
+                      refreshBalance(wallet.address)
+                    }}
                     className={`flex-1 py-2.5 font-medium ${walletSection === 'bridge' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
                   >
                     My Bridge Wallet
