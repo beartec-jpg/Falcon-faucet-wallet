@@ -1,6 +1,8 @@
 /** Falcon Ledger whitepaper content — single source for /whitepaper */
 
-export const WHITEPAPER_VERSION = '2.3'
+import { LENDING_REPORT_SECTIONS } from '@/content/lending-report'
+
+export const WHITEPAPER_VERSION = '2.4'
 export const WHITEPAPER_DATE = 'July 2026'
 
 export interface WhitepaperDownload {
@@ -32,6 +34,13 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
       'Third-party security and functionality audit of bridge in/out, AMM pool deposit/withdraw, instant swap, and DEX limit orders.',
     href: '/Docs/FALCON-SECURITY-REPORT-bridge-pool-amm-swap-orders.pdf',
     filename: 'FALCON-SECURITY-REPORT-bridge-pool-amm-swap-orders.pdf',
+  },
+  {
+    title: 'Lending Implementation Report',
+    description:
+      'Full testnet lending report: XLS-66 vault/broker/loan protocol, portal /lend flows, verified supply/borrow/repay session, and operations guide.',
+    href: '/Docs/LENDING-IMPLEMENTATION-REPORT.md',
+    filename: 'LENDING-IMPLEMENTATION-REPORT.md',
   },
 ]
 
@@ -119,7 +128,7 @@ The consensus model is unchanged. RPCA stays. Finality stays sub-second. Fees st
 
 **Protocol (live):** Falcon-512 account creation and transaction signing; Falcon validator consensus (\`validation_falcon_secret\`, Falcon hex UNL); validator register/bond/unbond; CID epoch emission; composite scoring; ClaimReward; double-sign slashing; on-chain governance; AMM; **SingleAssetVault** and **LendingProtocol** amendments.
 
-**Portal (live):** Passkey wallet, FALCON + F-USDC P2P (QR scan), instant AMM swap, DEX limit orders, FALCON/F-USDC liquidity pool, Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet; **F-USDC trust line required on Bridge tab before Bridge In**), lending preview (health factor, balances), explorer, rewards, and validator onboarding.
+**Portal (live):** Passkey wallet, FALCON + F-USDC P2P (QR scan), instant AMM swap, DEX limit orders, FALCON/F-USDC liquidity pool, Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet; **F-USDC trust line required on Bridge tab before Bridge In**), **lending** (supply, borrow, repay, withdraw, claim rewards at \`/lend\`), explorer, rewards, and validator onboarding.
 
 **Docs:** Current network parameters in \`public/config/testnet-stables.json\`. The bundled E2E PDF reflects a pre-genesis run; see \`docs/TESTNET-E2E-REPORT.md\` for the latest markdown report.`,
   },
@@ -200,7 +209,7 @@ composite = (uptime×40 + voteAccuracy×30 + latency×15 + consistency×10 + sla
 | **Swap** | Instant AMM swap (FALCON ↔ F-USDC); DEX limit orders (crossing + post-only passive); live order book |
 | **Pool** | Add/remove liquidity in the FALCON/F-USDC AMM; LP share and withdrawal estimates |
 | **Bridge** | Sepolia USDC ↔ F-USDC via lock contract + relay; passkey Sepolia wallet; **trust line step on Bridge tab**; send ETH/USDC to any \`0x\` |
-| **Lend** | On-chain vaults and loans live; portal shows balances, AMM price, and health-factor preview (Supply/Borrow signing coming) |
+| **Lend** | Live at \`/lend\`: \`VaultDeposit\`, \`LoanSet\` + broker co-sign, \`LoanPay\` (Pay full amount), \`VaultWithdraw\`, \`ClaimLPReward\` |
 | **Explorer** | Ledger and transaction lookup |
 
 **Asset labels:** F-USDC is the Falcon-ledger IOU (\`QUC\` from issuer \`rsJoDhj…\`). Sepolia USDC is the EVM ERC-20 used only in the Bridge tab. They are bridged, not interchangeable.
@@ -241,12 +250,12 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
 - Instant AMM swap and DEX limit orders (crossing default, post-only passive)
 - FALCON/F-USDC liquidity pool (deposit, partial withdraw)
 - Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet, trust-line gate, bridge in/out, send out)
-- Lending protocol amendments enabled (\`SingleAssetVault\`, \`LendingProtocol\`); lend tab preview
+- Lending live: \`SingleAssetVault\` + \`LendingProtocol\`; full \`/lend\` supply/borrow/repay (see §12)
 - Full Falcon validator consensus fleet upgrade (\`validation_falcon_secret\`, Falcon hex UNL)
 - Comprehensive E2E test documentation (\`docs/TESTNET-E2E-REPORT.md\`)
 
 ### In progress (July 2026)
-- Portal wiring for \`VaultDeposit\` / \`LoanSet\` supply and borrow flows
+- Collateral / health factor / liquidation UI for lending
 - Latency scoring and additional slashing offenses
 - Mainnet genesis validator set and production security audit
 - Additional stablecoin pairs (USDT) and deeper testnet liquidity
@@ -269,4 +278,5 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
 | Governance threshold | 67% aggregate composite score |
 | liboqs pin | v0.12.0 (\`f4b96220…\`) |`,
   },
+  ...LENDING_REPORT_SECTIONS,
 ]

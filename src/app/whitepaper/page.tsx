@@ -10,6 +10,12 @@ import {
   WHITEPAPER_VERSION,
 } from '@/content/whitepaper'
 
+function renderInline(html: string) {
+  return html
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>')
+    .replace(/`([^`]+)`/g, '<code class="text-brand-400 bg-slate-900 px-1 rounded text-xs">$1</code>')
+}
+
 function renderMarkdownish(text: string) {
   const blocks = text.split(/\n\n+/)
   return blocks.map((block, i) => {
@@ -18,6 +24,26 @@ function renderMarkdownish(text: string) {
         <h3 key={i} className="text-lg font-semibold text-white mt-8 mb-3">
           {block.replace(/^### /, '')}
         </h3>
+      )
+    }
+    if (block.startsWith('#### ')) {
+      return (
+        <h4 key={i} className="text-base font-semibold text-slate-200 mt-6 mb-2">
+          {block.replace(/^#### /, '')}
+        </h4>
+      )
+    }
+    const lines = block.split('\n')
+    if (lines.length > 0 && lines.every((l) => l.startsWith('- '))) {
+      return (
+        <ul key={i} className="list-disc list-outside ml-5 mb-4 space-y-1.5 text-slate-400 leading-relaxed">
+          {lines.map((line, li) => (
+            <li
+              key={li}
+              dangerouslySetInnerHTML={{ __html: renderInline(line.replace(/^- /, '')) }}
+            />
+          ))}
+        </ul>
       )
     }
     if (block.startsWith('```')) {
@@ -67,14 +93,11 @@ function renderMarkdownish(text: string) {
         </div>
       )
     }
-    const html = block
-      .replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>')
-      .replace(/`([^`]+)`/g, '<code class="text-brand-400 bg-slate-900 px-1 rounded text-xs">$1</code>')
     return (
       <p
         key={i}
         className="text-slate-400 leading-relaxed mb-4"
-        dangerouslySetInnerHTML={{ __html: html }}
+        dangerouslySetInnerHTML={{ __html: renderInline(block) }}
       />
     )
   })
@@ -136,7 +159,7 @@ export default function WhitepaperPage() {
                     <span className="block text-xs font-mono text-slate-600 mt-2">{doc.filename}</span>
                   </span>
                   <span className="flex-shrink-0 text-xs font-medium text-brand-500 group-hover:text-brand-400 pt-1">
-                    PDF ↓
+                    {doc.filename.endsWith('.pdf') ? 'PDF ↓' : 'Download ↓'}
                   </span>
                 </a>
               </li>
