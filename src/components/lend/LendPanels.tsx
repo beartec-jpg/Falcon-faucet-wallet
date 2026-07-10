@@ -16,6 +16,10 @@ function fmt(n: number | null | undefined, digits = 4): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
+function shortAddr(a: string): string {
+  return a.length > 12 ? `${a.slice(0, 8)}…${a.slice(-4)}` : a
+}
+
 const HF_COLORS: Record<ReturnType<typeof hfStatus>, string> = {
   healthy: 'text-emerald-400',
   warning: 'text-amber-400',
@@ -91,8 +95,10 @@ export function LendWalletCard({ data }: { data: LendOverview | null }) {
 
 export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
   const vault = data?.vaults?.[0]
+  const pool = data?.pool
   const position = data?.lpPositions?.[0]
   const hasWallet = !!data?.wallet
+  const walletAddr = data?.wallet?.address
 
   return (
     <div className="space-y-4">
@@ -104,14 +110,115 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
             </span>
             <span className="text-xs text-slate-500">F-USDC lending pool</span>
           </div>
-          <h2 className="text-sm font-semibold text-white mt-2">Pool overview</h2>
+          <h2 className="text-sm font-semibold text-white mt-2">Lend pool totals</h2>
           <p className="text-xs text-slate-500 mt-1">
-            Supplying mints vault share MPTs (not AMM LP tokens). Shares track your slice of the pool and PoPL
-            epoch rewards.
+            Supply side: vault deposits and share MPTs. Borrow side: outstanding loans backed by broker cover
+            (not per-borrower on-ledger collateral).
           </p>
         </div>
 
-        {vault ? (
+        {pool ? (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+              <div className="rounded-xl bg-slate-800/50 px-3 py-3">
+                <div className="text-[10px] uppercase tracking-wide text-slate-500">Total supplied</div>
+                <div className="text-lg font-bold text-white mt-1">{fmt(pool.supply.totalFusdc, 2)}</div>
+                <div className="text-[10px] text-slate-600">F-USDC in vault</div>
+              </div>
+              <div className="rounded-xl bg-slate-800/50 px-3 py-3">
+                <div className="text-[10px] uppercase tracking-wide text-slate-500">Providers</div>
+                <div className="text-lg font-bold text-emerald-300 mt-1">{pool.supply.providerCount}</div>
+                <div className="text-[10px] text-slate-600">share MPT holders</div>
+              </div>
+              <div className="rounded-xl bg-slate-800/50 px-3 py-3">
+                <div className="text-[10px] uppercase tracking-wide text-slate-500">Borrowers</div>
+                <div className="text-lg font-bold text-amber-300 mt-1">{pool.borrow.borrowerCount}</div>
+                <div className="text-[10px] text-slate-600">active loans</div>
+              </div>
+              <div className="rounded-xl bg-slate-800/50 px-3 py-3">
+                <div className="text-[10px] uppercase tracking-wide text-slate-500">Utilization</div>
+                <div className="text-lg font-bold text-white mt-1">{fmt(pool.supply.utilizationPct, 1)}%</div>
+                <div className="text-[10px] text-slate-600">borrowed / supplied</div>
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="rounded-xl border border-emerald-500/15 bg-emerald-500/5 p-3 space-y-2">
+                <h3 className="text-xs font-semibold text-emerald-200">Supply side</h3>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <div className="text-slate-500">Available</div>
+                    <div className="font-mono text-slate-200">{fmt(pool.supply.availableFusdc, 2)} F-USDC</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Share supply</div>
+                    <div className="font-mono text-slate-200">{fmt(pool.supply.sharesOutstanding, 0)}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Borrower APR</div>
+                    <div className="font-mono text-slate-200">{fmt(vault?.fixedAprPct, 2)}%</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">PoPL LP share</div>
+                    <div className="font-mono text-slate-200">
+                      {data?.epoch.lpAllocationPct != null
+                        ? `${fmt(data.epoch.lpAllocationPct, 1)}% emissions`
+                        : '—'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-500/15 bg-amber-500/5 p-3 space-y-2">
+                <h3 className="text-xs font-semibold text-amber-200">Borrow side</h3>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <div className="text-slate-500">Outstanding debt</div>
+                    <div className="font-mono text-slate-200">{fmt(pool.borrow.totalDebtFusdc, 2)} F-USDC</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Borrowed (vault)</div>
+                    <div className="font-mono text-slate-200">{fmt(pool.supply.borrowedFusdc, 2)} F-USDC</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Broker cover</div>
+                    <div className="font-mono text-slate-200">{fmt(pool.borrow.brokerCoverFusdc, 2)} F-USDC</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Debt cap</div>
+                    <div className="font-mono text-slate-200">
+                      {pool.borrow.debtMaximumFusdc != null
+                        ? `${fmt(pool.borrow.debtMaximumFusdc, 0)} F-USDC`
+                        : '—'}
+                    </div>
+                  </div>
+                </div>
+                {(pool.borrow.coverRateMinPct != null || pool.borrow.coverRateLiqPct != null) && (
+                  <p className="text-[10px] text-slate-600">
+                    Cover rates: min {fmt(pool.borrow.coverRateMinPct, 2)}% · liq{' '}
+                    {fmt(pool.borrow.coverRateLiqPct, 2)}%
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-slate-500">
+                <span>Pool utilization</span>
+                <span>
+                  {fmt(pool.supply.borrowedFusdc, 2)} borrowed · {fmt(pool.supply.availableFusdc, 2)} idle
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-800 overflow-hidden flex">
+                <div
+                  className="bg-amber-500/70 h-full"
+                  style={{ width: `${Math.min(100, pool.supply.utilizationPct)}%` }}
+                />
+                <div className="bg-emerald-500/50 h-full flex-1" />
+              </div>
+            </div>
+          </>
+        ) : vault ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
             <div>
               <div className="text-slate-500">Total supplied</div>
@@ -141,6 +248,72 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
           </p>
         )}
       </section>
+
+      {(pool?.contributors.length ?? 0) > 0 && (
+        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
+          <h2 className="text-sm font-semibold text-white">Liquidity providers</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-500 border-b border-slate-800">
+                  <th className="text-left py-2 pr-2">Address</th>
+                  <th className="text-right py-2 px-2">Shares</th>
+                  <th className="text-right py-2 px-2">Pool %</th>
+                  <th className="text-right py-2 pl-2">Supplied</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pool!.contributors.map((c) => (
+                  <tr
+                    key={c.address}
+                    className={`border-b border-slate-800/60 ${
+                      c.address === walletAddr ? 'text-emerald-300' : 'text-slate-300'
+                    }`}
+                  >
+                    <td className="py-2 pr-2 font-mono">{shortAddr(c.address)}</td>
+                    <td className="text-right font-mono py-2 px-2">{fmt(c.shareBalance, 0)}</td>
+                    <td className="text-right font-mono py-2 px-2">{fmt(c.sharePct, 4)}%</td>
+                    <td className="text-right font-mono py-2 pl-2">{fmt(c.depositedFusdc, 2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {pool && pool.borrowers.length > 0 && (
+        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
+          <h2 className="text-sm font-semibold text-white">Active borrowers</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-500 border-b border-slate-800">
+                  <th className="text-left py-2 pr-2">Borrower</th>
+                  <th className="text-right py-2 pl-2">Principal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pool.borrowers.map((b) => (
+                  <tr
+                    key={b.loanId}
+                    className={`border-b border-slate-800/60 ${
+                      b.address === walletAddr ? 'text-amber-300' : 'text-slate-300'
+                    }`}
+                  >
+                    <td className="py-2 pr-2 font-mono">{shortAddr(b.address)}</td>
+                    <td className="text-right font-mono py-2 pl-2">{fmt(b.principalFusdc, 2)} F-USDC</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {pool && pool.borrow.borrowerCount === 0 && (
+        <p className="text-xs text-slate-600 text-center">No active borrowers on-chain yet.</p>
+      )}
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
         <h2 className="text-sm font-semibold text-white">Your lend position</h2>

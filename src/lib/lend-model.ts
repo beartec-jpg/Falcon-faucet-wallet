@@ -81,6 +81,32 @@ export interface LendOverview {
     lpAllocationPct: number | null
     aggregateLpShares: number | null
   }
+  pool: {
+    supply: {
+      totalFusdc: number
+      availableFusdc: number
+      borrowedFusdc: number
+      utilizationPct: number
+      providerCount: number
+      sharesOutstanding: number
+    }
+    borrow: {
+      borrowerCount: number
+      totalDebtFusdc: number
+      brokerCoverFusdc: number
+      debtMaximumFusdc: number | null
+      coverRateMinPct: number | null
+      coverRateLiqPct: number | null
+      loansOutstanding: number
+    }
+    contributors: Array<{
+      address: string
+      shareBalance: number
+      sharePct: number
+      depositedFusdc: number
+    }>
+    borrowers: Array<{ address: string; principalFusdc: number; loanId: string }>
+  } | null
   lending: {
     configured: boolean
     vaultId: string | null

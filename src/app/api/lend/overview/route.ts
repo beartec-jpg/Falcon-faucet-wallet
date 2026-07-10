@@ -3,17 +3,17 @@ import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { getUsdcMarket } from '@/lib/swap/quote'
 import { loadStableToken } from '@/lib/swap/token-config'
 import { loadLendingManifestServer } from '@/lib/lending-config'
+import {
+  buildPoolSnapshot,
+  fetchLoanBrokerNode,
+  listChainLoans,
+  listVaultShareHolders,
+  mptScaled,
+} from '@/lib/lend-pool-stats'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const DROPS = 1_000_000
 const BPS = 10_000
-
-function mptScaled(raw: string | number | undefined | null, scale: number): number {
-  if (raw == null || raw === '') return 0
-  const n = typeof raw === 'string' ? parseFloat(raw) : raw
-  if (!Number.isFinite(n)) return 0
-  return n / 10 ** scale
-}
 
 function emissionDrops(v: unknown): number {
   if (v == null) return 0
@@ -336,6 +336,33 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    let pool = null
+    if (protocol.lendingReady && manifest?.vault_id && shareMptId && vaults.length > 0) {
+      try {
+        const [contributors, chainLoans, broker] = await Promise.all([
+          listVaultShareHolders(
+            networkKey,
+            shareMptId,
+            shareScale,
+            sharesOutstanding,
+            assetsTotal,
+          ),
+          listChainLoans(networkKey),
+          manifest.loan_broker_id
+            ? fetchLoanBrokerNode(networkKey, manifest.loan_broker_id)
+            : Promise.resolve(null),
+        ])
+        pool = buildPoolSnapshot(
+          assetsTotal,
+          vaultAssetsAvailable ?? 0,
+          sharesOutstanding,
+          contributors,
+          chainLoans,
+          broker,
+        )
+      } catch { /* optional */ }
+    }
+
     const lendingConfigured = !!(manifest?.vault_id && manifest?.loan_broker_id)
     const txSigningReady = protocol.lendingReady && lendingConfigured
 
@@ -359,6 +386,7 @@ export async function GET(req: NextRequest) {
           epochInfo.lpAllocationBps != null ? epochInfo.lpAllocationBps / 100 : null,
         aggregateLpShares: epochInfo.aggregateLpShares,
       },
+      pool,
       lending: {
         configured: lendingConfigured,
         vaultId: manifest?.vault_id ?? null,
