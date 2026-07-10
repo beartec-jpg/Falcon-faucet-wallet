@@ -1,7 +1,7 @@
-import { Wallet } from 'ethers'
+import { Wallet, hexlify } from 'ethers'
 import { authenticatePasskey } from '@/lib/passkey'
 import { encryptSeed, type EncryptedSeed } from '@/lib/wallet-crypto'
-import { saveWallet, type StoredWallet } from '@/lib/wallet-store'
+import { loadPrimaryWallet, saveWallet, type StoredWallet } from '@/lib/wallet-store'
 
 export interface CreatedEvmWallet {
   address: string
@@ -13,15 +13,24 @@ export function hasBridgeWallet(wallet: Pick<StoredWallet, 'evmAddress' | 'evmEn
   return !!(wallet.evmAddress && wallet.evmEncrypted)
 }
 
+/** CSPRNG secp256k1 key — avoids ethers HD/mnemonic path that can fail in some mobile browsers. */
+export function createRandomEvmWallet(): { address: string; privateKeyHex: string } {
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  const wallet = new Wallet(hexlify(bytes))
+  const privateKeyHex = wallet.privateKey.startsWith('0x')
+    ? wallet.privateKey.slice(2)
+    : wallet.privateKey
+  return { address: wallet.address, privateKeyHex }
+}
+
 /** Generate a fresh Sepolia EVM wallet encrypted with the same passkey key material as Falcon. */
 export async function createEvmWalletForPasskey(
   keyBytes: Uint8Array,
   hasPrf: boolean,
 ): Promise<CreatedEvmWallet> {
-  const evm = Wallet.createRandom()
-  const pk = evm.privateKey.startsWith('0x') ? evm.privateKey.slice(2) : evm.privateKey
-  const evmEncrypted = await encryptSeed(pk, keyBytes, hasPrf)
-  return { address: evm.address, evmEncrypted }
+  const { address, privateKeyHex } = createRandomEvmWallet()
+  const evmEncrypted = await encryptSeed(privateKeyHex, keyBytes, hasPrf)
+  return { address, evmEncrypted }
 }
 
 /** Create and persist a Sepolia bridge wallet for an existing Falcon wallet record. */
@@ -36,5 +45,9 @@ export async function provisionBridgeWalletForStoredWallet(
     evmEncrypted: evm.evmEncrypted,
   }
   await saveWallet(updated)
-  return updated
+  const reloaded = await loadPrimaryWallet()
+  if (!reloaded || !hasBridgeWallet(reloaded)) {
+    throw new Error('Bridge wallet could not be saved on this device — try again in the same browser tab')
+  }
+  return reloaded
 }

@@ -258,6 +258,7 @@ export default function WalletPage() {
   const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
   const [walletSection, setWalletSection] = useState<'falcon' | 'bridge'>('falcon')
   const [bridgeMissing, setBridgeMissing] = useState(false)
+  const bridgeAutoProvisioned = useRef(false)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -431,6 +432,39 @@ export default function WalletPage() {
     }).catch(() => setView('no-wallet'))
   }, [refreshBalance])
 
+  // Auto-repair wallets saved without a Sepolia bridge key (one passkey prompt).
+  useEffect(() => {
+    if (
+      view !== 'dashboard' ||
+      !wallet ||
+      !bridgeMissing ||
+      bridgeAutoProvisioned.current ||
+      busy
+    ) {
+      return
+    }
+    bridgeAutoProvisioned.current = true
+    void (async () => {
+      setBusy(true)
+      setError(null)
+      try {
+        const updated = await provisionBridgeWalletForStoredWallet(wallet)
+        setWallet(updated)
+        setBridgeMissing(false)
+        setWalletSection('bridge')
+      } catch (e: unknown) {
+        bridgeAutoProvisioned.current = false
+        setError(
+          e instanceof Error
+            ? e.message
+            : 'Bridge wallet setup failed — use the button below or My Bridge Wallet',
+        )
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }, [view, wallet, bridgeMissing, busy])
+
   // ── Create wallet ─────────────────────────────────────────────────────────
 
   const handleCreate = async () => {
@@ -453,18 +487,8 @@ export default function WalletPage() {
       const { falcon_secret, address, publicKey } = await generateWallet()
       const { credentialId, keyBytes, hasPrf } = await registerPasskey(label)
       const encrypted = await encryptSeed(falcon_secret, keyBytes, hasPrf)
-      let evm: Awaited<ReturnType<typeof createEvmWalletForPasskey>>
-      try {
-        evm = await createEvmWalletForPasskey(keyBytes, hasPrf)
-      } catch (evmErr: unknown) {
-        throw new Error(
-          `Falcon wallet keys were created, but the Sepolia bridge wallet failed: ${
-            evmErr instanceof Error ? evmErr.message : 'unknown error'
-          }. Try again in this same browser tab.`,
-        )
-      }
 
-      // Hold in memory until user confirms backup — not written to IndexedDB yet
+      // Sepolia bridge wallet is created at save time (handleConfirmBackup) with passkey auth.
       setPendingSave({
         credentialId,
         address,
@@ -473,8 +497,6 @@ export default function WalletPage() {
         encrypted,
         hasPrf,
         falcon_secret,
-        evmAddress: evm.address,
-        evmEncrypted: evm.evmEncrypted,
       })
       setView('backup')
     } catch (e: unknown) {
@@ -492,28 +514,27 @@ export default function WalletPage() {
     setBusy(true)
     setError(null)
     try {
-      let evmAddress = pendingSave.evmAddress
-      let evmEncrypted = pendingSave.evmEncrypted
-      if (!evmAddress || !evmEncrypted) {
-        const { keyBytes, hasPrf } = await authenticatePasskey(
-          pendingSave.credentialId,
-          pendingSave.hasPrf,
-        )
-        const evm = await createEvmWalletForPasskey(keyBytes, hasPrf)
-        evmAddress = evm.address
-        evmEncrypted = evm.evmEncrypted
-      }
+      const { keyBytes, hasPrf } = await authenticatePasskey(
+        pendingSave.credentialId,
+        pendingSave.hasPrf,
+      )
+      const evm = await createEvmWalletForPasskey(keyBytes, hasPrf)
 
       const { falcon_secret: _secret, ...rest } = pendingSave
       const stored: StoredWallet = {
         ...rest,
         createdAt: Date.now(),
-        evmAddress,
-        evmEncrypted,
+        evmAddress: evm.address,
+        evmEncrypted: evm.evmEncrypted,
       }
       await replacePrimaryWallet(stored)
-      setWallet(stored)
+      const verified = await loadPrimaryWallet()
+      if (!verified || !hasBridgeWallet(verified)) {
+        throw new Error('Wallet saved but Sepolia bridge keys did not persist — try again in this browser tab')
+      }
+      setWallet(verified)
       setBridgeMissing(false)
+      bridgeAutoProvisioned.current = true
       setPendingSave(null)
       setBackupPassphrase('')
       setBackupPassConfirm('')
@@ -522,7 +543,7 @@ export default function WalletPage() {
       setWeakEncryptionAck(false)
       setView('dashboard')
       setWalletSection('bridge')
-      refreshBalance(stored.address)
+      refreshBalance(verified.address)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save wallet')
     } finally {
@@ -961,7 +982,7 @@ export default function WalletPage() {
               <div className="text-center space-y-2 pb-1">
                 <h2 className="text-xl font-bold text-white">Save your wallet backup</h2>
                 <p className="text-slate-400 text-sm">
-                  Falcon + Sepolia bridge wallets are ready. Download an encrypted Falcon backup — back up the bridge key from the Wallet tab later.
+                  Download your Falcon backup, then tap Continue — that step also creates your Sepolia bridge wallet on this device.
                 </p>
               </div>
 
@@ -991,15 +1012,10 @@ export default function WalletPage() {
                   <div className="text-[10px] text-slate-500 uppercase tracking-wide">Falcon address</div>
                   <div className="font-mono text-xs text-emerald-300 break-all">{pendingSave.address}</div>
                 </div>
-                {pendingSave.evmAddress && (
-                  <div className="space-y-1">
-                    <div className="text-[10px] text-slate-500 uppercase tracking-wide">Sepolia bridge address</div>
-                    <div className="font-mono text-xs text-cyan-300 break-all">{pendingSave.evmAddress}</div>
-                    <p className="text-[10px] text-slate-600">
-                      New on this device — back up the bridge key later from My Bridge Wallet.
-                    </p>
-                  </div>
-                )}
+                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2.5 text-xs text-cyan-100/90">
+                  Your Sepolia <span className="font-mono">0x…</span> bridge address is created when you tap{' '}
+                  <span className="font-semibold">Continue to wallet</span> (passkey prompt).
+                </div>
 
                 <div className="space-y-1.5">
                   <label className="text-xs text-slate-400">Backup password <span className="text-slate-600">(min 12 chars, mix of cases/numbers/symbols — not your passkey)</span></label>

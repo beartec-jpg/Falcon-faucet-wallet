@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Wallet } from 'ethers'
+import { createRandomEvmWallet } from '@/lib/create-evm-wallet'
 import {
   authenticatePasskey,
   isPasskeySupported,
@@ -236,8 +237,8 @@ export default function BridgeDepositPanel({
     setError(null)
     try {
       const auth = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-      const evm = Wallet.createRandom()
-      await attachEvmWallet(evm.privateKey, undefined, auth)
+      const evm = createRandomEvmWallet()
+      await attachEvmWallet(evm.privateKeyHex, evm.address, auth)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to create Sepolia wallet')
     } finally {
