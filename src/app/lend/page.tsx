@@ -12,7 +12,7 @@ import type { LendOverview } from '@/lib/lend-model'
 import {
   LendProtocolBanner,
   LendWalletCard,
-  LendHealthCalculator,
+  LendPoolOverviewPanel,
   LendSupplyPanel,
   LendBorrowPanel,
   LendPositionsPanel,
@@ -343,12 +343,7 @@ export default function LendPage() {
             {tab === 'overview' && (
               <div className="space-y-4">
                 <LendWalletCard data={data} />
-                {data?.lending.vaultAssetsAvailable != null && (
-                  <p className="text-xs text-slate-500 text-center">
-                    Vault liquidity: {data.lending.vaultAssetsAvailable.toLocaleString()} F-USDC available to borrow
-                  </p>
-                )}
-                <LendHealthCalculator data={data} />
+                <LendPoolOverviewPanel data={data} />
               </div>
             )}
             {tab === 'supply' && (

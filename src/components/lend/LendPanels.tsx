@@ -89,6 +89,126 @@ export function LendWalletCard({ data }: { data: LendOverview | null }) {
   )
 }
 
+export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
+  const vault = data?.vaults?.[0]
+  const position = data?.lpPositions?.[0]
+  const hasWallet = !!data?.wallet
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/30 to-slate-900/60 p-4 space-y-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded text-xs font-mono bg-emerald-500/15 text-emerald-300">
+              Vault
+            </span>
+            <span className="text-xs text-slate-500">F-USDC lending pool</span>
+          </div>
+          <h2 className="text-sm font-semibold text-white mt-2">Pool overview</h2>
+          <p className="text-xs text-slate-500 mt-1">
+            Supplying mints vault share MPTs (not AMM LP tokens). Shares track your slice of the pool and PoPL
+            epoch rewards.
+          </p>
+        </div>
+
+        {vault ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div>
+              <div className="text-slate-500">Total supplied</div>
+              <div className="font-mono text-slate-200">{fmt(vault.assetsTotal, 2)} F-USDC</div>
+            </div>
+            <div>
+              <div className="text-slate-500">Available to borrow</div>
+              <div className="font-mono text-slate-200">{fmt(vault.assetsAvailable, 2)} F-USDC</div>
+            </div>
+            <div>
+              <div className="text-slate-500">Share supply</div>
+              <div className="font-mono text-slate-200">{fmt(vault.sharesOutstanding, 0)}</div>
+            </div>
+            <div>
+              <div className="text-slate-500">Borrower APR</div>
+              <div className="font-mono text-slate-200">{fmt(vault.fixedAprPct, 2)}%</div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">Vault not bootstrapped or unreachable.</p>
+        )}
+
+        {data?.epoch.number != null && (
+          <p className="text-xs text-slate-500">
+            PoPL epoch {data.epoch.number}
+            {data.epoch.lpAllocationPct != null && ` · ${fmt(data.epoch.lpAllocationPct, 1)}% of emissions to LPs`}
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
+        <h2 className="text-sm font-semibold text-white">Your lend position</h2>
+        {!hasWallet ? (
+          <p className="text-sm text-slate-500">Connect a wallet on the Wallet tab to see your pool share.</p>
+        ) : position ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+              <div>
+                <div className="text-slate-500">Vault shares (MPT)</div>
+                <div className="font-mono text-emerald-300">{fmt(position.shareBalance, 0)}</div>
+              </div>
+              <div>
+                <div className="text-slate-500">Pool share</div>
+                <div className="font-mono text-slate-200">
+                  {position.sharePct != null ? `${fmt(position.sharePct, 4)}%` : '—'}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-500">Your supplied</div>
+                <div className="font-mono text-slate-200">
+                  {position.depositedFusdc != null ? `${fmt(position.depositedFusdc, 2)} F-USDC` : '—'}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-500">Est. epoch reward</div>
+                <div className="font-mono text-slate-200">
+                  {position.estEpochRewardFalcon != null
+                    ? `${fmt(position.estEpochRewardFalcon, 4)} FALCON`
+                    : data?.epoch.number == null
+                      ? 'After first PoPL epoch'
+                      : '—'}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-500">Borrower interest</div>
+                <div className="font-mono text-slate-200">
+                  {vault ? `${fmt(vault.fixedAprPct, 2)}% APR (pro-rata)` : '—'}
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-500">Claim status</div>
+                <div className={position.canClaim ? 'text-emerald-400 text-xs' : 'text-slate-500 text-xs'}>
+                  {position.canClaim
+                    ? `Epoch ${position.claimableEpoch} ready`
+                    : position.claimableEpoch != null
+                      ? 'Claimed for current epoch'
+                      : 'No epoch yet'}
+                </div>
+              </div>
+            </div>
+            {position.shareMptId && (
+              <p className="text-[10px] text-slate-600 font-mono truncate" title={position.shareMptId}>
+                Share MPT: {position.shareMptId.slice(0, 10)}…{position.shareMptId.slice(-6)}
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">
+            No vault shares yet. Supply F-USDC on the Supply tab — you receive share MPTs proportional to your
+            deposit.
+          </p>
+        )}
+      </section>
+    </div>
+  )
+}
+
 export function LendHealthCalculator({ data }: { data: LendOverview | null }) {
   const [collateral, setCollateral] = useState('1500')
   const [debt, setDebt] = useState('1000')
@@ -306,8 +426,18 @@ export function LendPositionsPanel({
               ))}
               {lpPositions.map((lp, i) => (
                 <tr key={`lp-${i}`} className="text-slate-300">
-                  <td className="py-2 pr-2">Supply (vault shares)</td>
-                  <td className="text-right font-mono py-2 px-2">{fmt(lp.shareBalance, 0)}</td>
+                  <td className="py-2 pr-2">
+                    Supply
+                    {lp.sharePct != null && (
+                      <span className="text-slate-500 ml-1">({fmt(lp.sharePct, 2)}%)</span>
+                    )}
+                  </td>
+                  <td className="text-right font-mono py-2 px-2">
+                    {fmt(lp.shareBalance, 0)} shares
+                    {lp.depositedFusdc != null && (
+                      <span className="text-slate-500 block">≈ {fmt(lp.depositedFusdc, 2)} F-USDC</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

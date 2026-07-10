@@ -49,7 +49,16 @@ export interface LendOverview {
     fusdcLimit: number | null
     hasFusdcTrustLine: boolean
   } | null
-  vaults: Array<{ id: string; asset: string; sharesOutstanding: number }>
+  vaults: Array<{
+    id: string
+    asset: string
+    assetsTotal: number
+    assetsAvailable: number
+    sharesOutstanding: number
+    shareMptId: string
+    shareScale: number
+    fixedAprPct: number
+  }>
   loans: Array<{
     id: string
     vaultId: string
@@ -57,7 +66,21 @@ export interface LendOverview {
     collateralFalcon: number
     healthFactor: number | null
   }>
-  lpPositions: Array<{ vaultId: string; shareBalance: number; claimableEpoch: number | null }>
+  lpPositions: Array<{
+    vaultId: string
+    shareMptId: string
+    shareBalance: number
+    sharePct: number | null
+    depositedFusdc: number | null
+    estEpochRewardFalcon: number | null
+    claimableEpoch: number | null
+    canClaim: boolean
+  }>
+  epoch: {
+    number: number | null
+    lpAllocationPct: number | null
+    aggregateLpShares: number | null
+  }
   lending: {
     configured: boolean
     vaultId: string | null
