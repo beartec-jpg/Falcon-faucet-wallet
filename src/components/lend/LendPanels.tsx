@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react'
 import { LEND_FIXED_APR_BPS, type LendOverview } from '@/lib/lend-model'
 import {
   borrowBlockedReason,
+  fullRepayAmount,
+  isRepayableLoan,
   minBrokerCoverForPrincipal,
   repayBlockedReason,
-  suggestedRepayAmount,
+  repayDueFusdc,
 } from '@/lib/lend-borrow-errors'
 
 function fmt(n: number | null | undefined, digits = 4): string {
@@ -464,25 +466,28 @@ export function LendPositionsPanel({
   const ready = data?.protocol.txSigningReady
 
   const loans = data?.loans ?? []
-  const activeLoan = loans[0] ?? null
-  const repayDue = activeLoan?.paymentDueFusdc ?? activeLoan?.totalOutstandingFusdc ?? null
-  const suggestedRepay = suggestedRepayAmount(activeLoan)
+  const repayableLoans = loans.filter(isRepayableLoan)
+  const activeLoan = repayableLoans[0] ?? null
+  const repayDue = repayDueFusdc(activeLoan)
+  const payFullAmount = fullRepayAmount(activeLoan)
   const walletFusdc = data?.wallet?.fusdcBalance ?? null
   const interestFees =
     repayDue != null && activeLoan != null
       ? Math.max(0, repayDue - activeLoan.principalFusdc)
       : null
-  const repayBlocked = activeLoan && repayAmt
-    ? repayBlockedReason(data, activeLoan.id, repayAmt)
+  const repayBlocked = activeLoan && payFullAmount
+    ? repayBlockedReason(data, activeLoan.id, payFullAmount)
     : null
   const lpPositions = data?.lpPositions ?? []
   const hasOnChain = loans.length > 0 || lpPositions.length > 0
 
   useEffect(() => {
-    if (!activeLoan) return
-    const fill = suggestedRepayAmount(activeLoan)
-    if (fill) setRepayAmt(fill)
-  }, [activeLoan?.id, activeLoan?.paymentDueRaw, activeLoan?.paymentDueFusdc])
+    if (!activeLoan || !payFullAmount) {
+      setRepayAmt('')
+      return
+    }
+    setRepayAmt(payFullAmount)
+  }, [activeLoan?.id, activeLoan?.paymentDueRaw, activeLoan?.paymentDueFusdc, activeLoan?.totalOutstandingFusdc, payFullAmount])
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
@@ -500,13 +505,13 @@ export function LendPositionsPanel({
               </tr>
             </thead>
             <tbody>
-              {loans.map((loan) => (
+              {loans.filter(isRepayableLoan).map((loan) => (
                 <tr key={loan.id} className="border-b border-slate-800/60 text-slate-300">
                   <td className="py-2 pr-2">
                     Borrow
-                    {loan.paymentDueFusdc != null && loan.paymentDueFusdc > loan.principalFusdc && (
+                    {repayDueFusdc(loan) != null && repayDueFusdc(loan)! > loan.principalFusdc && (
                       <span className="text-slate-500 block text-[10px]">
-                        payment due ~{fmt(loan.paymentDueFusdc, 6)} F-USDC
+                        payment due ~{fullRepayAmount(loan) ?? fmt(repayDueFusdc(loan), 6)} F-USDC
                       </span>
                     )}
                   </td>
@@ -565,14 +570,12 @@ export function LendPositionsPanel({
         </button>
       </div>
 
-      {activeLoan && (
+      {activeLoan && payFullAmount && (
         <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 space-y-3">
           <div>
             <div className="text-xs font-medium text-amber-200">Repay borrow</div>
             <p className="text-[10px] text-slate-400 mt-1">
-              Your wallet balance is separate from the amount due. Repay must cover the full
-              installment (principal + interest/fees). Smaller partial payments are not supported
-              on-chain for this loan type.
+              Pay the full installment (principal + interest/fees). Amount is auto-filled below.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs">
@@ -586,49 +589,32 @@ export function LendPositionsPanel({
                 {interestFees != null ? `${fmt(interestFees, 6)} F-USDC` : '—'}
               </div>
             </div>
-            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-              <div className="text-slate-500">Total repayment due</div>
-              <div className="font-mono text-amber-200 font-semibold mt-0.5">
-                {suggestedRepay ?? (repayDue != null ? `${fmt(repayDue, 6)} F-USDC` : '—')}
-                {suggestedRepay ? ' F-USDC' : ''}
-              </div>
-            </div>
-            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2 col-span-2">
               <div className="text-slate-500">Your F-USDC balance</div>
               <div className="font-mono text-emerald-300 mt-0.5">
                 {walletFusdc != null ? `${fmt(walletFusdc, 4)} F-USDC` : '—'}
               </div>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="space-y-2">
+            <label className="block text-[10px] text-slate-500">Repayment amount (auto-filled)</label>
             <input
               type="text"
               inputMode="decimal"
-              placeholder={suggestedRepay ?? 'Repay F-USDC'}
+              readOnly
               value={repayAmt}
-              onChange={(e) => setRepayAmt(e.target.value)}
               disabled={!ready || busy}
-              className="flex-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-xs"
+              className="w-full rounded-lg bg-slate-950 border border-amber-500/30 px-3 py-2.5 font-mono text-sm text-amber-100"
             />
-            {suggestedRepay && (
-              <button
-                type="button"
-                onClick={() => setRepayAmt(suggestedRepay)}
-                disabled={!ready || busy}
-                className="px-3 py-2 rounded-lg bg-slate-800 text-brand-400 text-xs shrink-0"
-              >
-                Use due
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => repayAmt && onRepay?.(activeLoan.id, repayAmt)}
-              disabled={!ready || busy || !repayAmt || !onRepay || !!repayBlocked}
-              className="px-4 py-2 rounded-lg bg-brand-500 text-slate-950 text-sm font-medium disabled:opacity-50"
-            >
-              Repay loan
-            </button>
           </div>
+          <button
+            type="button"
+            onClick={() => onRepay?.(activeLoan.id, payFullAmount)}
+            disabled={!ready || busy || !onRepay || !!repayBlocked}
+            className="w-full rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 px-4 py-3 text-sm font-semibold disabled:opacity-50"
+          >
+            Pay full amount · {payFullAmount} F-USDC
+          </button>
           {repayBlocked && (
             <p className="text-xs text-amber-300">{repayBlocked}</p>
           )}

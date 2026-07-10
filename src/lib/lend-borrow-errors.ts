@@ -36,32 +36,61 @@ export function borrowBlockedReason(
   return null
 }
 
-/** Suggested LoanPay amount: exact ledger periodic payment when available. */
-export function suggestedRepayAmount(loan: {
+type RepayLoanFields = {
+  principalFusdc?: number
   paymentDueRaw?: string | null
   paymentDueFusdc?: number | null
   totalOutstandingFusdc?: number | null
-} | null | undefined): string | null {
-  if (!loan) return null
-  if (loan.paymentDueRaw?.trim()) return loan.paymentDueRaw.trim()
-  const due = loan.paymentDueFusdc ?? loan.totalOutstandingFusdc
-  if (due == null || due <= 0) return null
-  return due.toFixed(6)
 }
+
+/** Loan still has outstanding debt and can accept LoanPay. */
+export function isRepayableLoan(loan: RepayLoanFields | null | undefined): boolean {
+  if (!loan) return false
+  const outstanding = loan.totalOutstandingFusdc ?? loan.principalFusdc ?? 0
+  return outstanding > 0
+}
+
+/** Minimum installment / full payoff due from ledger fields. */
+export function repayDueFusdc(loan: RepayLoanFields | null | undefined): number | null {
+  if (!loan || !isRepayableLoan(loan)) return null
+  const raw = loan.paymentDueRaw?.trim()
+  if (raw) {
+    const n = parseFloat(raw)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  const due = loan.paymentDueFusdc ?? loan.totalOutstandingFusdc
+  return due != null && due > 0 ? due : null
+}
+
+/** LoanPay amount: round up to 6 dp so submission clears accrued interest/fees on-chain. */
+export function formatRepayAmount(due: number): string {
+  const scaled = Math.ceil(due * 1_000_000 - 1e-12) / 1_000_000
+  return scaled.toFixed(6)
+}
+
+/** Full repay amount for auto-fill and Pay full amount (principal + interest/fees). */
+export function fullRepayAmount(loan: RepayLoanFields | null | undefined): string | null {
+  const due = repayDueFusdc(loan)
+  if (due == null) return null
+  return formatRepayAmount(due)
+}
+
+/** @deprecated Use fullRepayAmount */
+export const suggestedRepayAmount = fullRepayAmount
 
 export function repayBlockedReason(
   data: LendOverview | null,
   loanId: string,
   amountStr: string,
 ): string | null {
-  const loan = data?.loans?.find((l) => l.id === loanId) ?? data?.loans?.[0]
-  if (!loan) return 'No active loan found on this account.'
+  const loan = data?.loans?.find((l) => l.id === loanId) ?? data?.loans?.find(isRepayableLoan)
+  if (!loan || !isRepayableLoan(loan)) return 'No active loan found on this account.'
   const amount = parseFloat(amountStr)
   if (!Number.isFinite(amount) || amount <= 0) return 'Enter a repay amount.'
-  const due = loan.paymentDueFusdc ?? loan.totalOutstandingFusdc
+  const due = repayDueFusdc(loan)
   if (due != null && amount + 1e-9 < due) {
-    const suggested = suggestedRepayAmount(loan)
-    return `Repay amount is too low. This installment requires at least ${suggested ?? due.toLocaleString(undefined, { maximumFractionDigits: 6 })} F-USDC (principal ${loan.principalFusdc} + interest/fees). Partial payments below the installment are not supported on-chain.`
+    const full = fullRepayAmount(loan)
+    return `Repay amount is too low. This installment requires at least ${full ?? formatRepayAmount(due)} F-USDC (principal ${loan.principalFusdc} + interest/fees). Tap Pay full amount to use the exact due.`
   }
   const balance = data?.wallet?.fusdcBalance
   if (balance != null && amount > balance + 1e-9) {
