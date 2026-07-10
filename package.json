@@ -6,6 +6,7 @@
   "scripts": {
     "copy:wasm": "mkdir -p public/wasm && cp node_modules/@openforge-sh/liboqs/dist/falcon-512.min.js public/wasm/falcon-512.min.js",
     "copy:docs": "mkdir -p public/Docs && cp -f Docs/*.pdf Docs/*.md public/Docs/ 2>/dev/null || true",
+    "pdf:lending": "npx --yes md-to-pdf Docs/LENDING-IMPLEMENTATION-REPORT.md --stylesheet Docs/lending-report-pdf.css --document-title 'Falcon Ledger — Lending Implementation Report' --pdf-options '{\"format\":\"A4\",\"printBackground\":true}' && mv -f Docs/LENDING-IMPLEMENTATION-REPORT.pdf Docs/FALCON-LENDING-IMPLEMENTATION-REPORT.pdf",
     "postinstall": "npm run copy:wasm && npm run copy:docs",
     "prebuild": "npm run copy:wasm && npm run copy:docs",
     "dev": "next dev",

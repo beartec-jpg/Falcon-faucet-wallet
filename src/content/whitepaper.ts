@@ -39,8 +39,8 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
     title: 'Lending Implementation Report',
     description:
       'Full testnet lending report: XLS-66 vault/broker/loan protocol, portal /lend flows, verified supply/borrow/repay session, and operations guide.',
-    href: '/Docs/LENDING-IMPLEMENTATION-REPORT.md',
-    filename: 'LENDING-IMPLEMENTATION-REPORT.md',
+    href: '/Docs/FALCON-LENDING-IMPLEMENTATION-REPORT.pdf',
+    filename: 'FALCON-LENDING-IMPLEMENTATION-REPORT.pdf',
   },
 ]
 
