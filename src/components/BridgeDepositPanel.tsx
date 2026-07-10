@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Wallet } from 'ethers'
 import { createRandomEvmWallet } from '@/lib/create-evm-wallet'
@@ -19,7 +20,10 @@ import {
   waitForWithdrawalRelease,
   type BridgeDepositResult,
 } from '@/lib/evm-bridge-client'
+import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
 import { signBridgeWithdraw, signFusdcPayment, signTrustSet } from '@/lib/wallet-sign-client'
+
+const AddressQrScanner = dynamic(() => import('@/components/AddressQrScanner'), { ssr: false })
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
 import {
   etherscanAddressUrl,
@@ -120,6 +124,7 @@ export default function BridgeDepositPanel({
   const [sendTo, setSendTo] = useState('')
   const [sendAmount, setSendAmount] = useState('')
   const [sendHash, setSendHash] = useState<string | null>(null)
+  const [showSendScanner, setShowSendScanner] = useState(false)
   const [amount, setAmount] = useState('')
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [busy, setBusy] = useState(false)
@@ -1258,6 +1263,24 @@ export default function BridgeDepositPanel({
               </div>
             )}
 
+            {showSendScanner && (
+              <AddressQrScanner
+                hint="Point at a Sepolia 0x address QR"
+                manualHint="Paste the 0x address manually, or allow camera access and retry."
+                onScan={(raw) => {
+                  setShowSendScanner(false)
+                  const addr = parseEvmAddressFromScan(raw)
+                  if (!addr) {
+                    setError('QR code does not contain a valid 0x address')
+                    return
+                  }
+                  setSendTo(addr)
+                  setError(null)
+                }}
+                onClose={() => setShowSendScanner(false)}
+              />
+            )}
+
             {mode === 'send' && (
               <div className="space-y-3">
                 <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
@@ -1278,15 +1301,30 @@ export default function BridgeDepositPanel({
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs text-slate-400">Recipient (0x…)</label>
-                  <input
-                    type="text"
-                    value={sendTo}
-                    onChange={(e) => { setSendTo(e.target.value); setError(null) }}
-                    placeholder="0x…"
-                    className="input-field font-mono text-sm"
-                    disabled={busy}
-                    spellCheck={false}
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={sendTo}
+                      onChange={(e) => { setSendTo(e.target.value); setError(null) }}
+                      placeholder="0x…"
+                      className="input-field font-mono text-sm flex-1 min-w-0"
+                      disabled={busy}
+                      spellCheck={false}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { setShowSendScanner(true); setError(null) }}
+                      disabled={busy}
+                      className="shrink-0 px-3 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white disabled:opacity-40 transition-colors"
+                      title="Scan QR code"
+                      aria-label="Scan QR code"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
+                          d="M4 7V4h3M4 17v3h3M17 4h3v3M20 17v3h-3M7 7h3v3H7zm0 7h3v3H7zm7-7h3v3h-3zm0 7h3v3h-3z" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs text-slate-400">Amount ({sendAsset.toUpperCase()})</label>

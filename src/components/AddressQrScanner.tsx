@@ -6,9 +6,18 @@ import jsQR from 'jsqr'
 interface Props {
   onScan: (raw: string) => void
   onClose: () => void
+  /** Shown under the viewfinder */
+  hint?: string
+  /** Shown when camera fails */
+  manualHint?: string
 }
 
-export default function AddressQrScanner({ onScan, onClose }: Props) {
+export default function AddressQrScanner({
+  onScan,
+  onClose,
+  hint = 'Point at a Receive QR (Falcon r-address)',
+  manualHint = 'Paste the Falcon address manually, or allow camera access and retry.',
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef = useRef<number>(0)
@@ -97,7 +106,7 @@ export default function AddressQrScanner({ onScan, onClose }: Props) {
       {error ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center">
           <p className="text-sm text-amber-400">{error}</p>
-          <p className="text-xs text-slate-500">Paste the Falcon address manually, or allow camera access and retry.</p>
+          <p className="text-xs text-slate-500">{manualHint}</p>
           <button type="button" onClick={onClose} className="text-sm text-brand-400">
             Close
           </button>
@@ -115,7 +124,7 @@ export default function AddressQrScanner({ onScan, onClose }: Props) {
             <div className="w-56 h-56 border-2 border-brand-400/80 rounded-2xl shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]" />
           </div>
           <p className="absolute bottom-6 left-0 right-0 text-center text-xs text-slate-300 px-4">
-            Point at a Receive QR (Falcon r-address)
+            {hint}
           </p>
         </div>
       )}
