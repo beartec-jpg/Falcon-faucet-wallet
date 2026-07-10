@@ -1,15 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import {
-  LEND_FIXED_APR_BPS,
-  LEND_GRACE_HOURS,
-  LEND_MIN_COLLATERAL_RATIO,
-  LEND_LIQUIDATION_THRESHOLD,
-  healthFactor,
-  hfStatus,
-  type LendOverview,
-} from '@/lib/lend-model'
+import { useState } from 'react'
+import { LEND_FIXED_APR_BPS, type LendOverview } from '@/lib/lend-model'
 
 function fmt(n: number | null | undefined, digits = 4): string {
   if (n == null || Number.isNaN(n)) return '—'
@@ -18,14 +10,6 @@ function fmt(n: number | null | undefined, digits = 4): string {
 
 function shortAddr(a: string): string {
   return a.length > 12 ? `${a.slice(0, 8)}…${a.slice(-4)}` : a
-}
-
-const HF_COLORS: Record<ReturnType<typeof hfStatus>, string> = {
-  healthy: 'text-emerald-400',
-  warning: 'text-amber-400',
-  grace: 'text-orange-400',
-  liquidatable: 'text-red-400',
-  none: 'text-slate-500',
 }
 
 export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
@@ -57,34 +41,6 @@ export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
         <code className="text-amber-100/90">LendingProtocol</code> on validators.
       </p>
     </div>
-  )
-}
-
-export function LendWalletCard({ data }: { data: LendOverview | null }) {
-  if (!data?.wallet) {
-    return (
-      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-500">
-        Connect a wallet on the Wallet tab to supply F-USDC to the lend pool.
-      </section>
-    )
-  }
-  const w = data.wallet
-  return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-2">
-      <h2 className="text-sm font-semibold text-white">Your F-USDC</h2>
-      <p className="text-xs text-slate-500">
-        The lend pool is F-USDC only — bridge in or swap for F-USDC, then supply on the Supply tab.
-      </p>
-      <div className="text-xs">
-        <div className="text-slate-500">Available to supply</div>
-        <div className="font-mono text-lg text-emerald-300">
-          {w.hasFusdcTrustLine ? `${fmt(w.fusdcBalance, 2)} F-USDC` : 'No trust line'}
-        </div>
-      </div>
-      {!w.hasFusdcTrustLine && (
-        <p className="text-xs text-amber-400">Add a F-USDC trust line on Wallet → Bridge or Swap first.</p>
-      )}
-    </section>
   )
 }
 
@@ -152,14 +108,6 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
                   <div>
                     <div className="text-slate-500">Borrower APR</div>
                     <div className="font-mono text-slate-200">{fmt(vault?.fixedAprPct, 2)}%</div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500">PoPL LP share</div>
-                    <div className="font-mono text-slate-200">
-                      {data?.epoch.lpAllocationPct != null
-                        ? `${fmt(data.epoch.lpAllocationPct, 1)}% emissions`
-                        : '—'}
-                    </div>
                   </div>
                 </div>
               </div>
@@ -236,12 +184,6 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
           <p className="text-sm text-slate-500">Vault not bootstrapped or unreachable.</p>
         )}
 
-        {data?.epoch.number != null && (
-          <p className="text-xs text-slate-500">
-            PoPL epoch {data.epoch.number}
-            {data.epoch.lpAllocationPct != null && ` · ${fmt(data.epoch.lpAllocationPct, 1)}% of emissions to LPs`}
-          </p>
-        )}
       </section>
 
       {(pool?.contributors.length ?? 0) > 0 && (
@@ -311,130 +253,53 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
       )}
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-white">Your lend position</h2>
+        <h2 className="text-sm font-semibold text-white">Your position</h2>
         {!hasWallet ? (
           <p className="text-sm text-slate-500">Connect a wallet on the Wallet tab to see your pool share.</p>
-        ) : position ? (
+        ) : (
           <div className="space-y-3">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-              <div>
-                <div className="text-slate-500">Vault shares (MPT)</div>
-                <div className="font-mono text-emerald-300">{fmt(position.shareBalance, 0)}</div>
-              </div>
-              <div>
-                <div className="text-slate-500">Pool share</div>
-                <div className="font-mono text-slate-200">
-                  {position.sharePct != null ? `${fmt(position.sharePct, 4)}%` : '—'}
-                </div>
-              </div>
-              <div>
-                <div className="text-slate-500">Your supplied</div>
-                <div className="font-mono text-slate-200">
-                  {position.depositedFusdc != null ? `${fmt(position.depositedFusdc, 2)} F-USDC` : '—'}
-                </div>
-              </div>
-              <div>
-                <div className="text-slate-500">PoPL bonus (network)</div>
-                <div className="font-mono text-slate-200">
-                  {position.estEpochRewardFalcon != null
-                    ? `${fmt(position.estEpochRewardFalcon, 4)} FALCON`
-                    : data?.epoch.number == null
-                      ? 'After first PoPL epoch'
-                      : '—'}
-                </div>
-                <div className="text-[10px] text-slate-600">Not pool liquidity</div>
-              </div>
-              <div>
-                <div className="text-slate-500">Borrower interest</div>
-                <div className="font-mono text-slate-200">
-                  {vault ? `${fmt(vault.fixedAprPct, 2)}% APR (pro-rata)` : '—'}
-                </div>
-              </div>
-              <div>
-                <div className="text-slate-500">Claim status</div>
-                <div className={position.canClaim ? 'text-emerald-400 text-xs' : 'text-slate-500 text-xs'}>
-                  {position.canClaim
-                    ? `Epoch ${position.claimableEpoch} ready`
-                    : position.claimableEpoch != null
-                      ? 'Claimed for current epoch'
-                      : 'No epoch yet'}
-                </div>
+            <div className="text-xs">
+              <div className="text-slate-500">F-USDC available to supply</div>
+              <div className="font-mono text-slate-200">
+                {data?.wallet?.hasFusdcTrustLine
+                  ? `${fmt(data.wallet.fusdcBalance, 2)} F-USDC`
+                  : 'No trust line — add via Bridge or Swap'}
               </div>
             </div>
-            {position.shareMptId && (
-              <p className="text-[10px] text-slate-600 font-mono truncate" title={position.shareMptId}>
-                Share MPT: {position.shareMptId.slice(0, 10)}…{position.shareMptId.slice(-6)}
+            {position ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <div className="text-slate-500">Vault shares</div>
+                  <div className="font-mono text-emerald-300">{fmt(position.shareBalance, 0)}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Pool share</div>
+                  <div className="font-mono text-slate-200">
+                    {position.sharePct != null ? `${fmt(position.sharePct, 4)}%` : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Supplied</div>
+                  <div className="font-mono text-slate-200">
+                    {position.depositedFusdc != null ? `${fmt(position.depositedFusdc, 2)} F-USDC` : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Lender APR</div>
+                  <div className="font-mono text-slate-200">
+                    {vault ? `${fmt(vault.fixedAprPct, 2)}%` : '—'}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">
+                No vault shares yet — supply F-USDC on the Supply tab to receive share MPTs.
               </p>
             )}
           </div>
-        ) : (
-          <p className="text-sm text-slate-500">
-            No vault shares yet. Supply F-USDC on the Supply tab — you receive share MPTs proportional to your
-            deposit.
-          </p>
         )}
       </section>
     </div>
-  )
-}
-
-export function LendHealthCalculator({ data }: { data: LendOverview | null }) {
-  const [collateral, setCollateral] = useState('1500')
-  const [debt, setDebt] = useState('1000')
-  const price = data?.market.falconPerFusdc ?? null
-
-  const parsed = useMemo(() => {
-    const c = parseFloat(collateral)
-    const d = parseFloat(debt)
-    if (!Number.isFinite(c) || !Number.isFinite(d) || price == null || price <= 0) {
-      return { hf: null as number | null, status: 'none' as const }
-    }
-    const hf = healthFactor(c, d, price)
-    return { hf, status: hfStatus(hf) }
-  }, [collateral, debt, price])
-
-  return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
-      <h2 className="text-sm font-semibold text-white">Health factor calculator</h2>
-      <p className="text-xs text-slate-500">
-        Preview calculator (XRPL loans use broker cover, not on-ledger FALCON collateral). Min ratio{' '}
-        {LEND_MIN_COLLATERAL_RATIO * 100}% · liquidation below {LEND_LIQUIDATION_THRESHOLD}.
-      </p>
-      {price == null ? (
-        <p className="text-sm text-amber-400/90">No DEX price — add liquidity on Pool or Swap first.</p>
-      ) : (
-        <>
-          <div className="grid sm:grid-cols-2 gap-3">
-            <label className="block text-xs">
-              <span className="text-slate-500">Collateral (FALCON)</span>
-              <input
-                type="number"
-                min="0"
-                value={collateral}
-                onChange={(e) => setCollateral(e.target.value)}
-                className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm"
-              />
-            </label>
-            <label className="block text-xs">
-              <span className="text-slate-500">Debt (F-USDC)</span>
-              <input
-                type="number"
-                min="0"
-                value={debt}
-                onChange={(e) => setDebt(e.target.value)}
-                className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm"
-              />
-            </label>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-xs text-slate-500">Health factor</span>
-            <span className={`text-2xl font-mono font-semibold ${HF_COLORS[parsed.status]}`}>
-              {parsed.hf != null ? parsed.hf.toFixed(3) : '—'}
-            </span>
-          </div>
-        </>
-      )}
-    </section>
   )
 }
 
@@ -462,7 +327,7 @@ export function LendSupplyPanel({
       <h2 className="text-sm font-semibold text-white">Supply F-USDC</h2>
       <p className="text-xs text-slate-500">
         Deposit into the lending vault via <code className="text-slate-400">VaultDeposit</code>. You receive vault
-        share MPTs and earn borrower interest plus PoPL epoch emissions.
+        share MPTs and earn borrower interest pro-rata.
       </p>
       <div className="text-xs text-slate-400">
         Pool APR: {(LEND_FIXED_APR_BPS / 100).toFixed(2)}% · Vault{' '}
@@ -620,7 +485,7 @@ export function LendPositionsPanel({
         disabled={!ready || busy || !onClaim}
         className="w-full rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 text-sm font-medium disabled:opacity-50"
       >
-        Claim LP epoch rewards
+        Claim lender rewards
       </button>
 
       <div className="flex gap-2">

@@ -11,7 +11,6 @@ import { decryptSeed } from '@/lib/wallet-crypto'
 import type { LendOverview } from '@/lib/lend-model'
 import {
   LendProtocolBanner,
-  LendWalletCard,
   LendPoolOverviewPanel,
   LendSupplyPanel,
   LendBorrowPanel,
@@ -341,10 +340,7 @@ export default function LendPage() {
             </div>
 
             {tab === 'overview' && (
-              <div className="space-y-4">
-                <LendWalletCard data={data} />
-                <LendPoolOverviewPanel data={data} />
-              </div>
+              <LendPoolOverviewPanel data={data} />
             )}
             {tab === 'supply' && (
               <LendSupplyPanel data={data} busy={busy} onSupply={handleSupply} />
