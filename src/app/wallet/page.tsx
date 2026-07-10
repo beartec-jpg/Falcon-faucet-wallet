@@ -1561,13 +1561,13 @@ export default function WalletPage() {
                     <form onSubmit={handleSend} className="space-y-4">
                       <div className="space-y-1.5">
                         <label className="text-xs text-slate-400">Destination address</label>
-                        <div className="flex gap-2">
+                        <div className="flex items-stretch gap-2">
                           <input
                             type="text"
                             value={sendTo}
                             onChange={e => { setSendTo(e.target.value); setError(null) }}
                             placeholder="rXXX…"
-                            className="input-field flex-1 min-w-0"
+                            className="input-field flex-1 min-w-0 w-0"
                             disabled={busy}
                             autoComplete="off"
                             spellCheck={false}
@@ -1576,14 +1576,15 @@ export default function WalletPage() {
                             type="button"
                             onClick={() => { setShowSendScanner(true); setError(null) }}
                             disabled={busy}
-                            className="shrink-0 px-3 rounded-xl border border-slate-700 bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white disabled:opacity-40 transition-colors"
-                            title="Scan QR code"
-                            aria-label="Scan QR code"
+                            className="shrink-0 flex flex-col items-center justify-center gap-0.5 min-w-[4.25rem] px-2.5 rounded-xl border border-brand-500/50 bg-brand-500/15 text-brand-400 hover:bg-brand-500/25 hover:text-brand-300 disabled:opacity-40 transition-colors"
+                            title="Scan recipient QR code"
+                            aria-label="Scan recipient QR code"
                           >
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
                                 d="M4 7V4h3M4 17v3h3M17 4h3v3M20 17v3h-3M7 7h3v3H7zm0 7h3v3H7zm7-7h3v3h-3zm0 7h3v3h-3z" />
                             </svg>
+                            <span className="text-[10px] font-semibold leading-none">Scan</span>
                           </button>
                         </div>
                       </div>
