@@ -1,0 +1,61 @@
+import type { LendOverview } from '@/lib/lend-model'
+
+/** Minimum broker first-loss cover required for a principal (CoverRateMinimum is tenth-bips / 1000 = %). */
+export function minBrokerCoverForPrincipal(
+  principalFusdc: number,
+  coverRateMinPct: number | null | undefined,
+): number {
+  if (!Number.isFinite(principalFusdc) || principalFusdc <= 0) return 0
+  const pct = coverRateMinPct ?? 1
+  return (principalFusdc * pct) / 100
+}
+
+export function borrowBlockedReason(
+  data: LendOverview | null,
+  principalFusdc?: number,
+): string | null {
+  if (!data?.protocol.txSigningReady) return 'Lending protocol is not active on this network.'
+  if (!data.lending.cosignReady) {
+    return 'Borrow co-sign is not configured on the server (TESTNET_LENDING_BROKER_SECRET).'
+  }
+  const vault = data.vaults?.[0]
+  if (!vault) return 'Lend vault is not configured.'
+  const available = vault.assetsAvailable ?? 0
+  if (principalFusdc != null && principalFusdc > available) {
+    return `Only ${available.toLocaleString()} F-USDC is available to borrow from the vault right now.`
+  }
+  const cover = data.pool?.borrow.brokerCoverFusdc ?? 0
+  const coverPct = data.pool?.borrow.coverRateMinPct ?? 1
+  const minCover =
+    principalFusdc != null
+      ? minBrokerCoverForPrincipal(principalFusdc, coverPct)
+      : minBrokerCoverForPrincipal(1, coverPct)
+  if (cover < minCover) {
+    return `Loan broker first-loss cover is ${cover.toLocaleString()} F-USDC (need at least ~${minCover.toLocaleString()} F-USDC). The pool operator must post broker cover before borrows can open.`
+  }
+  return null
+}
+
+export function explainLendSubmitError(
+  engineResult: string | undefined,
+  engineMessage: string | undefined,
+  data: LendOverview | null,
+): string {
+  const base = [engineResult, engineMessage].filter(Boolean).join(' — ')
+  if (engineResult === 'tecINSUFFICIENT_FUNDS') {
+    const cover = data?.pool?.borrow.brokerCoverFusdc ?? 0
+    if (cover < 0.01) {
+      return 'Borrow failed: loan broker has no first-loss cover (0 F-USDC). The pool operator must deposit F-USDC broker cover before anyone can borrow — vault liquidity alone is not enough.'
+    }
+    if ((data?.vaults?.[0]?.assetsAvailable ?? 0) <= 0) {
+      return 'Borrow failed: no F-USDC available in the lend vault to fund loans.'
+    }
+    return base
+      ? `Borrow failed (${base}). Check vault liquidity and broker cover on the Overview tab.`
+      : 'Borrow failed: insufficient funds (vault liquidity or broker cover).'
+  }
+  if (engineResult === 'tecINSUFFICIENT_RESERVE') {
+    return 'Borrow failed: your Falcon wallet needs more FALCON for account reserve (fund the wallet via faucet first).'
+  }
+  return base || 'Transaction failed'
+}

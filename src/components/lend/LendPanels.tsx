@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { LEND_FIXED_APR_BPS, type LendOverview } from '@/lib/lend-model'
+import { borrowBlockedReason, minBrokerCoverForPrincipal } from '@/lib/lend-borrow-errors'
 
 function fmt(n: number | null | undefined, digits = 4): string {
   if (n == null || Number.isNaN(n)) return '—'
@@ -125,7 +126,12 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
                   </div>
                   <div>
                     <div className="text-slate-500">Broker cover</div>
-                    <div className="font-mono text-slate-200">{fmt(pool.borrow.brokerCoverFusdc, 2)} F-USDC</div>
+                    <div className={`font-mono ${pool.borrow.brokerCoverFusdc < 0.01 ? 'text-amber-400' : 'text-slate-200'}`}>
+                      {fmt(pool.borrow.brokerCoverFusdc, 2)} F-USDC
+                    </div>
+                    {pool.borrow.brokerCoverFusdc < 0.01 && (
+                      <div className="text-[10px] text-amber-500/90 mt-0.5">Required before borrows open</div>
+                    )}
                   </div>
                   <div>
                     <div className="text-slate-500">Debt cap</div>
@@ -369,12 +375,16 @@ export function LendBorrowPanel({
   onBorrow?: (principal: string) => void
 }) {
   const [borrow, setBorrow] = useState('')
+  const borrowNum = parseFloat(borrow)
+  const blocked = borrowBlockedReason(
+    data,
+    Number.isFinite(borrowNum) && borrowNum > 0 ? borrowNum : undefined,
+  )
   const ready =
-    data?.protocol.txSigningReady && data?.lending.cosignReady && !!onBorrow
+    data?.protocol.txSigningReady && data?.lending.cosignReady && !!onBorrow && !blocked
 
   const handle = () => {
-    const n = parseFloat(borrow)
-    if (!Number.isFinite(n) || n <= 0) return
+    if (!Number.isFinite(borrowNum) || borrowNum <= 0) return
     onBorrow?.(borrow)
   }
 
@@ -388,6 +398,24 @@ export function LendBorrowPanel({
       {!data?.lending.cosignReady && data?.protocol.txSigningReady && (
         <p className="text-xs text-amber-400">
           Broker co-sign secret not on server — borrow disabled until TESTNET_LENDING_BROKER_SECRET is set.
+        </p>
+      )}
+      {blocked && data?.protocol.txSigningReady && (
+        <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2.5">
+          {blocked}
+        </p>
+      )}
+      {data?.pool && (
+        <p className="text-[10px] text-slate-600">
+          Vault available: {fmt(data.pool.supply.availableFusdc, 2)} F-USDC · Broker cover:{' '}
+          {fmt(data.pool.borrow.brokerCoverFusdc, 2)} F-USDC
+          {Number.isFinite(borrowNum) && borrowNum > 0 && data.pool.borrow.coverRateMinPct != null && (
+            <>
+              {' '}
+              · min cover for {fmt(borrowNum, 0)} borrow: ~
+              {fmt(minBrokerCoverForPrincipal(borrowNum, data.pool.borrow.coverRateMinPct), 2)} F-USDC
+            </>
+          )}
         </p>
       )}
       <label className="block text-xs">

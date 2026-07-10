@@ -24,6 +24,7 @@ import {
   signLoanSetBorrowerTx,
   signLoanPayTx,
 } from '@/lib/falcon-lend-tx-sign'
+import { borrowBlockedReason, explainLendSubmitError } from '@/lib/lend-borrow-errors'
 
 type Tab = 'overview' | 'supply' | 'borrow' | 'positions'
 
@@ -148,6 +149,12 @@ export default function LendPage() {
         setError('Borrow co-sign not configured — set TESTNET_LENDING_BROKER_SECRET on server')
         return
       }
+      const principalNum = parseFloat(principal)
+      const blocked = borrowBlockedReason(data, Number.isFinite(principalNum) ? principalNum : undefined)
+      if (blocked) {
+        setError(blocked)
+        return
+      }
       await withSecret(async (falcon_secret) => {
         const { sequence, currentLedger } = await fetchSequenceInfo(wallet.address, networkKey)
         const lastLedgerSequence = currentLedger + 20
@@ -182,7 +189,7 @@ export default function LendPage() {
         })
         const subJ = await subR.json()
         if (!subJ.success) {
-          throw new Error([subJ.result, subJ.message].filter(Boolean).join(' — ') || 'Submit failed')
+          throw new Error(explainLendSubmitError(subJ.result, subJ.message, data))
         }
         setNotice(`Borrowed ${principal} F-USDC (loan opened)`)
       })
