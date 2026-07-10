@@ -64,30 +64,25 @@ export function LendWalletCard({ data }: { data: LendOverview | null }) {
   if (!data?.wallet) {
     return (
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-500">
-        Connect a wallet on the Wallet tab to see balances here.
+        Connect a wallet on the Wallet tab to supply F-USDC to the lend pool.
       </section>
     )
   }
   const w = data.wallet
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-2">
-      <h2 className="text-sm font-semibold text-white">Your balances</h2>
-      <div className="grid grid-cols-2 gap-3 text-xs">
-        <div>
-          <div className="text-slate-500">FALCON</div>
-          <div className="font-mono text-slate-200">{fmt(w.falconBalance, 2)}</div>
-        </div>
-        <div>
-          <div className="text-slate-500">F-USDC</div>
-          <div className="font-mono text-slate-200">
-            {w.hasFusdcTrustLine ? fmt(w.fusdcBalance, 2) : 'No trust line'}
-          </div>
+      <h2 className="text-sm font-semibold text-white">Your F-USDC</h2>
+      <p className="text-xs text-slate-500">
+        The lend pool is F-USDC only — bridge in or swap for F-USDC, then supply on the Supply tab.
+      </p>
+      <div className="text-xs">
+        <div className="text-slate-500">Available to supply</div>
+        <div className="font-mono text-lg text-emerald-300">
+          {w.hasFusdcTrustLine ? `${fmt(w.fusdcBalance, 2)} F-USDC` : 'No trust line'}
         </div>
       </div>
-      {data.market.falconPerFusdc != null && (
-        <p className="text-xs text-slate-500">
-          DEX price: 1 F-USDC ≈ {fmt(1 / data.market.falconPerFusdc, 2)} FALCON
-        </p>
+      {!w.hasFusdcTrustLine && (
+        <p className="text-xs text-amber-400">Add a F-USDC trust line on Wallet → Bridge or Swap first.</p>
       )}
     </section>
   )
@@ -110,10 +105,10 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
             </span>
             <span className="text-xs text-slate-500">F-USDC lending pool</span>
           </div>
-          <h2 className="text-sm font-semibold text-white mt-2">Lend pool totals</h2>
+          <h2 className="text-sm font-semibold text-white mt-2">F-USDC lend pool</h2>
           <p className="text-xs text-slate-500 mt-1">
-            Supply side: vault deposits and share MPTs. Borrow side: outstanding loans backed by broker cover
-            (not per-borrower on-ledger collateral).
+            Only F-USDC goes in — users bridge or swap, then supply. No FALCON in this pool. Borrowers draw
+            F-USDC when loans open; broker cover backs lenders separately.
           </p>
         </div>
 
@@ -339,7 +334,7 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
                 </div>
               </div>
               <div>
-                <div className="text-slate-500">Est. epoch reward</div>
+                <div className="text-slate-500">PoPL bonus (network)</div>
                 <div className="font-mono text-slate-200">
                   {position.estEpochRewardFalcon != null
                     ? `${fmt(position.estEpochRewardFalcon, 4)} FALCON`
@@ -347,6 +342,7 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
                       ? 'After first PoPL epoch'
                       : '—'}
                 </div>
+                <div className="text-[10px] text-slate-600">Not pool liquidity</div>
               </div>
               <div>
                 <div className="text-slate-500">Borrower interest</div>
