@@ -1,7 +1,11 @@
 import type { Metadata, Viewport } from 'next'
+import { Inter, JetBrains_Mono } from 'next/font/google'
 import Script from 'next/script'
 import Providers from '@/components/Providers'
 import './globals.css'
+
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' })
+const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' })
 
 const NETWORK = process.env.NEXT_PUBLIC_TESTNET_NAME ?? 'Falcon Ledger'
 
@@ -25,7 +29,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`}>
       <head>
         {/* iOS PWA meta */}
         <meta name="mobile-web-app-capable" content="yes" />

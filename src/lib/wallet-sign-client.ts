@@ -129,9 +129,9 @@ export async function signTrustSet(
   return { tx_blob }
 }
 
-export type XrpAmount = string
-export type IouAmount = { currency: string; issuer: string; value: string }
-export type XrplAmount = XrpAmount | IouAmount
+import type { XrplAmount } from './xrpl-amount'
+
+export type { XrpAmount, IouAmount, XrplAmount } from './xrpl-amount'
 
 export interface OfferCreateParams {
   account: string

@@ -63,6 +63,7 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
+              "frame-src 'self' https://vercel.live",
               "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://vercel.live",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: blob:",

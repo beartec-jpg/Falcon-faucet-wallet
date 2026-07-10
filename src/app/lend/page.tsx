@@ -24,7 +24,7 @@ import {
   signClaimLPRewardTx,
   signLoanSetBorrowerTx,
   signLoanPayTx,
-} from '@/lib/falcon-tx-sign'
+} from '@/lib/falcon-lend-tx-sign'
 
 type Tab = 'overview' | 'supply' | 'borrow' | 'positions'
 
