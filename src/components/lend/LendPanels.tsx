@@ -459,6 +459,8 @@ export function LendPositionsPanel({
   const ready = data?.protocol.txSigningReady
 
   const loans = data?.loans ?? []
+  const activeLoan = loans[0] ?? null
+  const repayDue = activeLoan?.paymentDueFusdc ?? activeLoan?.totalOutstandingFusdc ?? null
   const lpPositions = data?.lpPositions ?? []
   const hasOnChain = loans.length > 0 || lpPositions.length > 0
 
@@ -480,7 +482,14 @@ export function LendPositionsPanel({
             <tbody>
               {loans.map((loan) => (
                 <tr key={loan.id} className="border-b border-slate-800/60 text-slate-300">
-                  <td className="py-2 pr-2">Borrow</td>
+                  <td className="py-2 pr-2">
+                    Borrow
+                    {loan.paymentDueFusdc != null && loan.paymentDueFusdc > loan.principalFusdc && (
+                      <span className="text-slate-500 block text-[10px]">
+                        payment due ~{fmt(loan.paymentDueFusdc, 6)} F-USDC
+                      </span>
+                    )}
+                  </td>
                   <td className="text-right font-mono py-2 px-2">
                     {fmt(loan.principalFusdc, 2)} F-USDC
                   </td>
@@ -536,25 +545,46 @@ export function LendPositionsPanel({
         </button>
       </div>
 
-      {loans[0] && (
-        <div className="flex gap-2">
-          <input
-            type="number"
-            min="0"
-            placeholder="Repay F-USDC"
-            value={repayAmt}
-            onChange={(e) => setRepayAmt(e.target.value)}
-            disabled={!ready || busy}
-            className="flex-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-xs"
-          />
-          <button
-            type="button"
-            onClick={() => repayAmt && onRepay?.(loans[0].id, repayAmt)}
-            disabled={!ready || busy || !repayAmt || !onRepay}
-            className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-sm disabled:opacity-50"
-          >
-            Repay loan
-          </button>
+      {activeLoan && (
+        <div className="space-y-2">
+          {repayDue != null && repayDue > 0 && (
+            <p className="text-[10px] text-slate-500">
+              Installment due (principal + interest/fees):{' '}
+              <span className="font-mono text-slate-300">{fmt(repayDue, 6)} F-USDC</span>
+              {' '}— paying only {fmt(activeLoan.principalFusdc, 0)} F-USDC will fail with{' '}
+              <span className="font-mono">tecINSUFFICIENT_PAYMENT</span>.
+            </p>
+          )}
+          <div className="flex gap-2">
+            <input
+              type="number"
+              min="0"
+              step="any"
+              placeholder={repayDue != null ? String(repayDue) : 'Repay F-USDC'}
+              value={repayAmt}
+              onChange={(e) => setRepayAmt(e.target.value)}
+              disabled={!ready || busy}
+              className="flex-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-xs"
+            />
+            {repayDue != null && repayDue > 0 && (
+              <button
+                type="button"
+                onClick={() => setRepayAmt(String(repayDue))}
+                disabled={!ready || busy}
+                className="px-3 py-2 rounded-lg bg-slate-800 text-brand-400 text-xs shrink-0"
+              >
+                Fill due
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => repayAmt && onRepay?.(activeLoan.id, repayAmt)}
+              disabled={!ready || busy || !repayAmt || !onRepay}
+              className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-sm disabled:opacity-50"
+            >
+              Repay loan
+            </button>
+          </div>
         </div>
       )}
     </section>

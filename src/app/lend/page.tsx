@@ -260,28 +260,40 @@ export default function LendPage() {
     async (loanId: string, amount: string) => {
       const tok = data?.token
       if (!wallet || !tok?.issuer) return
+      const loan = data?.loans?.find((l) => l.id === loanId)
       await withSecret(async (falcon_secret) => {
-        await submitWithSequenceRetry({
-          networkKey,
-          fetchSequence: async () => {
-            const a = await fetchSequenceInfo(wallet.address, networkKey)
-            return { sequence: a.sequence, currentLedger: a.currentLedger }
-          },
-          sign: ({ sequence, lastLedgerSequence }) =>
-            signLoanPayTx(
-              {
-                account: wallet.address,
-                loanId,
-                currency: tok.currency,
-                issuer: tok.issuer,
-                amount,
-                sequence,
-                lastLedgerSequence,
-                networkId: network.networkId,
-              },
-              falcon_secret,
-            ),
-        })
+        try {
+          await submitWithSequenceRetry({
+            networkKey,
+            fetchSequence: async () => {
+              const a = await fetchSequenceInfo(wallet.address, networkKey)
+              return { sequence: a.sequence, currentLedger: a.currentLedger }
+            },
+            sign: ({ sequence, lastLedgerSequence }) =>
+              signLoanPayTx(
+                {
+                  account: wallet.address,
+                  loanId,
+                  currency: tok.currency,
+                  issuer: tok.issuer,
+                  amount,
+                  sequence,
+                  lastLedgerSequence,
+                  networkId: network.networkId,
+                },
+                falcon_secret,
+              ),
+          })
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : ''
+          const result = msg.split(' — ')[0]?.trim()
+          if (result?.startsWith('tec')) {
+            throw new Error(explainLendSubmitError(result, msg, data, {
+              paymentDueFusdc: loan?.paymentDueFusdc ?? loan?.totalOutstandingFusdc,
+            }))
+          }
+          throw e
+        }
         setNotice(`Repaid ${amount} F-USDC`)
       })
     },

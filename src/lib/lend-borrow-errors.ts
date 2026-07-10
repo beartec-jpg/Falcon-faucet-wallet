@@ -40,8 +40,16 @@ export function explainLendSubmitError(
   engineResult: string | undefined,
   engineMessage: string | undefined,
   data: LendOverview | null,
+  opts?: { paymentDueFusdc?: number | null },
 ): string {
   const base = [engineResult, engineMessage].filter(Boolean).join(' — ')
+  if (engineResult === 'tecINSUFFICIENT_PAYMENT') {
+    const due = opts?.paymentDueFusdc ?? data?.loans?.[0]?.paymentDueFusdc ?? data?.loans?.[0]?.totalOutstandingFusdc
+    if (due != null && due > 0) {
+      return `Repay failed: payment is not sufficient. This installment requires at least ~${due.toLocaleString(undefined, { maximumFractionDigits: 6 })} F-USDC (principal + interest/fees) — repaying only the borrowed principal (e.g. 10) is not enough.`
+    }
+    return 'Repay failed: payment is not sufficient. Include accrued interest and fees — use the payment due amount shown on Positions, not just the principal.'
+  }
   if (engineResult === 'tecINSUFFICIENT_FUNDS') {
     const cover = data?.pool?.borrow.brokerCoverFusdc ?? 0
     if (cover < 0.01) {

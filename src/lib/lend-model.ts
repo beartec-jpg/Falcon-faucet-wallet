@@ -63,6 +63,10 @@ export interface LendOverview {
     id: string
     vaultId: string
     principalFusdc: number
+    /** Minimum installment (principal + accrued interest/fees), rounded up on-chain. */
+    paymentDueFusdc: number | null
+    /** Full balance owed if paying off now. */
+    totalOutstandingFusdc: number | null
     collateralFalcon: number
     healthFactor: number | null
   }>
