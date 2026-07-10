@@ -45,7 +45,11 @@ import {
   type SavedValidatorNode,
 } from '@/lib/validator-node-store'
 import { isValidFalconAddress, parseFalconAddressFromScan } from '@/lib/parse-falcon-address'
-import { createEvmWalletForPasskey } from '@/lib/create-evm-wallet'
+import {
+  createEvmWalletForPasskey,
+  hasBridgeWallet,
+  provisionBridgeWalletForStoredWallet,
+} from '@/lib/create-evm-wallet'
 import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
 
@@ -253,6 +257,7 @@ export default function WalletPage() {
   const [showNodeSetup, setShowNodeSetup] = useState(false)
   const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
   const [walletSection, setWalletSection] = useState<'falcon' | 'bridge'>('falcon')
+  const [bridgeMissing, setBridgeMissing] = useState(false)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -416,9 +421,11 @@ export default function WalletPage() {
     loadPrimaryWallet().then(primary => {
       if (primary) {
         setWallet(primary)
+        setBridgeMissing(!hasBridgeWallet(primary))
         setView('dashboard')
         refreshBalance(primary.address)
       } else {
+        setBridgeMissing(false)
         setView('no-wallet')
       }
     }).catch(() => setView('no-wallet'))
@@ -446,7 +453,16 @@ export default function WalletPage() {
       const { falcon_secret, address, publicKey } = await generateWallet()
       const { credentialId, keyBytes, hasPrf } = await registerPasskey(label)
       const encrypted = await encryptSeed(falcon_secret, keyBytes, hasPrf)
-      const evm = await createEvmWalletForPasskey(keyBytes, hasPrf)
+      let evm: Awaited<ReturnType<typeof createEvmWalletForPasskey>>
+      try {
+        evm = await createEvmWalletForPasskey(keyBytes, hasPrf)
+      } catch (evmErr: unknown) {
+        throw new Error(
+          `Falcon wallet keys were created, but the Sepolia bridge wallet failed: ${
+            evmErr instanceof Error ? evmErr.message : 'unknown error'
+          }. Try again in this same browser tab.`,
+        )
+      }
 
       // Hold in memory until user confirms backup — not written to IndexedDB yet
       setPendingSave({
@@ -476,15 +492,28 @@ export default function WalletPage() {
     setBusy(true)
     setError(null)
     try {
+      let evmAddress = pendingSave.evmAddress
+      let evmEncrypted = pendingSave.evmEncrypted
+      if (!evmAddress || !evmEncrypted) {
+        const { keyBytes, hasPrf } = await authenticatePasskey(
+          pendingSave.credentialId,
+          pendingSave.hasPrf,
+        )
+        const evm = await createEvmWalletForPasskey(keyBytes, hasPrf)
+        evmAddress = evm.address
+        evmEncrypted = evm.evmEncrypted
+      }
+
       const { falcon_secret: _secret, ...rest } = pendingSave
       const stored: StoredWallet = {
         ...rest,
         createdAt: Date.now(),
-        evmAddress: pendingSave.evmAddress,
-        evmEncrypted: pendingSave.evmEncrypted,
+        evmAddress,
+        evmEncrypted,
       }
       await replacePrimaryWallet(stored)
       setWallet(stored)
+      setBridgeMissing(false)
       setPendingSave(null)
       setBackupPassphrase('')
       setBackupPassConfirm('')
@@ -492,6 +521,7 @@ export default function WalletPage() {
       setBackupAcknowledged(false)
       setWeakEncryptionAck(false)
       setView('dashboard')
+      setWalletSection('bridge')
       refreshBalance(stored.address)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save wallet')
@@ -589,12 +619,30 @@ export default function WalletPage() {
       await replacePrimaryWallet(stored)
 
       setWallet(stored)
+      setBridgeMissing(!hasBridgeWallet(stored))
       setRestoreSeed('')
       setRestorePassphrase('')
       setView('dashboard')
+      setWalletSection(hasBridgeWallet(stored) ? 'bridge' : 'falcon')
       refreshBalance(address)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Restore failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleProvisionBridge = async () => {
+    if (!wallet || hasBridgeWallet(wallet)) return
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await provisionBridgeWalletForStoredWallet(wallet)
+      setWallet(updated)
+      setBridgeMissing(false)
+      setWalletSection('bridge')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to create bridge wallet')
     } finally {
       setBusy(false)
     }
@@ -940,9 +988,18 @@ export default function WalletPage() {
 
               <div className="card p-5 space-y-4">
                 <div className="space-y-1">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">Address</div>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">Falcon address</div>
                   <div className="font-mono text-xs text-emerald-300 break-all">{pendingSave.address}</div>
                 </div>
+                {pendingSave.evmAddress && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wide">Sepolia bridge address</div>
+                    <div className="font-mono text-xs text-cyan-300 break-all">{pendingSave.evmAddress}</div>
+                    <p className="text-[10px] text-slate-600">
+                      New on this device — back up the bridge key later from My Bridge Wallet.
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-1.5">
                   <label className="text-xs text-slate-400">Backup password <span className="text-slate-600">(min 12 chars, mix of cases/numbers/symbols — not your passkey)</span></label>
@@ -1136,6 +1193,27 @@ export default function WalletPage() {
           {/* ── Dashboard / Send / Receive ── */}
           {(view === 'dashboard' || view === 'send' || view === 'receive' || view === 'node') && wallet && (
             <>
+              {view === 'dashboard' && bridgeMissing && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 space-y-2">
+                  <p>
+                    <span className="font-semibold text-amber-200">Sepolia bridge wallet not set up on this device.</span>{' '}
+                    Your Falcon wallet is saved, but the 0x bridge address was not stored locally.
+                  </p>
+                  <p className="text-xs text-amber-200/80">
+                    Each device gets its own Sepolia wallet unless you restore a{' '}
+                    <span className="font-mono">sepolia-backup-….json</span> from another device.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleProvisionBridge}
+                    disabled={busy}
+                    className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm disabled:opacity-50"
+                  >
+                    {busy ? 'Creating bridge wallet…' : 'Create bridge wallet with passkey'}
+                  </button>
+                </div>
+              )}
+
               {view === 'dashboard' && (
                 <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
                   <button

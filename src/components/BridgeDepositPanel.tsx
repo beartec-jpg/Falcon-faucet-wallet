@@ -212,7 +212,8 @@ export default function BridgeDepositPanel({
     if (expectedAddress && evm.address.toLowerCase() !== expectedAddress.toLowerCase()) {
       throw new Error('Private key does not match the address in the backup file')
     }
-    const evmEncrypted = await encryptSeed(evm.privateKey, keyBytes, hasPrf)
+    const pk = evm.privateKey.startsWith('0x') ? evm.privateKey.slice(2) : evm.privateKey
+    const evmEncrypted = await encryptSeed(pk, keyBytes, hasPrf)
     const updated: StoredWallet = {
       ...wallet,
       evmAddress: evm.address,
