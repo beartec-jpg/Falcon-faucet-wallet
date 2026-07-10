@@ -1,6 +1,7 @@
 import { Wallet, hexlify } from 'ethers'
 import { authenticatePasskey } from '@/lib/passkey'
 import { encryptSeed, type EncryptedSeed } from '@/lib/wallet-crypto'
+import { normalizeEvmPrivateKey } from '@/lib/evm-wallet-backup'
 import { loadPrimaryWallet, saveWallet, type StoredWallet } from '@/lib/wallet-store'
 
 export interface CreatedEvmWallet {
@@ -23,14 +24,26 @@ export function createRandomEvmWallet(): { address: string; privateKeyHex: strin
   return { address: wallet.address, privateKeyHex }
 }
 
+/** Encrypt an existing Sepolia private key with passkey key material. */
+export async function encryptEvmKeyForPasskey(
+  privateKeyHex: string,
+  keyBytes: Uint8Array,
+  hasPrf: boolean,
+): Promise<CreatedEvmWallet> {
+  const pk = normalizeEvmPrivateKey(privateKeyHex)
+  if (!pk) throw new Error('Invalid Sepolia private key')
+  const wallet = new Wallet(`0x${pk}`)
+  const evmEncrypted = await encryptSeed(pk, keyBytes, hasPrf)
+  return { address: wallet.address, evmEncrypted }
+}
+
 /** Generate a fresh Sepolia EVM wallet encrypted with the same passkey key material as Falcon. */
 export async function createEvmWalletForPasskey(
   keyBytes: Uint8Array,
   hasPrf: boolean,
 ): Promise<CreatedEvmWallet> {
   const { address, privateKeyHex } = createRandomEvmWallet()
-  const evmEncrypted = await encryptSeed(privateKeyHex, keyBytes, hasPrf)
-  return { address, evmEncrypted }
+  return encryptEvmKeyForPasskey(privateKeyHex, keyBytes, hasPrf)
 }
 
 /** Create and persist a Sepolia bridge wallet for an existing Falcon wallet record. */

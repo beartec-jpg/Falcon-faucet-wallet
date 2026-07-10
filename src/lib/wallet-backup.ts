@@ -1,10 +1,11 @@
 /**
  * Encrypted wallet backup files for client-side restore.
- * Avoids manual entry of the 4k+ character Falcon hex secret.
+ * v2 bundles Falcon + Sepolia bridge keys in one passphrase-encrypted file.
  */
 
 export const BACKUP_TYPE = 'qxrp-falcon-wallet-backup'
-export const BACKUP_VERSION = 1
+export const BACKUP_VERSION = 2
+export const BACKUP_VERSION_LEGACY = 1
 
 export interface BackupPayload {
   falcon_secret: string
@@ -12,13 +13,19 @@ export interface BackupPayload {
   publicKey: string
   label: string
   createdAt: number
+  /** Sepolia EVM private key (64-char hex, no 0x) — present in v2 backups */
+  evm_private_key?: string
+  /** Checksummed 0x… Sepolia address — present in v2 backups */
+  evm_address?: string
 }
 
 export interface EncryptedBackupFile {
-  version: typeof BACKUP_VERSION
+  version: typeof BACKUP_VERSION | typeof BACKUP_VERSION_LEGACY
   type: typeof BACKUP_TYPE
   encrypted: true
   address: string
+  /** Sepolia bridge address (v2 outer metadata) */
+  evm_address?: string
   label: string
   createdAt: number
   payload: {
@@ -68,8 +75,6 @@ async function derivePassphraseKey(passphrase: string, salt: Uint8Array): Promis
 
 export function validateBackupPassphrase(passphrase: string): string | null {
   if (passphrase.length < 12) return 'Backup password must be at least 12 characters'
-  // Require a mix of character classes to resist offline GPU cracking of the
-  // exported/shared backup file (which contains the full falcon_secret).
   const classes = [
     /[a-z]/.test(passphrase),
     /[A-Z]/.test(passphrase),
@@ -82,12 +87,21 @@ export function validateBackupPassphrase(passphrase: string): string | null {
   return null
 }
 
+function backupVersionForPayload(payload: BackupPayload): typeof BACKUP_VERSION | typeof BACKUP_VERSION_LEGACY {
+  return payload.evm_private_key && payload.evm_address ? BACKUP_VERSION : BACKUP_VERSION_LEGACY
+}
+
 export async function createEncryptedBackup(
   payload: BackupPayload,
   passphrase: string,
 ): Promise<EncryptedBackupFile> {
   const err = validateBackupPassphrase(passphrase)
   if (err) throw new Error(err)
+
+  const version = backupVersionForPayload(payload)
+  if (version === BACKUP_VERSION && (!payload.evm_private_key || !payload.evm_address)) {
+    throw new Error('Sepolia bridge keys are required for wallet backup')
+  }
 
   const salt = crypto.getRandomValues(new Uint8Array(32))
   const iv = crypto.getRandomValues(new Uint8Array(12))
@@ -99,10 +113,11 @@ export async function createEncryptedBackup(
   )
 
   return {
-    version: BACKUP_VERSION,
+    version,
     type: BACKUP_TYPE,
     encrypted: true,
     address: payload.address,
+    evm_address: payload.evm_address,
     label: payload.label,
     createdAt: payload.createdAt,
     payload: {
@@ -130,14 +145,17 @@ export async function decryptBackupFile(
       })(),
     )
     const payload = JSON.parse(new TextDecoder().decode(dec)) as BackupPayload
-    // L-5: the outer address/label are not covered by AES-GCM authentication.
-    // Ensure the authenticated payload address matches the outer metadata so a
-    // tampered outer field can never be trusted downstream.
     if (payload.address !== file.address) {
       throw new Error('Backup file integrity check failed')
     }
+    if (file.evm_address) {
+      if (!payload.evm_address || payload.evm_address.toLowerCase() !== file.evm_address.toLowerCase()) {
+        throw new Error('Backup file integrity check failed')
+      }
+    }
     return payload
-  } catch {
+  } catch (e: unknown) {
+    if (e instanceof Error && e.message === 'Backup file integrity check failed') throw e
     throw new Error('Wrong backup password or corrupted backup file')
   }
 }
@@ -146,11 +164,10 @@ export function parseBackupFile(raw: unknown): WalletBackupFile {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid backup file')
   const file = raw as Record<string, unknown>
   if (file.type !== BACKUP_TYPE) throw new Error('Not a Falcon Ledger wallet backup file')
-  if (file.version !== BACKUP_VERSION) throw new Error('Unsupported backup version')
+  if (file.version !== BACKUP_VERSION && file.version !== BACKUP_VERSION_LEGACY) {
+    throw new Error('Unsupported backup version')
+  }
 
-  // F-04: only passphrase-encrypted backups are accepted. Plaintext backup files
-  // (encrypted:false with a plaintext falcon_secret) are rejected so an
-  // unprotected private key can never be imported from disk/cloud/messaging apps.
   if (file.encrypted !== true) {
     throw new Error('Unencrypted backup files are not supported. Restore from a passphrase-encrypted backup.')
   }
@@ -160,6 +177,10 @@ export function parseBackupFile(raw: unknown): WalletBackupFile {
     throw new Error('Invalid encrypted backup file')
   }
   return file as unknown as EncryptedBackupFile
+}
+
+export function backupHasBridgeKeys(payload: BackupPayload): boolean {
+  return !!(payload.evm_private_key && payload.evm_address)
 }
 
 export function backupFilename(address: string): string {
@@ -184,7 +205,7 @@ export async function shareBackup(file: WalletBackupFile): Promise<boolean> {
   await navigator.share({
     files: [shareFile],
     title: 'Falcon Ledger wallet backup',
-    text: `Backup for ${file.address}`,
+    text: `Backup for ${file.address}${file.evm_address ? ` + Sepolia ${file.evm_address}` : ''}`,
   })
   return true
 }

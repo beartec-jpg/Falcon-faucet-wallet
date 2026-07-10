@@ -30,12 +30,14 @@ import {
 } from '@/lib/wallet-sign-client'
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
 import {
+  backupHasBridgeKeys,
   createEncryptedBackup,
   decryptBackupFile,
   downloadBackup,
   parseBackupFile,
   shareBackup,
   validateBackupPassphrase,
+  type BackupPayload,
 } from '@/lib/wallet-backup'
 import {
   loadValidatorNode,
@@ -47,6 +49,8 @@ import {
 import { isValidFalconAddress, parseFalconAddressFromScan } from '@/lib/parse-falcon-address'
 import {
   createEvmWalletForPasskey,
+  createRandomEvmWallet,
+  encryptEvmKeyForPasskey,
   hasBridgeWallet,
   provisionBridgeWalletForStoredWallet,
 } from '@/lib/create-evm-wallet'
@@ -112,8 +116,9 @@ interface PendingWalletSave {
   encrypted:    StoredWallet['encrypted']
   hasPrf:       boolean
   falcon_secret: string
-  evmAddress?: string
-  evmEncrypted?: StoredWallet['evmEncrypted']
+  evmAddress: string
+  evmPrivateKeyHex: string
+  evmEncrypted: StoredWallet['evmEncrypted']
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -487,8 +492,9 @@ export default function WalletPage() {
       const { falcon_secret, address, publicKey } = await generateWallet()
       const { credentialId, keyBytes, hasPrf } = await registerPasskey(label)
       const encrypted = await encryptSeed(falcon_secret, keyBytes, hasPrf)
+      const { address: evmAddress, privateKeyHex: evmPrivateKeyHex } = createRandomEvmWallet()
+      const evmEncrypted = await encryptSeed(evmPrivateKeyHex, keyBytes, hasPrf)
 
-      // Sepolia bridge wallet is created at save time (handleConfirmBackup) with passkey auth.
       setPendingSave({
         credentialId,
         address,
@@ -497,6 +503,9 @@ export default function WalletPage() {
         encrypted,
         hasPrf,
         falcon_secret,
+        evmAddress,
+        evmPrivateKeyHex,
+        evmEncrypted,
       })
       setView('backup')
     } catch (e: unknown) {
@@ -514,18 +523,16 @@ export default function WalletPage() {
     setBusy(true)
     setError(null)
     try {
-      const { keyBytes, hasPrf } = await authenticatePasskey(
-        pendingSave.credentialId,
-        pendingSave.hasPrf,
-      )
-      const evm = await createEvmWalletForPasskey(keyBytes, hasPrf)
+      if (!pendingSave.evmAddress || !pendingSave.evmEncrypted) {
+        throw new Error('Sepolia bridge wallet was not created — please create the wallet again')
+      }
 
-      const { falcon_secret: _secret, ...rest } = pendingSave
+      const { falcon_secret: _secret, evmPrivateKeyHex: _evmPk, ...rest } = pendingSave
       const stored: StoredWallet = {
         ...rest,
         createdAt: Date.now(),
-        evmAddress: evm.address,
-        evmEncrypted: evm.evmEncrypted,
+        evmAddress: pendingSave.evmAddress,
+        evmEncrypted: pendingSave.evmEncrypted,
       }
       await replacePrimaryWallet(stored)
       const verified = await loadPrimaryWallet()
@@ -580,6 +587,8 @@ export default function WalletPage() {
         publicKey: pendingSave.publicKey,
         label: pendingSave.label,
         createdAt: Date.now(),
+        evm_private_key: pendingSave.evmPrivateKeyHex,
+        evm_address: pendingSave.evmAddress,
       }, backupPassphrase)
       downloadBackup(file)
       setBackupDownloaded(true)
@@ -607,7 +616,11 @@ export default function WalletPage() {
     }, 30_000)
   }
 
-  const finishRestore = async (falconSecret: string, label: string) => {
+  const finishRestore = async (
+    falconSecret: string,
+    label: string,
+    bridgeFromBackup?: Pick<BackupPayload, 'evm_private_key' | 'evm_address'>,
+  ) => {
     if (!isPasskeySupported()) {
       setError('Passkeys need a secure context (HTTPS or localhost).')
       return
@@ -624,7 +637,15 @@ export default function WalletPage() {
       const walletLabel = label.trim() || 'Restored Wallet'
       const { credentialId, keyBytes, hasPrf } = await registerPasskey(walletLabel)
       const encrypted = await encryptSeed(falconSecret, keyBytes, hasPrf)
-      const evm = await createEvmWalletForPasskey(keyBytes, hasPrf)
+      const evm = bridgeFromBackup?.evm_private_key && bridgeFromBackup.evm_address
+        ? await encryptEvmKeyForPasskey(bridgeFromBackup.evm_private_key, keyBytes, hasPrf)
+        : await createEvmWalletForPasskey(keyBytes, hasPrf)
+      if (
+        bridgeFromBackup?.evm_address &&
+        evm.address.toLowerCase() !== bridgeFromBackup.evm_address.toLowerCase()
+      ) {
+        throw new Error('Sepolia key in backup does not match the stored address')
+      }
 
       const stored: StoredWallet = {
         credentialId,
@@ -686,7 +707,10 @@ export default function WalletPage() {
         return
       }
       const payload = await decryptBackupFile(parsed, restorePassphrase)
-      await finishRestore(payload.falcon_secret, payload.label || restoreLabel)
+      const bridgeFromBackup = backupHasBridgeKeys(payload)
+        ? { evm_private_key: payload.evm_private_key, evm_address: payload.evm_address }
+        : undefined
+      await finishRestore(payload.falcon_secret, payload.label || restoreLabel, bridgeFromBackup)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not read backup file')
     } finally {
@@ -709,12 +733,18 @@ export default function WalletPage() {
     try {
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+      if (!wallet.evmEncrypted || !wallet.evmAddress) {
+        throw new Error('Sepolia bridge wallet is missing — add it from My Bridge Wallet before exporting backup')
+      }
+      const evm_private_key = (await decryptSeed(wallet.evmEncrypted, keyBytes)).replace(/^0x/i, '')
       const file = await createEncryptedBackup({
         falcon_secret,
         address: wallet.address,
         publicKey: wallet.publicKey,
         label: wallet.label,
         createdAt: wallet.createdAt,
+        evm_private_key,
+        evm_address: wallet.evmAddress,
       }, exportPassphrase)
       downloadBackup(file)
       setShowExportBackup(false)
@@ -914,7 +944,7 @@ export default function WalletPage() {
                   Falcon <span className="text-brand-500">Wallet</span>
                 </h1>
                 <p className="text-slate-400 text-sm">
-                  One passkey creates both your Falcon ledger wallet and Sepolia bridge wallet on this device.
+                  One passkey creates your Falcon and Sepolia bridge wallets together. One backup file restores both.
                 </p>
               </div>
 
@@ -982,7 +1012,7 @@ export default function WalletPage() {
               <div className="text-center space-y-2 pb-1">
                 <h2 className="text-xl font-bold text-white">Save your wallet backup</h2>
                 <p className="text-slate-400 text-sm">
-                  Download your Falcon backup, then tap Continue — that step also creates your Sepolia bridge wallet on this device.
+                  One backup file holds both your Falcon and Sepolia bridge keys. Download it, then tap Continue.
                 </p>
               </div>
 
@@ -1012,9 +1042,12 @@ export default function WalletPage() {
                   <div className="text-[10px] text-slate-500 uppercase tracking-wide">Falcon address</div>
                   <div className="font-mono text-xs text-emerald-300 break-all">{pendingSave.address}</div>
                 </div>
-                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2.5 text-xs text-cyan-100/90">
-                  Your Sepolia <span className="font-mono">0x…</span> bridge address is created when you tap{' '}
-                  <span className="font-semibold">Continue to wallet</span> (passkey prompt).
+                <div className="space-y-1">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">Sepolia bridge address</div>
+                  <div className="font-mono text-xs text-cyan-300 break-all">{pendingSave.evmAddress}</div>
+                  <p className="text-[10px] text-slate-600">
+                    Included in the same encrypted backup file as your Falcon wallet.
+                  </p>
                 </div>
 
                 <div className="space-y-1.5">
@@ -1046,7 +1079,7 @@ export default function WalletPage() {
                   disabled={!backupPassphrase || !backupPassConfirm}
                   className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm transition disabled:opacity-50"
                 >
-                  {backupDownloaded ? 'Download again ✓' : 'Download encrypted backup file'}
+                  {backupDownloaded ? 'Download again ✓' : 'Download Falcon + Sepolia backup file'}
                 </button>
                 {backupDownloaded && (
                   <p className="text-xs text-emerald-400 text-center">Backup file downloaded — store it somewhere safe</p>
@@ -1123,7 +1156,7 @@ export default function WalletPage() {
               </div>
 
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200 leading-snug">
-                Upload your <span className="font-mono">falcon-backup-….json</span> file from iCloud Drive, Google Drive, or downloads.
+                Upload your <span className="font-mono">falcon-backup-….json</span> file (Falcon + Sepolia keys in one file).
               </div>
 
               <div className="card p-6 space-y-4">
@@ -1216,8 +1249,7 @@ export default function WalletPage() {
                     Your Falcon wallet is saved, but the 0x bridge address was not stored locally.
                   </p>
                   <p className="text-xs text-amber-200/80">
-                    Each device gets its own Sepolia wallet unless you restore a{' '}
-                    <span className="font-mono">sepolia-backup-….json</span> from another device.
+                    Restore from your <span className="font-mono">falcon-backup-….json</span> to recover both wallets on a new device.
                   </p>
                   <button
                     type="button"
