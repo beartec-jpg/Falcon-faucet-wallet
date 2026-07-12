@@ -4,7 +4,7 @@
 
 import type { NetworkKey } from '@/lib/networks'
 import { serverNetworkConfig, serverRpcCall } from '@/lib/network-server'
-import { ammAmountOut, applySlippage } from '@/lib/swap/amm-math'
+import { ammAmountIn, ammAmountOut, applySlippage } from '@/lib/swap/amm-math'
 import { fetchWalletAssets } from '@/lib/swap/wallet-assets'
 
 const DROPS_PER_XRP = 1_000_000
@@ -100,28 +100,40 @@ async function dexQuote(
   }
 }
 
+/** Instant swap direction — amount is always FALCON. */
+export type SwapDirection = 'sell_falcon' | 'buy_falcon'
+
+/** @deprecated Use sell_falcon / buy_falcon */
+export type LegacySwapDirection = 'buy' | 'sell'
+
+function normalizeDirection(direction: SwapDirection | LegacySwapDirection): SwapDirection {
+  if (direction === 'sell_falcon' || direction === 'buy_falcon') return direction
+  // Legacy: buy = spend FALCON → F-USDC; sell = spend F-USDC → FALCON
+  return direction === 'buy' ? 'sell_falcon' : 'buy_falcon'
+}
+
 export async function quoteSwap(
   networkKey: NetworkKey,
   token: UsdcTokenRef,
-  direction: 'buy' | 'sell',
+  direction: SwapDirection | LegacySwapDirection,
   amount: number,
   slippageBps = DEFAULT_SLIPPAGE_BPS,
 ): Promise<SwapQuote | null> {
   if (amount <= 0 || !token.issuer) return null
 
+  const dir = normalizeDirection(direction)
   const amm = await ammPool(networkKey, token.currency, token.issuer)
   const dex = amm ? null : await dexQuote(networkKey, token.currency, token.issuer)
-  const src = amm ? ('amm' as const) : ('dex' as const)
 
   if (amm) {
     let output: number
-    if (direction === 'buy') {
+    if (dir === 'sell_falcon') {
       output = ammAmountOut(amm.xrpPool, amm.tokenPool, amount, amm.tradingFee)
     } else {
-      output = ammAmountOut(amm.tokenPool, amm.xrpPool, amount, amm.tradingFee)
+      output = ammAmountIn(amm.tokenPool, amm.xrpPool, amount, amm.tradingFee)
     }
     if (output <= 0) return null
-    const minOut = applySlippage(output, slippageBps, 'min')
+    const minOut = applySlippage(output, slippageBps, dir === 'sell_falcon' ? 'min' : 'max')
     return {
       source: 'amm',
       price: amm.price,
@@ -135,8 +147,8 @@ export async function quoteSwap(
 
   if (!dex || dex.price <= 0) return null
   const slip = 1 - slippageBps / 10_000
-  if (direction === 'buy') {
-    const output = (amount / dex.price) * slip
+  if (dir === 'sell_falcon') {
+    const output = amount / dex.price * slip
     return {
       source: 'dex',
       price: dex.price,
@@ -147,7 +159,7 @@ export async function quoteSwap(
       pool: { xrp: dex.xrpPool, token: dex.tokenPool, type: 'dex' },
     }
   }
-  const output = amount * dex.price * slip
+  const output = amount / dex.price / slip
   return {
     source: 'dex',
     price: dex.price,

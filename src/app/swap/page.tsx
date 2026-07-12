@@ -98,7 +98,7 @@ export default function SwapPage() {
   const [busy, setBusy] = useState(false)
   const [txResult, setTxResult] = useState<{ ok: boolean; msg: string; hash?: string } | null>(null)
 
-  const [swapDir, setSwapDir] = useState<'buy' | 'sell'>('buy')
+  const [swapDir, setSwapDir] = useState<'sell_falcon' | 'buy_falcon'>('buy_falcon')
   const [swapAmt, setSwapAmt] = useState('')
   const [quote, setQuote] = useState<SwapQuote | null>(null)
   const [bookTick, setBookTick] = useState(0)
@@ -284,14 +284,21 @@ export default function SwapPage() {
       let sendMax: string | IouAmount
       let deliverMin: string | IouAmount | undefined
 
-      if (swapDir === 'buy') {
+      if (swapDir === 'sell_falcon') {
+        // Sell FALCON → receive F-USDC
         sendMax = String(Math.round(amt * DROPS_PER_XRP))
         amount = { currency: token.currency, issuer: token.issuer, value: fmt(outAmt, 8) }
         deliverMin = { currency: token.currency, issuer: token.issuer, value: fmt(minOut, 8) }
       } else {
-        sendMax = { currency: token.currency, issuer: token.issuer, value: fmt(amt, 8) }
-        amount = String(Math.round(outAmt * DROPS_PER_XRP))
-        deliverMin = String(Math.round(minOut * DROPS_PER_XRP))
+        // Buy FALCON → pay F-USDC (outAmt = estimate, minOut = max F-USDC with slippage)
+        if (swapData.userBalance && minOut > swapData.userBalance.balance + 1e-9) {
+          setError(`Need ~${fmt(minOut, 4)} F-USDC for this buy (have ${fmt(swapData.userBalance.balance, 4)})`)
+          setBusy(false)
+          return
+        }
+        sendMax = { currency: token.currency, issuer: token.issuer, value: fmt(minOut, 8) }
+        amount = String(Math.round(amt * DROPS_PER_XRP))
+        deliverMin = String(Math.round(amt * 0.995 * DROPS_PER_XRP))
       }
 
       const data = await submitWithSequenceRetry({
@@ -472,28 +479,32 @@ export default function SwapPage() {
                     <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
                       <button
                         type="button"
-                        onClick={() => { setSwapDir('buy'); setSwapAmt('') }}
+                        onClick={() => { setSwapDir('buy_falcon'); setSwapAmt('') }}
                         className={`flex-1 py-2 font-medium transition-colors ${
-                          swapDir === 'buy' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'
+                          swapDir === 'buy_falcon' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'
                         }`}
                       >
-                        Buy F-USDC
+                        Buy FALCON
                       </button>
                       <button
                         type="button"
-                        onClick={() => { setSwapDir('sell'); setSwapAmt('') }}
+                        onClick={() => { setSwapDir('sell_falcon'); setSwapAmt('') }}
                         className={`flex-1 py-2 font-medium transition-colors ${
-                          swapDir === 'sell' ? 'bg-red-500/10 text-red-400' : 'text-slate-500'
+                          swapDir === 'sell_falcon' ? 'bg-red-500/10 text-red-400' : 'text-slate-500'
                         }`}
                       >
-                        Sell F-USDC
+                        Sell FALCON
                       </button>
                     </div>
 
+                    <p className="text-[10px] text-slate-500">
+                      {swapDir === 'buy_falcon'
+                        ? 'Enter how much FALCON you want to buy — we show the F-USDC it costs.'
+                        : 'Enter how much FALCON you want to sell — we show the F-USDC you receive.'}
+                    </p>
+
                     <div className="space-y-1.5">
-                      <label className="text-xs text-slate-400">
-                        {swapDir === 'buy' ? 'Spend (FALCON)' : 'Sell (F-USDC)'}
-                      </label>
+                      <label className="text-xs text-slate-400">Amount (FALCON)</label>
                       <input
                         type="number"
                         value={swapAmt}
@@ -506,21 +517,28 @@ export default function SwapPage() {
                       />
                       <div className="flex justify-between text-xs text-slate-600">
                         <span>
-                          {swapDir === 'buy'
+                          {swapDir === 'sell_falcon'
                             ? xrpBalance !== null ? `Available: ${fmt(xrpBalance, 4)} FALCON` : ''
-                            : swapData.userBalance ? `Available: ${fmt(swapData.userBalance.balance, 4)} F-USDC` : 'No trust line'}
+                            : swapData.userBalance && swapData.market
+                              ? `Can buy ~${fmt(swapData.userBalance.balance * swapData.market.price, 2)} FALCON with F-USDC`
+                              : swapData.userBalance
+                                ? `F-USDC: ${fmt(swapData.userBalance.balance, 4)}`
+                                : 'No F-USDC trust line'}
                         </span>
-                        {swapDir === 'buy' && xrpBalance != null && xrpBalance > 0.1 && (
+                        {swapDir === 'sell_falcon' && xrpBalance != null && xrpBalance > 0.1 && (
                           <button
                             type="button"
                             onClick={() => setSwapAmt(String(Math.max(0, xrpBalance - 0.1).toFixed(6)))}
                             className="text-brand-500"
                           >Max</button>
                         )}
-                        {swapDir === 'sell' && swapData.userBalance && (
+                        {swapDir === 'buy_falcon' && swapData.userBalance && swapData.market && swapData.market.price > 0 && (
                           <button
                             type="button"
-                            onClick={() => setSwapAmt(String(swapData.userBalance!.balance))}
+                            onClick={() => {
+                              const max = swapData.userBalance!.balance * swapData.market!.price * 0.995
+                              setSwapAmt(String(Math.floor(max * 1e6) / 1e6))
+                            }}
                             className="text-brand-500"
                           >Max</button>
                         )}
@@ -528,29 +546,45 @@ export default function SwapPage() {
                     </div>
 
                     {quote && swapAmtNum > 0 && (
-                      <div className="bg-slate-800/60 rounded-xl px-4 py-3 text-sm">
+                      <div className="bg-slate-800/60 rounded-xl px-4 py-3 text-sm space-y-1.5">
                         <div className="flex justify-between text-slate-400">
-                          <span>You receive ~</span>
+                          <span>{swapDir === 'sell_falcon' ? 'You receive ~' : 'You pay ~'}</span>
                           <span className="text-white font-semibold">
                             {fmt(quote.outputAmount, 4)}{' '}
-                            <span className="text-brand-500">{swapDir === 'buy' ? 'F-USDC' : 'FALCON'}</span>
+                            <span className="text-brand-500">F-USDC</span>
                           </span>
+                        </div>
+                        <div className="flex justify-between text-[10px] text-slate-500">
+                          <span>{swapDir === 'sell_falcon' ? 'Sell' : 'Buy'}</span>
+                          <span className="font-mono">{fmt(swapAmtNum, 4)} FALCON</span>
                         </div>
                       </div>
                     )}
 
-                    {swapDir === 'buy' && !swapData.userBalance && (
+                    {swapDir === 'buy_falcon' && !swapData.userBalance && (
                       <div className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2">
-                        Add a F-USDC trust line before buying.
+                        Add a F-USDC trust line before buying FALCON.
                       </div>
                     )}
 
                     <button
                       onClick={handleSwap}
-                      disabled={busy || !swapAmt || swapAmtNum <= 0 || (swapDir === 'buy' && !swapData.userBalance)}
+                      disabled={
+                        busy ||
+                        !swapAmt ||
+                        swapAmtNum <= 0 ||
+                        (swapDir === 'buy_falcon' && !swapData.userBalance) ||
+                        (swapDir === 'sell_falcon' && xrpBalance != null && swapAmtNum > xrpBalance)
+                      }
                       className="btn-primary flex items-center justify-center gap-2"
                     >
-                      {busy ? <><Spinner /> Signing…</> : `Swap with Passkey`}
+                      {busy ? (
+                        <><Spinner /> Signing…</>
+                      ) : swapDir === 'sell_falcon' ? (
+                        'Sell FALCON'
+                      ) : (
+                        'Buy FALCON'
+                      )}
                     </button>
                   </div>
                 ) : tradeMode === 'instant' && swapData?.token.configured ? (

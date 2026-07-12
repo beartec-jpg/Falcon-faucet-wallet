@@ -30,7 +30,12 @@ async function resolveUsdcToken(networkKey: ReturnType<typeof resolveNetworkKey>
 export async function GET(req: NextRequest) {
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
   const address = req.nextUrl.searchParams.get('address') ?? ''
-  const direction = req.nextUrl.searchParams.get('direction') as 'buy' | 'sell' | null
+  const direction = req.nextUrl.searchParams.get('direction') as
+    | 'sell_falcon'
+    | 'buy_falcon'
+    | 'buy'
+    | 'sell'
+    | null
   const amountStr = req.nextUrl.searchParams.get('amount')
 
   const token = await resolveUsdcToken(networkKey)
