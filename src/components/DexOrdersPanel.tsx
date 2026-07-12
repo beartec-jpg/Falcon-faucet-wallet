@@ -14,6 +14,12 @@ import {
 } from '@/lib/wallet-sign-client'
 import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
 import { fmtOfferAmount } from '@/lib/swap/dust-offers'
+import {
+  explainOfferResult,
+  limitOrderPreflightReason,
+  limitOrderWouldCross,
+  suggestMakerPrice,
+} from '@/lib/swap/limit-order-preflight'
 
 const DROPS_PER_XRP = 1_000_000
 /** F-USDC (and the QUC test token) settle to 6 decimal places. */
@@ -75,7 +81,9 @@ export default function DexOrdersPanel({
   )
   const [offers, setOffers] = useState<UserOffer[]>([])
   const [offersLoading, setOffersLoading] = useState(true)
-  const [postOnly, setPostOnly] = useState(false)
+  const [postOnly, setPostOnly] = useState(true)
+  const [bestBid, setBestBid] = useState<number | null>(null)
+  const [bestAsk, setBestAsk] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<string | null>(null)
@@ -93,9 +101,23 @@ export default function DexOrdersPanel({
     }
   }, [wallet.address, networkKey])
 
+  const loadBookTop = useCallback(async () => {
+    try {
+      const r = await fetch(withNetworkQuery('/api/market/orderbook', networkKey))
+      const d = await r.json()
+      if (!d.error) {
+        const bids = (d.bids ?? []) as Array<{ price: number }>
+        const asks = (d.asks ?? []) as Array<{ price: number }>
+        setBestBid(bids[0]?.price ?? null)
+        setBestAsk(asks[0]?.price ?? null)
+      }
+    } catch { /* optional */ }
+  }, [networkKey])
+
   useEffect(() => {
     loadOffers()
-  }, [loadOffers])
+    loadBookTop()
+  }, [loadOffers, loadBookTop])
 
   useEffect(() => {
     if (marketPrice != null && marketPrice > 0) {
@@ -109,6 +131,19 @@ export default function DexOrdersPanel({
     const px = parseFloat(price)
     if (!Number.isFinite(amt) || amt <= 0 || !Number.isFinite(px) || px <= 0) {
       setError('Enter valid amount and price (FALCON per F-USDC)')
+      return
+    }
+
+    const blocked = limitOrderPreflightReason({
+      side,
+      price: px,
+      postOnly,
+      marketPrice,
+      bestBid,
+      bestAsk,
+    })
+    if (blocked) {
+      setError(blocked)
       return
     }
 
@@ -166,6 +201,7 @@ export default function DexOrdersPanel({
         await loadOffers()
         onRefresh()
         onBookRefresh?.()
+        loadBookTop()
         const r = await fetch(
           withNetworkQuery(`/api/market/offers?address=${encodeURIComponent(wallet.address)}`, networkKey),
         )
@@ -186,7 +222,9 @@ export default function DexOrdersPanel({
         }
       }, 4000)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Order failed')
+      const raw = e instanceof Error ? e.message : 'Order failed'
+      const code = raw.split(' — ')[0]?.trim()
+      setError(explainOfferResult(code, postOnly) ?? raw)
     } finally {
       setBusy(false)
     }
@@ -228,6 +266,17 @@ export default function DexOrdersPanel({
   const tokenNum = parseFloat(tokenAmt) || 0
   const priceNum = parseFloat(price) || 0
   const falconNeeded = side === 'buy' ? tokenNum * priceNum : 0
+  const wouldCross = limitOrderWouldCross(side, priceNum, marketPrice, bestBid, bestAsk)
+  const makerPrice =
+    marketPrice != null && marketPrice > 0 ? suggestMakerPrice(side, marketPrice) : null
+  const preflightWarn = limitOrderPreflightReason({
+    side,
+    price: priceNum,
+    postOnly,
+    marketPrice,
+    bestBid,
+    bestAsk,
+  })
 
   return (
     <div className="space-y-4">
@@ -235,11 +284,10 @@ export default function DexOrdersPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">DEX Limit Orders</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Limit orders fill against matching bids/asks first; any remainder rests on the book.
-            Partial fills are automatic — no extra setting needed.
-            {marketPrice ? ` Market ≈ ${fmt(marketPrice, 4)} FALCON per F-USDC (${fmt(1 / marketPrice, 4)} F-USDC per FALCON).` : ''}
-            {' '}Price is FALCON per F-USDC — e.g. 10 F-USDC per 1 FALCON = enter 0.1.
-            {' '}Prices far from market may also hit the AMM pool.
+            <strong className="text-slate-300">Post only</strong> (default) lists your quote on the DEX book without
+            taking liquidity. Uncheck it to match the book or AMM immediately (same path as instant swap).
+            {marketPrice ? ` AMM mid ≈ ${fmt(marketPrice, 6)} FALCON per F-USDC.` : ''}
+            {' '}Price field is FALCON per F-USDC — e.g. 10 F-USDC per 1 FALCON → enter <code className="text-brand-400">0.1</code>.
           </p>
         </div>
 
@@ -289,8 +337,32 @@ export default function DexOrdersPanel({
                 = {fmt(1 / priceNum, 4)} F-USDC per 1 FALCON
               </p>
             )}
+            {makerPrice && (
+              <button
+                type="button"
+                onClick={() => setPrice(makerPrice)}
+                disabled={busy}
+                className="text-[10px] text-brand-500 hover:text-brand-400"
+              >
+                Maker price ({makerPrice}) — {side === 'sell' ? 'above' : 'below'} AMM
+              </button>
+            )}
           </div>
         </div>
+
+        {priceNum > 0 && wouldCross && !postOnly && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            This price crosses the AMM{marketPrice ? ` (~${fmt(marketPrice, 6)})` : ''} — your order will
+            <strong className="text-amber-100"> execute immediately</strong>, not rest on the book.
+            Enable <strong className="text-amber-100">Post only</strong> or use Maker price to list instead.
+          </div>
+        )}
+
+        {priceNum > 0 && preflightWarn && postOnly && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+            {preflightWarn}
+          </div>
+        )}
 
         {tokenNum > 0 && priceNum > 0 && (
           <p className="text-xs text-slate-500">
@@ -331,18 +403,30 @@ export default function DexOrdersPanel({
             className="mt-0.5 rounded border-slate-600"
           />
           <span>
-            Post only — rest on the book without taking existing bids/asks (maker quote).
-            Leave unchecked to match the book immediately, including partial fills.
+            <strong className="text-slate-300">Post only</strong> — list on the book (maker). Off = taker:
+            fill against resting orders and the AMM pool right away.
           </span>
         </label>
 
         <button
           type="button"
           onClick={handleDexOrder}
-          disabled={busy || !isPasskeySupported() || !token.issuer || tokenNum <= 0}
+          disabled={
+            busy ||
+            !isPasskeySupported() ||
+            !token.issuer ||
+            tokenNum <= 0 ||
+            (!!preflightWarn && postOnly)
+          }
           className="btn-primary flex items-center justify-center gap-2 w-full"
         >
-          {busy ? <><Spinner /> Signing…</> : 'Post Limit Order'}
+          {busy ? (
+            <><Spinner /> Signing…</>
+          ) : postOnly ? (
+            'Post to book'
+          ) : (
+            'Place order (may fill via AMM)'
+          )}
         </button>
       </div>
 
