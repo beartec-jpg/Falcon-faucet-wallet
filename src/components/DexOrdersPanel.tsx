@@ -16,8 +16,11 @@ import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
 import { fmtOfferAmount } from '@/lib/swap/dust-offers'
 import {
   explainOfferResult,
+  falconPerFusdcToInverse,
   limitOrderPreflightReason,
   limitOrderWouldCross,
+  restingPriceHint,
+  shouldBlockRestingOrder,
   suggestMakerPrice,
 } from '@/lib/swap/limit-order-preflight'
 
@@ -134,16 +137,17 @@ export default function DexOrdersPanel({
       return
     }
 
-    const blocked = limitOrderPreflightReason({
-      side,
-      price: px,
-      postOnly,
-      marketPrice,
-      bestBid,
-      bestAsk,
-    })
-    if (blocked) {
-      setError(blocked)
+    if (postOnly && shouldBlockRestingOrder(side, px, marketPrice, bestBid, bestAsk)) {
+      setError(
+        limitOrderPreflightReason({
+          side,
+          price: px,
+          postOnly,
+          marketPrice,
+          bestBid,
+          bestAsk,
+        }) ?? 'Price crosses the AMM — cannot list on the book at this price.',
+      )
       return
     }
 
@@ -269,14 +273,20 @@ export default function DexOrdersPanel({
   const wouldCross = limitOrderWouldCross(side, priceNum, marketPrice, bestBid, bestAsk)
   const makerPrice =
     marketPrice != null && marketPrice > 0 ? suggestMakerPrice(side, marketPrice) : null
-  const preflightWarn = limitOrderPreflightReason({
-    side,
-    price: priceNum,
-    postOnly,
-    marketPrice,
-    bestBid,
-    bestAsk,
-  })
+  const restBlocked =
+    postOnly && priceNum > 0 && shouldBlockRestingOrder(side, priceNum, marketPrice, bestBid, bestAsk)
+  const preflightWarn =
+    priceNum > 0
+      ? limitOrderPreflightReason({
+          side,
+          price: priceNum,
+          postOnly,
+          marketPrice,
+          bestBid,
+          bestAsk,
+        })
+      : null
+  const restHint = restingPriceHint(side, marketPrice)
 
   return (
     <div className="space-y-4">
@@ -284,11 +294,17 @@ export default function DexOrdersPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">DEX Limit Orders</h2>
           <p className="text-xs text-slate-400 mt-1">
-            <strong className="text-slate-300">Post only</strong> (default) lists your quote on the DEX book without
-            taking liquidity. Uncheck it to match the book or AMM immediately (same path as instant swap).
-            {marketPrice ? ` AMM mid ≈ ${fmt(marketPrice, 6)} FALCON per F-USDC.` : ''}
-            {' '}Price field is FALCON per F-USDC — e.g. 10 F-USDC per 1 FALCON → enter <code className="text-brand-400">0.1</code>.
+            Price field is <strong className="text-slate-300">FALCON per F-USDC</strong> (not F-USDC per FALCON).
+            {marketPrice ? (
+              <>
+                {' '}AMM mid ≈ <span className="font-mono text-slate-200">{fmt(marketPrice, 4)}</span> FALCON/F-USDC
+                ({fmt(falconPerFusdcToInverse(marketPrice) ?? 0, 4)} F-USDC per FALCON).
+              </>
+            ) : null}
           </p>
+          {restHint && (
+            <p className="text-[10px] text-slate-500 mt-1">{restHint}</p>
+          )}
         </div>
 
         <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
@@ -332,9 +348,22 @@ export default function DexOrdersPanel({
               step="any"
               disabled={busy}
             />
-            {priceNum > 0 && (
-              <p className="text-[10px] text-slate-500">
-                = {fmt(1 / priceNum, 4)} F-USDC per 1 FALCON
+            {priceNum > 0 && marketPrice != null && marketPrice > 0 && (
+              <p
+                className={`text-[10px] ${
+                  (side === 'sell' && priceNum < marketPrice) || (side === 'buy' && priceNum > marketPrice)
+                    ? 'text-amber-400'
+                    : 'text-emerald-400/90'
+                }`}
+              >
+                {fmt(priceNum, 4)} FALCON/F-USDC = {fmt(falconPerFusdcToInverse(priceNum) ?? 0, 4)} F-USDC/FALCON
+                {side === 'sell'
+                  ? priceNum < marketPrice
+                    ? ` · below AMM (${fmt(marketPrice, 4)}) → fills via AMM`
+                    : ` · above AMM (${fmt(marketPrice, 4)}) → can rest on book`
+                  : priceNum > marketPrice
+                    ? ` · above AMM (${fmt(marketPrice, 4)}) → fills via AMM`
+                    : ` · below AMM (${fmt(marketPrice, 4)}) → can rest on book`}
               </p>
             )}
             {makerPrice && (
@@ -352,13 +381,13 @@ export default function DexOrdersPanel({
 
         {priceNum > 0 && wouldCross && !postOnly && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-            This price crosses the AMM{marketPrice ? ` (~${fmt(marketPrice, 6)})` : ''} — your order will
-            <strong className="text-amber-100"> execute immediately</strong>, not rest on the book.
-            Enable <strong className="text-amber-100">Post only</strong> or use Maker price to list instead.
+            This price crosses the AMM{marketPrice ? ` (~${fmt(marketPrice, 4)} FALCON/F-USDC)` : ''} — your order will
+            <strong className="text-amber-100"> execute immediately</strong> (AMM swap), not rest on the book.
+            Tap <strong className="text-amber-100">Maker price</strong> or raise sell / lower buy vs AMM mid to list.
           </div>
         )}
 
-        {priceNum > 0 && preflightWarn && postOnly && (
+        {priceNum > 0 && restBlocked && preflightWarn && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
             {preflightWarn}
           </div>
@@ -403,8 +432,8 @@ export default function DexOrdersPanel({
             className="mt-0.5 rounded border-slate-600"
           />
           <span>
-            <strong className="text-slate-300">Post only</strong> — list on the book (maker). Off = taker:
-            fill against resting orders and the AMM pool right away.
+            <strong className="text-slate-300">Post to book</strong> — only places if price does not cross the AMM.
+            Uncheck to deliberately take AMM/book liquidity (instant fill).
           </span>
         </label>
 
@@ -416,7 +445,7 @@ export default function DexOrdersPanel({
             !isPasskeySupported() ||
             !token.issuer ||
             tokenNum <= 0 ||
-            (!!preflightWarn && postOnly)
+            restBlocked
           }
           className="btn-primary flex items-center justify-center gap-2 w-full"
         >
