@@ -255,7 +255,7 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
 - Comprehensive E2E test documentation (\`docs/TESTNET-E2E-REPORT.md\`)
 
 ### In progress (July 2026)
-- Collateral / health factor / liquidation UI for lending
+- On-chain liquidation (`LoanManage` + health-factor enforcement in daemon)
 - Latency scoring and additional slashing offenses
 - Mainnet genesis validator set and production security audit
 - Additional stablecoin pairs (USDT) and deeper testnet liquidity

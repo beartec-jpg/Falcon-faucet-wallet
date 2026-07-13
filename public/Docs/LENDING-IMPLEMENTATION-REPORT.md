@@ -19,7 +19,9 @@ On testnet today:
 | Repay loan | ✅ `LoanPay` | ✅ |
 | Withdraw supply | ✅ `VaultWithdraw` | ✅ |
 | Claim LP epoch rewards | ✅ `ClaimLPReward` | ✅ |
-| Collateral / health factor / liquidation UI | ❌ | Protocol supports `LoanManage`; portal not wired |
+| FALCON collateral in `LoanSet` | ✅ | ✅ `LendingCollateral` amendment locks FALCON on-chain |
+| Health factor display (AMM price) | ✅ borrow preview + Positions | UI math only |
+| On-chain liquidation | ❌ | `LoanManage` not wired; daemon HF enforcement pending |
 
 Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer `rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N`), not bootstrap-minted “fake” supply. Borrowers require **broker first-loss cover** on the loan broker before `LoanSet` succeeds.
 
@@ -385,7 +387,7 @@ python3 scripts/deposit-testnet-broker-cover.py --amount 30
 
 ### Not implemented in portal
 
-- Collateral posting, health factor display, liquidation (`LoanManage`)
+- On-chain liquidation (`LoanManage` + daemon health-factor enforcement)
 - Multi-loan repay UI (only `loans[0]`)
 - Closed/paid `Loan` ledger entries may still appear in Positions with 0 principal
 - Claim rewards UX polish (`canClaim`, estimated reward)
@@ -395,8 +397,7 @@ python3 scripts/deposit-testnet-broker-cover.py --amount 30
 
 ### Docs behind code
 
-- `README.md`, `ROADMAP.md`, and whitepaper sections still describe supply/borrow as “preview only” — **code is live on testnet**.
-- `lend-model.ts` comment on `txSigningReady` is stale.
+- Regenerated lending PDF (`Docs/FALCON-LENDING-IMPLEMENTATION-REPORT.pdf`) may lag this markdown until rebuilt.
 
 ### Mainnet considerations
 
@@ -419,6 +420,8 @@ python3 scripts/deposit-testnet-broker-cover.py --amount 30
 | `src/lib/falcon-lend-tx-sign.ts` | Tx builders |
 | `src/lib/lend-borrow-errors.ts` | Pre-flight + error copy |
 | `src/lib/lend-pool-stats.ts` | Pool contributor/borrower stats |
+| `src/lib/lend-loan-onchain.ts` | Read `Collateral` from Loan ledger objects |
+| `src/lib/lend-collateral.ts` | HF math, min collateral, liquidation threshold |
 | `public/config/lending.json` | On-chain IDs + terms |
 
 ### Protocol (`qXRP`)
@@ -440,4 +443,4 @@ Falcon Ledger lending on testnet is a **working vertical slice**: real F-USDC va
 
 The most common user-facing confusion—**`tecINSUFFICIENT_PAYMENT` while holding ample F-USDC**—is a protocol requirement to pay **principal + interest/fees per installment**, not principal alone. The portal now surfaces the exact due amount, auto-fills it, and blocks underpayment before passkey signing.
 
-Next priorities for production readiness: collateral/health UX, documentation sync, claim/withdraw validation, and mainnet key-management for broker co-sign.
+Next priorities for production readiness: on-chain liquidation (`LoanManage`), claim/withdraw validation, and mainnet key-management for broker co-sign.

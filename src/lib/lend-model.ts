@@ -32,7 +32,7 @@ export interface LendOverview {
     lendingReady: boolean
     chainBuildPending: boolean
     genesisRestartNeeded: boolean
-    /** Portal can submit VaultDeposit / LoanSet txs (not yet wired). */
+    /** Portal can submit VaultDeposit / LoanSet / LoanPay txs. */
     txSigningReady: boolean
   }
   token: { symbol: string; currency: string; issuer: string; configured: boolean }

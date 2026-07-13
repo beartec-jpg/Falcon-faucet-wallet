@@ -61,7 +61,9 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 ### Lending
 - [x] `SingleAssetVault` and `LendingProtocol` amendments enabled on testnet
 - [x] Lend tab: balances, AMM price, health-factor calculator
-- [ ] Portal wiring for `VaultDeposit` / `LoanSet` supply and borrow
+- [x] Portal wiring for `VaultDeposit` / `LoanSet` / `LoanPay` / `VaultWithdraw`
+- [x] FALCON collateral in `LoanSet` + on-chain health display (`LendingCollateral` amendment)
+- [ ] On-chain liquidation via `LoanManage` (daemon HF enforcement)
 
 ### Protocol (testnet)
 - [x] Falcon-512 account creation and transaction signing

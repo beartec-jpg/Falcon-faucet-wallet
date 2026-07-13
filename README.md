@@ -44,9 +44,10 @@ Sepolia testnet contract: `0x2dae31Cbf2E3a418d617081985661fCD0117b75C` (see `pub
 - Live pool stats, LP share %, and estimated withdrawal amounts
 
 ### Lend
-- **Protocol live** — `SingleAssetVault` and `LendingProtocol` amendments enabled on testnet
-- **Overview** — wallet balances, live AMM mid price, health-factor calculator
-- **Supply / Borrow** — UI preview only; `VaultDeposit` / `LoanSet` portal signing not wired yet
+- **Protocol live** — `SingleAssetVault`, `LendingProtocol`, and `LendingCollateral` on testnet
+- **Overview** — wallet balances, live AMM mid price, pool collateral stats, health-factor preview
+- **Supply / Borrow / Repay** — portal-signed `VaultDeposit`, `LoanSet` (FALCON collateral locked on-chain), `LoanPay`, and `VaultWithdraw`
+- **Positions** — on-chain collateral and health factor from AMM price (pre-amendment loans show a re-borrow hint)
 
 ### Explorer
 - Ledger and transaction lookup by hash or address

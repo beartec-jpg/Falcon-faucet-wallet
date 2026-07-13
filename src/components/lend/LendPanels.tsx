@@ -168,7 +168,7 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
                     </div>
                   </div>
                   <div className="col-span-2">
-                    <div className="text-slate-500">FALCON collateral (declared)</div>
+                    <div className="text-slate-500">FALCON collateral (on-chain)</div>
                     <div className="font-mono text-brand-300">
                       {pool.borrow.totalCollateralFalcon > 0
                         ? `${fmt(pool.borrow.totalCollateralFalcon, 4)} FALCON`

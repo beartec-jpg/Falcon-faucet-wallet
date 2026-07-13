@@ -17,7 +17,9 @@ Falcon Ledger lending is built on upstream **XRPL XLS-66** primitives (\`SingleA
 | Repay loan | Yes — \`LoanPay\` (Pay full amount) | Yes |
 | Withdraw supply | Yes — \`VaultWithdraw\` | Yes |
 | Claim LP epoch rewards | Yes — \`ClaimLPReward\` | Yes |
-| Collateral / health factor / liquidation UI | No | Protocol supports \`LoanManage\` |
+| FALCON collateral in \`LoanSet\` | Yes — locked on-chain (\`LendingCollateral\`) | Yes |
+| Health factor display (AMM price) | Yes — borrow preview + Positions | UI math only |
+| On-chain liquidation | No | \`LoanManage\` not wired in portal |
 
 Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N\`), not bootstrap-minted supply. Borrowers require **broker first-loss cover** before \`LoanSet\` succeeds.
 
@@ -200,7 +202,7 @@ python3 scripts/deposit-testnet-broker-cover.py --amount 30
     title: '12.8 Gaps & Next Steps',
     body: `### Not yet in portal
 
-- Collateral posting, health factor display, liquidation (\`LoanManage\`)
+- On-chain liquidation (\`LoanManage\` + daemon HF enforcement)
 - Multi-loan repay UI (only first active loan)
 - Claim rewards UX polish (\`canClaim\`, estimated reward)
 - Withdraw/supply preflight (share balance, vault utilization)
@@ -212,6 +214,6 @@ python3 scripts/deposit-testnet-broker-cover.py --amount 30
 - Broker cover must be operator-funded, not protocol-inflated
 - Production-grade key management for broker co-sign
 
-**Conclusion:** Falcon Ledger lending on testnet is a working vertical slice — real F-USDC vault liquidity, broker-gated borrows with server co-sign, and interest-aware repay via **Pay full amount**. Next priorities: collateral/health UX, claim/withdraw validation, and mainnet key management.`,
+**Conclusion:** Falcon Ledger lending on testnet is a working vertical slice — real F-USDC vault liquidity, broker-gated borrows with server co-sign, FALCON collateral locked in \`LoanSet\`, health display from on-chain collateral + AMM price, and interest-aware repay via **Pay full amount**. Next priorities: on-chain liquidation, claim/withdraw validation, and mainnet key management.`,
   },
 ]
