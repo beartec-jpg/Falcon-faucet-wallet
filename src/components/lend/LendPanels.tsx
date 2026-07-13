@@ -102,7 +102,7 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
               <div className="rounded-xl bg-slate-800/50 px-3 py-3">
                 <div className="text-[10px] uppercase tracking-wide text-slate-500">Borrowers</div>
                 <div className="text-lg font-bold text-amber-300 mt-1">{pool.borrow.borrowerCount}</div>
-                <div className="text-[10px] text-slate-600">active loans</div>
+                <div className="text-[10px] text-slate-600">loans with balance due</div>
               </div>
               <div className="rounded-xl bg-slate-800/50 px-3 py-3">
                 <div className="text-[10px] uppercase tracking-wide text-slate-500">Utilization</div>

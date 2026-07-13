@@ -47,12 +47,14 @@ type RepayLoanFields = {
 export function isRepayableLoan(loan: RepayLoanFields | null | undefined): boolean {
   if (!loan) return false
   const outstanding = loan.totalOutstandingFusdc ?? loan.principalFusdc ?? 0
-  return outstanding > 0
+  if (outstanding > 0) return true
+  const due = repayDueFusdc(loan)
+  return due != null && due > 0
 }
 
 /** Minimum installment / full payoff due from ledger fields. */
 export function repayDueFusdc(loan: RepayLoanFields | null | undefined): number | null {
-  if (!loan || !isRepayableLoan(loan)) return null
+  if (!loan) return null
   const raw = loan.paymentDueRaw?.trim()
   if (raw) {
     const n = parseFloat(raw)

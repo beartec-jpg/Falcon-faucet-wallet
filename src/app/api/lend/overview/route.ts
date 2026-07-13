@@ -7,8 +7,10 @@ import {
   buildPoolSnapshot,
   fetchLoanBrokerNode,
   listChainLoans,
+  isActiveChainLoan,
   isActiveVaultLp,
   listVaultShareHolders,
+  loanOutstandingFusdc,
   mptScaled,
 } from '@/lib/lend-pool-stats'
 
@@ -253,7 +255,9 @@ export async function GET(req: NextRequest) {
           }, { allowError: true })
           for (const obj of loanR.account_objects ?? []) {
             if (obj.LedgerEntryType !== 'Loan' && obj.ledger_entry_type !== 'Loan') continue
-            const principal = iouValue(obj.PrincipalOutstanding) ?? iouValue(obj.TotalValueOutstanding) ?? 0
+            if (!isActiveChainLoan(obj)) continue
+            const principal = loanOutstandingFusdc(obj)
+            if (principal <= 0) continue
             const paymentDue = iouValue(obj.PeriodicPayment)
             const paymentDueRaw =
               typeof obj.PeriodicPayment === 'string' || typeof obj.PeriodicPayment === 'number'

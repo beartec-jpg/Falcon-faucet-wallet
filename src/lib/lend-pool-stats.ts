@@ -69,6 +69,30 @@ export interface ChainLoan {
   vaultId: string
 }
 
+/** Loan is active when it still has installments or outstanding balance on-chain. */
+export function isActiveChainLoan(obj: Record<string, unknown>): boolean {
+  const paymentRemaining = Number(obj.PaymentRemaining ?? 0)
+  if (Number.isFinite(paymentRemaining) && paymentRemaining > 0) return true
+  const principal = iouAmount(obj.PrincipalOutstanding) ?? 0
+  if (principal > 0) return true
+  const total = iouAmount(obj.TotalValueOutstanding) ?? 0
+  return total > 0
+}
+
+/** Best-effort F-USDC still owed on an active loan object. */
+export function loanOutstandingFusdc(obj: Record<string, unknown>): number {
+  const total = iouAmount(obj.TotalValueOutstanding)
+  if (total != null && total > 0) return total
+  const principal = iouAmount(obj.PrincipalOutstanding)
+  if (principal != null && principal > 0) return principal
+  const paymentRemaining = Number(obj.PaymentRemaining ?? 0)
+  if (Number.isFinite(paymentRemaining) && paymentRemaining > 0) {
+    const installment = iouAmount(obj.PeriodicPayment) ?? 0
+    if (installment > 0) return installment * paymentRemaining
+  }
+  return 0
+}
+
 export interface LendPoolSnapshot {
   supply: {
     totalFusdc: number
@@ -162,13 +186,13 @@ export async function listChainLoans(networkKey: NetworkKey): Promise<ChainLoan[
 
     for (const obj of r.state ?? []) {
       if (obj.LedgerEntryType !== 'Loan' && obj.ledger_entry_type !== 'Loan') continue
-      const principal =
-        iouAmount(obj.PrincipalOutstanding) ?? iouAmount(obj.TotalValueOutstanding) ?? 0
-      if (principal <= 0) continue
+      if (!isActiveChainLoan(obj)) continue
+      const outstanding = loanOutstandingFusdc(obj)
+      if (outstanding <= 0) continue
       loans.push({
         id: String(obj.index ?? obj.LoanID ?? ''),
         borrower: String(obj.Borrower ?? ''),
-        principalFusdc: principal,
+        principalFusdc: outstanding,
         vaultId: String(obj.VaultID ?? ''),
       })
     }
@@ -206,12 +230,9 @@ export function buildPoolSnapshot(
 ): LendPoolSnapshot {
   const borrowedFusdc = Math.max(0, assetsTotal - assetsAvailable)
   const utilizationPct = assetsTotal > 0 ? (borrowedFusdc / assetsTotal) * 100 : 0
-  const brokerDebt = iouAmount(broker?.DebtTotal) ?? null
   const loanDebt = chainLoans.reduce((s, l) => s + l.principalFusdc, 0)
-  const totalDebtFusdc = brokerDebt != null && brokerDebt > 0 ? brokerDebt : loanDebt > 0 ? loanDebt : borrowedFusdc
-
-  const loanSequence = Number(broker?.LoanSequence ?? 1)
-  const loansFromBroker = loanSequence > 1 ? loanSequence - 1 : 0
+  // Vault liquidity is source of truth for F-USDC drawn; loan sum can lag stale objects.
+  const totalDebtFusdc = loanDebt > 0 ? loanDebt : borrowedFusdc
 
   return {
     supply: {
@@ -223,7 +244,7 @@ export function buildPoolSnapshot(
       sharesOutstanding,
     },
     borrow: {
-      borrowerCount: chainLoans.length > 0 ? chainLoans.length : loansFromBroker,
+      borrowerCount: chainLoans.length,
       totalDebtFusdc,
       brokerCoverFusdc: iouAmount(broker?.CoverAvailable) ?? 0,
       debtMaximumFusdc: iouAmount(broker?.DebtMaximum),
