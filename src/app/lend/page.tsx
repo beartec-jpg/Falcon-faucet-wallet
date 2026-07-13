@@ -29,6 +29,7 @@ import {
   explainLendSubmitError,
   repayBlockedReason,
 } from '@/lib/lend-borrow-errors'
+import { resolveVaultDepositAmount, supplyBlockedReason } from '@/lib/lend-vault-deposit'
 
 type Tab = 'overview' | 'supply' | 'borrow' | 'positions'
 
@@ -117,29 +118,50 @@ export default function LendPage() {
       const lend = data?.lending
       const tok = data?.token
       if (!wallet || !lend?.vaultId || !tok?.issuer) return
+      const blocked = supplyBlockedReason(data, amount)
+      if (blocked) {
+        setError(blocked)
+        return
+      }
+      const resolved = resolveVaultDepositAmount(data, amount)
+      if (!resolved) {
+        setError('Invalid supply amount')
+        return
+      }
+      const { amount: chainAmount, offered, adjusted } = resolved
       await withSecret(async (falcon_secret) => {
-        await submitWithSequenceRetry({
-          networkKey,
-          fetchSequence: async () => {
-            const a = await fetchSequenceInfo(wallet.address, networkKey)
-            return { sequence: a.sequence, currentLedger: a.currentLedger }
-          },
-          sign: ({ sequence, lastLedgerSequence }) =>
-            signVaultDepositTx(
-              {
-                account: wallet.address,
-                vaultId: lend.vaultId!,
-                currency: tok.currency,
-                issuer: tok.issuer,
-                amount,
-                sequence,
-                lastLedgerSequence,
-                networkId: network.networkId,
-              },
-              falcon_secret,
-            ),
-        })
-        setNotice(`Supplied ${amount} F-USDC to vault`)
+        try {
+          await submitWithSequenceRetry({
+            networkKey,
+            fetchSequence: async () => {
+              const a = await fetchSequenceInfo(wallet.address, networkKey)
+              return { sequence: a.sequence, currentLedger: a.currentLedger }
+            },
+            sign: ({ sequence, lastLedgerSequence }) =>
+              signVaultDepositTx(
+                {
+                  account: wallet.address,
+                  vaultId: lend.vaultId!,
+                  currency: tok.currency,
+                  issuer: tok.issuer,
+                  amount: chainAmount,
+                  sequence,
+                  lastLedgerSequence,
+                  networkId: network.networkId,
+                },
+                falcon_secret,
+              ),
+          })
+        } catch (e: unknown) {
+          const raw = e instanceof Error ? e.message : ''
+          const [code, ...rest] = raw.split(' — ')
+          throw new Error(explainLendSubmitError(code, rest.join(' — '), data) || raw || 'Supply failed')
+        }
+        const notice =
+          adjusted && chainAmount !== String(offered)
+            ? `Supplied ${chainAmount} F-USDC to vault (adjusted from ${offered} for vault share precision)`
+            : `Supplied ${chainAmount} F-USDC to vault`
+        setNotice(notice)
       })
     },
     [data, wallet, withSecret, networkKey, network.networkId],

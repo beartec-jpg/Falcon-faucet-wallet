@@ -10,6 +10,7 @@ import {
   repayBlockedReason,
   repayDueFusdc,
 } from '@/lib/lend-borrow-errors'
+import { normalizeVaultDepositAmount, supplyBlockedReason } from '@/lib/lend-vault-deposit'
 
 function fmt(n: number | null | undefined, digits = 4): string {
   if (n == null || Number.isNaN(n)) return '—'
@@ -327,8 +328,17 @@ export function LendSupplyPanel({
 }) {
   const [amount, setAmount] = useState('')
   const ready = data?.protocol.txSigningReady && !!onSupply
+  const vault = data?.vaults?.[0]
+  const offered = parseFloat(amount)
+  const normalized =
+    vault && Number.isFinite(offered) && offered > 0
+      ? normalizeVaultDepositAmount(offered, vault)
+      : null
+  const supplyBlocked =
+    amount.trim() && data ? supplyBlockedReason(data, amount) : null
 
   const handle = () => {
+    if (supplyBlocked) return
     const n = parseFloat(amount)
     if (!Number.isFinite(n) || n <= 0) return
     if (!data?.wallet?.hasFusdcTrustLine) return
@@ -354,16 +364,27 @@ export function LendSupplyPanel({
         <input
           type="number"
           min="0"
+          step="any"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           disabled={!ready || busy}
           className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm disabled:opacity-50"
         />
       </label>
+      {normalized && amount.trim() && normalized !== amount.trim() && !supplyBlocked && (
+        <p className="text-xs text-slate-500">
+          Vault share math will deposit{' '}
+          <span className="font-mono text-slate-300">{normalized} F-USDC</span> (rounded from your
+          input).
+        </p>
+      )}
+      {supplyBlocked && (
+        <p className="text-xs text-amber-400">{supplyBlocked}</p>
+      )}
       <button
         type="button"
         onClick={handle}
-        disabled={!ready || busy || !amount}
+        disabled={!ready || busy || !amount || !!supplyBlocked}
         className="w-full rounded-lg bg-brand-500 text-white px-4 py-2.5 text-sm font-medium disabled:opacity-50"
       >
         {busy ? 'Signing…' : 'Supply (sign with passkey)'}

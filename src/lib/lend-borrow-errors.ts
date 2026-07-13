@@ -128,5 +128,8 @@ export function explainLendSubmitError(
   if (engineResult === 'tecINSUFFICIENT_RESERVE') {
     return 'Borrow failed: your Falcon wallet needs more FALCON for account reserve (fund the wallet via faucet first).'
   }
+  if (engineResult === 'tecINVARIANT_FAILED') {
+    return 'Supply failed: vault share rounding rejected that amount. Try a slightly lower value (e.g. 19.999999 instead of 20) or re-submit — the portal now auto-adjusts deposit amounts.'
+  }
   return base || 'Transaction failed'
 }
