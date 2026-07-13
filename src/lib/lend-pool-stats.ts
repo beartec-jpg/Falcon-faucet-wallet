@@ -1,3 +1,4 @@
+import { collateralFromLoanObject } from '@/lib/lend-loan-onchain'
 import { serverRpcCall, type resolveNetworkKey } from '@/lib/network-server'
 
 type NetworkKey = ReturnType<typeof resolveNetworkKey>
@@ -67,6 +68,7 @@ export interface ChainLoan {
   borrower: string
   principalFusdc: number
   vaultId: string
+  collateralFalcon: number
 }
 
 /** Loan is active when it still has installments or outstanding balance on-chain. */
@@ -200,6 +202,7 @@ export async function listChainLoans(networkKey: NetworkKey): Promise<ChainLoan[
         borrower: String(obj.Borrower ?? ''),
         principalFusdc: outstanding,
         vaultId: String(obj.VaultID ?? ''),
+        collateralFalcon: collateralFromLoanObject(obj),
       })
     }
 
@@ -233,7 +236,6 @@ export function buildPoolSnapshot(
   contributors: VaultShareHolder[],
   chainLoans: ChainLoan[],
   broker: Record<string, unknown> | null,
-  collateralByLoanId: Record<string, number> = {},
 ): LendPoolSnapshot {
   const borrowedFusdc = Math.max(0, assetsTotal - assetsAvailable)
   const utilizationPct = assetsTotal > 0 ? (borrowedFusdc / assetsTotal) * 100 : 0
@@ -253,10 +255,7 @@ export function buildPoolSnapshot(
     borrow: {
       borrowerCount: chainLoans.length,
       totalDebtFusdc,
-      totalCollateralFalcon: chainLoans.reduce(
-        (s, l) => s + (collateralByLoanId[l.id.toUpperCase()] ?? 0),
-        0,
-      ),
+      totalCollateralFalcon: chainLoans.reduce((s, l) => s + l.collateralFalcon, 0),
       brokerCoverFusdc: iouAmount(broker?.CoverAvailable) ?? 0,
       debtMaximumFusdc: iouAmount(broker?.DebtMaximum),
       coverRateMinPct: tenthBipsToPct(broker?.CoverRateMinimum),
@@ -268,7 +267,7 @@ export function buildPoolSnapshot(
       address: l.borrower,
       principalFusdc: l.principalFusdc,
       loanId: l.id,
-      collateralFalcon: collateralByLoanId[l.id.toUpperCase()] ?? null,
+      collateralFalcon: l.collateralFalcon > 0 ? l.collateralFalcon : null,
     })),
   }
 }

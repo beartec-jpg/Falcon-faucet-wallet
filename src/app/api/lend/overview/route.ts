@@ -4,7 +4,7 @@ import { getUsdcMarket } from '@/lib/swap/quote'
 import { loadStableToken } from '@/lib/swap/token-config'
 import { loadLendingManifestServer } from '@/lib/lending-config'
 import { loanHealthSnapshot } from '@/lib/lend-collateral'
-import { getCollateralMap } from '@/lib/lend-collateral-store'
+import { collateralFromLoanObject } from '@/lib/lend-loan-onchain'
 import {
   buildPoolSnapshot,
   fetchLoanBrokerNode,
@@ -262,9 +262,6 @@ export async function GET(req: NextRequest) {
             if (!isActiveChainLoan(obj)) return false
             return loanOutstandingFusdc(obj) > 0
           })
-          const collateralMap = await getCollateralMap(
-            activeLoanObjs.map((obj) => String(obj.index ?? obj.LoanID ?? '')),
-          )
           for (const obj of activeLoanObjs) {
             const principal = loanOutstandingFusdc(obj)
             const paymentDue = iouValue(obj.PeriodicPayment)
@@ -275,7 +272,7 @@ export async function GET(req: NextRequest) {
             const totalOutstanding = iouValue(obj.TotalValueOutstanding)
             const debtForHf = totalOutstanding ?? principal
             const loanId = String(obj.index ?? obj.LoanID ?? '')
-            const collateralFalcon = collateralMap[loanId.toUpperCase()] ?? 0
+            const collateralFalcon = collateralFromLoanObject(obj)
             const { healthFactor: hf } = loanHealthSnapshot(
               collateralFalcon,
               debtForHf,
@@ -386,7 +383,6 @@ export async function GET(req: NextRequest) {
             ? fetchLoanBrokerNode(networkKey, manifest.loan_broker_id)
             : Promise.resolve(null),
         ])
-        const poolCollateralMap = await getCollateralMap(chainLoans.map((l) => l.id))
         pool = buildPoolSnapshot(
           assetsTotal,
           vaultAssetsAvailable ?? 0,
@@ -394,7 +390,6 @@ export async function GET(req: NextRequest) {
           contributors,
           chainLoans,
           broker,
-          poolCollateralMap,
         )
       } catch { /* optional */ }
     }

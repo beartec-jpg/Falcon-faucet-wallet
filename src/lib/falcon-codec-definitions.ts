@@ -31,6 +31,16 @@ const QXRP_FIELDS: FieldEntry[] = [
     },
   ],
   [
+    'Collateral',
+    {
+      isSerialized: true,
+      isSigningField: true,
+      isVLEncoded: false,
+      nth: 37,
+      type: 'Amount',
+    },
+  ],
+  [
     'SlashTarget',
     {
       isSerialized: true,

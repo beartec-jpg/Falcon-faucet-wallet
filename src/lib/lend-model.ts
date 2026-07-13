@@ -99,7 +99,7 @@ export interface LendOverview {
     borrow: {
       borrowerCount: number
       totalDebtFusdc: number
-      /** Sum of portal-recorded FALCON collateral on active loans. */
+      /** Sum of on-chain FALCON collateral on active loans. */
       totalCollateralFalcon: number
       brokerCoverFusdc: number
       debtMaximumFusdc: number | null

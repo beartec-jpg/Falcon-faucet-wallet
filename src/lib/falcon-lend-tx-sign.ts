@@ -104,6 +104,8 @@ export async function signLoanSetBorrowerTx(
     account: string
     loanBrokerId: string
     principalRequested: string
+    /** FALCON drops locked as on-chain collateral (LendingCollateral amendment). */
+    collateralDrops?: string
     interestRateTenthBps: number
     paymentInterval: number
     paymentTotal: number
@@ -133,6 +135,9 @@ export async function signLoanSetBorrowerTx(
     PaymentTotal: params.paymentTotal,
     GracePeriod: params.gracePeriod,
     Flags: TF_LOAN_OVERPAYMENT,
+    ...(params.collateralDrops && params.collateralDrops !== '0'
+      ? { Collateral: params.collateralDrops }
+      : {}),
   }
   const tx_blob = await signPrepared(tx, decoded)
   const tx_json = decode(tx_blob, getFalconCodecDefinitions()) as Record<string, unknown>

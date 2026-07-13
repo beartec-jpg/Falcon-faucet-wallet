@@ -30,10 +30,7 @@ import {
   repayBlockedReason,
 } from '@/lib/lend-borrow-errors'
 import { collateralBlockedReason } from '@/lib/lend-collateral'
-import {
-  postLoanCollateral,
-  registerLoanCollateralWithRetry,
-} from '@/lib/lend-register-collateral'
+import { collateralDropsFromFalcon } from '@/lib/lend-loan-onchain'
 import { supplyBlockedReason } from '@/lib/lend-vault-deposit'
 import { withdrawBlockedReason } from '@/lib/lend-vault-withdraw'
 
@@ -217,6 +214,7 @@ export default function LendPage() {
             account: wallet.address,
             loanBrokerId: lend.loanBrokerId!,
             principalRequested: principal,
+            collateralDrops: collateralDropsFromFalcon(collateralNum),
             interestRateTenthBps: lend.interestRateTenthBps ?? 500,
             paymentInterval: 86400,
             paymentTotal: 1,
@@ -245,59 +243,12 @@ export default function LendPage() {
         if (!subJ.success) {
           throw new Error(explainLendSubmitError(subJ.result, subJ.message, data))
         }
-        const saved = await registerLoanCollateralWithRetry(
-          networkKey,
-          wallet.address,
-          principalNum,
-          collateralNum,
+        setNotice(
+          `Borrowed ${principal} F-USDC — ${collateralFalcon} FALCON locked on-chain as collateral`,
         )
-        if (saved.ok) {
-          setNotice(
-            `Borrowed ${principal} F-USDC — ${collateralFalcon} FALCON collateral recorded for loan health`,
-          )
-          await refresh(wallet.address)
-        } else {
-          setNotice(`Borrowed ${principal} F-USDC`)
-          setError(
-            `${saved.error ?? 'Collateral was not saved'}. Open Positions and use "Record collateral" so loan health can display.`,
-          )
-        }
       })
     },
-    [data, wallet, withSecret, networkKey, network.networkId, refresh],
-  )
-
-  const handleDeclareCollateral = useCallback(
-    async (loanId: string, collateralFalcon: string) => {
-      if (!wallet) return
-      const collateralNum = parseFloat(collateralFalcon)
-      const loan = data?.loans?.find((l) => l.id === loanId)
-      const debt = loan?.totalOutstandingFusdc ?? loan?.principalFusdc
-      const blocked = collateralBlockedReason(
-        debt,
-        collateralNum,
-        data?.wallet?.falconBalance,
-        data?.market.falconPerFusdc,
-      )
-      if (blocked) {
-        setError(blocked)
-        return
-      }
-      setBusy(true)
-      setError(null)
-      setNotice(null)
-      try {
-        const posted = await postLoanCollateral(loanId, wallet.address, collateralNum)
-        if (!posted.ok) throw new Error(posted.error ?? 'Collateral save failed')
-        setNotice(`Recorded ${collateralFalcon} FALCON collateral for this loan`)
-        await refresh(wallet.address)
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Collateral save failed')
-      } finally {
-        setBusy(false)
-      }
-    },
-    [wallet, data, refresh],
+    [data, wallet, withSecret, networkKey, network.networkId],
   )
 
   const handleClaim = useCallback(async () => {
@@ -544,7 +495,6 @@ export default function LendPage() {
                 onClaim={handleClaim}
                 onWithdraw={handleWithdraw}
                 onRepay={handleRepay}
-                onDeclareCollateral={handleDeclareCollateral}
               />
             )}
           </>
