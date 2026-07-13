@@ -173,7 +173,9 @@ export async function GET(req: NextRequest) {
         if (m.market) {
           market = {
             live: true,
-            falconPerFusdc: m.market.price,
+            // Lend health math uses F-USDC per FALCON (inverse of swap quote price).
+            falconPerFusdc:
+              m.market.xrpPool > 0 ? m.market.tokenPool / m.market.xrpPool : null,
             falconPool: m.market.xrpPool,
             usdcPool: m.market.tokenPool,
           }
