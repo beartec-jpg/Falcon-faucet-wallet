@@ -10,7 +10,11 @@ import {
   repayBlockedReason,
   repayDueFusdc,
 } from '@/lib/lend-borrow-errors'
-import { normalizeVaultDepositAmount, supplyBlockedReason } from '@/lib/lend-vault-deposit'
+import {
+  maxSupplyFusdc,
+  normalizeVaultDepositAmount,
+  supplyBlockedReason,
+} from '@/lib/lend-vault-deposit'
 
 function fmt(n: number | null | undefined, digits = 4): string {
   if (n == null || Number.isNaN(n)) return '—'
@@ -336,6 +340,12 @@ export function LendSupplyPanel({
       : null
   const supplyBlocked =
     amount.trim() && data ? supplyBlockedReason(data, amount) : null
+  const fusdcBalance = data?.wallet?.fusdcBalance ?? null
+  const hasTrustLine = data?.wallet?.hasFusdcTrustLine ?? false
+  const maxAmount =
+    vault && fusdcBalance != null && fusdcBalance > 0
+      ? maxSupplyFusdc(fusdcBalance, vault)
+      : null
 
   const handle = () => {
     if (supplyBlocked) return
@@ -356,11 +366,46 @@ export function LendSupplyPanel({
         Pool APR: {(LEND_FIXED_APR_BPS / 100).toFixed(2)}% · Vault{' '}
         {data?.lending.vaultId ? `${data.lending.vaultId.slice(0, 8)}…` : 'not configured'}
       </div>
-      {data?.wallet && !data.wallet.hasFusdcTrustLine && (
+      {data?.wallet && !hasTrustLine && (
         <p className="text-xs text-amber-400">Add a F-USDC trust line on Wallet → Bridge or Swap first.</p>
       )}
+      <div className="rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2.5 flex items-center justify-between gap-3">
+        <div className="text-xs">
+          <div className="text-slate-500">F-USDC available to supply</div>
+          <div className="font-mono text-base text-emerald-300 mt-0.5">
+            {hasTrustLine && fusdcBalance != null ? (
+              <>
+                {fmt(fusdcBalance, 6)} F-USDC
+                {busy && (
+                  <span className="block text-slate-500 text-[11px] font-sans mt-0.5">
+                    Signing… F-USDC moves only after the tx confirms
+                  </span>
+                )}
+              </>
+            ) : hasTrustLine ? (
+              '—'
+            ) : (
+              <span className="text-amber-400 text-sm">No trust line</span>
+            )}
+          </div>
+        </div>
+        {maxAmount && !busy && (
+          <button
+            type="button"
+            onClick={() => setAmount(maxAmount)}
+            disabled={!ready}
+            className="shrink-0 rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+          >
+            Max
+          </button>
+        )}
+      </div>
+      <p className="text-[11px] text-slate-600">
+        Network fee is paid in <span className="text-slate-400">FALCON</span>, not F-USDC. Failed attempts
+        only cost a trace of FALCON.
+      </p>
       <label className="block text-xs">
-        <span className="text-slate-500">Amount (F-USDC)</span>
+        <span className="text-slate-500">Amount to supply (F-USDC)</span>
         <input
           type="number"
           min="0"

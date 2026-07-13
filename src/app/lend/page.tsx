@@ -29,7 +29,7 @@ import {
   explainLendSubmitError,
   repayBlockedReason,
 } from '@/lib/lend-borrow-errors'
-import { resolveVaultDepositAmount, supplyBlockedReason } from '@/lib/lend-vault-deposit'
+import { supplyBlockedReason } from '@/lib/lend-vault-deposit'
 
 type Tab = 'overview' | 'supply' | 'borrow' | 'positions'
 
@@ -123,12 +123,23 @@ export default function LendPage() {
         setError(blocked)
         return
       }
-      const resolved = resolveVaultDepositAmount(data, amount)
-      if (!resolved) {
-        setError('Invalid supply amount')
+      const preflightR = await fetch(withNetworkQuery('/api/lend/supply-preflight', networkKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: wallet.address, offered: amount }),
+      })
+      const preflight = (await preflightR.json()) as {
+        error?: string
+        chainAmount?: string
+        offered?: number
+        adjusted?: boolean
+        fusdcBalance?: number | null
+      }
+      if (!preflightR.ok || !preflight.chainAmount) {
+        setError(preflight.error ?? 'Supply preflight failed')
         return
       }
-      const { amount: chainAmount, offered, adjusted } = resolved
+      const { chainAmount, offered = parseFloat(amount), adjusted = false } = preflight
       await withSecret(async (falcon_secret) => {
         try {
           await submitWithSequenceRetry({
@@ -377,7 +388,12 @@ export default function LendPage() {
                 <button
                   key={t.key}
                   type="button"
-                  onClick={() => setTab(t.key)}
+                  onClick={() => {
+                    setTab(t.key)
+                    if (t.key === 'supply' && wallet?.address) {
+                      refresh(wallet.address).catch(() => {})
+                    }
+                  }}
                   className={
                     tab === t.key
                       ? 'px-3 py-1.5 rounded-lg bg-brand-500/10 text-brand-500 font-medium text-sm whitespace-nowrap'

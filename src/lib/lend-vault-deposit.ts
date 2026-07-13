@@ -88,6 +88,15 @@ export function supplyBlockedReason(
   return null
 }
 
+/** Largest deposit amount that fits wallet balance after vault share rounding. */
+export function maxSupplyFusdc(
+  fusdcBalance: number,
+  vault: { assetsTotal: number; sharesOutstanding: number; shareScale: number },
+): string | null {
+  if (!Number.isFinite(fusdcBalance) || fusdcBalance <= 0) return null
+  return normalizeVaultDepositAmount(fusdcBalance, vault)
+}
+
 /** Amount string safe to pass to VaultDeposit Amount after normalization. */
 export function resolveVaultDepositAmount(
   data: LendOverview | null,
