@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isOriginAllowed } from '@/lib/origin'
 import { loadLendingManifestServer } from '@/lib/lending-config'
-import { iouAmount, mptScaled } from '@/lib/lend-pool-stats'
+import { iouAmount, isActiveVaultLp, mptScaled } from '@/lib/lend-pool-stats'
 import { normalizeVaultWithdrawAmount, fusdcFromShareBalance } from '@/lib/lend-vault-withdraw'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { loadStableToken } from '@/lib/swap/token-config'
@@ -42,6 +42,7 @@ async function fetchShareBalance(
   address: string,
   shareMptId: string,
   shareScale: number,
+  sharesOutstanding: number,
 ): Promise<number> {
   try {
     const r = await serverRpcCall<{
@@ -55,7 +56,9 @@ async function fetchShareBalance(
       (o) => String(o.MPTokenIssuanceID ?? '').toUpperCase() === shareMptId,
     )
     if (!obj) return 0
-    return mptScaled(String(obj.MPTAmount ?? obj.Balance ?? '0'), shareScale)
+    const rawBal = String(obj.MPTAmount ?? obj.Balance ?? '0')
+    if (!isActiveVaultLp(rawBal, shareScale, sharesOutstanding)) return 0
+    return mptScaled(rawBal, shareScale)
   } catch {
     return 0
   }
@@ -101,6 +104,7 @@ export async function POST(req: NextRequest) {
     address,
     vault.shareMptId,
     vault.shareScale,
+    vault.sharesOutstanding,
   )
   if (shareBalance <= 0) {
     return NextResponse.json(

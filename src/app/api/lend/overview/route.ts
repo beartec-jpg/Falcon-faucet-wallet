@@ -7,6 +7,7 @@ import {
   buildPoolSnapshot,
   fetchLoanBrokerNode,
   listChainLoans,
+  isActiveVaultLp,
   listVaultShareHolders,
   mptScaled,
 } from '@/lib/lend-pool-stats'
@@ -300,8 +301,8 @@ export async function GET(req: NextRequest) {
               const mptId = String(obj.MPTokenIssuanceID ?? obj.mpt_issuance_id ?? '').toUpperCase()
               if (!mptId || mptId !== shareMptId) continue
               const rawBal = String(obj.MPTAmount ?? obj.Balance ?? '0')
+              if (!isActiveVaultLp(rawBal, shareScale, sharesOutstanding)) continue
               const shareBalance = mptScaled(rawBal, shareScale)
-              if (shareBalance <= 0) continue
 
               const sharePct =
                 sharesOutstanding > 0 ? (shareBalance / sharesOutstanding) * 100 : null

@@ -9,6 +9,33 @@ export function mptScaled(raw: string | number | undefined | null, scale: number
   return n / 10 ** scale
 }
 
+/** Integer MPT amount from ledger (OutstandingAmount / MPTAmount). */
+export function mptRawAmount(raw: string | number | undefined | null): bigint {
+  const s = String(raw ?? '0').trim()
+  if (!s || s === '0') return 0n
+  try {
+    return BigInt(s.includes('.') ? s.split('.')[0] : s)
+  } catch {
+    return 0n
+  }
+}
+
+/** Ignore empty MPToken lines and dust left after VaultWithdraw (shows as 0% in UI). */
+export const MIN_LP_SHARE_PCT = 0.001
+
+export function isActiveVaultLp(
+  rawBal: string | number | undefined | null,
+  shareScale: number,
+  sharesOutstanding: number,
+): boolean {
+  if (mptRawAmount(rawBal) <= 0n) return false
+  const shareBalance = mptScaled(String(rawBal), shareScale)
+  if (!Number.isFinite(shareBalance) || shareBalance <= 0) return false
+  if (sharesOutstanding <= 0) return true
+  const sharePct = (shareBalance / sharesOutstanding) * 100
+  return sharePct >= MIN_LP_SHARE_PCT
+}
+
 export function iouAmount(v: unknown): number | null {
   if (v == null) return null
   if (typeof v === 'string' || typeof v === 'number') {
@@ -93,8 +120,9 @@ export async function listVaultShareHolders(
       if (mptId !== target) continue
       const rawBal = obj.MPTAmount ?? obj.Balance
       if (rawBal == null) continue
-      const shareBalance = mptScaled(String(rawBal), shareScale)
-      if (shareBalance <= 0) continue
+      const rawBalStr = String(rawBal)
+      if (!isActiveVaultLp(rawBalStr, shareScale, sharesOutstanding)) continue
+      const shareBalance = mptScaled(rawBalStr, shareScale)
       const sharePct = sharesOutstanding > 0 ? (shareBalance / sharesOutstanding) * 100 : 0
       const depositedFusdc =
         sharesOutstanding > 0 && assetsTotal > 0
