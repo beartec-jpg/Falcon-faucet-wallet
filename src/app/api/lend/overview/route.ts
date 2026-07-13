@@ -3,6 +3,8 @@ import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { getUsdcMarket } from '@/lib/swap/quote'
 import { loadStableToken } from '@/lib/swap/token-config'
 import { loadLendingManifestServer } from '@/lib/lending-config'
+import { loanHealthSnapshot } from '@/lib/lend-collateral'
+import { getCollateralMap } from '@/lib/lend-collateral-store'
 import {
   buildPoolSnapshot,
   fetchLoanBrokerNode,
@@ -253,26 +255,39 @@ export async function GET(req: NextRequest) {
             type: 'loan',
             ledger_index: 'validated',
           }, { allowError: true })
-          for (const obj of loanR.account_objects ?? []) {
-            if (obj.LedgerEntryType !== 'Loan' && obj.ledger_entry_type !== 'Loan') continue
-            if (!isActiveChainLoan(obj)) continue
+          const activeLoanObjs = (loanR.account_objects ?? []).filter((obj) => {
+            if (obj.LedgerEntryType !== 'Loan' && obj.ledger_entry_type !== 'Loan') return false
+            if (!isActiveChainLoan(obj)) return false
+            return loanOutstandingFusdc(obj) > 0
+          })
+          const collateralMap = await getCollateralMap(
+            activeLoanObjs.map((obj) => String(obj.index ?? obj.LoanID ?? '')),
+          )
+          for (const obj of activeLoanObjs) {
             const principal = loanOutstandingFusdc(obj)
-            if (principal <= 0) continue
             const paymentDue = iouValue(obj.PeriodicPayment)
             const paymentDueRaw =
               typeof obj.PeriodicPayment === 'string' || typeof obj.PeriodicPayment === 'number'
                 ? String(obj.PeriodicPayment)
                 : null
             const totalOutstanding = iouValue(obj.TotalValueOutstanding)
+            const debtForHf = totalOutstanding ?? principal
+            const loanId = String(obj.index ?? obj.LoanID ?? '')
+            const collateralFalcon = collateralMap[loanId.toUpperCase()] ?? 0
+            const { healthFactor: hf } = loanHealthSnapshot(
+              collateralFalcon,
+              debtForHf,
+              market.falconPerFusdc,
+            )
             loans.push({
-              id: String(obj.index ?? obj.LoanID ?? ''),
+              id: loanId,
               vaultId: String(obj.VaultID ?? manifest.vault_id),
               principalFusdc: principal,
               paymentDueFusdc: paymentDue,
               paymentDueRaw,
               totalOutstandingFusdc: totalOutstanding,
-              collateralFalcon: 0,
-              healthFactor: null,
+              collateralFalcon,
+              healthFactor: collateralFalcon > 0 ? hf : null,
             })
           }
         } catch { /* optional */ }
@@ -369,6 +384,7 @@ export async function GET(req: NextRequest) {
             ? fetchLoanBrokerNode(networkKey, manifest.loan_broker_id)
             : Promise.resolve(null),
         ])
+        const poolCollateralMap = await getCollateralMap(chainLoans.map((l) => l.id))
         pool = buildPoolSnapshot(
           assetsTotal,
           vaultAssetsAvailable ?? 0,
@@ -376,6 +392,7 @@ export async function GET(req: NextRequest) {
           contributors,
           chainLoans,
           broker,
+          poolCollateralMap,
         )
       } catch { /* optional */ }
     }

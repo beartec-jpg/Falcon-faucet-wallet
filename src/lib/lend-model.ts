@@ -99,6 +99,8 @@ export interface LendOverview {
     borrow: {
       borrowerCount: number
       totalDebtFusdc: number
+      /** Sum of portal-recorded FALCON collateral on active loans. */
+      totalCollateralFalcon: number
       brokerCoverFusdc: number
       debtMaximumFusdc: number | null
       coverRateMinPct: number | null
@@ -111,7 +113,12 @@ export interface LendOverview {
       sharePct: number
       depositedFusdc: number
     }>
-    borrowers: Array<{ address: string; principalFusdc: number; loanId: string }>
+    borrowers: Array<{
+      address: string
+      principalFusdc: number
+      loanId: string
+      collateralFalcon: number | null
+    }>
   } | null
   lending: {
     configured: boolean

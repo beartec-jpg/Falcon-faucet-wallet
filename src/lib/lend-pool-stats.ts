@@ -105,6 +105,7 @@ export interface LendPoolSnapshot {
   borrow: {
     borrowerCount: number
     totalDebtFusdc: number
+    totalCollateralFalcon: number
     brokerCoverFusdc: number
     debtMaximumFusdc: number | null
     coverRateMinPct: number | null
@@ -112,7 +113,12 @@ export interface LendPoolSnapshot {
     loansOutstanding: number
   }
   contributors: VaultShareHolder[]
-  borrowers: Array<{ address: string; principalFusdc: number; loanId: string }>
+  borrowers: Array<{
+    address: string
+    principalFusdc: number
+    loanId: string
+    collateralFalcon: number | null
+  }>
 }
 
 export async function listVaultShareHolders(
@@ -227,6 +233,7 @@ export function buildPoolSnapshot(
   contributors: VaultShareHolder[],
   chainLoans: ChainLoan[],
   broker: Record<string, unknown> | null,
+  collateralByLoanId: Record<string, number> = {},
 ): LendPoolSnapshot {
   const borrowedFusdc = Math.max(0, assetsTotal - assetsAvailable)
   const utilizationPct = assetsTotal > 0 ? (borrowedFusdc / assetsTotal) * 100 : 0
@@ -246,6 +253,10 @@ export function buildPoolSnapshot(
     borrow: {
       borrowerCount: chainLoans.length,
       totalDebtFusdc,
+      totalCollateralFalcon: chainLoans.reduce(
+        (s, l) => s + (collateralByLoanId[l.id.toUpperCase()] ?? 0),
+        0,
+      ),
       brokerCoverFusdc: iouAmount(broker?.CoverAvailable) ?? 0,
       debtMaximumFusdc: iouAmount(broker?.DebtMaximum),
       coverRateMinPct: tenthBipsToPct(broker?.CoverRateMinimum),
@@ -257,6 +268,7 @@ export function buildPoolSnapshot(
       address: l.borrower,
       principalFusdc: l.principalFusdc,
       loanId: l.id,
+      collateralFalcon: collateralByLoanId[l.id.toUpperCase()] ?? null,
     })),
   }
 }

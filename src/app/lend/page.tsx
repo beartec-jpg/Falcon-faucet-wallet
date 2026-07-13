@@ -29,6 +29,7 @@ import {
   explainLendSubmitError,
   repayBlockedReason,
 } from '@/lib/lend-borrow-errors'
+import { collateralBlockedReason } from '@/lib/lend-collateral'
 import { supplyBlockedReason } from '@/lib/lend-vault-deposit'
 import { withdrawBlockedReason } from '@/lib/lend-vault-withdraw'
 
@@ -180,7 +181,7 @@ export default function LendPage() {
   )
 
   const handleBorrow = useCallback(
-    async (principal: string) => {
+    async (principal: string, collateralFalcon: string) => {
       const lend = data?.lending
       if (!wallet || !lend?.loanBrokerId) return
       if (!lend.cosignReady) {
@@ -188,9 +189,20 @@ export default function LendPage() {
         return
       }
       const principalNum = parseFloat(principal)
+      const collateralNum = parseFloat(collateralFalcon)
       const blocked = borrowBlockedReason(data, Number.isFinite(principalNum) ? principalNum : undefined)
       if (blocked) {
         setError(blocked)
+        return
+      }
+      const collateralBlock = collateralBlockedReason(
+        principalNum,
+        collateralNum,
+        data?.wallet?.falconBalance,
+        data?.market.falconPerFusdc,
+      )
+      if (collateralBlock) {
+        setError(collateralBlock)
         return
       }
       await withSecret(async (falcon_secret) => {
@@ -229,7 +241,30 @@ export default function LendPage() {
         if (!subJ.success) {
           throw new Error(explainLendSubmitError(subJ.result, subJ.message, data))
         }
-        setNotice(`Borrowed ${principal} F-USDC (loan opened)`)
+        setNotice(`Borrowed ${principal} F-USDC with ${collateralFalcon} FALCON collateral declared`)
+        try {
+          const overviewR = await fetch(
+            withNetworkQuery(`/api/lend/overview?address=${encodeURIComponent(wallet.address)}`, networkKey),
+          )
+          const overview = (await overviewR.json()) as LendOverview
+          const newLoan =
+            overview.loans?.find(
+              (l) => l.collateralFalcon <= 0 && Math.abs(l.principalFusdc - principalNum) < 0.5,
+            ) ?? overview.loans?.find((l) => l.collateralFalcon <= 0)
+          if (newLoan?.id) {
+            await fetch('/api/lend/collateral', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                loanId: newLoan.id,
+                borrower: wallet.address,
+                collateralFalcon: collateralNum,
+              }),
+            })
+          }
+        } catch {
+          /* collateral record is best-effort */
+        }
       })
     },
     [data, wallet, withSecret, networkKey, network.networkId],

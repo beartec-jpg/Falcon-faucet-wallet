@@ -1,0 +1,94 @@
+/**
+ * Portal-side record of borrower-declared FALCON collateral per loan.
+ * On-chain collateral lock is not yet wired in XLS-66 LoanSet — this tracks
+ * intent for health-factor UX until escrow / collateral objects ship.
+ */
+
+import { getSql, isDbConfigured } from '@/lib/db'
+
+const mem = new Map<string, number>()
+
+let tableReady: Promise<void> | null = null
+
+async function ensureTable(): Promise<void> {
+  if (!isDbConfigured()) return
+  if (!tableReady) {
+    tableReady = (async () => {
+      const sql = getSql()
+      await sql`
+        CREATE TABLE IF NOT EXISTS lend_loan_collateral (
+          loan_id TEXT PRIMARY KEY,
+          borrower TEXT NOT NULL,
+          collateral_falcon DOUBLE PRECISION NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `
+    })()
+  }
+  await tableReady
+}
+
+export async function setLoanCollateral(
+  loanId: string,
+  borrower: string,
+  collateralFalcon: number,
+): Promise<void> {
+  const id = loanId.trim().toUpperCase()
+  if (!id || !Number.isFinite(collateralFalcon) || collateralFalcon <= 0) return
+  mem.set(id, collateralFalcon)
+  if (!isDbConfigured()) return
+  try {
+    await ensureTable()
+    const sql = getSql()
+    await sql`
+      INSERT INTO lend_loan_collateral (loan_id, borrower, collateral_falcon, updated_at)
+      VALUES (${id}, ${borrower}, ${collateralFalcon}, NOW())
+      ON CONFLICT (loan_id) DO UPDATE SET
+        collateral_falcon = EXCLUDED.collateral_falcon,
+        borrower = EXCLUDED.borrower,
+        updated_at = NOW()
+    `
+  } catch {
+    /* memory fallback */
+  }
+}
+
+export async function getLoanCollateral(loanId: string): Promise<number | null> {
+  const id = loanId.trim().toUpperCase()
+  if (!id) return null
+  if (mem.has(id)) return mem.get(id) ?? null
+  if (!isDbConfigured()) return null
+  try {
+    await ensureTable()
+    const sql = getSql()
+    const rows = await sql`
+      SELECT collateral_falcon FROM lend_loan_collateral WHERE loan_id = ${id} LIMIT 1
+    `
+    const v = rows[0]?.collateral_falcon
+    const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
+    if (Number.isFinite(n) && n > 0) {
+      mem.set(id, n)
+      return n
+    }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+export async function getCollateralMap(loanIds: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {}
+  const ids = [...new Set(loanIds.map((id) => id.trim().toUpperCase()).filter(Boolean))]
+  if (ids.length === 0) return out
+
+  for (const id of ids) {
+    const v = await getLoanCollateral(id)
+    if (v != null && v > 0) out[id] = v
+  }
+  return out
+}
+
+export async function sumCollateral(loanIds: string[]): Promise<number> {
+  const map = await getCollateralMap(loanIds)
+  return Object.values(map).reduce((s, v) => s + v, 0)
+}

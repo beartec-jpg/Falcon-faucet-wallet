@@ -20,6 +20,15 @@ import {
   normalizeVaultWithdrawAmount,
   withdrawBlockedReason,
 } from '@/lib/lend-vault-withdraw'
+import {
+  LEND_LIQUIDATION_THRESHOLD,
+  LEND_MIN_COLLATERAL_RATIO,
+  collateralBlockedReason,
+  collateralFalconForDebt,
+  hfStatusColor,
+  hfStatusLabel,
+  loanHealthSnapshot,
+} from '@/lib/lend-collateral'
 
 function fmt(n: number | null | undefined, digits = 4): string {
   if (n == null || Number.isNaN(n)) return '—'
@@ -158,6 +167,17 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
                         : '—'}
                     </div>
                   </div>
+                  <div className="col-span-2">
+                    <div className="text-slate-500">FALCON collateral (declared)</div>
+                    <div className="font-mono text-brand-300">
+                      {pool.borrow.totalCollateralFalcon > 0
+                        ? `${fmt(pool.borrow.totalCollateralFalcon, 4)} FALCON`
+                        : '—'}
+                    </div>
+                    <div className="text-[10px] text-slate-600 mt-0.5">
+                      Sum of borrower-posted collateral on active loans (portal record; on-chain lock coming).
+                    </div>
+                  </div>
                 </div>
                 {(pool.borrow.coverRateMinPct != null || pool.borrow.coverRateLiqPct != null) && (
                   <p className="text-[10px] text-slate-600">
@@ -250,6 +270,7 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
               <thead>
                 <tr className="text-slate-500 border-b border-slate-800">
                   <th className="text-left py-2 pr-2">Borrower</th>
+                  <th className="text-right py-2 px-2">Collateral</th>
                   <th className="text-right py-2 pl-2">Principal</th>
                 </tr>
               </thead>
@@ -262,6 +283,11 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
                     }`}
                   >
                     <td className="py-2 pr-2 font-mono">{shortAddr(b.address)}</td>
+                    <td className="text-right font-mono py-2 px-2 text-brand-300">
+                      {b.collateralFalcon != null && b.collateralFalcon > 0
+                        ? `${fmt(b.collateralFalcon, 2)} FALCON`
+                        : '—'}
+                    </td>
                     <td className="text-right font-mono py-2 pl-2">{fmt(b.principalFusdc, 2)} F-USDC</td>
                   </tr>
                 ))}
@@ -450,20 +476,45 @@ export function LendBorrowPanel({
 }: {
   data: LendOverview | null
   busy?: boolean
-  onBorrow?: (principal: string) => void
+  onBorrow?: (principal: string, collateralFalcon: string) => void
 }) {
   const [borrow, setBorrow] = useState('')
+  const [collateral, setCollateral] = useState('')
   const borrowNum = parseFloat(borrow)
+  const collateralNum = parseFloat(collateral)
+  const falconPerFusdc = data?.market.falconPerFusdc ?? null
+  const minCollateral =
+    Number.isFinite(borrowNum) && borrowNum > 0 && falconPerFusdc
+      ? collateralFalconForDebt(borrowNum, falconPerFusdc)
+      : null
   const blocked = borrowBlockedReason(
     data,
     Number.isFinite(borrowNum) && borrowNum > 0 ? borrowNum : undefined,
   )
+  const collateralBlocked = collateralBlockedReason(
+    Number.isFinite(borrowNum) && borrowNum > 0 ? borrowNum : undefined,
+    Number.isFinite(collateralNum) && collateralNum > 0 ? collateralNum : undefined,
+    data?.wallet?.falconBalance,
+    falconPerFusdc,
+  )
+  const preview =
+    Number.isFinite(borrowNum) &&
+    borrowNum > 0 &&
+    Number.isFinite(collateralNum) &&
+    collateralNum > 0
+      ? loanHealthSnapshot(collateralNum, borrowNum, falconPerFusdc)
+      : null
   const ready =
-    data?.protocol.txSigningReady && data?.lending.cosignReady && !!onBorrow && !blocked
+    data?.protocol.txSigningReady &&
+    data?.lending.cosignReady &&
+    !!onBorrow &&
+    !blocked &&
+    !collateralBlocked
 
   const handle = () => {
     if (!Number.isFinite(borrowNum) || borrowNum <= 0) return
-    onBorrow?.(borrow)
+    if (!Number.isFinite(collateralNum) || collateralNum <= 0) return
+    onBorrow?.(borrow, collateral)
   }
 
   return (
@@ -481,6 +532,11 @@ export function LendBorrowPanel({
       {blocked && data?.protocol.txSigningReady && (
         <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2.5">
           {blocked}
+        </p>
+      )}
+      {collateralBlocked && data?.protocol.txSigningReady && !blocked && (
+        <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2.5">
+          {collateralBlocked}
         </p>
       )}
       {data?.pool && (
@@ -502,15 +558,81 @@ export function LendBorrowPanel({
           type="number"
           min="0"
           value={borrow}
-          onChange={(e) => setBorrow(e.target.value)}
-          disabled={!ready || busy}
+          onChange={(e) => {
+            setBorrow(e.target.value)
+            const n = parseFloat(e.target.value)
+            if (falconPerFusdc && Number.isFinite(n) && n > 0) {
+              const min = collateralFalconForDebt(n, falconPerFusdc)
+              if (min != null) setCollateral(String(Math.ceil(min * 1e4) / 1e4))
+            }
+          }}
+          disabled={!data?.protocol.txSigningReady || busy}
           className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm disabled:opacity-50"
         />
       </label>
+      <label className="block text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-slate-500">FALCON collateral</span>
+          {minCollateral != null && (
+            <button
+              type="button"
+              onClick={() => setCollateral(String(Math.ceil(minCollateral * 1e4) / 1e4))}
+              disabled={busy}
+              className="text-[10px] text-brand-400 hover:text-brand-300"
+            >
+              Min {fmt(minCollateral, 4)} ({(LEND_MIN_COLLATERAL_RATIO * 100).toFixed(0)}%)
+            </button>
+          )}
+        </div>
+        <input
+          type="number"
+          min="0"
+          value={collateral}
+          onChange={(e) => setCollateral(e.target.value)}
+          disabled={!data?.protocol.txSigningReady || busy}
+          className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm disabled:opacity-50"
+        />
+        {data?.wallet?.falconBalance != null && (
+          <span className="text-[10px] text-slate-600 mt-1 block">
+            Wallet: {fmt(data.wallet.falconBalance, 4)} FALCON
+            {falconPerFusdc ? ` · AMM ≈ ${fmt(falconPerFusdc, 6)} F-USDC/FALCON` : ''}
+          </span>
+        )}
+      </label>
+      {preview && preview.healthFactor != null && (
+        <div className="rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2.5 text-xs space-y-1.5">
+          <div className="flex justify-between gap-3">
+            <span className="text-slate-500">Health factor</span>
+            <span className={`font-mono ${hfStatusColor(preview.status)}`}>
+              {fmt(preview.healthFactor, 3)} · {hfStatusLabel(preview.status)}
+            </span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-slate-500">Collateral value</span>
+            <span className="font-mono text-slate-200">
+              {preview.collateralValueFusdc != null
+                ? `${fmt(preview.collateralValueFusdc, 2)} F-USDC`
+                : '—'}
+            </span>
+          </div>
+          {preview.liquidationDropPct != null && (
+            <p className="text-[10px] text-slate-500 leading-relaxed">
+              If FALCON price drops{' '}
+              <span className="font-mono text-amber-300">{fmt(preview.liquidationDropPct, 2)}%</span>{' '}
+              (debt unchanged), health reaches {LEND_LIQUIDATION_THRESHOLD} — liquidation threshold.
+            </p>
+          )}
+          <p className="text-[10px] text-slate-600">
+            Target min ratio {(LEND_MIN_COLLATERAL_RATIO * 100).toFixed(0)}% · liquidation HF{' '}
+            {LEND_LIQUIDATION_THRESHOLD}. Collateral is recorded by the portal at borrow time; on-chain escrow is
+            not yet enforced.
+          </p>
+        </div>
+      )}
       <button
         type="button"
         onClick={handle}
-        disabled={!ready || busy || !borrow}
+        disabled={!ready || busy || !borrow || !collateral}
         className="w-full rounded-lg bg-brand-500 text-white px-4 py-2.5 text-sm font-medium disabled:opacity-50"
       >
         {busy ? 'Signing…' : 'Borrow (sign with passkey)'}
@@ -549,6 +671,16 @@ export function LendPositionsPanel({
   const repayBlocked = activeLoan && payFullAmount
     ? repayBlockedReason(data, activeLoan.id, payFullAmount)
     : null
+  const loanDebt =
+    activeLoan?.totalOutstandingFusdc ?? activeLoan?.principalFusdc ?? null
+  const loanHealth =
+    activeLoan && loanDebt != null && activeLoan.collateralFalcon > 0
+      ? loanHealthSnapshot(
+          activeLoan.collateralFalcon,
+          loanDebt,
+          data?.market.falconPerFusdc ?? null,
+        )
+      : null
   const lpPositions = data?.lpPositions ?? []
   const lp = lpPositions[0]
   const vault = data?.vaults?.[0]
@@ -711,6 +843,54 @@ export function LendPositionsPanel({
           </p>
         )}
       {withdrawBlocked && <p className="text-xs text-amber-300">{withdrawBlocked}</p>}
+
+      {activeLoan && (
+        <div className="rounded-xl border border-brand-500/20 bg-brand-500/5 p-3 space-y-2">
+          <div className="text-xs font-medium text-brand-200">Your borrow · loan health</div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">Debt outstanding</div>
+              <div className="font-mono text-slate-200 mt-0.5">
+                {fmt(loanDebt, 2)} F-USDC
+              </div>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">FALCON collateral</div>
+              <div className="font-mono text-brand-300 mt-0.5">
+                {activeLoan.collateralFalcon > 0
+                  ? `${fmt(activeLoan.collateralFalcon, 4)} FALCON`
+                  : 'Not recorded — re-borrow to declare'}
+              </div>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">Health factor</div>
+              <div
+                className={`font-mono mt-0.5 ${
+                  loanHealth ? hfStatusColor(loanHealth.status) : 'text-slate-400'
+                }`}
+              >
+                {loanHealth?.healthFactor != null
+                  ? `${fmt(loanHealth.healthFactor, 3)} · ${hfStatusLabel(loanHealth.status)}`
+                  : '—'}
+              </div>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">Liquidation if FALCON drops</div>
+              <div className="font-mono text-amber-300 mt-0.5">
+                {loanHealth?.liquidationDropPct != null
+                  ? `${fmt(loanHealth.liquidationDropPct, 2)}%`
+                  : '—'}
+              </div>
+            </div>
+          </div>
+          {loanHealth?.liquidationDropPct != null && (
+            <p className="text-[10px] text-slate-500">
+              A {fmt(loanHealth.liquidationDropPct, 2)}% FALCON price drop (debt unchanged) reaches liquidation
+              threshold HF {LEND_LIQUIDATION_THRESHOLD}.
+            </p>
+          )}
+        </div>
+      )}
 
       {activeLoan && payFullAmount && (
         <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 space-y-3">
