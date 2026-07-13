@@ -15,6 +15,11 @@ import {
   normalizeVaultDepositAmount,
   supplyBlockedReason,
 } from '@/lib/lend-vault-deposit'
+import {
+  maxWithdrawFusdc,
+  normalizeVaultWithdrawAmount,
+  withdrawBlockedReason,
+} from '@/lib/lend-vault-withdraw'
 
 function fmt(n: number | null | undefined, digits = 4): string {
   if (n == null || Number.isNaN(n)) return '—'
@@ -545,7 +550,23 @@ export function LendPositionsPanel({
     ? repayBlockedReason(data, activeLoan.id, payFullAmount)
     : null
   const lpPositions = data?.lpPositions ?? []
+  const lp = lpPositions[0]
+  const vault = data?.vaults?.[0]
+  const withdrawOffered = parseFloat(withdrawAmt)
+  const normalizedWithdraw =
+    vault && Number.isFinite(withdrawOffered) && withdrawOffered > 0
+      ? normalizeVaultWithdrawAmount(withdrawOffered, vault, lp?.shareBalance ?? null)
+      : null
+  const withdrawBlocked =
+    withdrawAmt.trim() && data ? withdrawBlockedReason(data, withdrawAmt) : null
+  const maxWithdraw =
+    vault && lp && lp.shareBalance > 0 ? maxWithdrawFusdc(lp.shareBalance, vault) : null
   const hasOnChain = loans.length > 0 || lpPositions.length > 0
+
+  useEffect(() => {
+    if (!maxWithdraw || busy) return
+    setWithdrawAmt((prev) => (prev.trim() ? prev : maxWithdraw))
+  }, [maxWithdraw, busy])
 
   useEffect(() => {
     if (!activeLoan || !payFullAmount) {
@@ -595,9 +616,9 @@ export function LendPositionsPanel({
                     )}
                   </td>
                   <td className="text-right font-mono py-2 px-2">
-                    {fmt(lp.shareBalance, 0)} shares
+                    {fmt(lp.shareBalance, 6)} shares
                     {lp.depositedFusdc != null && (
-                      <span className="text-slate-500 block">≈ {fmt(lp.depositedFusdc, 2)} F-USDC</span>
+                      <span className="text-slate-500 block">≈ {fmt(lp.depositedFusdc, 6)} F-USDC</span>
                     )}
                   </td>
                 </tr>
@@ -610,31 +631,86 @@ export function LendPositionsPanel({
       <button
         type="button"
         onClick={() => onClaim?.()}
-        disabled={!ready || busy || !onClaim}
+        disabled={!ready || busy || !onClaim || !lp?.canClaim}
         className="w-full rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 text-sm font-medium disabled:opacity-50"
       >
-        Claim lender rewards
+        {lp?.canClaim ? 'Claim lender rewards' : 'Claim lender rewards (none available)'}
       </button>
 
-      <div className="flex gap-2">
+      {lp && lp.shareBalance > 0 && vault && (
+        <div className="rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2.5 text-xs space-y-1">
+          <div className="flex justify-between gap-3">
+            <span className="text-slate-500">Vault shares</span>
+            <span className="font-mono text-emerald-300">{fmt(lp.shareBalance, 6)}</span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-slate-500">Liquid in vault</span>
+            <span className="font-mono text-slate-200">{fmt(vault.assetsAvailable, 2)} F-USDC</span>
+          </div>
+          {lp.depositedFusdc != null && (
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-500">Your supplied ≈</span>
+              <span className="font-mono text-slate-200">{fmt(lp.depositedFusdc, 2)} F-USDC</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!vault && lp?.shareBalance ? (
+        <p className="text-xs text-amber-300">Vault stats still loading — refresh the page, then try withdraw again.</p>
+      ) : null}
+
+      <div className="flex gap-2 items-stretch">
         <input
-          type="number"
-          min="0"
-          placeholder="Withdraw F-USDC"
+          type="text"
+          inputMode="decimal"
+          placeholder={maxWithdraw ? `Max ${maxWithdraw} F-USDC` : 'Withdraw F-USDC'}
           value={withdrawAmt}
           onChange={(e) => setWithdrawAmt(e.target.value)}
-          disabled={!ready || busy}
+          disabled={!ready || busy || !lp?.shareBalance}
           className="flex-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-xs"
         />
-        <button
-          type="button"
-          onClick={() => withdrawAmt && onWithdraw?.(withdrawAmt)}
-          disabled={!ready || busy || !withdrawAmt || !onWithdraw}
-          className="px-4 py-2 rounded-lg bg-slate-800 text-slate-200 text-sm disabled:opacity-50"
-        >
-          Withdraw supply
-        </button>
+        {maxWithdraw && !busy ? (
+          <button
+            type="button"
+            onClick={() => setWithdrawAmt(maxWithdraw)}
+            disabled={!ready}
+            className="shrink-0 rounded-lg border border-brand-500/40 bg-brand-500/10 px-3 py-2 text-xs font-medium text-brand-400 hover:bg-brand-500/20 disabled:opacity-50"
+          >
+            Max
+          </button>
+        ) : null}
       </div>
+      <button
+        type="button"
+        onClick={() => {
+          const amt = maxWithdraw ?? withdrawAmt
+          if (amt && onWithdraw) onWithdraw(amt)
+        }}
+        disabled={
+          !ready ||
+          busy ||
+          !onWithdraw ||
+          !(maxWithdraw || (withdrawAmt.trim() && !withdrawBlocked))
+        }
+        className="w-full rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 text-sm font-medium disabled:opacity-50"
+      >
+        {maxWithdraw
+          ? `Withdraw all · ${maxWithdraw} F-USDC`
+          : busy
+            ? 'Signing…'
+            : 'Withdraw supply'}
+      </button>
+      {normalizedWithdraw &&
+        withdrawAmt &&
+        Math.abs(parseFloat(normalizedWithdraw) - withdrawOffered) > 1e-9 && (
+          <p className="text-[10px] text-slate-500">
+            On-chain amount will be adjusted to{' '}
+            <span className="font-mono text-slate-400">{normalizedWithdraw}</span> F-USDC for vault
+            share math.
+          </p>
+        )}
+      {withdrawBlocked && <p className="text-xs text-amber-300">{withdrawBlocked}</p>}
 
       {activeLoan && payFullAmount && (
         <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 space-y-3">

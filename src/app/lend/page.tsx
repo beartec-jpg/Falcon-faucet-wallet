@@ -30,6 +30,7 @@ import {
   repayBlockedReason,
 } from '@/lib/lend-borrow-errors'
 import { supplyBlockedReason } from '@/lib/lend-vault-deposit'
+import { withdrawBlockedReason } from '@/lib/lend-vault-withdraw'
 
 type Tab = 'overview' | 'supply' | 'borrow' | 'positions'
 
@@ -237,25 +238,45 @@ export default function LendPage() {
   const handleClaim = useCallback(async () => {
     const lend = data?.lending
     if (!wallet || !lend?.vaultId) return
+    const lp = data?.lpPositions?.[0]
+    if (!lp?.canClaim) {
+      setError(
+        lp?.shareBalance
+          ? 'No LP epoch rewards to claim yet for this vault.'
+          : 'Supply F-USDC to the vault before claiming LP rewards.',
+      )
+      return
+    }
     await withSecret(async (falcon_secret) => {
-      await submitWithSequenceRetry({
-        networkKey,
-        fetchSequence: async () => {
-          const a = await fetchSequenceInfo(wallet.address, networkKey)
-          return { sequence: a.sequence, currentLedger: a.currentLedger }
-        },
-        sign: ({ sequence, lastLedgerSequence }) =>
-          signClaimLPRewardTx(
-            {
-              account: wallet.address,
-              vaultId: lend.vaultId!,
-              sequence,
-              lastLedgerSequence,
-              networkId: network.networkId,
-            },
-            falcon_secret,
-          ),
-      })
+      try {
+        await submitWithSequenceRetry({
+          networkKey,
+          fetchSequence: async () => {
+            const a = await fetchSequenceInfo(wallet.address, networkKey)
+            return { sequence: a.sequence, currentLedger: a.currentLedger }
+          },
+          sign: ({ sequence, lastLedgerSequence }) =>
+            signClaimLPRewardTx(
+              {
+                account: wallet.address,
+                vaultId: lend.vaultId!,
+                sequence,
+                lastLedgerSequence,
+                networkId: network.networkId,
+              },
+              falcon_secret,
+            ),
+        })
+      } catch (e: unknown) {
+        const raw = e instanceof Error ? e.message : ''
+        if (raw.includes('ClaimLPReward') || raw.includes('Unable to interpret')) {
+          throw new Error(
+            'Claim signing failed — refresh the page and try again. If this persists, the portal build may be stale.',
+          )
+        }
+        const [code, ...rest] = raw.split(' — ')
+        throw new Error(explainLendSubmitError(code, rest.join(' — '), data, { context: 'claim' }) || raw || 'Claim failed')
+      }
       setNotice('LP epoch rewards claimed')
     })
   }, [data, wallet, withSecret, networkKey, network.networkId])
@@ -265,29 +286,66 @@ export default function LendPage() {
       const lend = data?.lending
       const tok = data?.token
       if (!wallet || !lend?.vaultId || !tok?.issuer) return
+      const blocked = withdrawBlockedReason(data, amount)
+      if (blocked) {
+        setError(blocked)
+        return
+      }
+      const preflightR = await fetch(withNetworkQuery('/api/lend/withdraw-preflight', networkKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: wallet.address, offered: amount }),
+      })
+      const preflight = (await preflightR.json()) as {
+        error?: string
+        chainAmount?: string
+        offered?: number
+        adjusted?: boolean
+        shareBalance?: number
+        assetsAvailable?: number
+      }
+      if (!preflightR.ok || !preflight.chainAmount) {
+        setError(preflight.error ?? 'Withdraw preflight failed')
+        return
+      }
+      const { chainAmount, offered = parseFloat(amount), adjusted = false } = preflight
       await withSecret(async (falcon_secret) => {
-        await submitWithSequenceRetry({
-          networkKey,
-          fetchSequence: async () => {
-            const a = await fetchSequenceInfo(wallet.address, networkKey)
-            return { sequence: a.sequence, currentLedger: a.currentLedger }
-          },
-          sign: ({ sequence, lastLedgerSequence }) =>
-            signVaultWithdrawTx(
-              {
-                account: wallet.address,
-                vaultId: lend.vaultId!,
-                currency: tok.currency,
-                issuer: tok.issuer,
-                amount,
-                sequence,
-                lastLedgerSequence,
-                networkId: network.networkId,
-              },
-              falcon_secret,
-            ),
-        })
-        setNotice(`Withdrew ${amount} F-USDC from vault`)
+        try {
+          await submitWithSequenceRetry({
+            networkKey,
+            fetchSequence: async () => {
+              const a = await fetchSequenceInfo(wallet.address, networkKey)
+              return { sequence: a.sequence, currentLedger: a.currentLedger }
+            },
+            sign: ({ sequence, lastLedgerSequence }) =>
+              signVaultWithdrawTx(
+                {
+                  account: wallet.address,
+                  vaultId: lend.vaultId!,
+                  currency: tok.currency,
+                  issuer: tok.issuer,
+                  amount: chainAmount,
+                  sequence,
+                  lastLedgerSequence,
+                  networkId: network.networkId,
+                },
+                falcon_secret,
+              ),
+          })
+        } catch (e: unknown) {
+          const raw = e instanceof Error ? e.message : ''
+          const [code, ...rest] = raw.split(' — ')
+          throw new Error(
+            explainLendSubmitError(code, rest.join(' — '), data, { context: 'withdraw' }) ||
+              raw ||
+              'Withdraw failed',
+          )
+        }
+        const notice =
+          adjusted && chainAmount !== String(offered)
+            ? `Withdrew ${chainAmount} F-USDC from vault (adjusted from ${offered} for share precision)`
+            : `Withdrew ${chainAmount} F-USDC from vault`
+        setNotice(notice)
       })
     },
     [data, wallet, withSecret, networkKey, network.networkId],
@@ -390,7 +448,7 @@ export default function LendPage() {
                   type="button"
                   onClick={() => {
                     setTab(t.key)
-                    if (t.key === 'supply' && wallet?.address) {
+                    if ((t.key === 'supply' || t.key === 'positions') && wallet?.address) {
                       refresh(wallet.address).catch(() => {})
                     }
                   }}

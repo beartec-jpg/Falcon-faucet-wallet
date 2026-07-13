@@ -103,7 +103,7 @@ export function explainLendSubmitError(
   engineResult: string | undefined,
   engineMessage: string | undefined,
   data: LendOverview | null,
-  opts?: { paymentDueFusdc?: number | null },
+  opts?: { paymentDueFusdc?: number | null; context?: 'supply' | 'withdraw' | 'borrow' | 'repay' | 'claim' },
 ): string {
   const base = [engineResult, engineMessage].filter(Boolean).join(' — ')
   if (engineResult === 'tecINSUFFICIENT_PAYMENT') {
@@ -114,6 +114,21 @@ export function explainLendSubmitError(
     return 'Repay failed: payment is not sufficient. Include accrued interest and fees — use the payment due amount shown on Positions, not just the principal.'
   }
   if (engineResult === 'tecINSUFFICIENT_FUNDS') {
+    if (opts?.context === 'withdraw') {
+      const vault = data?.vaults?.[0]
+      const lp = data?.lpPositions?.[0]
+      const available = vault?.assetsAvailable ?? 0
+      const borrowed = vault ? Math.max(0, vault.assetsTotal - available) : 0
+      if (lp && (lp.shareBalance ?? 0) <= 0) {
+        return 'Withdraw failed: you have no vault shares. Supply F-USDC on the Supply tab first.'
+      }
+      if (available <= 0 && borrowed > 0) {
+        return `Withdraw failed: vault liquidity is fully borrowed (${borrowed.toLocaleString(undefined, { maximumFractionDigits: 2 })} F-USDC out on loans). Withdraw after borrowers repay, or try a smaller amount.`
+      }
+      return base
+        ? `Withdraw failed (${base}). You may be over your share balance or vault liquid F-USDC — use Max or a lower amount.`
+        : 'Withdraw failed: insufficient vault shares or liquid F-USDC in the pool.'
+    }
     const cover = data?.pool?.borrow.brokerCoverFusdc ?? 0
     if (cover < 0.01) {
       return 'Borrow failed: loan broker has no first-loss cover (0 F-USDC). The pool operator must deposit F-USDC broker cover before anyone can borrow — vault liquidity alone is not enough.'

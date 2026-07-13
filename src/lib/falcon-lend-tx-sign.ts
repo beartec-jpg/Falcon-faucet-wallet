@@ -3,6 +3,7 @@
  */
 
 import { decode } from 'ripple-binary-codec'
+import { getFalconCodecDefinitions } from './falcon-codec-definitions'
 import { decodeFalconSecret } from './falcon-keys'
 import { baseTx, signPrepared } from './falcon-tx-sign'
 
@@ -134,7 +135,7 @@ export async function signLoanSetBorrowerTx(
     Flags: TF_LOAN_OVERPAYMENT,
   }
   const tx_blob = await signPrepared(tx, decoded)
-  const tx_json = decode(tx_blob) as Record<string, unknown>
+  const tx_json = decode(tx_blob, getFalconCodecDefinitions()) as Record<string, unknown>
   return { tx_blob, tx_json }
 }
 

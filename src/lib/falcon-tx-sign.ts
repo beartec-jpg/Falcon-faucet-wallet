@@ -4,6 +4,7 @@
  */
 
 import { encode, encodeForSigning } from 'ripple-binary-codec'
+import { getFalconCodecDefinitions } from './falcon-codec-definitions'
 import {
   decodeFalconSecret,
   hexToBytes,
@@ -45,7 +46,8 @@ export async function signPrepared(
   tx: TxCore & Record<string, unknown>,
   decoded: DecodedFalconSecret,
 ): Promise<string> {
-  const signingHex = encodeForSigning(tx)
+  const definitions = getFalconCodecDefinitions()
+  const signingHex = encodeForSigning(tx, definitions)
   const signingBytes = hexToBytes(signingHex)
 
   const falcon = await getFalcon512()
@@ -56,7 +58,7 @@ export async function signPrepared(
       ...tx,
       TxnSignature: bytesToHex(signature).toUpperCase(),
     }
-    return encode(signed)
+    return encode(signed, definitions)
   } finally {
     zeroize(decoded.secretKey)
   }
