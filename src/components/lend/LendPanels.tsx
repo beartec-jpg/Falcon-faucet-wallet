@@ -647,15 +647,18 @@ export function LendPositionsPanel({
   onClaim,
   onWithdraw,
   onRepay,
+  onDeclareCollateral,
 }: {
   data: LendOverview | null
   busy?: boolean
   onClaim?: () => void
   onWithdraw?: (amount: string) => void
   onRepay?: (loanId: string, amount: string) => void
+  onDeclareCollateral?: (loanId: string, collateralFalcon: string) => void
 }) {
   const [withdrawAmt, setWithdrawAmt] = useState('')
   const [repayAmt, setRepayAmt] = useState('')
+  const [declareCollateralAmt, setDeclareCollateralAmt] = useState('')
   const ready = data?.protocol.txSigningReady
 
   const loans = data?.loans ?? []
@@ -673,12 +676,28 @@ export function LendPositionsPanel({
     : null
   const loanDebt =
     activeLoan?.totalOutstandingFusdc ?? activeLoan?.principalFusdc ?? null
+  const falconPerFusdc = data?.market.falconPerFusdc ?? null
+  const minDeclareCollateral =
+    activeLoan && loanDebt != null && falconPerFusdc
+      ? collateralFalconForDebt(loanDebt, falconPerFusdc)
+      : null
+  const declareCollateralNum = parseFloat(declareCollateralAmt)
+  const declareCollateralBlocked = activeLoan
+    ? collateralBlockedReason(
+        loanDebt ?? undefined,
+        Number.isFinite(declareCollateralNum) && declareCollateralNum > 0
+          ? declareCollateralNum
+          : undefined,
+        data?.wallet?.falconBalance,
+        falconPerFusdc,
+      )
+    : null
   const loanHealth =
     activeLoan && loanDebt != null && activeLoan.collateralFalcon > 0
       ? loanHealthSnapshot(
           activeLoan.collateralFalcon,
           loanDebt,
-          data?.market.falconPerFusdc ?? null,
+          falconPerFusdc,
         )
       : null
   const lpPositions = data?.lpPositions ?? []
@@ -859,7 +878,7 @@ export function LendPositionsPanel({
               <div className="font-mono text-brand-300 mt-0.5">
                 {activeLoan.collateralFalcon > 0
                   ? `${fmt(activeLoan.collateralFalcon, 4)} FALCON`
-                  : 'Not recorded — re-borrow to declare'}
+                  : 'Not recorded'}
               </div>
             </div>
             <div className="bg-slate-950/60 rounded-lg px-3 py-2">
@@ -888,6 +907,55 @@ export function LendPositionsPanel({
               A {fmt(loanHealth.liquidationDropPct, 2)}% FALCON price drop (debt unchanged) reaches liquidation
               threshold HF {LEND_LIQUIDATION_THRESHOLD}.
             </p>
+          )}
+          {activeLoan.collateralFalcon <= 0 && (
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 space-y-2">
+              <p className="text-[10px] text-slate-400 leading-relaxed">
+                Collateral is saved by the portal after borrow (not on-chain yet). If that save failed or this loan
+                predates collateral tracking, declare how much FALCON you posted so health factor can display.
+              </p>
+              <label className="block text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500">FALCON collateral</span>
+                  {minDeclareCollateral != null && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDeclareCollateralAmt(String(Math.ceil(minDeclareCollateral * 1e4) / 1e4))
+                      }
+                      disabled={busy}
+                      className="text-[10px] text-brand-400 hover:text-brand-300"
+                    >
+                      Min {fmt(minDeclareCollateral, 4)} ({(LEND_MIN_COLLATERAL_RATIO * 100).toFixed(0)}%)
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  value={declareCollateralAmt}
+                  onChange={(e) => setDeclareCollateralAmt(e.target.value)}
+                  disabled={busy || !onDeclareCollateral}
+                  className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm disabled:opacity-50"
+                />
+              </label>
+              {declareCollateralBlocked && (
+                <p className="text-[10px] text-amber-300">{declareCollateralBlocked}</p>
+              )}
+              <button
+                type="button"
+                onClick={() => onDeclareCollateral?.(activeLoan.id, declareCollateralAmt)}
+                disabled={
+                  busy ||
+                  !onDeclareCollateral ||
+                  !declareCollateralAmt ||
+                  !!declareCollateralBlocked
+                }
+                className="w-full rounded-lg bg-brand-500 text-white px-4 py-2 text-xs font-medium disabled:opacity-50"
+              >
+                Record collateral
+              </button>
+            </div>
           )}
         </div>
       )}
