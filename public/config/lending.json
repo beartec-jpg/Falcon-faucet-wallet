@@ -11,7 +11,10 @@
   "vault_id": "0DB363B417A560EDD7EA8306188F5592F2388A054BF7F6AC1FB5A99A30BC99B2",
   "loan_broker_id": "0DF028DFE8928921B9474B5EB09531E1E7A3655441C53ECFECF41C82F374D334",
   "interest_rate_tenth_bps": 500,
-  "payment_interval": 86400,
+  "epoch_duration_seconds": 604800,
+  "epochs_per_year": 52,
+  "default_loan_epochs": 1,
+  "payment_interval": 604800,
   "payment_total": 1,
   "grace_period": 3600
 }

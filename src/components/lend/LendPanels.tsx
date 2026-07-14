@@ -32,6 +32,14 @@ import {
   hfStatusLabel,
   loanHealthSnapshot,
 } from '@/lib/lend-collateral'
+import {
+  LEND_DURATION_PRESETS,
+  LEND_EPOCHS_PER_YEAR,
+  clampLoanEpochs,
+  aprPctFromTenthBips,
+  estimateBulletLoanDue,
+  formatLoanDuration,
+} from '@/lib/lend-loan-terms'
 
 function fmt(n: number | null | undefined, digits = 4): string {
   if (n == null || Number.isNaN(n)) return '—'
@@ -669,10 +677,11 @@ export function LendBorrowPanel({
 }: {
   data: LendOverview | null
   busy?: boolean
-  onBorrow?: (principal: string, collateralFalcon: string) => void
+  onBorrow?: (principal: string, collateralFalcon: string, loanEpochs: number) => void
 }) {
   const [borrow, setBorrow] = useState('')
   const [collateral, setCollateral] = useState('')
+  const [loanEpochs, setLoanEpochs] = useState(1)
   const borrowNum = parseFloat(borrow)
   const collateralNum = parseFloat(collateral)
   const falconPerFusdc = data?.market.falconPerFusdc ?? null
@@ -699,6 +708,11 @@ export function LendBorrowPanel({
       : null
   const permissionless =
     data?.protocol.lendingPermissionless && data?.protocol.lendingCollateral
+  const interestBps = data?.lending.interestRateTenthBps ?? 500
+  const repayEstimate =
+    Number.isFinite(borrowNum) && borrowNum > 0
+      ? estimateBulletLoanDue(borrowNum, loanEpochs, interestBps)
+      : null
   const ready =
     data?.protocol.txSigningReady &&
     (permissionless || data?.lending.cosignReady) &&
@@ -709,7 +723,7 @@ export function LendBorrowPanel({
   const handle = () => {
     if (!Number.isFinite(borrowNum) || borrowNum <= 0) return
     if (!Number.isFinite(collateralNum) || collateralNum <= 0) return
-    onBorrow?.(borrow, collateral)
+    onBorrow?.(borrow, collateral, clampLoanEpochs(loanEpochs))
   }
 
   return (
@@ -761,6 +775,59 @@ export function LendBorrowPanel({
             </>
           )}
         </p>
+      )}
+      <div className="space-y-2">
+        <div className="text-xs text-slate-500">Loan duration (PoPL epochs · 7 days each)</div>
+        <div className="flex flex-wrap gap-1.5">
+          {LEND_DURATION_PRESETS.map((p) => (
+            <button
+              key={p.epochs}
+              type="button"
+              onClick={() => setLoanEpochs(p.epochs)}
+              disabled={!data?.protocol.txSigningReady || busy}
+              className={
+                loanEpochs === p.epochs
+                  ? 'px-2.5 py-1 rounded-lg text-[10px] font-medium bg-brand-500/20 text-brand-300 border border-brand-500/40'
+                  : 'px-2.5 py-1 rounded-lg text-[10px] text-slate-400 border border-slate-700 hover:border-slate-600'
+              }
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <label className="block text-xs">
+          <span className="text-slate-500">Custom epochs (1–{LEND_EPOCHS_PER_YEAR})</span>
+          <input
+            type="number"
+            min={1}
+            max={LEND_EPOCHS_PER_YEAR}
+            step={1}
+            value={loanEpochs}
+            onChange={(e) => setLoanEpochs(clampLoanEpochs(parseInt(e.target.value, 10) || 1))}
+            disabled={!data?.protocol.txSigningReady || busy}
+            className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm disabled:opacity-50"
+          />
+        </label>
+        <p className="text-[10px] text-slate-600">
+          Single repayment at end of {formatLoanDuration(loanEpochs)}. Interest ≈ principal × APR ×
+          (epochs ÷ 52). Installment schedules (e.g. monthly) — coming later.
+        </p>
+      </div>
+      {repayEstimate && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs space-y-1">
+          <div className="flex justify-between gap-3">
+            <span className="text-slate-500">Est. interest ({aprPctFromTenthBips(interestBps).toFixed(2)}% APR)</span>
+            <span className="font-mono text-amber-200">~{fmt(repayEstimate.interestFusdc, 6)} F-USDC</span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-slate-500">Est. total due at end</span>
+            <span className="font-mono text-amber-100">~{fmt(repayEstimate.totalDueFusdc, 6)} F-USDC</span>
+          </div>
+          <p className="text-[10px] text-slate-500">
+            On-chain <code className="text-slate-400">PeriodicPayment</code> may differ slightly; Positions
+            shows exact due after borrow.
+          </p>
+        </div>
       )}
       <label className="block text-xs">
         <span className="text-slate-500">Borrow (F-USDC)</span>

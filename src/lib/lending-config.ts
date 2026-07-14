@@ -15,6 +15,10 @@ export interface LendingManifest {
   vault_id: string
   loan_broker_id: string
   interest_rate_tenth_bps: number
+  /** 7-day PoPL epoch length in seconds (default 604800). */
+  epoch_duration_seconds?: number
+  epochs_per_year?: number
+  default_loan_epochs?: number
   payment_interval: number
   payment_total: number
   grace_period: number

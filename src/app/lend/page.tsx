@@ -33,6 +33,7 @@ import {
 } from '@/lib/lend-borrow-errors'
 import { collateralBlockedReason } from '@/lib/lend-collateral'
 import { collateralDropsFromFalcon } from '@/lib/lend-loan-onchain'
+import { clampLoanEpochs, formatLoanDuration, paymentIntervalForEpochs } from '@/lib/lend-loan-terms'
 import { supplyBlockedReason } from '@/lib/lend-vault-deposit'
 import { withdrawBlockedReason } from '@/lib/lend-vault-withdraw'
 
@@ -184,7 +185,7 @@ export default function LendPage() {
   )
 
   const handleBorrow = useCallback(
-    async (principal: string, collateralFalcon: string) => {
+    async (principal: string, collateralFalcon: string, loanEpochs: number) => {
       const lend = data?.lending
       if (!wallet || !lend?.loanBrokerId) return
       const permissionless =
@@ -217,6 +218,7 @@ export default function LendPage() {
           address: wallet.address,
           principal,
           collateralFalcon,
+          loanEpochs: clampLoanEpochs(loanEpochs),
         }),
       })
       const preflight = (await preflightR.json()) as { error?: string }
@@ -224,6 +226,11 @@ export default function LendPage() {
         setError(preflight.error ?? 'Borrow preflight failed')
         return
       }
+      const epochs = clampLoanEpochs(loanEpochs)
+      const paymentInterval = paymentIntervalForEpochs(epochs)
+      const paymentTotal = 1
+      const gracePeriod = 3600
+
       await withSecret(async (falcon_secret) => {
         const { sequence, currentLedger } = await fetchSequenceInfo(wallet.address, networkKey)
         const lastLedgerSequence = currentLedger + 20
@@ -239,9 +246,9 @@ export default function LendPage() {
                   principalRequested: principal,
                   collateralDrops: collateralDropsFromFalcon(collateralNum),
                   interestRateTenthBps: lend.interestRateTenthBps ?? 500,
-                  paymentInterval: 86400,
-                  paymentTotal: 1,
-                  gracePeriod: 3600,
+                  paymentInterval,
+                  paymentTotal,
+                  gracePeriod,
                   sequence: seq,
                   lastLedgerSequence: ll,
                   networkId: network.networkId,
@@ -257,9 +264,9 @@ export default function LendPage() {
               principalRequested: principal,
               collateralDrops: collateralDropsFromFalcon(collateralNum),
               interestRateTenthBps: lend.interestRateTenthBps ?? 500,
-              paymentInterval: 86400,
-              paymentTotal: 1,
-              gracePeriod: 3600,
+              paymentInterval,
+              paymentTotal,
+              gracePeriod,
               sequence,
               lastLedgerSequence,
               networkId: network.networkId,
@@ -286,7 +293,7 @@ export default function LendPage() {
           }
         }
         setNotice(
-          `Borrowed ${principal} F-USDC — ${collateralFalcon} FALCON locked on-chain as collateral`,
+          `Borrowed ${principal} F-USDC for ${formatLoanDuration(epochs)} — ${collateralFalcon} FALCON locked as collateral`,
         )
       })
     },

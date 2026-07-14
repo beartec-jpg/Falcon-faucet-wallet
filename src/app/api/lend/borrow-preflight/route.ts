@@ -3,6 +3,7 @@ import { isOriginAllowed } from '@/lib/origin'
 import { borrowBlockedReason } from '@/lib/lend-borrow-errors'
 import { collateralBlockedReason } from '@/lib/lend-collateral'
 import { collateralDropsFromFalcon } from '@/lib/lend-loan-onchain'
+import { clampLoanEpochs, paymentIntervalForEpochs } from '@/lib/lend-loan-terms'
 import { loadLendingManifestServer } from '@/lib/lending-config'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { loadStableToken } from '@/lib/swap/token-config'
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest) {
   }
 
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
-  let body: { address?: string; principal?: string; collateralFalcon?: string }
+  let body: { address?: string; principal?: string; collateralFalcon?: string; loanEpochs?: number }
   try {
     body = await req.json()
   } catch {
@@ -35,6 +36,12 @@ export async function POST(req: NextRequest) {
   if (!Number.isFinite(collateralFalcon) || collateralFalcon <= 0) {
     return NextResponse.json({ error: 'Enter FALCON collateral amount' }, { status: 400 })
   }
+
+  const loanEpochs = clampLoanEpochs(
+    body.loanEpochs ?? (await loadLendingManifestServer())?.default_loan_epochs ?? 1,
+  )
+  const paymentInterval = paymentIntervalForEpochs(loanEpochs)
+  const paymentTotal = 1
 
   const manifest = await loadLendingManifestServer()
   if (!manifest?.loan_broker_id) {
@@ -131,8 +138,8 @@ export async function POST(req: NextRequest) {
       PrincipalRequested: String(principal),
       Collateral: collateralDropsFromFalcon(collateralFalcon),
       InterestRate: manifest.interest_rate_tenth_bps ?? 500,
-      PaymentInterval: manifest.payment_interval ?? 86400,
-      PaymentTotal: manifest.payment_total ?? 1,
+      PaymentInterval: paymentInterval,
+      PaymentTotal: paymentTotal,
       GracePeriod: manifest.grace_period ?? 3600,
       Flags: 0x00010000,
       Sequence: sequence,
@@ -163,6 +170,9 @@ export async function POST(req: NextRequest) {
     principal,
     collateralFalcon,
     collateralDrops: collateralDropsFromFalcon(collateralFalcon),
+    loanEpochs,
+    paymentInterval,
+    paymentTotal,
     falconBalance,
     fusdcBalance,
     hasFusdcTrustLine,
