@@ -27,6 +27,8 @@ The **protocol implementation** lives in the `qXRP` repository; the **user-facin
 | Withdraw supply | ✅ `VaultWithdraw` | ✅ |
 | Claim LP epoch rewards | ✅ `ClaimLPReward` | ✅ FALCON (PoPL) |
 | FALCON collateral in `LoanSet` | ✅ | ✅ `LendingCollateral` |
+| Add collateral to open loan | ✅ `LoanCollateralDeposit` (Positions) | ✅ tx type **83** (`LendingCollateral`) |
+| Pickable borrow duration | ✅ 1–52 PoPL epochs + interest preview | ✅ `PaymentInterval` + `PaymentTotal` on `LoanSet` |
 | Health factor display (AMM price) | ✅ borrow preview + Positions + risk monitor | UI + daemon |
 | On-chain liquidation / impairment | ✅ `LoanManage` + HF monitor daemon | ✅ anyone can default on HF breach or late payment |
 | Borrow / repay / claim / withdraw preflight | ✅ `/api/lend/*-preflight` | simulate before sign |
@@ -104,7 +106,7 @@ flowchart TB
 1. **MPTokensV1** — vault share tokens (MPT) for LP positions  
 2. **SingleAssetVault** — `VaultCreate`, `VaultDeposit`, `VaultWithdraw`  
 3. **LendingProtocol** — `LoanBrokerSet`, `LoanSet`, `LoanPay`, `LoanManage`  
-4. **LendingCollateral** — `Collateral` field on `LoanSet`; FALCON locked on-chain  
+4. **LendingCollateral** — `Collateral` field on `LoanSet`; FALCON locked on-chain; **`LoanCollateralDeposit`** (tx 83) adds FALCON to an existing loan  
 5. **LendingPermissionless** — collateral-only borrow; permissionless `LoanManage` default  
 
 Fleet scripts: `qXRP/scripts/enable-lending-fleet.sh`, `qXRP/scripts/enable-lending-permissionless-fleet.sh`.
@@ -124,8 +126,10 @@ Authoritative manifest: `qXRP-faucet-wallet/public/config/lending.json`
 | Loan broker ID | `0DF028DFE8928921B9474B5EB09531E1E7A3655441C53ECFECF41C82F374D334` |
 | Broker owner (legacy) | `rJePmBhHoerhB4gJPAPEqvVBgQ7xbmY6bh` — not a borrow gate once permissionless is live |
 | Interest | `500` tenth-bips = **5% APR** |
-| Payment interval | `86400` s (1 day) |
-| Payment total | `1` (single-installment test loans) |
+| PoPL epoch duration | `604800` s (7 days) |
+| Default loan duration | `1` epoch (borrower-selectable **1–52** epochs in portal) |
+| Payment interval | `epochs × 604800` s (bullet loan: one payment at maturity) |
+| Payment total | `1` (single-installment bullet loans; multi-installment deferred) |
 | Grace period | `3600` s (1 hour) |
 
 ### Collateral constants (`LendingHelpers.h`)
@@ -328,7 +332,7 @@ fund lender + borrower (2000 FALCON each)
 |-------|-------|
 | `PrincipalRequested` | `5` F-USDC |
 | `InterestRate` | `500` tenth-bips (5% APR) |
-| `PaymentInterval` | `86400` s |
+| `PaymentInterval` | `604800` s (1 PoPL epoch = 7 days) |
 | `PaymentTotal` | `1` |
 | `GracePeriod` | `3600` s |
 | `Flags` | `tfLoanOverpayment` (`0x00010000`) |
