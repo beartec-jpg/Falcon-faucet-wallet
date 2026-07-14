@@ -135,12 +135,21 @@ export function explainLendSubmitError(
         ? `Withdraw failed (${base}). You may be over your share balance or vault liquid F-USDC — use Max or a lower amount.`
         : 'Withdraw failed: insufficient vault shares or liquid F-USDC in the pool.'
     }
-    const cover = data?.pool?.borrow.brokerCoverFusdc ?? 0
-    if (cover < 0.01) {
-      return 'Borrow failed: loan broker has no first-loss cover (0 F-USDC). The pool operator must deposit F-USDC broker cover before anyone can borrow — vault liquidity alone is not enough.'
+    const permissionless =
+      data?.protocol.lendingPermissionless && data?.protocol.lendingCollateral
+    if (!permissionless) {
+      const cover = data?.pool?.borrow.brokerCoverFusdc ?? 0
+      if (cover < 0.01) {
+        return 'Borrow failed: loan broker has no first-loss cover (0 F-USDC). The pool operator must deposit F-USDC broker cover before anyone can borrow — vault liquidity alone is not enough.'
+      }
     }
     if ((data?.vaults?.[0]?.assetsAvailable ?? 0) <= 0) {
       return 'Borrow failed: no F-USDC available in the lend vault to fund loans.'
+    }
+    if (permissionless) {
+      return base
+        ? `Borrow failed (${base}). Check vault liquidity and FALCON collateral on the Borrow tab.`
+        : 'Borrow failed: insufficient vault liquidity or collateral (permissionless borrow — no broker cover required).'
     }
     return base
       ? `Borrow failed (${base}). Check vault liquidity and broker cover on the Overview tab.`

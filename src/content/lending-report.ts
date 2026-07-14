@@ -1,41 +1,48 @@
 /** Lending implementation report — rendered on /whitepaper (July 2026). */
 
-export const LENDING_REPORT_DATE = '2026-07-10'
+export const LENDING_REPORT_DATE = '2026-07-14'
 
 export const LENDING_REPORT_SECTIONS: { id: string; title: string; body: string }[] = [
   {
     id: 'lending-report',
     title: '12. Lending — Implementation Report',
-    body: `**Date:** ${LENDING_REPORT_DATE} · **Network:** Falcon Ledger Testnet (ID \`1001\`, RPC \`http://46.224.0.140:6005\`) · **Status:** End-to-end supply, borrow, and repay verified via the portal at \`/lend\`.
+    body: `**Date:** ${LENDING_REPORT_DATE} · **Network:** Falcon Ledger Testnet (ID \`1001\`, RPC \`http://46.224.0.140:6005\`) · **Status:** Permissionless borrow, repay, and liquidation verified on-ledger via coordinator E2E scripts; HF monitor deployed on coordinator. **Full report (PDF):** see **Lending Implementation Report** in Downloads above.
 
-Falcon Ledger lending is built on upstream **XRPL XLS-66** primitives (\`SingleAssetVault\`, \`LendingProtocol\`, \`MPTokensV1\`) plus qXRP extensions (\`ClaimLPReward\` for Proof-of-Participation LP emissions). Protocol code lives in the **qXRP** repository; the user-facing loop is wired in this portal.
+**Borrowers do not need a broker.** On testnet today (\`LendingPermissionless\` live), you post FALCON collateral (≥150% HF), sign \`LoanSet\` yourself — no co-sign, no broker first-loss cover. Legacy broker paths below are historical only.
+
+Falcon Ledger lending is built on upstream **XRPL XLS-66** primitives (\`SingleAssetVault\`, \`LendingProtocol\`, \`MPTokensV1\`) plus qXRP extensions: \`ClaimLPReward\` (Proof-of-Participation LP emissions), \`LendingCollateral\` (FALCON locked in \`LoanSet\`), and \`LendingPermissionless\` (collateral-only borrow without broker co-sign). Protocol code lives in **qXRP**; the user-facing loop is wired in this portal.
 
 | Capability | Portal | On-chain |
 |------------|--------|----------|
 | Supply F-USDC to vault | Yes — \`VaultDeposit\` | Yes |
-| Borrow F-USDC from vault | Yes — \`LoanSet\` + broker co-sign | Yes |
+| Borrow F-USDC (**current — permissionless**) | Yes — \`LoanSet\` + FALCON collateral | Yes — live on testnet |
+| Borrow F-USDC (legacy broker — retired) | Co-sign path in code only | Pre-July 2026; not required |
 | Repay loan | Yes — \`LoanPay\` (Pay full amount) | Yes |
 | Withdraw supply | Yes — \`VaultWithdraw\` | Yes |
-| Claim LP epoch rewards | Yes — \`ClaimLPReward\` | Yes |
-| FALCON collateral in \`LoanSet\` | Yes — locked on-chain (\`LendingCollateral\`) | Yes |
-| Health factor display (AMM price) | Yes — borrow preview + Positions | UI math only |
-| On-chain liquidation | No | \`LoanManage\` not wired in portal |
+| Claim LP epoch rewards | Yes — \`ClaimLPReward\` | Yes — FALCON (PoPL) |
+| FALCON collateral in \`LoanSet\` | Yes — locked on-chain | Yes — \`LendingCollateral\` |
+| Health factor display (AMM price) | Yes — borrow preview + Positions + risk monitor | UI + daemon |
+| On-chain liquidation | Yes — \`LoanManage\` + HF monitor | Yes — anyone can default on HF breach or late payment |
+| Borrow / repay / claim / withdraw preflight | Yes — \`/api/lend/*-preflight\` | simulate before sign |
+| Multi-loan Positions UI | Yes — loan selector | filters paid/closed loans |
 
-Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N\`), not bootstrap-minted supply. Borrowers require **broker first-loss cover** before \`LoanSet\` succeeds.
+**Economics:** LPs supply **F-USDC** to the vault. Borrowers pay **interest in F-USDC** via \`LoanPay\` — this increases vault \`AssetsTotal\`, so LP share value rises (no separate interest claim). Epoch **FALCON** emissions go to LPs via \`ClaimLPReward\` under the PoPL participation split. On default, the **liquidator receives FALCON collateral**; the vault books an AMM-price offset for collateral value and absorbs any residual shortfall in F-USDC accounting.
 
-**Verified round-trip** (wallet \`rwcYXAAXe7unkEwPVFWMbyzXE2ajG3juqR\`): borrow **10 F-USDC**; failed repay at **10** and **5** (\`tecINSUFFICIENT_PAYMENT\`); successful repay at **10.000137 F-USDC** (\`tesSUCCESS\`, ledger **30899**).`,
+Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N\`), not bootstrap-minted supply.`,
   },
   {
     id: 'lending-architecture',
     title: '12.1 Architecture',
-    body: `**Flow:** Browser \`/lend\` UI → client WASM signing (\`falcon-lend-tx-sign.ts\`) → \`POST /api/wallet/submit\` → Falcon RPC. Borrows additionally call \`POST /api/lend/cosign\`, which signs the broker \`CounterpartySignature\` via the validator signer proxy using \`TESTNET_LENDING_BROKER_SECRET\` (never sent to the browser).
+    body: `**Permissionless flow (target mainnet path):** Browser \`/lend\` → client WASM signing (\`falcon-lend-tx-sign.ts\`) → \`POST /api/lend/borrow-preflight\` → \`POST /api/wallet/submit\` → Falcon RPC. No server co-sign; borrower posts FALCON collateral meeting the 150% minimum health factor at AMM price.
+
+**Legacy broker flow (retired):** Pre-\`LendingPermissionless\` only — required broker co-sign and first-loss cover. Not used for new borrows on testnet today.
 
 | Repo | Role |
 |------|------|
-| qXRP | xrpld fork: transactors, invariants, \`LendingHelpers\`, bootstrap scripts, fleet amendment enablement |
-| qXRP-faucet-wallet | Portal: \`/lend\` UI, overview aggregation, client tx signing, broker co-sign API |
+| qXRP | xrpld fork: transactors, \`LendingHelpers\`, \`LendingPermissionless\`, HF monitor scripts, fleet amendment enablement |
+| qXRP-faucet-wallet | Portal: \`/lend\` UI, overview aggregation, preflight APIs, client tx signing, optional broker co-sign |
 
-**Amendments (enable order):** (1) \`MPTokensV1\` — vault share MPT for LPs; (2) \`SingleAssetVault\` — \`VaultCreate\`, \`VaultDeposit\`, \`VaultWithdraw\`; (3) \`LendingProtocol\` — \`LoanBrokerSet\`, \`LoanSet\`, \`LoanPay\`, \`LoanManage\`. Fleet script: \`qXRP/scripts/enable-lending-fleet.sh\`.`,
+**Amendments (enable order):** (1) \`MPTokensV1\` — vault share MPT for LPs; (2) \`SingleAssetVault\`; (3) \`LendingProtocol\`; (4) \`LendingCollateral\` — collateral field on \`LoanSet\`; (5) \`LendingPermissionless\` — collateral-only borrow, permissionless liquidation. Fleet scripts: \`enable-lending-fleet.sh\`, \`enable-lending-permissionless-fleet.sh\`.`,
   },
   {
     id: 'lending-onchain',
@@ -49,44 +56,38 @@ Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78
 | F-USDC issuer | \`rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N\` |
 | Vault ID | \`0DB363B417A560EDD7EA8306188F5592F2388A054BF7F6AC1FB5A99A30BC99B2\` |
 | Loan broker ID | \`0DF028DFE8928921B9474B5EB09531E1E7A3655441C53ECFECF41C82F374D334\` |
-| Broker owner | \`rJePmBhHoerhB4gJPAPEqvVBgQ7xbmY6bh\` |
+| Broker owner (legacy) | \`rJePmBhHoerhB4gJPAPEqvVBgQ7xbmY6bh\` — not an operator gate once permissionless is live |
 | Interest | \`500\` tenth-bips = **5% APR** |
 | Payment interval | \`86400\` s (1 day) |
 | Payment total | \`1\` (single-installment test loans) |
 | Grace period | \`3600\` s (1 hour) |
 
-**Snapshot after verified repay (ledger 30899):**
-
-| Metric | Value |
-|--------|-------|
-| Vault \`AssetsTotal\` / \`AssetsAvailable\` | **200.000137** F-USDC |
-| Broker \`CoverAvailable\` | **30** F-USDC |
-| Broker \`DebtTotal\` | **0** |
-| Wallet F-USDC (test wallet) | **~60** F-USDC |
-
-Bootstrap starts with zero vault seed and zero genesis broker cover. LPs fund the vault via the portal; the operator posts cover via \`deposit-testnet-broker-cover.py\`.`,
+**Collateral rules (\`LendingPermissionless\`):** minimum health factor **1.5** (15,000 bps) at borrow; liquidation threshold **1.1** (11,000 bps) on outstanding debt. Price from FALCON/F-USDC AMM. Loans opened without broker co-sign carry \`lsfLoanPermissionless\`.`,
   },
   {
     id: 'lending-protocol',
     title: '12.3 Protocol Rules',
     body: `### Vault (supply side)
 
-- **VaultCreate** — one asset per vault (testnet: QUC IOU); issues share MPT to LPs
-- **VaultDeposit** — LP sends F-USDC to vault pseudo-account; receives vault share MPT
-- **VaultWithdraw** — LP burns share MPT; receives F-USDC (FCFS policy)
-- **ClaimLPReward** (qXRP) — LP claims FALCON emission by vault share balance and epoch state
+- **VaultDeposit** — LP sends F-USDC; receives vault share MPT
+- **VaultWithdraw** — LP burns share MPT; receives F-USDC (FCFS)
+- **ClaimLPReward** — LP claims FALCON epoch emission by vault share balance
 
-### Loan broker (operator)
+### Permissionless borrow (\`LendingPermissionless\` + \`LendingCollateral\`)
 
-- **LoanBrokerSet** — \`CoverRateMinimum\` 1000 tenth-bips (**1%** of debt covered), \`CoverRateLiquidation\` 2500 (2.5%), \`ManagementFeeRate\` 100 (0.1% of interest)
-- **LoanBrokerCoverDeposit** — broker owner deposits F-USDC into \`CoverAvailable\`
-- **Borrow gate:** at \`LoanSet\`, if cover &lt; 1% × (debt + new principal + interest) → \`tecINSUFFICIENT_FUNDS\` (not a vault liquidity error)
+- **LoanSet** — borrower signs only; posts \`Collateral\` (FALCON drops); no \`CounterpartySignature\`
+- Protocol checks HF ≥ 1.5 at AMM price; skips broker cover requirement
+- Sets \`lsfLoanPermissionless\` on the \`Loan\` object
+
+### Legacy broker borrow (retired — historical)
+
+- Previously required broker \`CounterpartySignature\` and broker cover ≥ 1% of debt
+- Replaced by permissionless collateral on testnet
 
 ### Loan lifecycle
 
-- **LoanSet** — requires broker \`CounterpartySignature\`, vault \`AssetsAvailable ≥ principal\`; creates \`Loan\` object
-- **LoanPay** — installment must be ≥ periodic payment (principal + interest/fees). Paying principal only (e.g. \`10\` when due is \`10.000137\`) → \`tecINSUFFICIENT_PAYMENT\`. Partial payments below the installment minimum are not supported for regular \`LoanPay\`.
-- **LoanManage** — default / impairment (not exposed in portal UI)
+- **LoanPay** — installment must be ≥ periodic payment (principal + interest/fees). Principal-only repay → \`tecINSUFFICIENT_PAYMENT\`.
+- **LoanManage** — on permissionless loans, **any account** may \`impair\` (HF &lt; 1.1) or \`default\` (HF breach or payment past grace). Default transfers FALCON collateral to the liquidator and offsets vault loss at AMM price.
 
 **Rate encoding:** 1 tenth-bip = 0.0001%; 100,000 tenth-bips = 100%.`,
   },
@@ -97,72 +98,78 @@ Bootstrap starts with zero vault seed and zero genesis broker cover. LPs fund th
 
 | Tab | Panel | Transaction |
 |-----|-------|-------------|
-| Overview | \`LendPoolOverviewPanel\` | Read-only pool stats |
+| Overview | Pool stats, APY, risk monitor | Read-only |
 | Supply | \`LendSupplyPanel\` | \`VaultDeposit\` |
-| Borrow | \`LendBorrowPanel\` | \`LoanSet\` |
+| Borrow | \`LendBorrowPanel\` | \`LoanSet\` (permissionless or co-sign) |
 | Positions | \`LendPositionsPanel\` | \`VaultWithdraw\`, \`LoanPay\`, \`ClaimLPReward\` |
 
 **Wallet auth:** passkey → decrypt Falcon seed in browser → WASM sign → \`POST /api/wallet/submit\`.
 
 ### API routes
 
-- **\`GET /api/lend/overview\`** — vault, broker, epoch/PoP, AMM price, wallet F-USDC, loans, LP positions, pool stats
-- **\`POST /api/lend/cosign\`** (testnet) — broker \`CounterpartySignature\` via signer proxy; \`LoanSet\` only; broker ID must match manifest
-- **\`POST /api/wallet/submit\`** — submits signed \`tx_blob\` via public RPC
+- **\`GET /api/lend/overview\`** — vault, broker, epoch/PoP, AMM price, loans, LP positions, \`lendingPermissionless\` flag
+- **\`POST /api/lend/borrow-preflight\`** — collateral HF, vault liquidity, cosign requirement
+- **\`POST /api/lend/repay-preflight\`**, **\`claim-preflight\`**, **\`withdraw-preflight\`**, **\`supply-preflight\`**
+- **\`GET /api/lend/risk-monitor\`** — fleet-wide HF scan
+- **\`POST /api/lend/loan-manage\`** — broker/HF daemon submits \`LoanManage\`
+- **\`POST /api/lend/cosign\`** (legacy testnet) — broker \`CounterpartySignature\`
 
 ### Repay UX
 
-The Positions panel auto-fills the exact installment due and exposes a **Pay full amount** button (principal + interest/fees, rounded up to 6 decimal places). Pre-flight checks block underpayment before passkey signing. On the verified loan: 10 F-USDC at 5% APR, 1-day interval → **10.000137 F-USDC** due.
-
-| Helper (\`lend-borrow-errors.ts\`) | Purpose |
-|-----------------------------------|---------|
-| \`borrowBlockedReason\` | Pre-flight: cosign, vault liquidity, broker cover |
-| \`repayBlockedReason\` | Pre-flight: installment ≥ periodic payment, wallet balance |
-| \`fullRepayAmount\` | Exact due for auto-fill and Pay full amount |
-| \`explainLendSubmitError\` | Maps \`tecINSUFFICIENT_FUNDS\`, \`tecINSUFFICIENT_PAYMENT\`, etc. |`,
+Positions auto-fills exact installment due and exposes **Pay full amount**. Verified loan: 10 F-USDC at 5% APR, 1-day interval → **10.000137 F-USDC** due.`,
   },
   {
     id: 'lending-flows',
     title: '12.5 End-to-End Flows',
-    body: `**Supply:** User holds F-USDC + trust line → Lend → Supply → passkey → \`VaultDeposit\` → vault share MPT (shown as “Lend share” on wallet dashboard) → vault \`AssetsAvailable\` increases.
+    body: `**Supply:** User holds F-USDC + trust line → Supply → \`VaultDeposit\` → vault share MPT → vault \`AssetsAvailable\` increases.
 
-**Borrow:** Portal checks \`borrowBlockedReason\` → borrower signs \`LoanSet\` → \`POST /api/lend/cosign\` adds broker signature → submit → F-USDC to borrower; broker \`DebtTotal\` increases.
+**Borrow (permissionless):** Portal checks collateral (150% HF), vault liquidity → borrower signs \`LoanSet\` with \`Collateral\` → submit → F-USDC to borrower; FALCON locked on loan.
 
-**Repay:** Overview loads \`PeriodicPayment\` → UI auto-fills full due → **Pay full amount** → \`LoanPay\` → vault receives F-USDC; loan closed when fully paid.
+**Borrow (legacy — retired):** Historical broker co-sign path; not required when permissionless is enabled.
 
-**Withdraw supply:** Positions → \`VaultWithdraw\` burns share MPT, returns F-USDC.
+**Repay:** \`LoanPay\` with full installment → F-USDC returns to vault (LP yield via share value).
 
-**Claim LP rewards:** Positions → \`ClaimLPReward\` for configured vault ID.`,
+**Withdraw supply:** \`VaultWithdraw\` burns share MPT, returns F-USDC.
+
+**Claim LP rewards:** \`ClaimLPReward\` → FALCON from epoch emission.
+
+**Liquidation:** HF monitor (\`lend-hf-monitor.py\`) or any party calls \`LoanManage\` default → liquidator receives FALCON; vault loss offset at AMM price.`,
   },
   {
     id: 'lending-verified',
-    title: '12.6 Verified Testnet Session',
-    body: `Wallet: \`rwcYXAAXe7unkEwPVFWMbyzXE2ajG3juqR\` · Sepolia bridge: \`0x1e6838624c6538cfb39eb2d223064ce524178f03\`
+    title: '12.6 Coordinator E2E Verification',
+    body: `Scripts on coordinator (\`qXRP/scripts/\`): \`lend-e2e-permissionless.py\`, \`lend-e2e-liquidation.py\`, \`lend-hf-monitor.py\`. Fleet amendment \`LendingPermissionless\` enabled at ledger ~**126464**.
 
-| Step | Result | Notes |
-|------|--------|-------|
-| Bridge in / F-USDC mint | Success | ~300 F-USDC received from issuer |
-| Vault deposit | Success | 100 F-USDC to lend pool |
-| AMM create | Success | 15,000 FALCON + 150 F-USDC pool |
-| Borrow 10 F-USDC | Success | \`LoanSet\` + broker co-sign |
-| Repay 10 F-USDC | Failed | \`tecINSUFFICIENT_PAYMENT\` — principal only |
-| Repay 5 F-USDC | Failed | \`tecINSUFFICIENT_PAYMENT\` — below minimum |
-| Repay 10.000137 F-USDC | Success | Full installment; loan repaid |
-| Bridge out 70 F-USDC | Success | Sepolia USDC released |
+### Test A — Permissionless borrow + repay
 
-**Successful repay transaction:**
+| Wallet | Address |
+|--------|---------|
+| Borrower | \`rPxzyo4FdL7Pt7LekxpvTLTK2bLHZQBum8\` |
 
-| Field | Value |
-|-------|-------|
-| Type | \`LoanPay\` |
-| Amount | \`10.000137\` F-USDC |
-| Result | \`tesSUCCESS\` |
-| Ledger | **30899** |
-| Tx hash | \`71307F0BA93F8062D3F80056B7E33802753CE2BF1DCD0E664B24EC9CFF843DF5\` |
-| Vault effect | \`AssetsAvailable\` 190 → **200.000137** |
-| Broker effect | \`DebtTotal\` 10.000137 → **0** |
+| Step | Tx hash | Result |
+|------|---------|--------|
+| Borrow 5 F-USDC (875 FALCON collateral) | \`78E3A2528B1C40FD09082D6249B65FC6EE1ECE9FE6F8B106E3E20F3FF81AC172\` | tesSUCCESS |
+| Repay **5.000069** F-USDC | \`93B058510F90402CD34F12BF83C83BBDF684C6D2F8E06749AF3310892097E719\` | tesSUCCESS |
 
-**Lesson:** wallet F-USDC balance was sufficient; repay must match the **installment due** (principal + interest/fees), not principal alone.`,
+### Test B — HF breach liquidation
+
+| Wallet | Address |
+|--------|---------|
+| Borrower | \`r3XK65UbcEhsif3UjWbqNdKeD28TBeSc62\` |
+| Liquidator | \`rJM5vq5umHp82iztWHsZySAoUSMuD5VbgT\` |
+
+| Step | HF | Tx hash | Result |
+|------|-----|---------|--------|
+| Borrow 5 F-USDC | 1.501 | \`0834FB47C0FB9CDE0D32E57FCD7666D54AD31A972BDB07FDF97C3601A63ED645\` | tesSUCCESS |
+| AMM dump 4000 FALCON | 1.231 | \`43E459BC0FB5C36B5D0CFAE7053E29DBDD0E40A72A4B7F5C8603B17D075A1984\` | tesSUCCESS |
+| AMM dump 8000 FALCON | 0.856 | \`989B04758E4BC7AFE598B73496DBCE48ABDA99CF002BFFF854E8898514734DBE\` | tesSUCCESS |
+| Liquidator \`LoanManage\` default | — | \`BA1C8431CEBDE5812DC9315EDE6B56FAAB4FCF0A592C0911303A3949DFA6588D\` | tesSUCCESS (+1928 FALCON to liquidator) |
+
+### Portal session (legacy broker, 2026-07-10)
+
+Wallet \`rwcYXAAXe7unkEwPVFWMbyzXE2ajG3juqR\`: vault deposit, borrow 10 F-USDC (broker co-sign), repay **10.000137** F-USDC (ledger **30899**).
+
+**Lesson:** \`LoanPay\` requires the **full installment** (principal + interest/fees), rounded up to 6 dp — not principal alone.`,
   },
   {
     id: 'lending-ops-security',
@@ -171,49 +178,46 @@ The Positions panel auto-fills the exact installment due and exposes a **Pay ful
 
 \`\`\`
 bash scripts/enable-lending-fleet.sh --wait
+bash scripts/enable-lending-permissionless-fleet.sh --wait   # after lending-permissionless docker build
 python3 scripts/issue-testnet-stables.py
 python3 scripts/bootstrap-testnet-lending.py
-python3 scripts/deposit-testnet-broker-cover.py --amount 30
 \`\`\`
+
+HF monitor: \`scripts/lend-hf-monitor.py\` + \`deploy-lend-hf-monitor.sh\` on coordinator.
 
 ### Portal env (Vercel)
 
 | Variable | Required for |
 |----------|----------------|
-| \`TESTNET_LENDING_BROKER_SECRET\` | Borrow (co-sign) |
-| \`SIGNER_PROXY_URL\` | Borrow |
-| \`SIGNER_PROXY_TOKEN\` | Borrow |
 | Testnet RPC | Overview + submit |
-| \`ALLOWED_ORIGINS\` | Cosign/submit CSRF |
+| \`TESTNET_LENDING_BROKER_SECRET\` | Legacy borrow co-sign + HF daemon only (remove after permissionless live) |
+| \`SIGNER_PROXY_URL\` / \`SIGNER_PROXY_TOKEN\` | Legacy co-sign + daemon |
+| \`LEND_HF_MONITOR_TOKEN\` | HF monitor → \`loan-manage\` |
 
 ### Security model
 
 | Asset | Model |
 |-------|--------|
-| User Falcon seed | Passkey-encrypted in IndexedDB; browser-only signing |
-| Broker owner secret | Server-only; co-sign route only |
-| Co-sign route | Testnet-only, origin-checked, \`LoanSet\` only |
-| Submit route | Rate-limited; no private keys |
-
-**First-loss cover:** broker posts F-USDC that absorbs losses before vault LP principal. Minimum cover scales with outstanding broker debt (1% on testnet).`,
+| User Falcon seed | Passkey-encrypted; browser-only signing |
+| Broker secret | Server-only; legacy co-sign + daemon — not required for permissionless borrow |
+| Permissionless borrow | No gatekeeper signature; collateral + HF enforced on-ledger |`,
   },
   {
     id: 'lending-gaps',
     title: '12.8 Gaps & Next Steps',
-    body: `### Not yet in portal
+    body: `### Remaining
 
-- On-chain liquidation (\`LoanManage\` + daemon HF enforcement)
-- Multi-loan repay UI (only first active loan)
-- Claim rewards UX polish (\`canClaim\`, estimated reward)
-- Withdraw/supply preflight (share balance, vault utilization)
-- Mainnet broker co-sign / HSM flow
+- Payment-default liquidation E2E (24h payment interval + grace — not quick-script friendly)
+- Portal liquidator UX for third-party \`LoanManage\` default
+- Vercel redeploy; retire \`TESTNET_LENDING_BROKER_SECRET\` if legacy co-sign unused
+- Live APY from epoch \`EmissionRate\` in overview
 
 ### Mainnet considerations
 
+- Permissionless collateral-only borrow — no broker operator or HSM co-sign
 - Do not bootstrap-mint F-USDC into vault (bridge-only policy)
-- Broker cover must be operator-funded, not protocol-inflated
-- Production-grade key management for broker co-sign
+- Liquidation under thin AMM depth / manipulation resistance
 
-**Conclusion:** Falcon Ledger lending on testnet is a working vertical slice — real F-USDC vault liquidity, broker-gated borrows with server co-sign, FALCON collateral locked in \`LoanSet\`, health display from on-chain collateral + AMM price, and interest-aware repay via **Pay full amount**. Next priorities: on-chain liquidation, claim/withdraw validation, and mainnet key management.`,
+**Conclusion:** Falcon Ledger lending is **verified on testnet** — permissionless borrow/repay, HF-breach liquidation, HF monitor daemon, portal \`/lend\`, and real F-USDC vault liquidity. See the PDF download for the complete implementation reference.`,
   },
 ]

@@ -55,9 +55,11 @@ export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
         </p>
         <p className="text-xs text-emerald-200/80">
           {protocol.txSigningReady
-            ? lending.cosignReady
-              ? 'Supply, borrow (LoanSet + broker co-sign), claim, repay (LoanPay), and on-chain risk enforcement (LoanManage + HF monitor) are wired.'
-              : 'Supply and claim work from the portal. Borrow and LoanManage need TESTNET_LENDING_BROKER_SECRET on the server.'
+            ? protocol.lendingPermissionless && protocol.lendingCollateral
+              ? 'Supply, permissionless borrow (FALCON collateral, 150% HF), claim, repay, and on-chain liquidation (LoanManage + HF monitor) are wired.'
+              : lending.cosignReady
+                ? 'Supply, borrow (LoanSet + broker co-sign), claim, repay, and on-chain risk enforcement are wired. Enable LendingPermissionless on validators for collateral-only borrow.'
+                : 'Supply and claim work from the portal. Borrow needs LendingPermissionless on-chain, or TESTNET_LENDING_BROKER_SECRET for legacy co-sign.'
             : 'Run bootstrap-testnet-lending.py on the coordinator to create the F-USDC vault and loan broker.'}
         </p>
       </div>
@@ -190,7 +192,7 @@ export function LendRiskMonitorPanel({
       </p>
       {atRisk > 0 && (
         <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">
-          {atRisk} loan{atRisk === 1 ? '' : 's'} need broker LoanManage action.
+          {atRisk} loan{atRisk === 1 ? '' : 's'} need LoanManage action (impair/default).
         </p>
       )}
       {rows.length === 0 ? (
@@ -248,6 +250,8 @@ export function LendPoolOverviewPanel({
   const position = data?.lpPositions?.[0]
   const hasWallet = !!data?.wallet
   const walletAddr = data?.wallet?.address
+  const permissionless =
+    data?.protocol.lendingPermissionless && data?.protocol.lendingCollateral
 
   return (
     <div className="space-y-4">
@@ -262,7 +266,10 @@ export function LendPoolOverviewPanel({
           <h2 className="text-sm font-semibold text-white mt-2">F-USDC lend pool</h2>
           <p className="text-xs text-slate-500 mt-1">
             Only F-USDC goes in — users bridge or swap, then supply. No FALCON in this pool. Borrowers draw
-            F-USDC when loans open; broker cover backs lenders separately.
+            F-USDC when loans open
+            {permissionless
+              ? '; permissionless loans lock borrower FALCON collateral on-chain (no broker co-sign).'
+              : '; legacy path used broker first-loss cover (retired when permissionless is live).'}
           </p>
         </div>
 
@@ -321,15 +328,27 @@ export function LendPoolOverviewPanel({
                     <div className="text-slate-500">Borrowed (vault)</div>
                     <div className="font-mono text-slate-200">{fmt(pool.supply.borrowedFusdc, 2)} F-USDC</div>
                   </div>
-                  <div>
-                    <div className="text-slate-500">Broker cover</div>
-                    <div className={`font-mono ${pool.borrow.brokerCoverFusdc < 0.01 ? 'text-amber-400' : 'text-slate-200'}`}>
-                      {fmt(pool.borrow.brokerCoverFusdc, 2)} F-USDC
+                  {!permissionless ? (
+                    <div>
+                      <div className="text-slate-500">Broker cover (legacy)</div>
+                      <div className={`font-mono ${pool.borrow.brokerCoverFusdc < 0.01 ? 'text-amber-400' : 'text-slate-200'}`}>
+                        {fmt(pool.borrow.brokerCoverFusdc, 2)} F-USDC
+                      </div>
+                      {pool.borrow.brokerCoverFusdc < 0.01 && (
+                        <div className="text-[10px] text-amber-500/90 mt-0.5">Legacy path only</div>
+                      )}
                     </div>
-                    {pool.borrow.brokerCoverFusdc < 0.01 && (
-                      <div className="text-[10px] text-amber-500/90 mt-0.5">Required before borrows open</div>
-                    )}
-                  </div>
+                  ) : (
+                    <div>
+                      <div className="text-slate-500">FALCON collateral</div>
+                      <div className="font-mono text-brand-300">
+                        {pool.borrow.totalCollateralFalcon > 0
+                          ? `${fmt(pool.borrow.totalCollateralFalcon, 4)} FALCON`
+                          : '—'}
+                      </div>
+                      <div className="text-[10px] text-emerald-500/90 mt-0.5">Permissionless — no broker</div>
+                    </div>
+                  )}
                   <div>
                     <div className="text-slate-500">Debt cap</div>
                     <div className="font-mono text-slate-200">
@@ -722,13 +741,23 @@ export function LendBorrowPanel({
       )}
       {data?.pool && (
         <p className="text-[10px] text-slate-600">
-          Vault available: {fmt(data.pool.supply.availableFusdc, 2)} F-USDC · Broker cover:{' '}
-          {fmt(data.pool.borrow.brokerCoverFusdc, 2)} F-USDC
-          {Number.isFinite(borrowNum) && borrowNum > 0 && data.pool.borrow.coverRateMinPct != null && (
+          Vault available: {fmt(data.pool.supply.availableFusdc, 2)} F-USDC
+          {permissionless ? (
             <>
               {' '}
-              · min cover for {fmt(borrowNum, 0)} borrow: ~
-              {fmt(minBrokerCoverForPrincipal(borrowNum, data.pool.borrow.coverRateMinPct), 2)} F-USDC
+              · FALCON collateral required (150% min HF at AMM price) — no broker co-sign
+            </>
+          ) : (
+            <>
+              {' '}
+              · Broker cover (legacy): {fmt(data.pool.borrow.brokerCoverFusdc, 2)} F-USDC
+              {Number.isFinite(borrowNum) && borrowNum > 0 && data.pool.borrow.coverRateMinPct != null && (
+                <>
+                  {' '}
+                  · min cover for {fmt(borrowNum, 0)} borrow: ~
+                  {fmt(minBrokerCoverForPrincipal(borrowNum, data.pool.borrow.coverRateMinPct), 2)} F-USDC
+                </>
+              )}
             </>
           )}
         </p>

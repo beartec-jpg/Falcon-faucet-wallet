@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
   if (!ok) {
     return NextResponse.json(
       {
-        error: `Borrow would fail on-chain (${sim.engine_result ?? 'simulate error'}). Check vault liquidity and broker cover.`,
+        error: `Borrow would fail on-chain (${sim.engine_result ?? 'simulate error'}). Check vault liquidity${permissionless ? ' and FALCON collateral' : ' and broker cover'}.`,
         simulateResult: sim.engine_result,
         simulateMessage: sim.engine_result_message,
         principal,

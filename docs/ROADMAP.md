@@ -59,12 +59,13 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 - [x] Bond status and composite score display
 
 ### Lending
-- [x] `SingleAssetVault` and `LendingProtocol` amendments enabled on testnet
-- [x] Lend tab: balances, AMM price, health-factor calculator
-- [x] Portal wiring for `VaultDeposit` / `LoanSet` / `LoanPay` / `VaultWithdraw`
-- [x] FALCON collateral in `LoanSet` + on-chain health display (`LendingCollateral` amendment)
+- [x] `SingleAssetVault`, `LendingProtocol`, and `LendingCollateral` amendments enabled on testnet
+- [x] Lend tab: balances, AMM price, health-factor calculator, APY panel
+- [x] Portal wiring for `VaultDeposit` / `LoanSet` / `LoanPay` / `VaultWithdraw` / `ClaimLPReward`
+- [x] FALCON collateral in `LoanSet` + on-chain health display (`LendingCollateral`)
+- [x] Permissionless borrow path in portal (`LendingPermissionless` — no broker co-sign when amendment live)
 - [x] On-chain liquidation via `LoanManage` (HF monitor daemon + `/api/lend/loan-manage`)
-- [x] Risk monitor panel, borrow/repay/claim preflight APIs, multi-loan Positions
+- [x] Risk monitor panel, borrow/repay/claim/withdraw preflight APIs, multi-loan Positions
 
 ### Protocol (testnet)
 - [x] Falcon-512 account creation and transaction signing
@@ -91,11 +92,13 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 ## In progress — July 2026
 
 ### Protocol
+- [ ] `LendingPermissionless` amendment fleet rollout (`qxrp/xrpld:lending-permissionless` + `enable-lending-permissionless-fleet.sh`)
 - [ ] Real latency scoring (currently neutral floor at 5,000 bps)
 - [ ] Additional slashing offenses (absence, invalid-vote — currently `temDISABLED` on testnet)
 
 ### Portal
-- [ ] Lend supply/borrow: wire `VaultDeposit` and `LoanSet` to passkey signing
+- [ ] Vercel redeploy with permissionless lend UI (remove `TESTNET_LENDING_BROKER_SECRET` after amendment live)
+- [ ] Live APY from epoch `EmissionRate` in overview (currently fixed APR display)
 - [ ] Post-genesis E2E PDF report regeneration
 - [ ] Mainnet network config and go-live toggle (`NEXT_PUBLIC_MAINNET_LIVE`)
 - [ ] Production security audit for passkey + bridge flows
@@ -139,7 +142,8 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 | Bridge | Relay polling latency (seconds–minutes) | Monitor relay process |
 | DEX | Partial-fill dust remainders | Cancel manually; hidden from book |
 | F-USDC | Requires trust line before receive / bridge mint | Explicit TrustSet step on Bridge tab (and Swap tab for P2P) |
-| Lend | Supply/Borrow buttons are preview-only | Wire VaultDeposit / LoanSet in portal |
+| Lend | `LendingPermissionless` not yet enabled on all validators | Fleet docker rebuild + amendment vote in progress |
+| Lend | Broker co-sign path legacy only | Remove `TESTNET_LENDING_BROKER_SECRET` once permissionless live |
 | Passkeys | rawId fallback weaker than PRF | Testnet only — see `src/lib/passkey.ts` |
 | Signing | Server routes need signer proxy on node1 | Documented in `.env.example` |
 
@@ -158,6 +162,7 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 
 | Date | Highlights |
 |------|------------|
+| Jul 2026 | Permissionless lending, HF liquidation, multi-loan Positions, lending preflight APIs, whitepaper v2.5 |
 | Jul 2026 | Post-genesis issuer, lending amendments, bridge trust-line gate, PoPL LP participation, whitepaper v2.3 |
 | Jul 2026 | Bridge, pool, DEX limit orders, F-USDC P2P, QR scanner, tx label fix, E2E report |
 | Jun 2026 | Client-side Falcon signing, passkey PWA wallet |

@@ -44,10 +44,14 @@ Sepolia testnet contract: `0x2dae31Cbf2E3a418d617081985661fCD0117b75C` (see `pub
 - Live pool stats, LP share %, and estimated withdrawal amounts
 
 ### Lend
-- **Protocol live** — `SingleAssetVault`, `LendingProtocol`, and `LendingCollateral` on testnet
-- **Overview** — wallet balances, live AMM mid price, pool collateral stats, health-factor preview
-- **Supply / Borrow / Repay** — portal-signed `VaultDeposit`, `LoanSet` (FALCON collateral locked on-chain), `LoanPay`, and `VaultWithdraw`
-- **Positions** — on-chain collateral and health factor from AMM price (pre-amendment loans show a re-borrow hint)
+- **Protocol live** — `SingleAssetVault`, `LendingProtocol`, `LendingCollateral`, and `LendingPermissionless` (fleet rollout) on testnet
+- **Permissionless borrow** — post FALCON collateral (150% min health factor at AMM price); no broker `CounterpartySignature` when `LendingPermissionless` is enabled
+- **Overview** — pool utilization, AMM mid price, APY panel, risk monitor, health-factor preview
+- **Supply / Borrow / Repay** — portal-signed `VaultDeposit`, `LoanSet`, `LoanPay`, `VaultWithdraw`, and `ClaimLPReward`
+- **Positions** — multi-loan selector, on-chain collateral + health factor, repay preflight, claim estimates
+- **Liquidation** — on-chain `LoanManage` (HF breach or late payment); liquidator receives FALCON collateral; LPs remain in F-USDC vault (interest accrues via share value)
+- **LP yield** — borrower interest returns as F-USDC to the vault; epoch FALCON emissions via `ClaimLPReward` (PoPL participation split)
+- **Legacy broker path** — pre-permissionless borrows still use `POST /api/lend/cosign` + broker cover (testnet only)
 
 ### Explorer
 - Ledger and transaction lookup by hash or address
@@ -91,7 +95,7 @@ F-USDC and Sepolia USDC are **not** the same token — the bridge converts betwe
 | Faucet | `rwzhiWW4GYK2sQVR5Lw4iDpYLANB5krJXY` |
 | Epoch length | 172,800 ledgers (~7 days) |
 | Min validator bond | 1,000 FALCON |
-| Lending | `SingleAssetVault` + `LendingProtocol` enabled |
+| Lending | `SingleAssetVault` + `LendingProtocol` + `LendingCollateral`; `LendingPermissionless` rolling out |
 
 Always use the **public RPC port (6005)**. Admin ports (5005) stay on localhost via the signing proxy.
 
@@ -189,12 +193,13 @@ Full instructions: [qXRP validator onboarding](https://github.com/beartec-jpg/qX
 
 ## Recent releases (July 2026)
 
+- Permissionless lending (`LendingPermissionless`): collateral-only borrow, HF liquidation, multi-loan Positions
+- Lend risk monitor + borrow/repay/claim/withdraw preflight APIs
 - Passkey-secured Falcon wallet with client-side Falcon-512 signing
 - F-USDC swap, limit orders, and AMM instant swap
 - Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet)
 - Pool LP deposit/withdraw
 - Wallet F-USDC P2P send + QR scanner
-- Transaction history F-USDC label fix
 - Comprehensive E2E test documentation
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full feature timeline.

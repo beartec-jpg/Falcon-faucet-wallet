@@ -2,7 +2,7 @@
 
 import { LENDING_REPORT_SECTIONS } from '@/content/lending-report'
 
-export const WHITEPAPER_VERSION = '2.4'
+export const WHITEPAPER_VERSION = '2.5'
 export const WHITEPAPER_DATE = 'July 2026'
 
 export interface WhitepaperDownload {
@@ -38,7 +38,7 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
   {
     title: 'Lending Implementation Report',
     description:
-      'Full testnet lending report: XLS-66 vault/broker/loan protocol, portal /lend flows, verified supply/borrow/repay session, and operations guide.',
+      'Full lending implementation and coordinator E2E verification (July 2026): XLS-66 vault/broker/loan protocol, permissionless borrow/repay, HF liquidation via AMM price shock, HF monitor daemon, portal /lend APIs, tx hashes, and operations guide.',
     href: '/Docs/FALCON-LENDING-IMPLEMENTATION-REPORT.pdf',
     filename: 'FALCON-LENDING-IMPLEMENTATION-REPORT.pdf',
   },
@@ -126,7 +126,7 @@ The consensus model is unchanged. RPCA stays. Finality stays sub-second. Fees st
 | Epoch length | 172,800 ledgers (~7 days) — first reward epoch at ledger 172,800 |
 | Validator quorum | 5 of 6 validators |
 
-**Protocol (live):** Falcon-512 account creation and transaction signing; Falcon validator consensus (\`validation_falcon_secret\`, Falcon hex UNL); validator register/bond/unbond; CID epoch emission; composite scoring; ClaimReward; double-sign slashing; on-chain governance; AMM; **SingleAssetVault** and **LendingProtocol** amendments.
+**Protocol (live):** Falcon-512 account creation and transaction signing; Falcon validator consensus (\`validation_falcon_secret\`, Falcon hex UNL); validator register/bond/unbond; CID epoch emission; composite scoring; ClaimReward; double-sign slashing; on-chain governance; AMM; **SingleAssetVault**, **LendingProtocol**, **LendingCollateral**, and **LendingPermissionless** (fleet rollout) amendments.
 
 **Portal (live):** Passkey wallet, FALCON + F-USDC P2P (QR scan), instant AMM swap, DEX limit orders, FALCON/F-USDC liquidity pool, Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet; **F-USDC trust line required on Bridge tab before Bridge In**), **lending** (supply, borrow, repay, withdraw, claim rewards at \`/lend\`), explorer, rewards, and validator onboarding.
 
@@ -209,7 +209,7 @@ composite = (uptime×40 + voteAccuracy×30 + latency×15 + consistency×10 + sla
 | **Swap** | Instant AMM swap (FALCON ↔ F-USDC); DEX limit orders (crossing + post-only passive); live order book |
 | **Pool** | Add/remove liquidity in the FALCON/F-USDC AMM; LP share and withdrawal estimates |
 | **Bridge** | Sepolia USDC ↔ F-USDC via lock contract + relay; passkey Sepolia wallet; **trust line step on Bridge tab**; send ETH/USDC to any \`0x\` |
-| **Lend** | Live at \`/lend\`: \`VaultDeposit\`, \`LoanSet\` + broker co-sign, \`LoanPay\` (Pay full amount), \`VaultWithdraw\`, \`ClaimLPReward\` |
+| **Lend** | Live at \`/lend\`: \`VaultDeposit\`, permissionless \`LoanSet\` (FALCON collateral, 150% HF), \`LoanPay\`, \`VaultWithdraw\`, \`ClaimLPReward\`; \`LoanManage\` liquidation; LP yield via F-USDC interest + FALCON epoch emissions |
 | **Explorer** | Ledger and transaction lookup |
 
 **Asset labels:** F-USDC is the Falcon-ledger IOU (\`QUC\` from issuer \`rsJoDhj…\`). Sepolia USDC is the EVM ERC-20 used only in the Bridge tab. They are bridged, not interchangeable.
@@ -250,12 +250,14 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
 - Instant AMM swap and DEX limit orders (crossing default, post-only passive)
 - FALCON/F-USDC liquidity pool (deposit, partial withdraw)
 - Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet, trust-line gate, bridge in/out, send out)
-- Lending live: \`SingleAssetVault\` + \`LendingProtocol\`; full \`/lend\` supply/borrow/repay/claim; \`LoanManage\` HF monitor (see §12)
+- Lending live: \`SingleAssetVault\` + \`LendingProtocol\` + \`LendingCollateral\` + \`LendingPermissionless\`; full \`/lend\` supply/borrow/repay/claim/liquidation; multi-loan Positions (see §12)
+- Coordinator lending E2E verified: permissionless borrow/repay, HF liquidation, HF monitor daemon (\`FALCON-LENDING-IMPLEMENTATION-REPORT.pdf\`)
 - Full Falcon validator consensus fleet upgrade (\`validation_falcon_secret\`, Falcon hex UNL)
 - Comprehensive E2E test documentation (\`docs/TESTNET-E2E-REPORT.md\`)
 
 ### In progress (July 2026)
-- Mainnet broker decentralization (multi-sig / HSM) and permissionless liquidator protocol extension
+- Vercel redeploy with updated lending PDF and docs (\`FALCON-LENDING-IMPLEMENTATION-REPORT.pdf\`)
+- Live APY from epoch emission data in lend overview
 - Latency scoring and additional slashing offenses
 - Mainnet genesis validator set and production security audit
 - Additional stablecoin pairs (USDT) and deeper testnet liquidity
