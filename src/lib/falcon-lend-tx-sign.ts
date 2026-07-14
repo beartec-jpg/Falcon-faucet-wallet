@@ -176,6 +176,35 @@ export async function signLoanManageTx(
   return { tx_blob: await signPrepared(tx, decoded) }
 }
 
+export async function signLoanCollateralDepositTx(
+  params: {
+    account: string
+    loanId: string
+    collateralDrops: string
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const tx = {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      decoded.publicKeyHex,
+      params.networkId,
+      params.fee ?? '12',
+    ),
+    TransactionType: 'LoanCollateralDeposit',
+    LoanID: params.loanId.toUpperCase(),
+    Collateral: params.collateralDrops,
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}
+
 export async function signLoanPayTx(
   params: {
     account: string

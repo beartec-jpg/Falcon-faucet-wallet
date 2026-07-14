@@ -56,7 +56,7 @@ export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
         <p className="text-xs text-emerald-200/80">
           {protocol.txSigningReady
             ? protocol.lendingPermissionless && protocol.lendingCollateral
-              ? 'Supply, permissionless borrow (FALCON collateral, 150% HF), claim, repay, and on-chain liquidation (LoanManage + HF monitor) are wired.'
+              ? 'Supply, permissionless borrow (FALCON collateral, 150% HF), add collateral, claim, repay, and on-chain liquidation (LoanManage + HF monitor) are wired.'
               : lending.cosignReady
                 ? 'Supply, borrow (LoanSet + broker co-sign), claim, repay, and on-chain risk enforcement are wired. Enable LendingPermissionless on validators for collateral-only borrow.'
                 : 'Supply and claim work from the portal. Borrow needs LendingPermissionless on-chain, or TESTNET_LENDING_BROKER_SECRET for legacy co-sign.'
@@ -856,15 +856,18 @@ export function LendPositionsPanel({
   onClaim,
   onWithdraw,
   onRepay,
+  onAddCollateral,
 }: {
   data: LendOverview | null
   busy?: boolean
   onClaim?: () => void
   onWithdraw?: (amount: string) => void
   onRepay?: (loanId: string, amount: string) => void
+  onAddCollateral?: (loanId: string, collateralFalcon: string) => void
 }) {
   const [withdrawAmt, setWithdrawAmt] = useState('')
   const [repayAmt, setRepayAmt] = useState('')
+  const [addCollateralAmt, setAddCollateralAmt] = useState('')
   const ready = data?.protocol.txSigningReady
 
   const loans = data?.loans ?? []
@@ -885,6 +888,11 @@ export function LendPositionsPanel({
   const loanDebt =
     activeLoan?.totalOutstandingFusdc ?? activeLoan?.principalFusdc ?? null
   const falconPerFusdc = data?.market.falconPerFusdc ?? null
+  const addCollateralNum = parseFloat(addCollateralAmt)
+  const projectedCollateral =
+    activeLoan && Number.isFinite(addCollateralNum) && addCollateralNum > 0
+      ? activeLoan.collateralFalcon + addCollateralNum
+      : null
   const loanHealth =
     activeLoan && loanDebt != null && activeLoan.collateralFalcon > 0
       ? loanHealthSnapshot(
@@ -893,6 +901,24 @@ export function LendPositionsPanel({
           falconPerFusdc,
         )
       : null
+  const projectedHealth =
+    activeLoan && loanDebt != null && projectedCollateral != null && projectedCollateral > 0
+      ? loanHealthSnapshot(projectedCollateral, loanDebt, falconPerFusdc)
+      : null
+  const walletFalcon = data?.wallet?.falconBalance ?? null
+  const addCollateralBlocked =
+    activeLoan && addCollateralAmt.trim()
+      ? (() => {
+          const n = parseFloat(addCollateralAmt)
+          if (!Number.isFinite(n) || n <= 0) return 'Enter how much FALCON to add.'
+          if (walletFalcon != null && n > walletFalcon + 1e-9) {
+            return `Insufficient FALCON in wallet (${walletFalcon.toLocaleString(undefined, { maximumFractionDigits: 4 })} available).`
+          }
+          return null
+        })()
+      : null
+  const canAddCollateral =
+    !!data?.protocol.lendingCollateral && !!activeLoan && isRepayableLoan(activeLoan)
   const lpPositions = data?.lpPositions ?? []
   const lp = lpPositions[0]
   const vault = data?.vaults?.[0]
@@ -1163,6 +1189,64 @@ export function LendPositionsPanel({
               This loan has no on-chain collateral (opened before LendingCollateral). Repay and re-borrow after the
               amendment is enabled to lock FALCON in LoanSet.
             </p>
+          )}
+        </div>
+      )}
+
+      {activeLoan && canAddCollateral && (
+        <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-3 space-y-3">
+          <div>
+            <div className="text-xs font-medium text-brand-200">Add collateral</div>
+            <p className="text-[10px] text-slate-400 mt-1">
+              Lock more FALCON on this loan to raise health factor. Collateral stays locked until you repay or the loan
+              is liquidated.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">Your FALCON balance</div>
+              <div className="font-mono text-brand-300 mt-0.5">
+                {walletFalcon != null ? `${fmt(walletFalcon, 4)} FALCON` : '—'}
+              </div>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">HF after add</div>
+              <div
+                className={`font-mono mt-0.5 ${
+                  projectedHealth ? hfStatusColor(projectedHealth.status) : 'text-slate-400'
+                }`}
+              >
+                {projectedHealth?.healthFactor != null
+                  ? fmt(projectedHealth.healthFactor, 3)
+                  : loanHealth?.healthFactor != null
+                    ? fmt(loanHealth.healthFactor, 3)
+                    : '—'}
+              </div>
+            </div>
+          </div>
+          <label className="block text-xs">
+            <span className="text-slate-500">Additional FALCON</span>
+            <input
+              type="number"
+              min="0"
+              step="0.0001"
+              value={addCollateralAmt}
+              onChange={(e) => setAddCollateralAmt(e.target.value)}
+              disabled={!ready || busy}
+              placeholder="e.g. 100"
+              className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => onAddCollateral?.(activeLoan.id, addCollateralAmt)}
+            disabled={!ready || busy || !onAddCollateral || !!addCollateralBlocked || !addCollateralAmt}
+            className="w-full rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+          >
+            Add collateral (sign with passkey)
+          </button>
+          {addCollateralBlocked && (
+            <p className="text-xs text-amber-300">{addCollateralBlocked}</p>
           )}
         </div>
       )}

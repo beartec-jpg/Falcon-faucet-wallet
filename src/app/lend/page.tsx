@@ -23,7 +23,9 @@ import {
   signClaimLPRewardTx,
   signLoanSetBorrowerTx,
   signLoanPayTx,
+  signLoanCollateralDepositTx,
 } from '@/lib/falcon-lend-tx-sign'
+import { addCollateralBlockedReason } from '@/lib/lend-collateral-deposit'
 import {
   borrowBlockedReason,
   explainLendSubmitError,
@@ -417,6 +419,71 @@ export default function LendPage() {
     [data, wallet, withSecret, networkKey, network.networkId],
   )
 
+  const handleAddCollateral = useCallback(
+    async (loanId: string, collateralFalcon: string) => {
+      if (!wallet) return
+      const collateralNum = parseFloat(collateralFalcon)
+      const blocked = addCollateralBlockedReason(data, loanId, collateralNum)
+      if (blocked) {
+        setError(blocked)
+        return
+      }
+      const preflightR = await fetch(
+        withNetworkQuery('/api/lend/collateral-deposit-preflight', networkKey),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            address: wallet.address,
+            loanId,
+            collateralFalcon,
+          }),
+        },
+      )
+      const preflight = (await preflightR.json()) as {
+        error?: string
+        collateralDrops?: string
+      }
+      if (!preflightR.ok || !preflight.collateralDrops) {
+        setError(preflight.error ?? 'Add collateral preflight failed')
+        return
+      }
+      await withSecret(async (falcon_secret) => {
+        try {
+          await submitWithSequenceRetry({
+            networkKey,
+            fetchSequence: async () => {
+              const a = await fetchSequenceInfo(wallet.address, networkKey)
+              return { sequence: a.sequence, currentLedger: a.currentLedger }
+            },
+            sign: ({ sequence, lastLedgerSequence }) =>
+              signLoanCollateralDepositTx(
+                {
+                  account: wallet.address,
+                  loanId,
+                  collateralDrops: preflight.collateralDrops!,
+                  sequence,
+                  lastLedgerSequence,
+                  networkId: network.networkId,
+                },
+                falcon_secret,
+              ),
+          })
+        } catch (e: unknown) {
+          const raw = e instanceof Error ? e.message : ''
+          const [code, ...rest] = raw.split(' — ')
+          throw new Error(
+            explainLendSubmitError(code, rest.join(' — '), data, { context: 'borrow' }) ||
+              raw ||
+              'Add collateral failed',
+          )
+        }
+        setNotice(`Added ${collateralFalcon} FALCON collateral to loan`)
+      })
+    },
+    [data, wallet, withSecret, networkKey, network.networkId],
+  )
+
   const handleRepay = useCallback(
     async (loanId: string, amount: string) => {
       const tok = data?.token
@@ -556,6 +623,7 @@ export default function LendPage() {
                 onClaim={handleClaim}
                 onWithdraw={handleWithdraw}
                 onRepay={handleRepay}
+                onAddCollateral={handleAddCollateral}
               />
             )}
           </>

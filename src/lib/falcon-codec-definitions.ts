@@ -122,6 +122,7 @@ const QXRP_TRANSACTION_TYPES: Record<string, number> = {
   GovernanceProposal: 91,
   GovernanceVote: 92,
   ClaimLPReward: 93,
+  LoanCollateralDeposit: 83,
 }
 
 const QXRP_TRANSACTION_FORMATS: Record<string, TxFormatEntry[]> = {
@@ -153,6 +154,10 @@ const QXRP_TRANSACTION_FORMATS: Record<string, TxFormatEntry[]> = {
     { name: 'VoteWeight', optionality: 0 },
   ],
   ClaimLPReward: [{ name: 'VaultID', optionality: 0 }],
+  LoanCollateralDeposit: [
+    { name: 'LoanID', optionality: 0 },
+    { name: 'Collateral', optionality: 0 },
+  ],
 }
 
 let cached: XrplDefinitionsBase | null = null
