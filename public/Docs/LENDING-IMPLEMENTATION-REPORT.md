@@ -189,8 +189,8 @@ Price source: FALCON/F-USDC AMM mid. Loans without broker co-sign carry `lsfLoan
 |-----|-------|-------------|
 | Overview | Pool stats, APY, risk monitor | Read-only |
 | Supply | `LendSupplyPanel` | `VaultDeposit` |
-| Borrow | `LendBorrowPanel` | `LoanSet` |
-| Positions | `LendPositionsPanel` | `VaultWithdraw`, `LoanPay`, `ClaimLPReward` |
+| Borrow | `LendBorrowPanel` | `LoanSet` (duration picker: 1–52 PoPL epochs) |
+| Positions | `LendPositionsPanel` | `VaultWithdraw`, `LoanPay`, `ClaimLPReward`, `LoanCollateralDeposit` |
 
 When `protocol.lendingPermissionless && protocol.lendingCollateral`, borrow skips co-sign and shows permissionless copy.
 
@@ -199,7 +199,8 @@ When `protocol.lendingPermissionless && protocol.lendingCollateral`, borrow skip
 | Route | Purpose |
 |-------|---------|
 | `GET /api/lend/overview` | Vault, broker, epoch/PoP, AMM price, loans, LP positions, amendment flags |
-| `POST /api/lend/borrow-preflight` | Collateral HF, vault liquidity, cosign requirement |
+| `POST /api/lend/borrow-preflight` | Collateral HF, vault liquidity, `PaymentInterval` from loan epochs |
+| `POST /api/lend/collateral-deposit-preflight` | Add-collateral HF check, `LendingCollateral` gate |
 | `POST /api/lend/repay-preflight` | Installment + wallet balance |
 | `POST /api/lend/claim-preflight` | Claim eligibility |
 | `POST /api/lend/withdraw-preflight` | Share balance + vault utilization |
@@ -217,6 +218,7 @@ When `protocol.lendingPermissionless && protocol.lendingCollateral`, borrow skip
 | `signVaultWithdrawTx` | `VaultWithdraw` |
 | `signClaimLPRewardTx` | `ClaimLPReward` |
 | `signLoanSetBorrowerTx` | `LoanSet` |
+| `signLoanCollateralDepositTx` | `LoanCollateralDeposit` (tx 83) |
 | `signLoanPayTx` | `LoanPay` |
 
 ### 5.4 Error UX (`lend-borrow-errors.ts`)
@@ -238,8 +240,11 @@ When `protocol.lendingPermissionless && protocol.lendingCollateral`, borrow skip
 ### 6.2 Borrow (permissionless — target path)
 
 1. Portal checks collateral HF ≥ 1.5, vault liquidity (`borrow-preflight`)  
-2. Borrower signs `LoanSet` with `Collateral` — no co-sign  
-3. Submit → F-USDC to borrower; FALCON locked on loan  
+2. Borrower picks duration (1–52 PoPL epochs); portal sets `PaymentInterval = epochs × 604800`, `PaymentTotal = 1`  
+3. Borrower signs `LoanSet` with `Collateral` — no co-sign  
+4. Submit → F-USDC to borrower; FALCON locked on loan  
+
+**Add collateral (open loan):** Positions → Add collateral → `collateral-deposit-preflight` → `LoanCollateralDeposit` increases on-ledger `Collateral`.
 
 ### 6.3 Borrow (legacy broker — retired)
 
@@ -268,17 +273,19 @@ All permissionless lending E2E tests run **on-ledger** against live testnet RPC 
 
 | Item | Value |
 |------|-------|
-| Docker image | `qxrp/xrpld:lending-permissionless` (commits `ce6c03319` feature, `90d14366b` E2E fixes) |
-| Fleet | 7/7 validators upgraded via `bin/install/rolling-upgrade-fleet.sh` |
+| Docker image | `qxrp/xrpld:lending-v2` (commits `12a67ea64` `LoanCollateralDeposit` + epoch constants, `c30da2dc4` E2E fix) |
+| Fleet | 7/7 nodes on `lending-v2` via `bin/install/rolling-upgrade-fleet.sh` (image `docker save`/`load` — local build, not Docker Hub) |
 | `LendingPermissionless` | Enabled at flag ledger ~**126464** (5/5 votes + 15-min hold) |
+| `LoanCollateralDeposit` | Tx type **83** — live on `lending-v2` fleet |
 | Coordinator container | `qxrp-full` |
-| Validated ledger (report date) | ~**130168** |
+| Validated ledger (report date) | ~**143887** |
 
 ### 7.2 E2E scripts (`qXRP/scripts/`)
 
 | Script | Purpose | Exit criteria |
 |--------|---------|---------------|
 | `lend-e2e-permissionless.py` | Supply (optional) → permissionless borrow → repay | All steps `tesSUCCESS` |
+| `lend-e2e-collateral-deposit.py` | Borrow → `LoanCollateralDeposit` (+50 FALCON) | Collateral increases on loan |
 | `lend-e2e-liquidation.py` | Borrow → AMM price shock → `LoanManage` default | Liquidator receives FALCON collateral |
 | `lend-hf-monitor.py` | HF + payment-default enforcement daemon | `LoanManage` when HF &lt; 1.1 or late payment |
 | `deploy-lend-hf-monitor.sh` | Install systemd unit `qxrp-lend-hf-monitor.service` | Service active on coordinator |
@@ -287,6 +294,7 @@ All permissionless lending E2E tests run **on-ledger** against live testnet RPC 
 
 ```bash
 python3 /root/qXRP/scripts/lend-e2e-permissionless.py
+python3 /root/qXRP/scripts/lend-e2e-collateral-deposit.py
 python3 /root/qXRP/scripts/lend-e2e-liquidation.py
 python3 /var/lib/qxrp-lending/lend-hf-monitor.py --once --dry-run
 ```
@@ -354,7 +362,29 @@ fund lender + borrower (2000 FALCON each)
 
 **Supply skip:** When vault `AssetsAvailable` ≥ principal + buffer, script skips `VaultDeposit` to avoid intermittent `tecINVARIANT_FAILED` on repeated small deposits into a large vault (~255 F-USDC available at time of testing).
 
-### 7.5 Test B — Permissionless liquidation (HF breach) ✅
+### 7.5 Test B — Add collateral (`LoanCollateralDeposit`) ✅
+
+**Script:** `lend-e2e-collateral-deposit.py`
+
+**Flow:**
+
+```
+fund borrower (3000 XRP + 2500 FALCON from faucet)
+→ LoanSet: 5 F-USDC, PaymentInterval 604800 (1 epoch)
+→ LoanCollateralDeposit: +50 FALCON
+→ assert on-ledger Collateral increased
+```
+
+**Representative PASS run (2026-07-14, `lending-v2` fleet):**
+
+| Step | Result | Notes |
+|------|--------|-------|
+| Borrow 5 F-USDC | tesSUCCESS | 3549 FALCON collateral @ AMM price |
+| `LoanCollateralDeposit` +50 FALCON | tesSUCCESS | Collateral 3549 → 3599 FALCON |
+
+Requires `qxrp/xrpld:lending-v2` (tx type 83). Prior `tecINSUFFICIENT_FUNDS` on borrow was fixed by funding FALCON, not only XRP.
+
+### 7.6 Test C — Permissionless liquidation (HF breach) ✅
 
 **Script:** `lend-e2e-liquidation.py`
 
@@ -408,7 +438,7 @@ Liquidatable when HF < 1.1  (11,000 bps)
 3. Vault `AssetsTotal` reduced by any F-USDC shortfall
 4. Loan debt fields zeroed; `lsfLoanDefault` set
 
-### 7.6 HF monitor daemon ✅
+### 7.7 HF monitor daemon ✅
 
 **Service:** `qxrp-lend-hf-monitor.service` on coordinator  
 **Binary:** `/var/lib/qxrp-lending/lend-hf-monitor.py`  
@@ -425,7 +455,7 @@ Liquidatable when HF < 1.1  (11,000 bps)
 
 Broker secret loaded from `stables_state.json` `liquidity_provider.falcon_secret` or `TESTNET_LENDING_BROKER_SECRET`. For permissionless default, **any account** may submit — daemon uses broker owner for legacy loans; E2E uses a random liquidator wallet.
 
-### 7.7 Portal session (2026-07-10, legacy broker path)
+### 7.8 Portal session (2026-07-10, legacy broker path)
 
 Wallet: `rwcYXAAXe7unkEwPVFWMbyzXE2ajG3juqR`
 
@@ -436,12 +466,14 @@ Wallet: `rwcYXAAXe7unkEwPVFWMbyzXE2ajG3juqR`
 | Borrow 10 F-USDC | ✅ | Legacy `LoanSet` + broker co-sign |
 | Repay 10.000137 F-USDC | ✅ | Ledger **30899**, tx `71307F0B…` |
 
-### 7.8 E2E coverage matrix
+### 7.9 E2E coverage matrix
 
 | Scenario | Coordinator script | Portal | Status |
 |----------|-------------------|--------|--------|
 | Vault supply | ✅ (optional step) | ✅ | PASS |
 | Permissionless borrow | ✅ | ✅ | PASS |
+| Pickable borrow duration (1–52 epochs) | — | ✅ | PASS (portal + `LoanSet` fields) |
+| Add collateral to open loan | ✅ | ✅ | PASS (`LoanCollateralDeposit`) |
 | Full installment repay | ✅ | ✅ | PASS |
 | HF breach liquidation | ✅ | Risk monitor UI | PASS |
 | Payment-default liquidation | HF monitor | — | Not E2E’d (24h interval) |
@@ -449,7 +481,7 @@ Wallet: `rwcYXAAXe7unkEwPVFWMbyzXE2ajG3juqR`
 | `ClaimLPReward` | — | ✅ | Prior sessions |
 | Impair / unimpair only | HF monitor | — | Daemon logic; not isolated E2E |
 
-### 7.9 Live pool state (post-liquidation E2E, 2026-07-14)
+### 7.10 Live pool state (post-liquidation E2E, 2026-07-14)
 
 | Metric | Value |
 |--------|-------|
@@ -467,7 +499,9 @@ Wallet: `rwcYXAAXe7unkEwPVFWMbyzXE2ajG3juqR`
 
 ```bash
 bash scripts/enable-lending-fleet.sh --wait
-# After lending-permissionless docker image is built:
+# After lending-v2 docker image is built (LoanCollateralDeposit + epoch constants):
+# Distribute locally: docker save qxrp/xrpld:lending-v2 | ssh <node> docker load
+DOCKER_IMAGE=qxrp/xrpld:lending-v2 bash bin/install/rolling-upgrade-fleet.sh
 bash scripts/enable-lending-permissionless-fleet.sh --wait
 python3 scripts/issue-testnet-stables.py
 python3 scripts/bootstrap-testnet-lending.py
@@ -485,6 +519,7 @@ E2E regression (coordinator):
 
 ```bash
 python3 scripts/lend-e2e-permissionless.py
+python3 scripts/lend-e2e-collateral-deposit.py
 python3 scripts/lend-e2e-liquidation.py
 ```
 
@@ -516,7 +551,7 @@ python3 scripts/lend-e2e-liquidation.py
 
 - Payment-default liquidation E2E (wait for `PaymentInterval` + `GracePeriod` — impractical in quick scripts)
 - Portal “Liquidate” button for third-party liquidators (today: HF monitor, `loan-manage` API, or coordinator scripts)
-- Vercel redeploy; remove `TESTNET_LENDING_BROKER_SECRET` if legacy co-sign retired
+- Retire `TESTNET_LENDING_BROKER_SECRET` if legacy co-sign fully unused
 - Live APY from epoch `EmissionRate` in overview
 - AMM price recovery after repeated E2E dumps (pool depth testing)
 
@@ -538,7 +573,10 @@ python3 scripts/lend-e2e-liquidation.py
 | `src/app/lend/page.tsx` | Lend page orchestration |
 | `src/components/lend/LendPanels.tsx` | UI panels |
 | `src/app/api/lend/overview/route.ts` | Overview aggregation |
-| `src/app/api/lend/borrow-preflight/route.ts` | Borrow preflight |
+| `src/app/api/lend/borrow-preflight/route.ts` | Borrow preflight + epoch duration |
+| `src/app/api/lend/collateral-deposit-preflight/route.ts` | Add-collateral preflight |
+| `src/lib/lend-loan-terms.ts` | PoPL epoch duration, interest estimate |
+| `src/lib/lend-collateral-deposit.ts` | Add-collateral helpers |
 | `src/app/api/lend/loan-manage/route.ts` | LoanManage submit |
 | `src/app/api/lend/cosign/route.ts` | Legacy broker co-sign |
 | `src/lib/falcon-lend-tx-sign.ts` | Tx builders |
@@ -552,6 +590,9 @@ python3 scripts/lend-e2e-liquidation.py
 | Path | Purpose |
 |------|---------|
 | `src/libxrpl/tx/transactors/lending/LoanSet.cpp` | Borrow + permissionless path |
+| `src/libxrpl/tx/transactors/lending/LoanCollateralDeposit.cpp` | Add FALCON to open loan (tx 83) |
+| `scripts/lend_epoch_constants.py` | 7-day epoch `PaymentInterval` helpers |
+| `scripts/lend-e2e-collateral-deposit.py` | Coordinator E2E: borrow + add collateral |
 | `src/libxrpl/tx/transactors/lending/LoanManage.cpp` | Impair/default + `defaultPermissionlessLoan` |
 | `src/libxrpl/ledger/helpers/LendingHelpers.cpp` | HF bps, collateral checks, AMM price |
 | `scripts/enable-lending-permissionless-fleet.sh` | Amendment activation |
@@ -567,10 +608,11 @@ python3 scripts/lend-e2e-liquidation.py
 Falcon Ledger lending is a **verified vertical slice** on testnet:
 
 - **`LendingPermissionless`** enabled fleet-wide; collateral-only `LoanSet` without broker co-sign
-- **Coordinator E2E** confirms borrow, repay (6 dp ceil), and third-party liquidation via AMM price shock
+- **`lending-v2` fleet** includes `LoanCollateralDeposit` (tx 83) and 7-day PoPL epoch loan duration via `PaymentInterval`
+- **Coordinator E2E** confirms borrow, add collateral, repay (6 dp ceil), and third-party liquidation via AMM price shock
 - **HF monitor** running on coordinator for automated `LoanManage` enforcement
-- **Portal** `/lend` wired for permissionless borrow, HF display, risk monitor, and preflight APIs
+- **Portal** `/lend` wired for permissionless borrow, duration picker (1–52 epochs), Positions add-collateral, HF display, risk monitor, and preflight APIs
 
-The most common user-facing confusion — **`tecINSUFFICIENT_PAYMENT` while holding ample F-USDC** — is a protocol requirement to pay **principal + interest/fees per installment**. The portal and E2E scripts surface the exact due amount (`5.000069` for a `5` F-USDC single-payment loan at 5% APR).
+The most common user-facing confusion — **`tecINSUFFICIENT_PAYMENT` while holding ample F-USDC** — is a protocol requirement to pay **principal + interest/fees per installment**. The portal and E2E scripts surface the exact due amount (`5.000069` for a `5` F-USDC single-payment loan at 5% APR over 1 epoch).
 
-Next priorities: Vercel redeploy, optional portal liquidator UX, payment-default E2E, and mainnet hardening under realistic AMM depth.
+Next priorities: optional portal liquidator UX, payment-default E2E, and mainnet hardening under realistic AMM depth.

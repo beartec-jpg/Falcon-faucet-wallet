@@ -21,6 +21,8 @@ Falcon Ledger lending is built on upstream **XRPL XLS-66** primitives (\`SingleA
 | Withdraw supply | Yes — \`VaultWithdraw\` | Yes |
 | Claim LP epoch rewards | Yes — \`ClaimLPReward\` | Yes — FALCON (PoPL) |
 | FALCON collateral in \`LoanSet\` | Yes — locked on-chain | Yes — \`LendingCollateral\` |
+| Add collateral to open loan | Yes — \`LoanCollateralDeposit\` (Positions) | Yes — tx type **83** |
+| Pickable borrow duration | Yes — 1–52 PoPL epochs + interest preview | Yes — \`PaymentInterval\` on \`LoanSet\` |
 | Health factor display (AMM price) | Yes — borrow preview + Positions + risk monitor | UI + daemon |
 | On-chain liquidation | Yes — \`LoanManage\` + HF monitor | Yes — anyone can default on HF breach or late payment |
 | Borrow / repay / claim / withdraw preflight | Yes — \`/api/lend/*-preflight\` | simulate before sign |
@@ -58,8 +60,10 @@ Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78
 | Loan broker ID | \`0DF028DFE8928921B9474B5EB09531E1E7A3655441C53ECFECF41C82F374D334\` |
 | Broker owner (legacy) | \`rJePmBhHoerhB4gJPAPEqvVBgQ7xbmY6bh\` — not an operator gate once permissionless is live |
 | Interest | \`500\` tenth-bips = **5% APR** |
-| Payment interval | \`86400\` s (1 day) |
-| Payment total | \`1\` (single-installment test loans) |
+| PoPL epoch duration | \`604800\` s (7 days) |
+| Default loan duration | \`1\` epoch (portal: **1–52** epochs) |
+| Payment interval | \`epochs × 604800\` s (bullet loan at maturity) |
+| Payment total | \`1\` (single-installment bullet loans) |
 | Grace period | \`3600\` s (1 hour) |
 
 **Collateral rules (\`LendingPermissionless\`):** minimum health factor **1.5** (15,000 bps) at borrow; liquidation threshold **1.1** (11,000 bps) on outstanding debt. Price from FALCON/F-USDC AMM. Loans opened without broker co-sign carry \`lsfLoanPermissionless\`.`,
@@ -78,6 +82,7 @@ Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78
 - **LoanSet** — borrower signs only; posts \`Collateral\` (FALCON drops); no \`CounterpartySignature\`
 - Protocol checks HF ≥ 1.5 at AMM price; skips broker cover requirement
 - Sets \`lsfLoanPermissionless\` on the \`Loan\` object
+- **LoanCollateralDeposit** (tx 83) — borrower adds FALCON to an existing loan (\`LendingCollateral\`)
 
 ### Legacy broker borrow (retired — historical)
 
@@ -100,15 +105,16 @@ Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78
 |-----|-------|-------------|
 | Overview | Pool stats, APY, risk monitor | Read-only |
 | Supply | \`LendSupplyPanel\` | \`VaultDeposit\` |
-| Borrow | \`LendBorrowPanel\` | \`LoanSet\` (permissionless or co-sign) |
-| Positions | \`LendPositionsPanel\` | \`VaultWithdraw\`, \`LoanPay\`, \`ClaimLPReward\` |
+| Borrow | \`LendBorrowPanel\` | \`LoanSet\` (duration picker: 1–52 epochs) |
+| Positions | \`LendPositionsPanel\` | \`VaultWithdraw\`, \`LoanPay\`, \`ClaimLPReward\`, \`LoanCollateralDeposit\` |
 
 **Wallet auth:** passkey → decrypt Falcon seed in browser → WASM sign → \`POST /api/wallet/submit\`.
 
 ### API routes
 
 - **\`GET /api/lend/overview\`** — vault, broker, epoch/PoP, AMM price, loans, LP positions, \`lendingPermissionless\` flag
-- **\`POST /api/lend/borrow-preflight\`** — collateral HF, vault liquidity, cosign requirement
+- **\`POST /api/lend/borrow-preflight\`** — collateral HF, vault liquidity, \`PaymentInterval\` from epochs
+- **\`POST /api/lend/collateral-deposit-preflight\`** — add-collateral HF check
 - **\`POST /api/lend/repay-preflight\`**, **\`claim-preflight\`**, **\`withdraw-preflight\`**, **\`supply-preflight\`**
 - **\`GET /api/lend/risk-monitor\`** — fleet-wide HF scan
 - **\`POST /api/lend/loan-manage\`** — broker/HF daemon submits \`LoanManage\`
@@ -116,14 +122,16 @@ Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78
 
 ### Repay UX
 
-Positions auto-fills exact installment due and exposes **Pay full amount**. Verified loan: 10 F-USDC at 5% APR, 1-day interval → **10.000137 F-USDC** due.`,
+Positions auto-fills exact installment due and exposes **Pay full amount**. Borrow tab offers duration presets (7 days – 12 months). Verified loan: 5 F-USDC at 5% APR, 1 epoch (7 days) → **5.000069 F-USDC** due.`,
   },
   {
     id: 'lending-flows',
     title: '12.5 End-to-End Flows',
     body: `**Supply:** User holds F-USDC + trust line → Supply → \`VaultDeposit\` → vault share MPT → vault \`AssetsAvailable\` increases.
 
-**Borrow (permissionless):** Portal checks collateral (150% HF), vault liquidity → borrower signs \`LoanSet\` with \`Collateral\` → submit → F-USDC to borrower; FALCON locked on loan.
+**Borrow (permissionless):** Portal checks collateral (150% HF), vault liquidity → borrower picks 1–52 PoPL epochs → signs \`LoanSet\` with \`Collateral\` and \`PaymentInterval = epochs × 604800\` → submit → F-USDC to borrower; FALCON locked on loan.
+
+**Add collateral:** Positions → Add collateral → \`LoanCollateralDeposit\` increases on-ledger \`Collateral\` (requires \`lending-v2\` fleet).
 
 **Borrow (legacy — retired):** Historical broker co-sign path; not required when permissionless is enabled.
 
@@ -138,7 +146,7 @@ Positions auto-fills exact installment due and exposes **Pay full amount**. Veri
   {
     id: 'lending-verified',
     title: '12.6 Coordinator E2E Verification',
-    body: `Scripts on coordinator (\`qXRP/scripts/\`): \`lend-e2e-permissionless.py\`, \`lend-e2e-liquidation.py\`, \`lend-hf-monitor.py\`. Fleet amendment \`LendingPermissionless\` enabled at ledger ~**126464**.
+    body: `Scripts on coordinator (\`qXRP/scripts/\`): \`lend-e2e-permissionless.py\`, \`lend-e2e-collateral-deposit.py\`, \`lend-e2e-liquidation.py\`, \`lend-hf-monitor.py\`. Fleet runs \`qxrp/xrpld:lending-v2\` (7/7 nodes). \`LendingPermissionless\` enabled at ledger ~**126464**.
 
 ### Test A — Permissionless borrow + repay
 
@@ -151,7 +159,16 @@ Positions auto-fills exact installment due and exposes **Pay full amount**. Veri
 | Borrow 5 F-USDC (875 FALCON collateral) | \`78E3A2528B1C40FD09082D6249B65FC6EE1ECE9FE6F8B106E3E20F3FF81AC172\` | tesSUCCESS |
 | Repay **5.000069** F-USDC | \`93B058510F90402CD34F12BF83C83BBDF684C6D2F8E06749AF3310892097E719\` | tesSUCCESS |
 
-### Test B — HF breach liquidation
+\`PaymentInterval\` = **604800** s (1 PoPL epoch = 7 days).
+
+### Test B — Add collateral (\`LoanCollateralDeposit\`)
+
+| Step | Result | Notes |
+|------|--------|-------|
+| Borrow 5 F-USDC | tesSUCCESS | 3549 FALCON collateral |
+| \`LoanCollateralDeposit\` +50 FALCON | tesSUCCESS | Collateral 3549 → 3599 FALCON |
+
+### Test C — HF breach liquidation
 
 | Wallet | Address |
 |--------|---------|
@@ -178,7 +195,8 @@ Wallet \`rwcYXAAXe7unkEwPVFWMbyzXE2ajG3juqR\`: vault deposit, borrow 10 F-USDC (
 
 \`\`\`
 bash scripts/enable-lending-fleet.sh --wait
-bash scripts/enable-lending-permissionless-fleet.sh --wait   # after lending-permissionless docker build
+DOCKER_IMAGE=qxrp/xrpld:lending-v2 bash bin/install/rolling-upgrade-fleet.sh   # docker save/load if not on Hub
+bash scripts/enable-lending-permissionless-fleet.sh --wait
 python3 scripts/issue-testnet-stables.py
 python3 scripts/bootstrap-testnet-lending.py
 \`\`\`
@@ -209,7 +227,7 @@ HF monitor: \`scripts/lend-hf-monitor.py\` + \`deploy-lend-hf-monitor.sh\` on co
 
 - Payment-default liquidation E2E (24h payment interval + grace — not quick-script friendly)
 - Portal liquidator UX for third-party \`LoanManage\` default
-- Vercel redeploy; retire \`TESTNET_LENDING_BROKER_SECRET\` if legacy co-sign unused
+- Retire \`TESTNET_LENDING_BROKER_SECRET\` if legacy co-sign unused
 - Live APY from epoch \`EmissionRate\` in overview
 
 ### Mainnet considerations
@@ -218,6 +236,6 @@ HF monitor: \`scripts/lend-hf-monitor.py\` + \`deploy-lend-hf-monitor.sh\` on co
 - Do not bootstrap-mint F-USDC into vault (bridge-only policy)
 - Liquidation under thin AMM depth / manipulation resistance
 
-**Conclusion:** Falcon Ledger lending is **verified on testnet** — permissionless borrow/repay, HF-breach liquidation, HF monitor daemon, portal \`/lend\`, and real F-USDC vault liquidity. See the PDF download for the complete implementation reference.`,
+**Conclusion:** Falcon Ledger lending is **verified on testnet** — permissionless borrow/repay, add collateral (\`LoanCollateralDeposit\`), pickable 7-day epoch duration, HF-breach liquidation, HF monitor daemon, portal \`/lend\`, and real F-USDC vault liquidity. See the PDF download for the complete implementation reference.`,
   },
 ]

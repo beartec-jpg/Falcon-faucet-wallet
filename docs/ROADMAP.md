@@ -92,12 +92,13 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 ## In progress — July 2026
 
 ### Protocol
-- [ ] `LendingPermissionless` amendment fleet rollout (`qxrp/xrpld:lending-permissionless` + `enable-lending-permissionless-fleet.sh`)
+- [x] `LendingPermissionless` + `LoanCollateralDeposit` fleet on `qxrp/xrpld:lending-v2` (7/7 nodes, July 2026)
 - [ ] Real latency scoring (currently neutral floor at 5,000 bps)
 - [ ] Additional slashing offenses (absence, invalid-vote — currently `temDISABLED` on testnet)
 
 ### Portal
-- [ ] Vercel redeploy with permissionless lend UI (remove `TESTNET_LENDING_BROKER_SECRET` after amendment live)
+- [x] Portal lend UI: permissionless borrow, duration picker (1–52 epochs), Positions add-collateral (`LoanCollateralDeposit`)
+- [ ] Retire `TESTNET_LENDING_BROKER_SECRET` if legacy co-sign fully unused
 - [ ] Live APY from epoch `EmissionRate` in overview (currently fixed APR display)
 - [ ] Post-genesis E2E PDF report regeneration
 - [ ] Mainnet network config and go-live toggle (`NEXT_PUBLIC_MAINNET_LIVE`)

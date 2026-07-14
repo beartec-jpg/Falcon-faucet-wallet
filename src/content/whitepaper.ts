@@ -209,7 +209,7 @@ composite = (uptime×40 + voteAccuracy×30 + latency×15 + consistency×10 + sla
 | **Swap** | Instant AMM swap (FALCON ↔ F-USDC); DEX limit orders (crossing + post-only passive); live order book |
 | **Pool** | Add/remove liquidity in the FALCON/F-USDC AMM; LP share and withdrawal estimates |
 | **Bridge** | Sepolia USDC ↔ F-USDC via lock contract + relay; passkey Sepolia wallet; **trust line step on Bridge tab**; send ETH/USDC to any \`0x\` |
-| **Lend** | Live at \`/lend\`: \`VaultDeposit\`, permissionless \`LoanSet\` (FALCON collateral, 150% HF), \`LoanPay\`, \`VaultWithdraw\`, \`ClaimLPReward\`; \`LoanManage\` liquidation; LP yield via F-USDC interest + FALCON epoch emissions |
+| **Lend** | Live at \`/lend\`: \`VaultDeposit\`, permissionless \`LoanSet\` (FALCON collateral, 150% HF, 1–52 PoPL epochs), \`LoanCollateralDeposit\`, \`LoanPay\`, \`VaultWithdraw\`, \`ClaimLPReward\`; \`LoanManage\` liquidation; LP yield via F-USDC interest + FALCON epoch emissions |
 | **Explorer** | Ledger and transaction lookup |
 
 **Asset labels:** F-USDC is the Falcon-ledger IOU (\`QUC\` from issuer \`rsJoDhj…\`). Sepolia USDC is the EVM ERC-20 used only in the Bridge tab. They are bridged, not interchangeable.
@@ -250,13 +250,12 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
 - Instant AMM swap and DEX limit orders (crossing default, post-only passive)
 - FALCON/F-USDC liquidity pool (deposit, partial withdraw)
 - Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet, trust-line gate, bridge in/out, send out)
-- Lending live: \`SingleAssetVault\` + \`LendingProtocol\` + \`LendingCollateral\` + \`LendingPermissionless\`; full \`/lend\` supply/borrow/repay/claim/liquidation; multi-loan Positions (see §12)
-- Coordinator lending E2E verified: permissionless borrow/repay, HF liquidation, HF monitor daemon (\`FALCON-LENDING-IMPLEMENTATION-REPORT.pdf\`)
+- Lending live: \`SingleAssetVault\` + \`LendingProtocol\` + \`LendingCollateral\` + \`LendingPermissionless\`; full \`/lend\` supply/borrow/repay/claim/liquidation; duration picker + \`LoanCollateralDeposit\`; multi-loan Positions (see §12)
+- Coordinator lending E2E verified: borrow/repay, add collateral, HF liquidation; fleet on \`qxrp/xrpld:lending-v2\` (\`FALCON-LENDING-IMPLEMENTATION-REPORT.pdf\`)
 - Full Falcon validator consensus fleet upgrade (\`validation_falcon_secret\`, Falcon hex UNL)
 - Comprehensive E2E test documentation (\`docs/TESTNET-E2E-REPORT.md\`)
 
 ### In progress (July 2026)
-- Vercel redeploy with updated lending PDF and docs (\`FALCON-LENDING-IMPLEMENTATION-REPORT.pdf\`)
 - Live APY from epoch emission data in lend overview
 - Latency scoring and additional slashing offenses
 - Mainnet genesis validator set and production security audit
