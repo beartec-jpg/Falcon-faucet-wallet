@@ -20,8 +20,10 @@ On testnet today:
 | Withdraw supply | ✅ `VaultWithdraw` | ✅ |
 | Claim LP epoch rewards | ✅ `ClaimLPReward` | ✅ |
 | FALCON collateral in `LoanSet` | ✅ | ✅ `LendingCollateral` amendment locks FALCON on-chain |
-| Health factor display (AMM price) | ✅ borrow preview + Positions | UI math only |
-| On-chain liquidation | ❌ | `LoanManage` not wired; daemon HF enforcement pending |
+| Health factor display (AMM price) | ✅ borrow preview + Positions + risk monitor | UI + daemon |
+| On-chain liquidation / impairment | ✅ `LoanManage` + HF monitor daemon | ✅ broker `tfLoanImpair` / `tfLoanDefault` |
+| Borrow / repay / claim preflight | ✅ `/api/lend/*-preflight` | simulate before sign |
+| Multi-loan Positions UI | ✅ loan selector | filters paid/closed loans |
 
 Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer `rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N`), not bootstrap-minted “fake” supply. Borrowers require **broker first-loss cover** on the loan broker before `LoanSet` succeeds.
 
@@ -146,7 +148,7 @@ Bootstrap intentionally starts with **zero** vault seed and **zero** genesis bro
   - Paying **only principal** (e.g. `10` when due is `10.000137`) → **`tecINSUFFICIENT_PAYMENT`**.
   - **Partial payments below the installment minimum are not supported** for regular `LoanPay` on this loan type.
   - Overpayment flag `tfLoanOverpayment` on `LoanSet` allows early payoff semantics when enabled.
-- **LoanManage** — default / impairment (not exposed in portal UI).
+- **LoanManage** — broker `impair` / `unimpair` / `default` via `POST /api/lend/loan-manage` and `lend-hf-monitor.py` on coordinator.
 
 ### 4.4 Rate encoding
 
@@ -387,7 +389,7 @@ python3 scripts/deposit-testnet-broker-cover.py --amount 30
 
 ### Not implemented in portal
 
-- On-chain liquidation (`LoanManage` + daemon health-factor enforcement)
+- On-chain liquidation (`LoanManage` + `lend-hf-monitor.py` on coordinator)
 - Multi-loan repay UI (only `loans[0]`)
 - Closed/paid `Loan` ledger entries may still appear in Positions with 0 principal
 - Claim rewards UX polish (`canClaim`, estimated reward)
@@ -443,4 +445,4 @@ Falcon Ledger lending on testnet is a **working vertical slice**: real F-USDC va
 
 The most common user-facing confusion—**`tecINSUFFICIENT_PAYMENT` while holding ample F-USDC**—is a protocol requirement to pay **principal + interest/fees per installment**, not principal alone. The portal now surfaces the exact due amount, auto-fills it, and blocks underpayment before passkey signing.
 
-Next priorities for production readiness: on-chain liquidation (`LoanManage`), claim/withdraw validation, and mainnet key-management for broker co-sign.
+Next priorities for production readiness: mainnet broker decentralization (multi-sig / HSM / threshold signing), permissionless liquidator (protocol extension), and public APY dashboard with live emission data.

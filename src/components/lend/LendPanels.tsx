@@ -1,7 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { LEND_FIXED_APR_BPS, type LendOverview } from '@/lib/lend-model'
+import { useCallback, useEffect, useState } from 'react'
+import { LEND_FIXED_APR_BPS, hfStatus, type LendOverview } from '@/lib/lend-model'
+import { estimateLpApyPct } from '@/lib/lend-apy'
+import { withNetworkQuery } from '@/lib/network-query'
+import type { NetworkKey } from '@/lib/networks'
 import {
   borrowBlockedReason,
   fullRepayAmount,
@@ -53,8 +56,8 @@ export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
         <p className="text-xs text-emerald-200/80">
           {protocol.txSigningReady
             ? lending.cosignReady
-              ? 'Supply (VaultDeposit), borrow (LoanSet + broker co-sign), claim (ClaimLPReward), and repay (LoanPay) are wired.'
-              : 'Supply and claim work from the portal. Borrow needs TESTNET_LENDING_BROKER_SECRET on the server for co-sign.'
+              ? 'Supply, borrow (LoanSet + broker co-sign), claim, repay (LoanPay), and on-chain risk enforcement (LoanManage + HF monitor) are wired.'
+              : 'Supply and claim work from the portal. Borrow and LoanManage need TESTNET_LENDING_BROKER_SECRET on the server.'
             : 'Run bootstrap-testnet-lending.py on the coordinator to create the F-USDC vault and loan broker.'}
         </p>
       </div>
@@ -71,7 +74,175 @@ export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
   )
 }
 
-export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
+export function LendApyPanel({ data }: { data: LendOverview | null }) {
+  const vault = data?.vaults?.[0]
+  const pool = data?.pool
+  const lp = data?.lpPositions?.[0]
+  if (!vault || !pool) return null
+
+  const apy = estimateLpApyPct({
+    epochNumber: data?.epoch?.number ?? null,
+    emissionDropsPerEpoch: 0,
+    aggregateLpShares: data?.epoch?.aggregateLpShares ?? null,
+    userShareBalance: lp?.shareBalance ?? null,
+    vaultAssetsTotal: vault.assetsTotal,
+    utilizationPct: pool.supply.utilizationPct,
+    fixedAprPct: vault.fixedAprPct,
+  })
+
+  return (
+    <section className="rounded-xl border border-brand-500/20 bg-brand-500/5 p-4 space-y-2">
+      <h2 className="text-sm font-semibold text-brand-200">LP yield model</h2>
+      <p className="text-xs text-slate-500">
+        PoPL emissions floor + borrower interest upside. LP emission share tapers{' '}
+        {apy.lpEmissionSharePct.toFixed(1)}% this epoch (50% → 30% over 24 epochs).
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+        <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+          <div className="text-slate-500">Borrower APR</div>
+          <div className="font-mono text-slate-200 mt-0.5">{fmt(vault.fixedAprPct, 2)}%</div>
+        </div>
+        <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+          <div className="text-slate-500">Interest upside (utilization)</div>
+          <div className="font-mono text-emerald-300 mt-0.5">
+            ~{fmt(apy.interestUpsideAprPct, 2)}% APR
+          </div>
+        </div>
+        <div className="bg-slate-950/60 rounded-lg px-3 py-2 col-span-2 sm:col-span-1">
+          <div className="text-slate-500">Pool utilization</div>
+          <div className="font-mono text-slate-200 mt-0.5">{fmt(pool.supply.utilizationPct, 1)}%</div>
+        </div>
+      </div>
+      <p className="text-[10px] text-slate-600">
+        Connect a wallet with vault shares to see per-position emission estimates on Positions.
+        Low utilization → interest component is weak; emissions floor carries yield.
+      </p>
+    </section>
+  )
+}
+
+type RiskRow = {
+  loanId: string
+  borrower: string
+  debtFusdc: number
+  collateralFalcon: number
+  healthFactor: number | null
+  hfStatus: string
+  impaired: boolean
+  recommendedAction: string
+}
+
+export function LendRiskMonitorPanel({
+  data,
+  networkKey,
+}: {
+  data: LendOverview | null
+  networkKey: NetworkKey
+}) {
+  const [rows, setRows] = useState<RiskRow[]>([])
+  const [loading, setLoading] = useState(false)
+  const [atRisk, setAtRisk] = useState(0)
+
+  const refresh = useCallback(async () => {
+    if (!data?.protocol.lendingReady) return
+    setLoading(true)
+    try {
+      const r = await fetch(withNetworkQuery('/api/lend/risk-monitor', networkKey))
+      const j = await r.json()
+      if (r.ok) {
+        setRows((j.loans ?? []) as RiskRow[])
+        setAtRisk(j.atRiskCount ?? 0)
+      }
+    } catch {
+      /* optional */
+    } finally {
+      setLoading(false)
+    }
+  }, [data?.protocol.lendingReady, networkKey])
+
+  useEffect(() => {
+    refresh()
+    const id = setInterval(refresh, 60_000)
+    return () => clearInterval(id)
+  }, [refresh])
+
+  if (!data?.protocol.lendingReady) return null
+
+  return (
+    <section className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-amber-200">Liquidation & risk monitor</h2>
+        <button
+          type="button"
+          onClick={() => refresh()}
+          disabled={loading}
+          className="text-[10px] text-amber-300/80 hover:text-amber-200 disabled:opacity-50"
+        >
+          {loading ? 'Scanning…' : 'Refresh'}
+        </button>
+      </div>
+      <p className="text-xs text-slate-500">
+        Health factor from AMM price. Broker HF daemon submits{' '}
+        <code className="text-slate-400">LoanManage</code> impair/default when thresholds breach.
+        {data.lending.hfMonitorReady
+          ? ' Enforcement active on coordinator.'
+          : ' Set TESTNET_LENDING_BROKER_SECRET + deploy lend-hf-monitor on coordinator.'}
+      </p>
+      {atRisk > 0 && (
+        <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">
+          {atRisk} loan{atRisk === 1 ? '' : 's'} need broker LoanManage action.
+        </p>
+      )}
+      {rows.length === 0 ? (
+        <p className="text-xs text-slate-600">No active on-chain loans.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-slate-500 border-b border-slate-800">
+                <th className="text-left py-2 pr-2">Borrower</th>
+                <th className="text-right py-2 px-2">HF</th>
+                <th className="text-right py-2 px-2">Debt</th>
+                <th className="text-right py-2 pl-2">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 12).map((row) => (
+                <tr key={row.loanId} className="border-b border-slate-800/60 text-slate-300">
+                  <td className="py-2 pr-2 font-mono">
+                    {shortAddr(row.borrower)}
+                    {row.impaired && (
+                      <span className="text-amber-400 block text-[10px]">impaired</span>
+                    )}
+                  </td>
+                  <td
+                    className={`text-right font-mono py-2 px-2 ${hfStatusColor(
+                      (row.hfStatus || 'none') as ReturnType<typeof hfStatus>,
+                    )}`}
+                  >
+                    {row.healthFactor != null ? fmt(row.healthFactor, 3) : '—'}
+                  </td>
+                  <td className="text-right font-mono py-2 px-2">{fmt(row.debtFusdc, 2)}</td>
+                  <td className="text-right font-mono py-2 pl-2 text-amber-300">
+                    {row.recommendedAction === 'none' ? '—' : row.recommendedAction}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
+export function LendPoolOverviewPanel({
+  data,
+  networkKey,
+}: {
+  data: LendOverview | null
+  networkKey: NetworkKey
+}) {
   const vault = data?.vaults?.[0]
   const pool = data?.pool
   const position = data?.lpPositions?.[0]
@@ -301,6 +472,9 @@ export function LendPoolOverviewPanel({ data }: { data: LendOverview | null }) {
         <p className="text-xs text-slate-600 text-center">No active borrowers on-chain yet.</p>
       )}
 
+      <LendApyPanel data={data} />
+      <LendRiskMonitorPanel data={data} networkKey={networkKey} />
+
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
         <h2 className="text-sm font-semibold text-white">Your position</h2>
         {!hasWallet ? (
@@ -504,9 +678,11 @@ export function LendBorrowPanel({
     collateralNum > 0
       ? loanHealthSnapshot(collateralNum, borrowNum, falconPerFusdc)
       : null
+  const permissionless =
+    data?.protocol.lendingPermissionless && data?.protocol.lendingCollateral
   const ready =
     data?.protocol.txSigningReady &&
-    data?.lending.cosignReady &&
+    (permissionless || data?.lending.cosignReady) &&
     !!onBorrow &&
     !blocked &&
     !collateralBlocked
@@ -521,12 +697,17 @@ export function LendBorrowPanel({
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
       <h2 className="text-sm font-semibold text-white">Borrow F-USDC</h2>
       <p className="text-xs text-slate-500">
-        Open a loan via <code className="text-slate-400">LoanSet</code>. You sign as borrower; the testnet broker
-        owner co-signs <code className="text-slate-400">CounterpartySignature</code> server-side.
+        Open a loan via <code className="text-slate-400">LoanSet</code>. You sign as borrower and lock FALCON collateral
+        on-chain{permissionless ? ' — no operator co-sign when LendingPermissionless is enabled' : '; the broker owner co-signs CounterpartySignature'}.
       </p>
-      {!data?.lending.cosignReady && data?.protocol.txSigningReady && (
+      {!permissionless && !data?.lending.cosignReady && data?.protocol.txSigningReady && (
         <p className="text-xs text-amber-400">
           Broker co-sign secret not on server — borrow disabled until TESTNET_LENDING_BROKER_SECRET is set.
+        </p>
+      )}
+      {permissionless && (
+        <p className="text-xs text-emerald-300/90">
+          Permissionless borrow: post FALCON collateral (150% min at AMM price). No broker co-sign.
         </p>
       )}
       {blocked && data?.protocol.txSigningReady && (
@@ -659,7 +840,9 @@ export function LendPositionsPanel({
 
   const loans = data?.loans ?? []
   const repayableLoans = loans.filter(isRepayableLoan)
-  const activeLoan = repayableLoans[0] ?? null
+  const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null)
+  const activeLoan =
+    repayableLoans.find((l) => l.id === selectedLoanId) ?? repayableLoans[0] ?? null
   const repayDue = repayDueFusdc(activeLoan)
   const payFullAmount = fullRepayAmount(activeLoan)
   const walletFusdc = data?.wallet?.fusdcBalance ?? null
@@ -699,6 +882,16 @@ export function LendPositionsPanel({
     if (!maxWithdraw || busy) return
     setWithdrawAmt((prev) => (prev.trim() ? prev : maxWithdraw))
   }, [maxWithdraw, busy])
+
+  useEffect(() => {
+    if (repayableLoans.length === 0) {
+      setSelectedLoanId(null)
+      return
+    }
+    if (!selectedLoanId || !repayableLoans.some((l) => l.id === selectedLoanId)) {
+      setSelectedLoanId(repayableLoans[0].id)
+    }
+  }, [repayableLoans, selectedLoanId])
 
   useEffect(() => {
     if (!activeLoan || !payFullAmount) {
@@ -760,13 +953,35 @@ export function LendPositionsPanel({
         </div>
       )}
 
+      {lp && (
+        <div className="rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 text-xs space-y-1">
+          <div className="flex justify-between gap-3">
+            <span className="text-slate-500">Epoch reward estimate</span>
+            <span className="font-mono text-brand-300">
+              {lp.estEpochRewardFalcon != null
+                ? `${fmt(lp.estEpochRewardFalcon, 4)} FALCON`
+                : '—'}
+            </span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-slate-500">Claimable epoch</span>
+            <span className="font-mono text-slate-200">
+              {lp.claimableEpoch ?? '—'}
+              {lp.canClaim ? ' · ready' : ''}
+            </span>
+          </div>
+        </div>
+      )}
+
       <button
         type="button"
         onClick={() => onClaim?.()}
         disabled={!ready || busy || !onClaim || !lp?.canClaim}
         className="w-full rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 text-sm font-medium disabled:opacity-50"
       >
-        {lp?.canClaim ? 'Claim lender rewards' : 'Claim lender rewards (none available)'}
+        {lp?.canClaim
+          ? `Claim lender rewards${lp.estEpochRewardFalcon != null ? ` · ~${fmt(lp.estEpochRewardFalcon, 4)} FALCON` : ''}`
+          : 'Claim lender rewards (none available)'}
       </button>
 
       {lp && lp.shareBalance > 0 && vault && (
@@ -844,9 +1059,34 @@ export function LendPositionsPanel({
         )}
       {withdrawBlocked && <p className="text-xs text-amber-300">{withdrawBlocked}</p>}
 
+      {repayableLoans.length > 1 && (
+        <label className="block text-xs">
+          <span className="text-slate-500">Active loan</span>
+          <select
+            value={activeLoan?.id ?? ''}
+            onChange={(e) => setSelectedLoanId(e.target.value)}
+            disabled={busy}
+            className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm"
+          >
+            {repayableLoans.map((loan) => (
+              <option key={loan.id} value={loan.id}>
+                {loan.id.slice(0, 12)}… · {fmt(loan.principalFusdc, 2)} F-USDC
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
       {activeLoan && (
         <div className="rounded-xl border border-brand-500/20 bg-brand-500/5 p-3 space-y-2">
-          <div className="text-xs font-medium text-brand-200">Your borrow · loan health</div>
+          <div className="text-xs font-medium text-brand-200">
+            Your borrow · loan health
+            {repayableLoans.length > 1 && (
+              <span className="text-slate-500 font-normal ml-1">
+                ({repayableLoans.length} active)
+              </span>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="bg-slate-950/60 rounded-lg px-3 py-2">
               <div className="text-slate-500">Debt outstanding</div>

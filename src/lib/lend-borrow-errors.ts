@@ -15,7 +15,9 @@ export function borrowBlockedReason(
   principalFusdc?: number,
 ): string | null {
   if (!data?.protocol.txSigningReady) return 'Lending protocol is not active on this network.'
-  if (!data.lending.cosignReady) {
+  const permissionless =
+    data.protocol.lendingPermissionless && data.protocol.lendingCollateral
+  if (!permissionless && !data.lending.cosignReady) {
     return 'Borrow co-sign is not configured on the server (TESTNET_LENDING_BROKER_SECRET).'
   }
   const vault = data.vaults?.[0]
@@ -24,14 +26,16 @@ export function borrowBlockedReason(
   if (principalFusdc != null && principalFusdc > available) {
     return `Only ${available.toLocaleString()} F-USDC is available to borrow from the vault right now.`
   }
-  const cover = data.pool?.borrow.brokerCoverFusdc ?? 0
-  const coverPct = data.pool?.borrow.coverRateMinPct ?? 1
-  const minCover =
-    principalFusdc != null
-      ? minBrokerCoverForPrincipal(principalFusdc, coverPct)
-      : minBrokerCoverForPrincipal(1, coverPct)
-  if (cover < minCover) {
-    return `Loan broker first-loss cover is ${cover.toLocaleString()} F-USDC (need at least ~${minCover.toLocaleString()} F-USDC). The pool operator must post broker cover before borrows can open.`
+  if (!permissionless) {
+    const cover = data.pool?.borrow.brokerCoverFusdc ?? 0
+    const coverPct = data.pool?.borrow.coverRateMinPct ?? 1
+    const minCover =
+      principalFusdc != null
+        ? minBrokerCoverForPrincipal(principalFusdc, coverPct)
+        : minBrokerCoverForPrincipal(1, coverPct)
+    if (cover < minCover) {
+      return `Loan broker first-loss cover is ${cover.toLocaleString()} F-USDC (need at least ~${minCover.toLocaleString()} F-USDC). The pool operator must post broker cover before borrows can open.`
+    }
   }
   return null
 }

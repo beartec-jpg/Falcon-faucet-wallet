@@ -9,12 +9,12 @@ import {
   buildPoolSnapshot,
   fetchLoanBrokerNode,
   listChainLoans,
-  isActiveChainLoan,
   isActiveVaultLp,
   listVaultShareHolders,
   loanOutstandingFusdc,
   mptScaled,
 } from '@/lib/lend-pool-stats'
+import { filterActiveUserLoans } from '@/lib/lend-risk-scan'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const DROPS = 1_000_000
@@ -69,11 +69,21 @@ async function featureFlags(networkKey: ReturnType<typeof resolveNetworkKey>) {
   )
   let singleAssetVault = false
   let lendingProtocol = false
+  let lendingCollateral = false
+  let lendingPermissionless = false
   for (const f of Object.values(r.features ?? {})) {
     if (f.name === 'SingleAssetVault') singleAssetVault = !!f.enabled
     if (f.name === 'LendingProtocol') lendingProtocol = !!f.enabled
+    if (f.name === 'LendingCollateral') lendingCollateral = !!f.enabled
+    if (f.name === 'LendingPermissionless') lendingPermissionless = !!f.enabled
   }
-  return { singleAssetVault, lendingProtocol, lendingReady: singleAssetVault && lendingProtocol }
+  return {
+    singleAssetVault,
+    lendingProtocol,
+    lendingCollateral,
+    lendingPermissionless,
+    lendingReady: singleAssetVault && lendingProtocol,
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -85,6 +95,7 @@ export async function GET(req: NextRequest) {
     const protocol = await featureFlags(networkKey)
     const manifest = await loadLendingManifestServer()
     const cosignReady = !!process.env.TESTNET_LENDING_BROKER_SECRET?.trim()
+    const hfMonitorReady = cosignReady
 
     const vaults: Array<{
       id: string
@@ -257,11 +268,7 @@ export async function GET(req: NextRequest) {
             type: 'loan',
             ledger_index: 'validated',
           }, { allowError: true })
-          const activeLoanObjs = (loanR.account_objects ?? []).filter((obj) => {
-            if (obj.LedgerEntryType !== 'Loan' && obj.ledger_entry_type !== 'Loan') return false
-            if (!isActiveChainLoan(obj)) return false
-            return loanOutstandingFusdc(obj) > 0
-          })
+          const activeLoanObjs = filterActiveUserLoans(loanR.account_objects ?? [])
           for (const obj of activeLoanObjs) {
             const principal = loanOutstandingFusdc(obj)
             const paymentDue = iouValue(obj.PeriodicPayment)
@@ -426,6 +433,7 @@ export async function GET(req: NextRequest) {
         vaultAssetsAvailable,
         interestRateTenthBps: manifest?.interest_rate_tenth_bps ?? null,
         cosignReady,
+        hfMonitorReady,
       },
     })
   } catch (e: unknown) {

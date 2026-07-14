@@ -185,7 +185,9 @@ export default function LendPage() {
     async (principal: string, collateralFalcon: string) => {
       const lend = data?.lending
       if (!wallet || !lend?.loanBrokerId) return
-      if (!lend.cosignReady) {
+      const permissionless =
+        data?.protocol.lendingPermissionless && data?.protocol.lendingCollateral
+      if (!permissionless && !lend.cosignReady) {
         setError('Borrow co-sign not configured — set TESTNET_LENDING_BROKER_SECRET on server')
         return
       }
@@ -206,42 +208,80 @@ export default function LendPage() {
         setError(collateralBlock)
         return
       }
+      const preflightR = await fetch(withNetworkQuery('/api/lend/borrow-preflight', networkKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: wallet.address,
+          principal,
+          collateralFalcon,
+        }),
+      })
+      const preflight = (await preflightR.json()) as { error?: string }
+      if (!preflightR.ok) {
+        setError(preflight.error ?? 'Borrow preflight failed')
+        return
+      }
       await withSecret(async (falcon_secret) => {
         const { sequence, currentLedger } = await fetchSequenceInfo(wallet.address, networkKey)
         const lastLedgerSequence = currentLedger + 20
-        const { tx_json } = await signLoanSetBorrowerTx(
-          {
-            account: wallet.address,
-            loanBrokerId: lend.loanBrokerId!,
-            principalRequested: principal,
-            collateralDrops: collateralDropsFromFalcon(collateralNum),
-            interestRateTenthBps: lend.interestRateTenthBps ?? 500,
-            paymentInterval: 86400,
-            paymentTotal: 1,
-            gracePeriod: 3600,
-            sequence,
-            lastLedgerSequence,
-            networkId: network.networkId,
-          },
-          falcon_secret,
-        )
-        const cosignR = await fetch(withNetworkQuery('/api/lend/cosign', networkKey), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tx_json }),
-        })
-        const cosignJ = await cosignR.json()
-        if (!cosignR.ok || !cosignJ.tx_blob) {
-          throw new Error(cosignJ.error ?? 'Broker co-sign failed')
-        }
-        const subR = await fetch('/api/wallet/submit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tx_blob: cosignJ.tx_blob, network: networkKey }),
-        })
-        const subJ = await subR.json()
-        if (!subJ.success) {
-          throw new Error(explainLendSubmitError(subJ.result, subJ.message, data))
+        if (permissionless) {
+          await submitWithSequenceRetry({
+            networkKey,
+            fetchSequence: async () => ({ sequence, currentLedger: currentLedger }),
+            sign: ({ sequence: seq, lastLedgerSequence: ll }) =>
+              signLoanSetBorrowerTx(
+                {
+                  account: wallet.address,
+                  loanBrokerId: lend.loanBrokerId!,
+                  principalRequested: principal,
+                  collateralDrops: collateralDropsFromFalcon(collateralNum),
+                  interestRateTenthBps: lend.interestRateTenthBps ?? 500,
+                  paymentInterval: 86400,
+                  paymentTotal: 1,
+                  gracePeriod: 3600,
+                  sequence: seq,
+                  lastLedgerSequence: ll,
+                  networkId: network.networkId,
+                },
+                falcon_secret,
+              ).then((r) => ({ tx_blob: r.tx_blob })),
+          })
+        } else {
+          const { tx_json } = await signLoanSetBorrowerTx(
+            {
+              account: wallet.address,
+              loanBrokerId: lend.loanBrokerId!,
+              principalRequested: principal,
+              collateralDrops: collateralDropsFromFalcon(collateralNum),
+              interestRateTenthBps: lend.interestRateTenthBps ?? 500,
+              paymentInterval: 86400,
+              paymentTotal: 1,
+              gracePeriod: 3600,
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+            },
+            falcon_secret,
+          )
+          const cosignR = await fetch(withNetworkQuery('/api/lend/cosign', networkKey), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tx_json }),
+          })
+          const cosignJ = await cosignR.json()
+          if (!cosignR.ok || !cosignJ.tx_blob) {
+            throw new Error(cosignJ.error ?? 'Broker co-sign failed')
+          }
+          const subR = await fetch('/api/wallet/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tx_blob: cosignJ.tx_blob, network: networkKey }),
+          })
+          const subJ = await subR.json()
+          if (!subJ.success) {
+            throw new Error(explainLendSubmitError(subJ.result, subJ.message, data))
+          }
         }
         setNotice(
           `Borrowed ${principal} F-USDC — ${collateralFalcon} FALCON locked on-chain as collateral`,
@@ -255,12 +295,18 @@ export default function LendPage() {
     const lend = data?.lending
     if (!wallet || !lend?.vaultId) return
     const lp = data?.lpPositions?.[0]
-    if (!lp?.canClaim) {
-      setError(
-        lp?.shareBalance
-          ? 'No LP epoch rewards to claim yet for this vault.'
-          : 'Supply F-USDC to the vault before claiming LP rewards.',
-      )
+    const preflightR = await fetch(withNetworkQuery('/api/lend/claim-preflight', networkKey), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: wallet.address }),
+    })
+    const preflight = (await preflightR.json()) as {
+      error?: string
+      canClaim?: boolean
+      estEpochRewardFalcon?: number | null
+    }
+    if (!preflightR.ok || !preflight.canClaim) {
+      setError(preflight.error ?? 'No LP rewards to claim')
       return
     }
     await withSecret(async (falcon_secret) => {
@@ -293,7 +339,11 @@ export default function LendPage() {
         const [code, ...rest] = raw.split(' — ')
         throw new Error(explainLendSubmitError(code, rest.join(' — '), data, { context: 'claim' }) || raw || 'Claim failed')
       }
-      setNotice('LP epoch rewards claimed')
+      setNotice(
+        preflight.estEpochRewardFalcon != null
+          ? `LP epoch rewards claimed (~${preflight.estEpochRewardFalcon} FALCON)`
+          : 'LP epoch rewards claimed',
+      )
     })
   }, [data, wallet, withSecret, networkKey, network.networkId])
 
@@ -377,6 +427,17 @@ export default function LendPage() {
         setError(blocked)
         return
       }
+      const preflightR = await fetch(withNetworkQuery('/api/lend/repay-preflight', networkKey), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: wallet.address, loanId, amount }),
+      })
+      const preflight = (await preflightR.json()) as { error?: string; amount?: string }
+      if (!preflightR.ok) {
+        setError(preflight.error ?? 'Repay preflight failed')
+        return
+      }
+      const payAmount = preflight.amount ?? amount
       await withSecret(async (falcon_secret) => {
         try {
           await submitWithSequenceRetry({
@@ -392,7 +453,7 @@ export default function LendPage() {
                   loanId,
                   currency: tok.currency,
                   issuer: tok.issuer,
-                  amount,
+                  amount: payAmount,
                   sequence,
                   lastLedgerSequence,
                   networkId: network.networkId,
@@ -410,7 +471,7 @@ export default function LendPage() {
           }
           throw e
         }
-        setNotice(`Repaid ${amount} F-USDC`)
+        setNotice(`Repaid ${payAmount} F-USDC`)
       })
     },
     [data, wallet, withSecret, networkKey, network.networkId],
@@ -480,7 +541,7 @@ export default function LendPage() {
             </div>
 
             {tab === 'overview' && (
-              <LendPoolOverviewPanel data={data} />
+              <LendPoolOverviewPanel data={data} networkKey={networkKey} />
             )}
             {tab === 'supply' && (
               <LendSupplyPanel data={data} busy={busy} onSupply={handleSupply} />

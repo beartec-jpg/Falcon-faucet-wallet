@@ -29,6 +29,8 @@ export interface LendOverview {
   protocol: {
     singleAssetVault: boolean
     lendingProtocol: boolean
+    lendingCollateral: boolean
+    lendingPermissionless: boolean
     lendingReady: boolean
     chainBuildPending: boolean
     genesisRestartNeeded: boolean
@@ -128,5 +130,7 @@ export interface LendOverview {
     vaultAssetsAvailable: number | null
     interestRateTenthBps: number | null
     cosignReady: boolean
+    /** Broker secret on server — HF monitor + LoanManage enforcement can run. */
+    hfMonitorReady: boolean
   }
 }

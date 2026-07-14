@@ -250,12 +250,12 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
 - Instant AMM swap and DEX limit orders (crossing default, post-only passive)
 - FALCON/F-USDC liquidity pool (deposit, partial withdraw)
 - Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet, trust-line gate, bridge in/out, send out)
-- Lending live: \`SingleAssetVault\` + \`LendingProtocol\`; full \`/lend\` supply/borrow/repay (see §12)
+- Lending live: \`SingleAssetVault\` + \`LendingProtocol\`; full \`/lend\` supply/borrow/repay/claim; \`LoanManage\` HF monitor (see §12)
 - Full Falcon validator consensus fleet upgrade (\`validation_falcon_secret\`, Falcon hex UNL)
 - Comprehensive E2E test documentation (\`docs/TESTNET-E2E-REPORT.md\`)
 
 ### In progress (July 2026)
-- On-chain liquidation (`LoanManage` + health-factor enforcement in daemon)
+- Mainnet broker decentralization (multi-sig / HSM) and permissionless liquidator protocol extension
 - Latency scoring and additional slashing offenses
 - Mainnet genesis validator set and production security audit
 - Additional stablecoin pairs (USDT) and deeper testnet liquidity

@@ -63,7 +63,8 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 - [x] Lend tab: balances, AMM price, health-factor calculator
 - [x] Portal wiring for `VaultDeposit` / `LoanSet` / `LoanPay` / `VaultWithdraw`
 - [x] FALCON collateral in `LoanSet` + on-chain health display (`LendingCollateral` amendment)
-- [ ] On-chain liquidation via `LoanManage` (daemon HF enforcement)
+- [x] On-chain liquidation via `LoanManage` (HF monitor daemon + `/api/lend/loan-manage`)
+- [x] Risk monitor panel, borrow/repay/claim preflight APIs, multi-loan Positions
 
 ### Protocol (testnet)
 - [x] Falcon-512 account creation and transaction signing

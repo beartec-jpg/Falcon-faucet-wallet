@@ -6,9 +6,12 @@ import { decode } from 'ripple-binary-codec'
 import { getFalconCodecDefinitions } from './falcon-codec-definitions'
 import { decodeFalconSecret } from './falcon-keys'
 import { baseTx, signPrepared } from './falcon-tx-sign'
+import { loanManageFlags, type LoanManageAction } from './lend-loan-manage'
 
 /** tfLoanOverpayment — allow early repayment without close fee. */
 export const TF_LOAN_OVERPAYMENT = 0x00010000
+
+export { TF_LOAN_DEFAULT, TF_LOAN_IMPAIR, TF_LOAN_UNIMPAIR } from './lend-loan-manage'
 
 export async function signVaultDepositTx(
   params: {
@@ -142,6 +145,35 @@ export async function signLoanSetBorrowerTx(
   const tx_blob = await signPrepared(tx, decoded)
   const tx_json = decode(tx_blob, getFalconCodecDefinitions()) as Record<string, unknown>
   return { tx_blob, tx_json }
+}
+
+export async function signLoanManageTx(
+  params: {
+    account: string
+    loanId: string
+    action: LoanManageAction
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const tx = {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      decoded.publicKeyHex,
+      params.networkId,
+      params.fee ?? '12',
+    ),
+    TransactionType: 'LoanManage',
+    LoanID: params.loanId.toUpperCase(),
+    Flags: loanManageFlags(params.action),
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
 }
 
 export async function signLoanPayTx(
