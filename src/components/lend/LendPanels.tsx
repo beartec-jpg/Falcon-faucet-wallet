@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { LEND_FIXED_APR_BPS, hfStatus, type LendOverview } from '@/lib/lend-model'
 import { estimateLpApyPct } from '@/lib/lend-apy'
 import { withNetworkQuery } from '@/lib/network-query'
@@ -131,118 +131,223 @@ export function LendApyPanel({ data }: { data: LendOverview | null }) {
   )
 }
 
-type RiskRow = {
-  loanId: string
-  borrower: string
-  debtFusdc: number
-  collateralFalcon: number
-  healthFactor: number | null
-  hfStatus: string
-  impaired: boolean
-  recommendedAction: string
-}
-
-export function LendRiskMonitorPanel({
+/** Per-loan borrow card on Positions (health, add collateral, repay). */
+function BorrowLoanCard({
+  loan,
   data,
-  networkKey,
+  busy,
+  addCollateralAmt,
+  onAddCollateralAmtChange,
+  onRepay,
+  onAddCollateral,
 }: {
-  data: LendOverview | null
-  networkKey: NetworkKey
+  loan: LendOverview['loans'][number]
+  data: LendOverview
+  busy?: boolean
+  addCollateralAmt: string
+  onAddCollateralAmtChange: (value: string) => void
+  onRepay?: (loanId: string, amount: string) => void
+  onAddCollateral?: (loanId: string, collateralFalcon: string) => void
 }) {
-  const [rows, setRows] = useState<RiskRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [atRisk, setAtRisk] = useState(0)
-
-  const refresh = useCallback(async () => {
-    if (!data?.protocol.lendingReady) return
-    setLoading(true)
-    try {
-      const r = await fetch(withNetworkQuery('/api/lend/risk-monitor', networkKey))
-      const j = await r.json()
-      if (r.ok) {
-        setRows((j.loans ?? []) as RiskRow[])
-        setAtRisk(j.atRiskCount ?? 0)
-      }
-    } catch {
-      /* optional */
-    } finally {
-      setLoading(false)
-    }
-  }, [data?.protocol.lendingReady, networkKey])
-
-  useEffect(() => {
-    refresh()
-    const id = setInterval(refresh, 60_000)
-    return () => clearInterval(id)
-  }, [refresh])
-
-  if (!data?.protocol.lendingReady) return null
+  const ready = data.protocol.txSigningReady
+  const payFullAmount = fullRepayAmount(loan)
+  const walletFusdc = data.wallet?.fusdcBalance ?? null
+  const walletFalcon = data.wallet?.falconBalance ?? null
+  const falconPerFusdc = data.market.falconPerFusdc ?? null
+  const loanDebt = loan.totalOutstandingFusdc ?? loan.principalFusdc
+  const repayDue = repayDueFusdc(loan)
+  const interestFees =
+    repayDue != null ? Math.max(0, repayDue - loan.principalFusdc) : null
+  const repayBlocked = payFullAmount
+    ? repayBlockedReason(data, loan.id, payFullAmount)
+    : null
+  const addCollateralNum = parseFloat(addCollateralAmt)
+  const projectedCollateral =
+    Number.isFinite(addCollateralNum) && addCollateralNum > 0
+      ? loan.collateralFalcon + addCollateralNum
+      : null
+  const loanHealth =
+    loan.collateralFalcon > 0
+      ? loanHealthSnapshot(loan.collateralFalcon, loanDebt, falconPerFusdc)
+      : null
+  const projectedHealth =
+    projectedCollateral != null && projectedCollateral > 0
+      ? loanHealthSnapshot(projectedCollateral, loanDebt, falconPerFusdc)
+      : null
+  const addCollateralBlocked = addCollateralAmt.trim()
+    ? (() => {
+        if (!Number.isFinite(addCollateralNum) || addCollateralNum <= 0) {
+          return 'Enter how much FALCON to add.'
+        }
+        if (walletFalcon != null && addCollateralNum > walletFalcon + 1e-9) {
+          return `Insufficient FALCON in wallet (${walletFalcon.toLocaleString(undefined, { maximumFractionDigits: 4 })} available).`
+        }
+        return null
+      })()
+    : null
+  const canAddCollateral =
+    !!data.protocol.lendingCollateral && isRepayableLoan(loan)
 
   return (
-    <section className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-amber-200">Liquidation & risk monitor</h2>
-        <button
-          type="button"
-          onClick={() => refresh()}
-          disabled={loading}
-          className="text-[10px] text-amber-300/80 hover:text-amber-200 disabled:opacity-50"
-        >
-          {loading ? 'Scanning…' : 'Refresh'}
-        </button>
+    <article className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-brand-200">Borrow · {fmt(loan.principalFusdc, 2)} F-USDC</h3>
+          <p className="text-[10px] font-mono text-slate-500 mt-0.5">{loan.id.slice(0, 16)}…</p>
+        </div>
+        {loanHealth && (
+          <span
+            className={`text-xs font-mono px-2 py-1 rounded-md bg-slate-950/60 ${hfStatusColor(loanHealth.status)}`}
+          >
+            HF {fmt(loanHealth.healthFactor, 3)} · {hfStatusLabel(loanHealth.status)}
+          </span>
+        )}
       </div>
-      <p className="text-xs text-slate-500">
-        Health factor from AMM price. Broker HF daemon submits{' '}
-        <code className="text-slate-400">LoanManage</code> impair/default when thresholds breach.
-        {data.lending.hfMonitorReady
-          ? ' Enforcement active on coordinator.'
-          : ' Set TESTNET_LENDING_BROKER_SECRET + deploy lend-hf-monitor on coordinator.'}
-      </p>
-      {atRisk > 0 && (
-        <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">
-          {atRisk} loan{atRisk === 1 ? '' : 's'} need LoanManage action (impair/default).
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+          <div className="text-slate-500">Debt outstanding</div>
+          <div className="font-mono text-slate-200 mt-0.5">{fmt(loanDebt, 2)} F-USDC</div>
+        </div>
+        <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+          <div className="text-slate-500">FALCON collateral</div>
+          <div className="font-mono text-brand-300 mt-0.5">
+            {loan.collateralFalcon > 0
+              ? `${fmt(loan.collateralFalcon, 4)} FALCON`
+              : 'None on-chain (pre-amendment loan)'}
+          </div>
+        </div>
+        <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+          <div className="text-slate-500">Health factor</div>
+          <div
+            className={`font-mono mt-0.5 ${
+              loanHealth ? hfStatusColor(loanHealth.status) : 'text-slate-400'
+            }`}
+          >
+            {loanHealth?.healthFactor != null
+              ? `${fmt(loanHealth.healthFactor, 3)} · ${hfStatusLabel(loanHealth.status)}`
+              : '—'}
+          </div>
+        </div>
+        <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+          <div className="text-slate-500">Liquidation if FALCON drops</div>
+          <div className="font-mono text-amber-300 mt-0.5">
+            {loanHealth?.liquidationDropPct != null
+              ? `${fmt(loanHealth.liquidationDropPct, 2)}%`
+              : '—'}
+          </div>
+        </div>
+      </div>
+
+      {loanHealth?.liquidationDropPct != null && (
+        <p className="text-[10px] text-slate-500">
+          A {fmt(loanHealth.liquidationDropPct, 2)}% FALCON price drop (debt unchanged) reaches liquidation
+          threshold HF {LEND_LIQUIDATION_THRESHOLD}. Add collateral or repay to restore health.
         </p>
       )}
-      {rows.length === 0 ? (
-        <p className="text-xs text-slate-600">No active on-chain loans.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-slate-500 border-b border-slate-800">
-                <th className="text-left py-2 pr-2">Borrower</th>
-                <th className="text-right py-2 px-2">HF</th>
-                <th className="text-right py-2 px-2">Debt</th>
-                <th className="text-right py-2 pl-2">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.slice(0, 12).map((row) => (
-                <tr key={row.loanId} className="border-b border-slate-800/60 text-slate-300">
-                  <td className="py-2 pr-2 font-mono">
-                    {shortAddr(row.borrower)}
-                    {row.impaired && (
-                      <span className="text-amber-400 block text-[10px]">impaired</span>
-                    )}
-                  </td>
-                  <td
-                    className={`text-right font-mono py-2 px-2 ${hfStatusColor(
-                      (row.hfStatus || 'none') as ReturnType<typeof hfStatus>,
-                    )}`}
-                  >
-                    {row.healthFactor != null ? fmt(row.healthFactor, 3) : '—'}
-                  </td>
-                  <td className="text-right font-mono py-2 px-2">{fmt(row.debtFusdc, 2)}</td>
-                  <td className="text-right font-mono py-2 pl-2 text-amber-300">
-                    {row.recommendedAction === 'none' ? '—' : row.recommendedAction}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      {loan.collateralFalcon <= 0 && (
+        <p className="text-[10px] text-amber-300/90">
+          This loan has no on-chain collateral (opened before LendingCollateral). Repay and re-borrow to lock FALCON.
+        </p>
+      )}
+
+      {canAddCollateral && (
+        <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-3">
+          <div className="text-xs font-medium text-brand-200">Add collateral</div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">Your FALCON balance</div>
+              <div className="font-mono text-brand-300 mt-0.5">
+                {walletFalcon != null ? `${fmt(walletFalcon, 4)} FALCON` : '—'}
+              </div>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">HF after add</div>
+              <div
+                className={`font-mono mt-0.5 ${
+                  projectedHealth ? hfStatusColor(projectedHealth.status) : 'text-slate-400'
+                }`}
+              >
+                {projectedHealth?.healthFactor != null
+                  ? fmt(projectedHealth.healthFactor, 3)
+                  : loanHealth?.healthFactor != null
+                    ? fmt(loanHealth.healthFactor, 3)
+                    : '—'}
+              </div>
+            </div>
+          </div>
+          <label className="block text-xs">
+            <span className="text-slate-500">Additional FALCON</span>
+            <input
+              type="number"
+              min="0"
+              step="0.0001"
+              value={addCollateralAmt}
+              onChange={(e) => onAddCollateralAmtChange(e.target.value)}
+              disabled={!ready || busy}
+              placeholder="e.g. 100"
+              className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => onAddCollateral?.(loan.id, addCollateralAmt)}
+            disabled={!ready || busy || !onAddCollateral || !!addCollateralBlocked || !addCollateralAmt}
+            className="w-full rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+          >
+            Add collateral (sign with passkey)
+          </button>
+          {addCollateralBlocked && (
+            <p className="text-xs text-amber-300">{addCollateralBlocked}</p>
+          )}
         </div>
       )}
-    </section>
+
+      {payFullAmount && (
+        <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 space-y-3">
+          <div className="text-xs font-medium text-amber-200">Repay borrow</div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">Principal borrowed</div>
+              <div className="font-mono text-slate-200 mt-0.5">{fmt(loan.principalFusdc, 2)} F-USDC</div>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500">Interest + fees (this installment)</div>
+              <div className="font-mono text-slate-200 mt-0.5">
+                {interestFees != null ? `${fmt(interestFees, 6)} F-USDC` : '—'}
+              </div>
+            </div>
+            <div className="bg-slate-950/60 rounded-lg px-3 py-2 col-span-2">
+              <div className="text-slate-500">Your F-USDC balance</div>
+              <div className="font-mono text-emerald-300 mt-0.5">
+                {walletFusdc != null ? `${fmt(walletFusdc, 4)} F-USDC` : '—'}
+              </div>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="block text-[10px] text-slate-500">Repayment amount (auto-filled)</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              readOnly
+              value={payFullAmount}
+              disabled={!ready || busy}
+              className="w-full rounded-lg bg-slate-950 border border-amber-500/30 px-3 py-2.5 font-mono text-sm text-amber-100"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => onRepay?.(loan.id, payFullAmount)}
+            disabled={!ready || busy || !onRepay || !!repayBlocked}
+            className="w-full rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 px-4 py-3 text-sm font-semibold disabled:opacity-50"
+          >
+            Pay full amount · {payFullAmount} F-USDC
+          </button>
+          {repayBlocked && <p className="text-xs text-amber-300">{repayBlocked}</p>}
+        </div>
+      )}
+    </article>
   )
 }
 
@@ -500,7 +605,6 @@ export function LendPoolOverviewPanel({
       )}
 
       <LendApyPanel data={data} />
-      <LendRiskMonitorPanel data={data} networkKey={networkKey} />
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
         <h2 className="text-sm font-semibold text-white">Your position</h2>
@@ -933,59 +1037,11 @@ export function LendPositionsPanel({
   onAddCollateral?: (loanId: string, collateralFalcon: string) => void
 }) {
   const [withdrawAmt, setWithdrawAmt] = useState('')
-  const [repayAmt, setRepayAmt] = useState('')
-  const [addCollateralAmt, setAddCollateralAmt] = useState('')
+  const [addCollateralByLoan, setAddCollateralByLoan] = useState<Record<string, string>>({})
   const ready = data?.protocol.txSigningReady
 
   const loans = data?.loans ?? []
   const repayableLoans = loans.filter(isRepayableLoan)
-  const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null)
-  const activeLoan =
-    repayableLoans.find((l) => l.id === selectedLoanId) ?? repayableLoans[0] ?? null
-  const repayDue = repayDueFusdc(activeLoan)
-  const payFullAmount = fullRepayAmount(activeLoan)
-  const walletFusdc = data?.wallet?.fusdcBalance ?? null
-  const interestFees =
-    repayDue != null && activeLoan != null
-      ? Math.max(0, repayDue - activeLoan.principalFusdc)
-      : null
-  const repayBlocked = activeLoan && payFullAmount
-    ? repayBlockedReason(data, activeLoan.id, payFullAmount)
-    : null
-  const loanDebt =
-    activeLoan?.totalOutstandingFusdc ?? activeLoan?.principalFusdc ?? null
-  const falconPerFusdc = data?.market.falconPerFusdc ?? null
-  const addCollateralNum = parseFloat(addCollateralAmt)
-  const projectedCollateral =
-    activeLoan && Number.isFinite(addCollateralNum) && addCollateralNum > 0
-      ? activeLoan.collateralFalcon + addCollateralNum
-      : null
-  const loanHealth =
-    activeLoan && loanDebt != null && activeLoan.collateralFalcon > 0
-      ? loanHealthSnapshot(
-          activeLoan.collateralFalcon,
-          loanDebt,
-          falconPerFusdc,
-        )
-      : null
-  const projectedHealth =
-    activeLoan && loanDebt != null && projectedCollateral != null && projectedCollateral > 0
-      ? loanHealthSnapshot(projectedCollateral, loanDebt, falconPerFusdc)
-      : null
-  const walletFalcon = data?.wallet?.falconBalance ?? null
-  const addCollateralBlocked =
-    activeLoan && addCollateralAmt.trim()
-      ? (() => {
-          const n = parseFloat(addCollateralAmt)
-          if (!Number.isFinite(n) || n <= 0) return 'Enter how much FALCON to add.'
-          if (walletFalcon != null && n > walletFalcon + 1e-9) {
-            return `Insufficient FALCON in wallet (${walletFalcon.toLocaleString(undefined, { maximumFractionDigits: 4 })} available).`
-          }
-          return null
-        })()
-      : null
-  const canAddCollateral =
-    !!data?.protocol.lendingCollateral && !!activeLoan && isRepayableLoan(activeLoan)
   const lpPositions = data?.lpPositions ?? []
   const lp = lpPositions[0]
   const vault = data?.vaults?.[0]
@@ -1005,24 +1061,6 @@ export function LendPositionsPanel({
     setWithdrawAmt((prev) => (prev.trim() ? prev : maxWithdraw))
   }, [maxWithdraw, busy])
 
-  useEffect(() => {
-    if (repayableLoans.length === 0) {
-      setSelectedLoanId(null)
-      return
-    }
-    if (!selectedLoanId || !repayableLoans.some((l) => l.id === selectedLoanId)) {
-      setSelectedLoanId(repayableLoans[0].id)
-    }
-  }, [repayableLoans, selectedLoanId])
-
-  useEffect(() => {
-    if (!activeLoan || !payFullAmount) {
-      setRepayAmt('')
-      return
-    }
-    setRepayAmt(payFullAmount)
-  }, [activeLoan?.id, activeLoan?.paymentDueRaw, activeLoan?.paymentDueFusdc, activeLoan?.totalOutstandingFusdc, payFullAmount])
-
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
       <h2 className="text-sm font-semibold text-white">Positions</h2>
@@ -1039,21 +1077,6 @@ export function LendPositionsPanel({
               </tr>
             </thead>
             <tbody>
-              {loans.filter(isRepayableLoan).map((loan) => (
-                <tr key={loan.id} className="border-b border-slate-800/60 text-slate-300">
-                  <td className="py-2 pr-2">
-                    Borrow
-                    {repayDueFusdc(loan) != null && repayDueFusdc(loan)! > loan.principalFusdc && (
-                      <span className="text-slate-500 block text-[10px]">
-                        payment due ~{fullRepayAmount(loan) ?? fmt(repayDueFusdc(loan), 6)} F-USDC
-                      </span>
-                    )}
-                  </td>
-                  <td className="text-right font-mono py-2 px-2">
-                    {fmt(loan.principalFusdc, 2)} F-USDC
-                  </td>
-                </tr>
-              ))}
               {lpPositions.map((lp, i) => (
                 <tr key={`lp-${i}`} className="text-slate-300">
                   <td className="py-2 pr-2">
@@ -1181,191 +1204,28 @@ export function LendPositionsPanel({
         )}
       {withdrawBlocked && <p className="text-xs text-amber-300">{withdrawBlocked}</p>}
 
-      {repayableLoans.length > 1 && (
-        <label className="block text-xs">
-          <span className="text-slate-500">Active loan</span>
-          <select
-            value={activeLoan?.id ?? ''}
-            onChange={(e) => setSelectedLoanId(e.target.value)}
-            disabled={busy}
-            className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm"
-          >
-            {repayableLoans.map((loan) => (
-              <option key={loan.id} value={loan.id}>
-                {loan.id.slice(0, 12)}… · {fmt(loan.principalFusdc, 2)} F-USDC
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      {activeLoan && (
-        <div className="rounded-xl border border-brand-500/20 bg-brand-500/5 p-3 space-y-2">
-          <div className="text-xs font-medium text-brand-200">
-            Your borrow · loan health
-            {repayableLoans.length > 1 && (
-              <span className="text-slate-500 font-normal ml-1">
-                ({repayableLoans.length} active)
-              </span>
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-              <div className="text-slate-500">Debt outstanding</div>
-              <div className="font-mono text-slate-200 mt-0.5">
-                {fmt(loanDebt, 2)} F-USDC
-              </div>
-            </div>
-            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-              <div className="text-slate-500">FALCON collateral</div>
-              <div className="font-mono text-brand-300 mt-0.5">
-                {activeLoan.collateralFalcon > 0
-                  ? `${fmt(activeLoan.collateralFalcon, 4)} FALCON`
-                  : 'None on-chain (pre-amendment loan)'}
-              </div>
-            </div>
-            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-              <div className="text-slate-500">Health factor</div>
-              <div
-                className={`font-mono mt-0.5 ${
-                  loanHealth ? hfStatusColor(loanHealth.status) : 'text-slate-400'
-                }`}
-              >
-                {loanHealth?.healthFactor != null
-                  ? `${fmt(loanHealth.healthFactor, 3)} · ${hfStatusLabel(loanHealth.status)}`
-                  : '—'}
-              </div>
-            </div>
-            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-              <div className="text-slate-500">Liquidation if FALCON drops</div>
-              <div className="font-mono text-amber-300 mt-0.5">
-                {loanHealth?.liquidationDropPct != null
-                  ? `${fmt(loanHealth.liquidationDropPct, 2)}%`
-                  : '—'}
-              </div>
-            </div>
-          </div>
-          {loanHealth?.liquidationDropPct != null && (
-            <p className="text-[10px] text-slate-500">
-              A {fmt(loanHealth.liquidationDropPct, 2)}% FALCON price drop (debt unchanged) reaches liquidation
-              threshold HF {LEND_LIQUIDATION_THRESHOLD}.
-            </p>
-          )}
-          {activeLoan.collateralFalcon <= 0 && (
-            <p className="text-[10px] text-amber-300/90">
-              This loan has no on-chain collateral (opened before LendingCollateral). Repay and re-borrow after the
-              amendment is enabled to lock FALCON in LoanSet.
-            </p>
-          )}
-        </div>
-      )}
-
-      {activeLoan && canAddCollateral && (
-        <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-3 space-y-3">
-          <div>
-            <div className="text-xs font-medium text-brand-200">Add collateral</div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Lock more FALCON on this loan to raise health factor. Collateral stays locked until you repay or the loan
-              is liquidated.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-              <div className="text-slate-500">Your FALCON balance</div>
-              <div className="font-mono text-brand-300 mt-0.5">
-                {walletFalcon != null ? `${fmt(walletFalcon, 4)} FALCON` : '—'}
-              </div>
-            </div>
-            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-              <div className="text-slate-500">HF after add</div>
-              <div
-                className={`font-mono mt-0.5 ${
-                  projectedHealth ? hfStatusColor(projectedHealth.status) : 'text-slate-400'
-                }`}
-              >
-                {projectedHealth?.healthFactor != null
-                  ? fmt(projectedHealth.healthFactor, 3)
-                  : loanHealth?.healthFactor != null
-                    ? fmt(loanHealth.healthFactor, 3)
-                    : '—'}
-              </div>
-            </div>
-          </div>
-          <label className="block text-xs">
-            <span className="text-slate-500">Additional FALCON</span>
-            <input
-              type="number"
-              min="0"
-              step="0.0001"
-              value={addCollateralAmt}
-              onChange={(e) => setAddCollateralAmt(e.target.value)}
-              disabled={!ready || busy}
-              placeholder="e.g. 100"
-              className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-sm"
+      {repayableLoans.length > 0 && data && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-white">
+            Your loans
+            <span className="text-slate-500 font-normal ml-2 text-xs">
+              {repayableLoans.length} active
+            </span>
+          </h3>
+          {repayableLoans.map((loan) => (
+            <BorrowLoanCard
+              key={loan.id}
+              loan={loan}
+              data={data}
+              busy={busy}
+              addCollateralAmt={addCollateralByLoan[loan.id] ?? ''}
+              onAddCollateralAmtChange={(value) =>
+                setAddCollateralByLoan((prev) => ({ ...prev, [loan.id]: value }))
+              }
+              onRepay={onRepay}
+              onAddCollateral={onAddCollateral}
             />
-          </label>
-          <button
-            type="button"
-            onClick={() => onAddCollateral?.(activeLoan.id, addCollateralAmt)}
-            disabled={!ready || busy || !onAddCollateral || !!addCollateralBlocked || !addCollateralAmt}
-            className="w-full rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
-          >
-            Add collateral (sign with passkey)
-          </button>
-          {addCollateralBlocked && (
-            <p className="text-xs text-amber-300">{addCollateralBlocked}</p>
-          )}
-        </div>
-      )}
-
-      {activeLoan && payFullAmount && (
-        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 space-y-3">
-          <div>
-            <div className="text-xs font-medium text-amber-200">Repay borrow</div>
-            <p className="text-[10px] text-slate-400 mt-1">
-              Pay the full installment (principal + interest/fees). Amount is auto-filled below.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-              <div className="text-slate-500">Principal borrowed</div>
-              <div className="font-mono text-slate-200 mt-0.5">{fmt(activeLoan.principalFusdc, 2)} F-USDC</div>
-            </div>
-            <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-              <div className="text-slate-500">Interest + fees (this installment)</div>
-              <div className="font-mono text-slate-200 mt-0.5">
-                {interestFees != null ? `${fmt(interestFees, 6)} F-USDC` : '—'}
-              </div>
-            </div>
-            <div className="bg-slate-950/60 rounded-lg px-3 py-2 col-span-2">
-              <div className="text-slate-500">Your F-USDC balance</div>
-              <div className="font-mono text-emerald-300 mt-0.5">
-                {walletFusdc != null ? `${fmt(walletFusdc, 4)} F-USDC` : '—'}
-              </div>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="block text-[10px] text-slate-500">Repayment amount (auto-filled)</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              readOnly
-              value={repayAmt}
-              disabled={!ready || busy}
-              className="w-full rounded-lg bg-slate-950 border border-amber-500/30 px-3 py-2.5 font-mono text-sm text-amber-100"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => onRepay?.(activeLoan.id, payFullAmount)}
-            disabled={!ready || busy || !onRepay || !!repayBlocked}
-            className="w-full rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 px-4 py-3 text-sm font-semibold disabled:opacity-50"
-          >
-            Pay full amount · {payFullAmount} F-USDC
-          </button>
-          {repayBlocked && (
-            <p className="text-xs text-amber-300">{repayBlocked}</p>
-          )}
+          ))}
         </div>
       )}
     </section>
