@@ -1079,11 +1079,16 @@ export function LendPositionsPanel({
   const maxWithdraw =
     vault && lp && lp.shareBalance > 0 ? maxWithdrawFusdc(lp.shareBalance, vault) : null
   const hasOnChain = loans.length > 0 || lpPositions.length > 0
-
-  useEffect(() => {
-    if (!maxWithdraw || busy) return
-    setWithdrawAmt((prev) => (prev.trim() ? prev : maxWithdraw))
-  }, [maxWithdraw, busy])
+  // Prefer the amount the user typed; only fall back to max when the field is empty.
+  const effectiveWithdraw =
+    withdrawAmt.trim() && !withdrawBlocked
+      ? (normalizedWithdraw ?? withdrawAmt.trim())
+      : maxWithdraw
+  const isPartialWithdraw =
+    !!withdrawAmt.trim() &&
+    !!maxWithdraw &&
+    Number.isFinite(withdrawOffered) &&
+    Math.abs(withdrawOffered - parseFloat(maxWithdraw)) > 1e-6
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
@@ -1222,22 +1227,24 @@ export function LendPositionsPanel({
       <button
         type="button"
         onClick={() => {
-          const amt = maxWithdraw ?? withdrawAmt
-          if (amt && onWithdraw) onWithdraw(amt)
+          if (effectiveWithdraw && onWithdraw) onWithdraw(effectiveWithdraw)
         }}
         disabled={
           !ready ||
           busy ||
           !onWithdraw ||
-          !(maxWithdraw || (withdrawAmt.trim() && !withdrawBlocked))
+          !effectiveWithdraw ||
+          !!(withdrawAmt.trim() && withdrawBlocked)
         }
         className="w-full rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 text-sm font-medium disabled:opacity-50"
       >
-        {maxWithdraw
-          ? `Withdraw all · ${maxWithdraw} F-USDC`
-          : busy
-            ? 'Signing…'
-            : 'Withdraw supply'}
+        {busy
+          ? 'Signing…'
+          : isPartialWithdraw && effectiveWithdraw
+            ? `Withdraw · ${effectiveWithdraw} F-USDC`
+            : maxWithdraw
+              ? `Withdraw all · ${maxWithdraw} F-USDC`
+              : 'Withdraw supply'}
       </button>
       {normalizedWithdraw &&
         withdrawAmt &&
