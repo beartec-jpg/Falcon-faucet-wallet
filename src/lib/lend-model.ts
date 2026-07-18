@@ -1,6 +1,7 @@
 /** Lending UI parameters (preview math; chain uses daemon constants). */
 
-export const LEND_FIXED_APR_BPS = 500 // 5%
+/** Display fallback in basis points (500 = 5%). On-chain LoanSet uses tenth-bps (5000 = 5%). */
+export const LEND_FIXED_APR_BPS = 500
 export const LEND_MIN_COLLATERAL_RATIO = 1.5
 export const LEND_LIQUIDATION_THRESHOLD = 1.1
 export const LEND_GRACE_HOURS = 24
