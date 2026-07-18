@@ -60,6 +60,10 @@ export interface LendOverview {
     shareMptId: string
     shareScale: number
     fixedAprPct: number
+    /** Unclaimed forfeited FALCON for LPs (drops / 1e6). */
+    liquidationCollateralFalcon?: number | null
+    /** Accrual index for pro-rata LP claims. */
+    liquidationIndex?: number | null
   }>
   loans: Array<{
     id: string
@@ -83,6 +87,8 @@ export interface LendOverview {
     estEpochRewardFalcon: number | null
     claimableEpoch: number | null
     canClaim: boolean
+    /** Pending forfeited FALCON from liquidations (claim via VaultClaimCollateral). */
+    claimableLiquidationFalcon?: number | null
   }>
   epoch: {
     number: number | null

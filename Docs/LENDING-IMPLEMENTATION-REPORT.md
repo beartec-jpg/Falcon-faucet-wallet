@@ -31,6 +31,7 @@ The **protocol implementation** lives in the `qXRP` repository; the **user-facin
 | Pickable borrow duration | ✅ 1–52 PoPL epochs + interest preview | ✅ `PaymentInterval` + `PaymentTotal` on `LoanSet` |
 | Health factor display (AMM price) | ✅ borrow preview + Positions + risk monitor | UI + daemon |
 | On-chain liquidation / impairment | ✅ `LoanManage` + HF monitor daemon | ✅ anyone can default on HF breach or late payment |
+| Claim liquidation FALCON (LPs) | ✅ `VaultClaimCollateral` on Positions | ✅ pro-rata forfeited FALCON, not auto-sold |
 | Borrow / repay / claim / withdraw preflight | ✅ `/api/lend/*-preflight` | simulate before sign |
 | Multi-loan Positions UI | ✅ loan selector | filters paid/closed loans |
 
@@ -38,7 +39,7 @@ The **protocol implementation** lives in the `qXRP` repository; the **user-facin
 
 - **LP interest:** `LoanPay` returns principal + interest in **F-USDC** to the vault. LP share value rises — there is no separate interest claim transaction.
 - **LP emissions:** `ClaimLPReward` distributes **FALCON** from the epoch PoPL participation split.
-- **Liquidation:** on default, the **liquidator receives FALCON collateral**. The vault books collateral value at AMM price (`collateralVaultValue`); any residual shortfall reduces vault F-USDC accounting. LPs are not paid out in FALCON on default.
+- **Liquidation (two-pool, no auto-sell):** on permissionless default, the borrower **loses their claim** on locked FALCON (`Loan.Collateral → 0`, `lsfLoanDefault`). FALCON stays in protocol custody (loan-broker pseudo). The vault credits an **LP claim pool** (`LiquidationCollateral` + per-share `LiquidationIndex`). Suppliers claim pro-rata FALCON with **`VaultClaimCollateral`** and may sell later if price recovers. **No liquidator bounty** and **no forced AMM dump**. Undercollateralized defaults (HF &lt; 1) leave residual F-USDC risk on LPs — accepted risk for interest/emissions.
 
 Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer `rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N`), not bootstrap-minted supply.
 

@@ -235,3 +235,36 @@ export async function signLoanPayTx(
   }
   return { tx_blob: await signPrepared(tx, decoded) }
 }
+
+/** Claim forfeited FALCON from the collateral pool (LP share of liquidations). */
+export async function signVaultClaimCollateralTx(
+  params: {
+    account: string
+    loanBrokerId: string
+    /** Optional max drops; omit for full pending claim. */
+    amountDrops?: string
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const tx: Record<string, unknown> = {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      decoded.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'VaultClaimCollateral',
+    LoanBrokerID: params.loanBrokerId.toUpperCase(),
+  }
+  if (params.amountDrops) {
+    tx.Amount = params.amountDrops
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}

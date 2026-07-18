@@ -24,7 +24,7 @@ Falcon Ledger lending is built on upstream **XRPL XLS-66** primitives (\`SingleA
 | Add collateral to open loan | Yes — \`LoanCollateralDeposit\` (Positions) | Yes — tx type **83** |
 | Pickable borrow duration | Yes — 1–52 PoPL epochs + interest preview | Yes — \`PaymentInterval\` on \`LoanSet\` |
 | Health factor display (AMM price) | Yes — borrow preview + Positions + risk monitor | UI + daemon |
-| On-chain liquidation | Yes — \`LoanManage\` + HF monitor | Yes — anyone can default on HF breach or late payment |
+| On-chain liquidation | Yes — \`LoanManage\` + HF monitor | Yes — anyone can default on HF breach or late payment; forfeited FALCON accrues to vault LPs (\`VaultClaimCollateral\`), not auto-sold |
 | Borrow / repay / claim / withdraw preflight | Yes — \`/api/lend/*-preflight\` | simulate before sign |
 | Multi-loan Positions UI | Yes — loan selector | filters paid/closed loans |
 
@@ -146,7 +146,7 @@ Positions auto-fills exact installment due and exposes **Pay full amount**. Borr
   {
     id: 'lending-verified',
     title: '12.6 Coordinator E2E Verification',
-    body: `Scripts on coordinator (\`qXRP/scripts/\`): \`lend-e2e-permissionless.py\`, \`lend-e2e-collateral-deposit.py\`, \`lend-e2e-liquidation.py\`, \`lend-hf-monitor.py\`. Fleet runs \`qxrp/xrpld:lending-v2\` (7/7 nodes). \`LendingPermissionless\` enabled at ledger ~**126464**.
+    body: `Scripts on coordinator (\`qXRP/scripts/\`): \`lend-e2e-permissionless.py\`, \`lend-e2e-collateral-deposit.py\`, \`lend-e2e-liquidation.py\`, \`lend-e2e-lp-claim.py\`, \`lend-hf-monitor.py\`. Fleet target: \`qxrp/xrpld:lending-v4\` (LP FALCON claims). \`LendingPermissionless\` enabled at ledger ~**126464**.
 
 ### Test A — Permissionless borrow + repay
 

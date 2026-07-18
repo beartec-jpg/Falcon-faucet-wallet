@@ -139,6 +139,17 @@ export async function GET(req: NextRequest) {
           const aprBps = manifest.interest_rate_tenth_bps
             ? manifest.interest_rate_tenth_bps / 10
             : 500
+          const liqCollRaw = vault.LiquidationCollateral
+          let liquidationCollateralFalcon: number | null = null
+          if (liqCollRaw != null) {
+            if (typeof liqCollRaw === 'string' || typeof liqCollRaw === 'number') {
+              const n = Number(liqCollRaw)
+              liquidationCollateralFalcon = n > 1e6 ? n / DROPS : n
+            }
+          }
+          const liqIdxRaw = vault.LiquidationIndex
+          const liquidationIndex =
+            liqIdxRaw != null && Number.isFinite(Number(liqIdxRaw)) ? Number(liqIdxRaw) : null
           vaults.push({
             id: manifest.vault_id,
             asset: token.symbol,
@@ -148,6 +159,8 @@ export async function GET(req: NextRequest) {
             shareMptId,
             shareScale,
             fixedAprPct: aprBps / 100,
+            liquidationCollateralFalcon,
+            liquidationIndex,
           })
         }
       } catch { /* optional */ }
@@ -358,6 +371,23 @@ export async function GET(req: NextRequest) {
                   lastClaimedEpoch == null || lastClaimedEpoch < epochInfo.number
               }
 
+              let claimableLiquidationFalcon: number | null = null
+              const v0 = vaults[0]
+              if (v0?.liquidationIndex != null && v0.liquidationIndex > 0) {
+                const userRaw = parseFloat(rawBal)
+                const idx = v0.liquidationIndex
+                const debtRaw = obj.LiquidationDebt
+                const debt =
+                  debtRaw != null && Number.isFinite(Number(debtRaw))
+                    ? Number(debtRaw)
+                    : userRaw * idx
+                // pending is in FALCON drops (same units as forfeited collateral)
+                const pendingDrops = Math.max(0, userRaw * idx - debt)
+                const poolDrops = (v0.liquidationCollateralFalcon ?? 0) * DROPS
+                claimableLiquidationFalcon =
+                  Math.min(pendingDrops, poolDrops > 0 ? poolDrops : pendingDrops) / DROPS
+              }
+
               lpPositions.push({
                 vaultId: manifest.vault_id,
                 shareMptId: mptId,
@@ -367,6 +397,7 @@ export async function GET(req: NextRequest) {
                 estEpochRewardFalcon,
                 claimableEpoch,
                 canClaim,
+                claimableLiquidationFalcon,
               })
             }
           } catch { /* optional */ }

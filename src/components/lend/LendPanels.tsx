@@ -1047,6 +1047,7 @@ export function LendPositionsPanel({
   data,
   busy,
   onClaim,
+  onClaimLiquidation,
   onWithdraw,
   onRepay,
   onAddCollateral,
@@ -1054,6 +1055,7 @@ export function LendPositionsPanel({
   data: LendOverview | null
   busy?: boolean
   onClaim?: () => void
+  onClaimLiquidation?: () => void
   onWithdraw?: (amount: string) => void
   onRepay?: (loanId: string, amount: string) => void
   onAddCollateral?: (loanId: string, collateralFalcon: string) => void
@@ -1150,6 +1152,28 @@ export function LendPositionsPanel({
           ? `Claim lender rewards${lp.estEpochRewardFalcon != null ? ` · ~${fmt(lp.estEpochRewardFalcon, 4)} FALCON` : ''}`
           : 'Claim lender rewards (none available)'}
       </button>
+
+      {lp && (lp.claimableLiquidationFalcon ?? 0) > 0.0001 && (
+        <div className="rounded-lg border border-brand-500/30 bg-brand-500/5 px-3 py-2.5 space-y-2">
+          <div className="flex justify-between gap-3 text-xs">
+            <span className="text-slate-500">Liquidation FALCON (claimable)</span>
+            <span className="font-mono text-brand-300">
+              {fmt(lp.claimableLiquidationFalcon, 4)} FALCON
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-500">
+            Forfeited borrower collateral from defaults. Not auto-sold — claim to your wallet and sell later if you want.
+          </p>
+          <button
+            type="button"
+            onClick={() => onClaimLiquidation?.()}
+            disabled={!ready || busy || !onClaimLiquidation}
+            className="w-full rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+          >
+            {busy ? 'Signing…' : 'Claim liquidation FALCON'}
+          </button>
+        </div>
+      )}
 
       {lp && lp.shareBalance > 0 && vault && (
         <div className="rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2.5 text-xs space-y-1">

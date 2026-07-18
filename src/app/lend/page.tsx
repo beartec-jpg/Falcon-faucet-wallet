@@ -24,6 +24,7 @@ import {
   signLoanSetBorrowerTx,
   signLoanPayTx,
   signLoanCollateralDepositTx,
+  signVaultClaimCollateralTx,
 } from '@/lib/falcon-lend-tx-sign'
 import { addCollateralBlockedReason } from '@/lib/lend-collateral-deposit'
 import {
@@ -498,6 +499,39 @@ export default function LendPage() {
     [data, wallet, withSecret, networkKey, network.networkId],
   )
 
+  const handleClaimLiquidation = useCallback(async () => {
+    if (!wallet) {
+      setError('No wallet loaded. Open the Wallet tab, unlock with your passkey, then return to Lend.')
+      return
+    }
+    const brokerId = data?.lending?.loanBrokerId
+    if (!brokerId) {
+      setError('Loan broker not configured.')
+      return
+    }
+    await withSecret(async (falcon_secret) => {
+      await submitWithSequenceRetry({
+        networkKey,
+        fetchSequence: async () => {
+          const a = await fetchSequenceInfo(wallet.address, networkKey)
+          return { sequence: a.sequence, currentLedger: a.currentLedger }
+        },
+        sign: ({ sequence, lastLedgerSequence }) =>
+          signVaultClaimCollateralTx(
+            {
+              account: wallet.address,
+              loanBrokerId: brokerId,
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+            },
+            falcon_secret,
+          ),
+      })
+      setNotice('Claimed liquidation FALCON to your wallet')
+    })
+  }, [data, wallet, withSecret, networkKey, network.networkId])
+
   const handleRepay = useCallback(
     async (loanId: string, amount: string) => {
       const tok = data?.token
@@ -642,6 +676,7 @@ export default function LendPage() {
                 data={data}
                 busy={busy}
                 onClaim={handleClaim}
+                onClaimLiquidation={handleClaimLiquidation}
                 onWithdraw={handleWithdraw}
                 onRepay={handleRepay}
                 onAddCollateral={handleAddCollateral}
