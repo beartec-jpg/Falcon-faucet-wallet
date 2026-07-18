@@ -253,7 +253,7 @@ export default function LendPage() {
                   loanBrokerId: lend.loanBrokerId!,
                   principalRequested: principal,
                   collateralDrops: collateralDropsFromFalcon(collateralNum),
-                  interestRateTenthBps: lend.interestRateTenthBps ?? 500,
+                  interestRateTenthBps: lend.interestRateTenthBps ?? 5000,
                   paymentInterval,
                   paymentTotal,
                   gracePeriod,
