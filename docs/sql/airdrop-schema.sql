@@ -58,3 +58,13 @@ CREATE TABLE IF NOT EXISTS airdrop_allocations (
 
 CREATE INDEX IF NOT EXISTS airdrop_allocations_score
   ON airdrop_allocations (network, score_total DESC);
+
+CREATE TABLE IF NOT EXISTS airdrop_snapshots (
+  id BIGSERIAL PRIMARY KEY,
+  network TEXT NOT NULL,
+  snap_day DATE NOT NULL,
+  kind TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (network, snap_day, kind)
+);

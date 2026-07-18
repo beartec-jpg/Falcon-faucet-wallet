@@ -7,7 +7,16 @@ import type { ReactNode } from 'react'
 import { useNetwork } from '@/components/NetworkProvider'
 import NetworkSwitcher from '@/components/NetworkSwitcher'
 
-type NavItem = 'faucet' | 'wallet' | 'swap' | 'pool' | 'lend' | 'board' | 'scan' | 'whitepaper'
+type NavItem =
+  | 'faucet'
+  | 'wallet'
+  | 'swap'
+  | 'pool'
+  | 'lend'
+  | 'airdrop'
+  | 'board'
+  | 'scan'
+  | 'whitepaper'
 
 interface HeaderProps {
   current: NavItem
@@ -22,6 +31,7 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'swap', label: 'Swap', href: '/swap' },
   { key: 'pool', label: 'Pool', href: '/pool' },
   { key: 'lend', label: 'Lend', href: '/lend' },
+  { key: 'airdrop', label: 'Airdrop', href: '/airdrop' },
   { key: 'board', label: 'Board', href: '/board' },
   { key: 'whitepaper', label: 'Whitepaper', href: '/whitepaper' },
 ]
@@ -85,13 +95,15 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
           ? 'Pool · F-USDC'
           : current === 'lend'
             ? 'Lend · F-USDC vault'
-            : current === 'board'
-              ? 'Board · Community'
-              : current === 'scan'
-                ? 'Explorer'
-                : current === 'whitepaper'
-                  ? 'White paper'
-                  : 'Faucet')
+            : current === 'airdrop'
+              ? 'Airdrop · Community'
+              : current === 'board'
+                ? 'Board · Community'
+                : current === 'scan'
+                  ? 'Explorer'
+                  : current === 'whitepaper'
+                    ? 'White paper'
+                    : 'Faucet')
 
   return (
     <header className="relative border-b border-slate-800/60 px-4 py-3 sticky top-0 bg-slate-950/95 backdrop-blur-md z-20">
