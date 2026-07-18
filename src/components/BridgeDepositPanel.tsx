@@ -603,9 +603,21 @@ export default function BridgeDepositPanel({
         message: e instanceof Error ? e.message : 'Failed',
       }))
       const ok = !!data.success
+      let msg =
+        [data.result, data.message].filter(Boolean).join(' — ') || (ok ? 'Trust line ready' : 'TrustSet failed')
+      // XRPL engine still says "Send XRP" for missing accounts; on Falcon the native asset is FALCON.
+      // tecNO_DST on TrustSet almost always means the F-USDC *issuer* account is missing (stale config).
+      if (!ok && /tecNO_DST/i.test(msg)) {
+        msg =
+          `Issuer account not found on this network (${falconIssuer.slice(0, 8)}…). ` +
+          `Your Falcon wallet already exists — this is not “need XRP”. ` +
+          `Site config must point at the live F-USDC issuer. Hard-refresh after deploy, then try again.`
+      } else if (!ok && /XRP/i.test(msg)) {
+        msg = msg.replace(/XRP/g, 'FALCON')
+      }
       setTrustLineResult({
         ok,
-        msg: [data.result, data.message].filter(Boolean).join(' — ') || (ok ? 'Trust line ready' : 'TrustSet failed'),
+        msg,
       })
       if (ok) {
         setHasFusdcTrustLine(true)

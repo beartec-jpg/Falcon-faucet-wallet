@@ -1,20 +1,22 @@
 {
   "network_id": 1001,
   "rpc_url": "http://46.224.0.140:6005",
-  "issued_at": "2026-07-09T20:35:12Z",
+  "issued_at": "2026-07-18T13:38:00Z",
   "genesis": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
-  "bridge_only": false,
-  "liquidity_provider": "rJePmBhHoerhB4gJPAPEqvVBgQ7xbmY6bh",
+  "bridge_only": true,
+  "bootstrap_liquidity": false,
+  "note": "F-USDC (QUC) is minted ONLY by the Sepolia bridge relay. No bootstrap/fake USDC. AMM/DEX liquidity must come from bridged F-USDC.",
+  "liquidity_provider": "rfSB7uTdtZsXEEupKSLuCwoH96SsMdXgCa",
   "tokens": [
     {
       "symbol": "F-USDC",
       "currency": "QUC",
-      "issuer": "rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N",
-      "liquidity": "dex"
+      "issuer": "rPh77fAAmvbVuMQQP9H9JKtyTFuhRjp3Fk",
+      "liquidity": "bridge_user_lp"
     }
   ],
   "env": {
     "NEXT_PUBLIC_TESTNET_USDC_CURRENCY": "QUC",
-    "NEXT_PUBLIC_TESTNET_USDC_ISSUER": "rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N"
+    "NEXT_PUBLIC_TESTNET_USDC_ISSUER": "rPh77fAAmvbVuMQQP9H9JKtyTFuhRjp3Fk"
   }
 }

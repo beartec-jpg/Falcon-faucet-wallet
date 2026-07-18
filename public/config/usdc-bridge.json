@@ -16,7 +16,7 @@
     "rpc_url": "",
     "token_symbol": "USDC",
     "token_currency": "QUC",
-    "token_issuer": "rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N"
+    "token_issuer": "rPh77fAAmvbVuMQQP9H9JKtyTFuhRjp3Fk"
   },
   "deposit_flow": {
     "type": "passkey_evm_wallet",

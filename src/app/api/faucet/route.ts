@@ -60,11 +60,24 @@ export async function POST(req: NextRequest) {
 
   const clientIp = ip(req)
   const ratePrefix = `${networkKey}:`
-  // 5 successful claims / UTC day + 1h cooldown (per address and per IP).
-  const [ipLimit, acctLimit] = await Promise.all([
-    peekFaucetQuota(`${ratePrefix}ip:${clientIp}`),
-    peekFaucetQuota(`${ratePrefix}acct:${account}`),
-  ])
+  // Testnet: no daily/cooldown caps (people actively testing). Mainnet keeps quotas.
+  const unlimitedTestnet =
+    networkKey === 'testnet' &&
+    (process.env.TESTNET_FAUCET_UNLIMITED ?? 'true').toLowerCase() !== 'false'
+
+  const unlimitedOk = {
+    success: true as const,
+    reason: 'ok' as const,
+    remainingToday: 999_999,
+    claimsToday: 0,
+  }
+
+  const [ipLimit, acctLimit] = unlimitedTestnet
+    ? [unlimitedOk, unlimitedOk]
+    : await Promise.all([
+        peekFaucetQuota(`${ratePrefix}ip:${clientIp}`),
+        peekFaucetQuota(`${ratePrefix}acct:${account}`),
+      ])
 
   if (!ipLimit.success) {
     const why =
@@ -216,10 +229,12 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  await Promise.all([
-    consumeFaucetQuota(`${ratePrefix}ip:${clientIp}`),
-    consumeFaucetQuota(`${ratePrefix}acct:${account}`),
-  ])
+  if (!unlimitedTestnet) {
+    await Promise.all([
+      consumeFaucetQuota(`${ratePrefix}ip:${clientIp}`),
+      consumeFaucetQuota(`${ratePrefix}acct:${account}`),
+    ])
+  }
 
   const dayUtc = faucetUtcDay()
   const ipHash = await hashIp(clientIp)
@@ -232,7 +247,9 @@ export async function POST(req: NextRequest) {
     dayUtc,
   })
 
-  const remaining = Math.max(0, (acctLimit.remainingToday ?? 5) - 1)
+  const remaining = unlimitedTestnet
+    ? 999_999
+    : Math.max(0, (acctLimit.remainingToday ?? 5) - 1)
   return NextResponse.json({
     txHash,
     amount: faucet.dripAmountQxrp,
@@ -240,7 +257,8 @@ export async function POST(req: NextRequest) {
     network: networkKey,
     engine_result: validatedResult,
     remainingToday: remaining,
-    claimsToday: (acctLimit.claimsToday ?? 0) + 1,
-    cooldownSeconds: 3600,
+    claimsToday: unlimitedTestnet ? (acctLimit.claimsToday ?? 0) + 1 : (acctLimit.claimsToday ?? 0) + 1,
+    cooldownSeconds: unlimitedTestnet ? 0 : 3600,
+    unlimited: unlimitedTestnet || undefined,
   })
 }
