@@ -106,6 +106,8 @@ export async function GET(req: NextRequest) {
       shareMptId: string
       shareScale: number
       fixedAprPct: number
+      liquidationCollateralFalcon?: number | null
+      liquidationIndex?: number | null
     }> = []
     let vaultAssetsAvailable: number | null = null
     let shareMptId: string | null = null
@@ -234,6 +236,7 @@ export async function GET(req: NextRequest) {
       estEpochRewardFalcon: number | null
       claimableEpoch: number | null
       canClaim: boolean
+      claimableLiquidationFalcon?: number | null
     }> = []
 
     if (address && ADDRESS_RE.test(address)) {
