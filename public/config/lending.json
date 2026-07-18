@@ -1,20 +1,22 @@
 {
   "network_id": 1001,
   "rpc_url": "http://46.224.0.140:6005",
-  "issued_at": "2026-07-09T23:28:08Z",
+  "issued_at": "2026-07-18T13:50:07Z",
   "asset": {
     "symbol": "F-USDC",
     "currency": "QUC",
-    "issuer": "rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N"
+    "issuer": "rPh77fAAmvbVuMQQP9H9JKtyTFuhRjp3Fk"
   },
-  "broker_owner": "rJePmBhHoerhB4gJPAPEqvVBgQ7xbmY6bh",
-  "vault_id": "0DB363B417A560EDD7EA8306188F5592F2388A054BF7F6AC1FB5A99A30BC99B2",
-  "loan_broker_id": "0DF028DFE8928921B9474B5EB09531E1E7A3655441C53ECFECF41C82F374D334",
+  "broker_owner": "rfSB7uTdtZsXEEupKSLuCwoH96SsMdXgCa",
+  "vault_id": "1A70D580648282E7FBCA6B1F2F2E5CFD08AFA24723DE430A5A0E2524E3802FE3",
+  "loan_broker_id": "6337A96123C4B072D6079E876D818F4F2641BFF0DC66A55348CA27F3386BC3E6",
   "interest_rate_tenth_bps": 5000,
   "epoch_duration_seconds": 604800,
   "epochs_per_year": 52,
   "default_loan_epochs": 1,
   "payment_interval": 604800,
   "payment_total": 1,
-  "grace_period": 3600
+  "grace_period": 3600,
+  "vault_seed_fusdc": 0,
+  "note": "Empty vault — supply bridged F-USDC only. No bootstrap mint."
 }
