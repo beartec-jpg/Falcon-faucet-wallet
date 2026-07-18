@@ -3,7 +3,7 @@ import { isOriginAllowed } from '@/lib/origin'
 import { fullRepayAmount, isRepayableLoan, repayBlockedReason } from '@/lib/lend-borrow-errors'
 import { iouAmount, loanOutstandingFusdc } from '@/lib/lend-pool-stats'
 import { filterActiveUserLoans } from '@/lib/lend-risk-scan'
-import { getNetwork } from '@/lib/networks'
+import { getNetwork, networkIdForTx } from '@/lib/networks'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { loadStableToken } from '@/lib/swap/token-config'
 
@@ -202,8 +202,11 @@ export async function POST(req: NextRequest) {
     Fee: '24',
     LastLedgerSequence: ledgerIndex + 30,
   }
-  if (network.networkId > 0) {
-    tx_json.NetworkID = network.networkId
+  // Only include NetworkID when required (networkId > 1024). Falcon testnet is
+  // 1001 and rejects NetworkID with telNETWORK_ID_MAKES_TX_NON_CANONICAL.
+  const nid = networkIdForTx(network.networkId)
+  if (nid !== undefined) {
+    tx_json.NetworkID = nid
   }
 
   try {
