@@ -6,6 +6,7 @@ import type { NetworkKey } from '@/lib/networks'
 import { serverRpcCall } from '@/lib/network-server'
 import { loadStableToken } from '@/lib/swap/token-config'
 import { getSql, isDbConfigured } from '@/lib/db'
+import { isAirdropScoringNetwork } from '@/lib/airdrop-network'
 
 const DROPS = 1_000_000
 
@@ -144,6 +145,11 @@ export async function persistSnapshot(
   payload: unknown,
   dayUtc = new Date().toISOString().slice(0, 10),
 ): Promise<void> {
+  if (!isAirdropScoringNetwork(network)) {
+    throw new Error(
+      `persistSnapshot refuses network="${network}" — airdrop snapshots are mainnet-only`,
+    )
+  }
   if (!isDbConfigured()) {
     console.info('[airdrop-snap]', kind, dayUtc, JSON.stringify(payload).slice(0, 200))
     return
@@ -166,6 +172,11 @@ export async function recomputeAllocations(network: string): Promise<{
   addresses: number
   totalFalcon: number
 }> {
+  if (!isAirdropScoringNetwork(network)) {
+    throw new Error(
+      `recomputeAllocations refuses network="${network}" — airdrop scores are mainnet-only`,
+    )
+  }
   if (!isDbConfigured()) {
     return { addresses: 0, totalFalcon: 0 }
   }
@@ -173,7 +184,7 @@ export async function recomputeAllocations(network: string): Promise<{
   const { faucetEngagementScore, AIRDROP_WEIGHTS, AIRDROP_POOL_FALCON, AIRDROP_WINDOW_DAYS } =
     await import('@/lib/airdrop-score')
 
-  // Faucet claims
+  // Faucet claims — mainnet rows only (portal logs network key per claim)
   const claimRows = await sql`
     SELECT address, day_utc::text AS day, COUNT(*)::int AS n
     FROM faucet_claims

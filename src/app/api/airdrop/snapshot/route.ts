@@ -1,14 +1,14 @@
 /**
  * POST /api/airdrop/snapshot
  * Auth: Authorization: Bearer $AIRDROP_ADMIN_TOKEN
- * Body: { network?: 'testnet'|'mainnet', validators?: string[] }
+ * Body: { network?: 'mainnet', validators?: string[] }
  *
- * Takes a daily snapshot of validator candidates + recompute faucet-based scores.
- * Cron: daily during the 60-day window.
+ * Mainnet only — refuses testnet so testnet farming cannot enter airdrop scores.
+ * Cron: daily during the 60-day mainnet contribution window.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveNetworkKey } from '@/lib/network-server'
+import { requireAirdropScoringNetwork } from '@/lib/airdrop-network'
 import {
   persistSnapshot,
   recomputeAllocations,
@@ -31,15 +31,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
-  let body: { validators?: string[]; network?: string } = {}
+  let body: { validators?: string[]; network?: string; day?: string } = {}
   try {
     body = await req.json()
   } catch {
     /* empty */
   }
 
-  const network = body.network === 'mainnet' || networkKey === 'mainnet' ? 'mainnet' : 'testnet'
+  const gated = requireAirdropScoringNetwork(
+    body.network,
+    req.nextUrl.searchParams.get('network'),
+  )
+  if (!gated.ok) {
+    return NextResponse.json(
+      { error: gated.error, ok: false, scoringNetwork: 'mainnet' },
+      { status: 400 },
+    )
+  }
+
+  const { network, networkKey } = gated
   const candidates = Array.isArray(body.validators)
     ? body.validators.filter((a) => typeof a === 'string' && a.startsWith('r'))
     : (process.env.AIRDROP_VALIDATOR_ADDRESSES ?? '')
@@ -47,7 +57,13 @@ export async function POST(req: NextRequest) {
         .map((s) => s.trim())
         .filter(Boolean)
 
-  const day = new Date().toISOString().slice(0, 10)
+  // Always UTC day for mainnet window (optional override for ops backfill on mainnet only).
+  const day =
+    typeof body.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.day)
+      ? body.day
+      : new Date().toISOString().slice(0, 10)
+
+  // Snapshots hit mainnet RPC only (networkKey forced to mainnet).
   const validators = await snapshotValidators(networkKey, candidates)
   await persistSnapshot(network, 'validators', validators, day)
 
@@ -65,6 +81,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     day,
     network,
+    scoringNetwork: network,
     validators: validators.length,
     bonded: validators.filter((v) => v.bonded).length,
     dexHolders: dex.length,
