@@ -59,13 +59,24 @@ export function isRepayableLoan(loan: RepayLoanFields | null | undefined): boole
 /** Minimum installment / full payoff due from ledger fields. */
 export function repayDueFusdc(loan: RepayLoanFields | null | undefined): number | null {
   if (!loan) return null
+  const candidates: number[] = []
   const raw = loan.paymentDueRaw?.trim()
   if (raw) {
     const n = parseFloat(raw)
-    if (Number.isFinite(n) && n > 0) return n
+    if (Number.isFinite(n) && n > 0) candidates.push(n)
   }
-  const due = loan.paymentDueFusdc ?? loan.totalOutstandingFusdc
-  return due != null && due > 0 ? due : null
+  if (loan.paymentDueFusdc != null && loan.paymentDueFusdc > 0) {
+    candidates.push(loan.paymentDueFusdc)
+  }
+  if (loan.totalOutstandingFusdc != null && loan.totalOutstandingFusdc > 0) {
+    candidates.push(loan.totalOutstandingFusdc)
+  }
+  if (loan.principalFusdc != null && loan.principalFusdc > 0) {
+    candidates.push(loan.principalFusdc)
+  }
+  // Use the max so we never underpay vs installment or total outstanding (IOU scale noise).
+  if (candidates.length === 0) return null
+  return Math.max(...candidates)
 }
 
 /** LoanPay amount: round up to 6 dp so submission clears accrued interest/fees on-chain. */

@@ -554,9 +554,28 @@ export default function LendPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: wallet.address, loanId, amount }),
       })
-      const preflight = (await preflightR.json()) as { error?: string; amount?: string }
+      let preflight: {
+        error?: string
+        amount?: string
+        stage?: string
+        simulateResult?: string
+        simulateMessage?: string
+      } = {}
+      try {
+        preflight = (await preflightR.json()) as typeof preflight
+      } catch {
+        setError(`Repay preflight failed (HTTP ${preflightR.status})`)
+        return
+      }
       if (!preflightR.ok) {
-        setError(preflight.error ?? 'Repay preflight failed')
+        const detail = [
+          preflight.error,
+          preflight.stage ? `[${preflight.stage}]` : '',
+          preflight.simulateResult,
+        ]
+          .filter(Boolean)
+          .join(' ')
+        setError(detail || `Repay preflight failed (HTTP ${preflightR.status})`)
         return
       }
       const payAmount = preflight.amount ?? amount

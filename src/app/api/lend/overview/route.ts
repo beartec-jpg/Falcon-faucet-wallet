@@ -285,13 +285,18 @@ export async function GET(req: NextRequest) {
           for (const obj of activeLoanObjs) {
             const principal = loanOutstandingFusdc(obj)
             const paymentDue = iouValue(obj.PeriodicPayment)
+            const pp = obj.PeriodicPayment
             const paymentDueRaw =
-              typeof obj.PeriodicPayment === 'string' || typeof obj.PeriodicPayment === 'number'
-                ? String(obj.PeriodicPayment)
-                : null
+              typeof pp === 'string' || typeof pp === 'number'
+                ? String(pp)
+                : pp && typeof pp === 'object' && 'value' in (pp as object)
+                  ? String((pp as { value: unknown }).value)
+                  : paymentDue != null
+                    ? String(paymentDue)
+                    : null
             const totalOutstanding = iouValue(obj.TotalValueOutstanding)
             const debtForHf = totalOutstanding ?? principal
-            const loanId = String(obj.index ?? obj.LoanID ?? '')
+            const loanId = String(obj.index ?? obj.LoanID ?? '').toUpperCase()
             const collateralFalcon = collateralFromLoanObject(obj)
             const { healthFactor: hf } = loanHealthSnapshot(
               collateralFalcon,
