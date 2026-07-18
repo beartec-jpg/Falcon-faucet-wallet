@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { LEND_FIXED_APR_BPS, hfStatus, type LendOverview } from '@/lib/lend-model'
 import { estimateLpApyPct } from '@/lib/lend-apy'
 import { withNetworkQuery } from '@/lib/network-query'
