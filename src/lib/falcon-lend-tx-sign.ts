@@ -251,7 +251,7 @@ export async function signVaultClaimCollateralTx(
   falcon_secret: string,
 ): Promise<{ tx_blob: string }> {
   const decoded = decodeFalconSecret(falcon_secret)
-  const tx: Record<string, unknown> = {
+  const tx = {
     ...baseTx(
       params.account,
       params.sequence,
@@ -262,9 +262,7 @@ export async function signVaultClaimCollateralTx(
     ),
     TransactionType: 'VaultClaimCollateral',
     LoanBrokerID: params.loanBrokerId.toUpperCase(),
-  }
-  if (params.amountDrops) {
-    tx.Amount = params.amountDrops
+    ...(params.amountDrops ? { Amount: params.amountDrops } : {}),
   }
   return { tx_blob: await signPrepared(tx, decoded) }
 }
