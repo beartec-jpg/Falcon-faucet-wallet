@@ -138,9 +138,11 @@ export async function GET(req: NextRequest) {
           )
           assetsTotal = iouValue(vault.AssetsTotal) ?? 0
           vaultAssetsAvailable = iouValue(vault.AssetsAvailable)
-          const aprBps = manifest.interest_rate_tenth_bps
-            ? manifest.interest_rate_tenth_bps / 10
-            : 500
+          // Protocol InterestRate is tenth-bps: 1000 = 1%, 5000 = 5% (see percentageToTenthBips).
+          const fixedAprPct =
+            manifest.interest_rate_tenth_bps != null
+              ? Number(manifest.interest_rate_tenth_bps) / 1000
+              : 5
           const liqCollRaw = vault.LiquidationCollateral
           let liquidationCollateralFalcon: number | null = null
           if (liqCollRaw != null) {
@@ -160,7 +162,7 @@ export async function GET(req: NextRequest) {
             sharesOutstanding,
             shareMptId,
             shareScale,
-            fixedAprPct: aprBps / 100,
+            fixedAprPct,
             liquidationCollateralFalcon,
             liquidationIndex,
           })

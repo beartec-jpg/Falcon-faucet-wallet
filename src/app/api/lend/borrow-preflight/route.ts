@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
       LoanBrokerID: manifest.loan_broker_id.toUpperCase(),
       PrincipalRequested: String(principal),
       Collateral: collateralDropsFromFalcon(collateralFalcon),
-      InterestRate: manifest.interest_rate_tenth_bps ?? 500,
+      InterestRate: manifest.interest_rate_tenth_bps ?? 5000,
       PaymentInterval: paymentInterval,
       PaymentTotal: paymentTotal,
       GracePeriod: manifest.grace_period ?? 3600,

@@ -339,7 +339,7 @@ fund lender + borrower (2000 FALCON each)
 | Field | Value |
 |-------|-------|
 | `PrincipalRequested` | `5` F-USDC |
-| `InterestRate` | `500` tenth-bips (5% APR) |
+| `InterestRate` | `5000` tenth-bips (5% APR) |
 | `PaymentInterval` | `604800` s (1 PoPL epoch = 7 days) |
 | `PaymentTotal` | `1` |
 | `GracePeriod` | `3600` s |

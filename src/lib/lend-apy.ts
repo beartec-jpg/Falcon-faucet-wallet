@@ -3,7 +3,9 @@
 export const EPOCH_LP_START_PCT = 50
 export const EPOCH_LP_END_PCT = 30
 export const EPOCH_TAPER_COUNT = 24
-export const LEND_FIXED_APR_BPS = 500
+/** Default borrower APR when manifest missing: 5% = 5000 tenth-bps. */
+export const LEND_FIXED_APR_TENTH_BPS = 5000
+export const LEND_FIXED_APR_PCT = LEND_FIXED_APR_TENTH_BPS / 1000
 
 /** LP share of emissions at epoch N (1-based); tapers 50% → 30% over 24 epochs. */
 export function lpEmissionSharePct(epochNumber: number | null): number {
