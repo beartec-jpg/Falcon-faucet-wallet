@@ -122,6 +122,7 @@ const QXRP_TRANSACTION_TYPES: Record<string, number> = {
   GovernanceProposal: 91,
   GovernanceVote: 92,
   ClaimLPReward: 93,
+  ClaimAmmLpReward: 94,
   LoanCollateralDeposit: 83,
   VaultClaimCollateral: 79,
 }
@@ -155,6 +156,10 @@ const QXRP_TRANSACTION_FORMATS: Record<string, TxFormatEntry[]> = {
     { name: 'VoteWeight', optionality: 0 },
   ],
   ClaimLPReward: [{ name: 'VaultID', optionality: 0 }],
+  ClaimAmmLpReward: [
+    { name: 'Asset', optionality: 0 },
+    { name: 'Asset2', optionality: 0 },
+  ],
   LoanCollateralDeposit: [
     { name: 'LoanID', optionality: 0 },
     { name: 'Collateral', optionality: 0 },

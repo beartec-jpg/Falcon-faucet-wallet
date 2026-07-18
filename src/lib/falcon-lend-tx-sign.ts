@@ -102,6 +102,36 @@ export async function signClaimLPRewardTx(
   return { tx_blob: await signPrepared(tx, decoded) }
 }
 
+/** Claim AMM/DEX LP share of PoPL epoch emission (native FALCON pool). */
+export async function signClaimAmmLpRewardTx(
+  params: {
+    account: string
+    currency: string
+    issuer: string
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const tx = {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      decoded.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'ClaimAmmLpReward',
+    Asset: { currency: 'XRP' },
+    Asset2: { currency: params.currency, issuer: params.issuer },
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}
+
 export async function signLoanSetBorrowerTx(
   params: {
     account: string
