@@ -3,7 +3,6 @@ import { isOriginAllowed } from '@/lib/origin'
 import { fullRepayAmount, isRepayableLoan, repayBlockedReason } from '@/lib/lend-borrow-errors'
 import { iouAmount, loanOutstandingFusdc } from '@/lib/lend-pool-stats'
 import { filterActiveUserLoans } from '@/lib/lend-risk-scan'
-import { getNetwork, networkIdForTx } from '@/lib/networks'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { loadStableToken } from '@/lib/swap/token-config'
 
@@ -40,7 +39,6 @@ export async function POST(req: NextRequest) {
   }
 
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
-  const network = getNetwork(networkKey)
   let body: { address?: string; loanId?: string; amount?: string }
   try {
     body = await req.json()
@@ -193,6 +191,8 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // Falcon testnet (network_id 1001) rejects NetworkID on txs — never include it here.
+  // Client signing already omits NetworkID via networkIdForTx (only >1024).
   const tx_json: Record<string, unknown> = {
     TransactionType: 'LoanPay',
     Account: address,
@@ -202,12 +202,6 @@ export async function POST(req: NextRequest) {
     Fee: '24',
     LastLedgerSequence: ledgerIndex + 30,
   }
-  // Only include NetworkID when required (networkId > 1024). Falcon testnet is
-  // 1001 and rejects NetworkID with telNETWORK_ID_MAKES_TX_NON_CANONICAL.
-  const nid = networkIdForTx(network.networkId)
-  if (nid !== undefined) {
-    tx_json.NetworkID = nid
-  }
 
   try {
     const sim = await serverRpcCall<{
@@ -215,12 +209,23 @@ export async function POST(req: NextRequest) {
       engine_result_message?: string
     }>(networkKey, 'simulate', { tx_json })
 
-    const ok = sim.engine_result === 'tesSUCCESS'
-    if (!ok) {
-      // Soft-pass tec-class failures that are only about simulate context; still
-      // block clear insufficient payment / funds so the user sees a real reason.
-      const code = sim.engine_result ?? ''
-      const msg = sim.engine_result_message ?? ''
+    const code = sim.engine_result ?? ''
+    const msg = sim.engine_result_message ?? ''
+    const ok = code === 'tesSUCCESS'
+
+    // Hard-block only clear money problems; everything else (simulate quirks,
+    // NetworkID policy, etc.) must not stop the user from signing.
+    const hardFail =
+      code === 'tecINSUFFICIENT_PAYMENT' ||
+      code === 'tecINSUFFICIENT_FUNDS' ||
+      code === 'tecUNFUNDED_PAYMENT' ||
+      code === 'tecNO_LINE' ||
+      code === 'tecPATH_DRY' ||
+      code === 'tecKILLED' ||
+      code === 'tecNO_ENTRY' ||
+      code === 'tecNO_PERMISSION'
+
+    if (!ok && hardFail) {
       return NextResponse.json(
         {
           error: `Repay would fail on-chain (${code}${msg ? `: ${msg}` : ''}). Amount tried: ${payAmount} F-USDC.`,
@@ -233,6 +238,15 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       )
     }
+
+    return NextResponse.json({
+      ok: true,
+      amount: payAmount,
+      fusdcBalance,
+      simulateResult: code || 'tesSUCCESS',
+      simulateMessage: msg || undefined,
+      simulateSoftPass: !ok || undefined,
+    })
   } catch (e: unknown) {
     // Simulate RPC flaky — allow client to attempt sign if amount/balance checks passed.
     return NextResponse.json({
@@ -243,11 +257,4 @@ export async function POST(req: NextRequest) {
       simulateSkipReason: e instanceof Error ? e.message : 'simulate rpc failed',
     })
   }
-
-  return NextResponse.json({
-    ok: true,
-    amount: payAmount,
-    fusdcBalance,
-    simulateResult: 'tesSUCCESS',
-  })
 }

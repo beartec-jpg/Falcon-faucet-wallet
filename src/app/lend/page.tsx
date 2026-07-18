@@ -575,8 +575,15 @@ export default function LendPage() {
         ]
           .filter(Boolean)
           .join(' ')
-        setError(detail || `Repay preflight failed (HTTP ${preflightR.status})`)
-        return
+        // Soft-recover: if preflight only failed simulate NetworkID policy, still repay.
+        const soft =
+          preflight.simulateResult === 'telNETWORK_ID_MAKES_TX_NON_CANONICAL' ||
+          (typeof preflight.error === 'string' &&
+            preflight.error.includes('NETWORK_ID_MAKES_TX_NON_CANONICAL'))
+        if (!soft) {
+          setError(detail || `Repay preflight failed (HTTP ${preflightR.status})`)
+          return
+        }
       }
       const payAmount = preflight.amount ?? amount
       await withSecret(async (falcon_secret) => {
