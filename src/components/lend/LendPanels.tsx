@@ -834,7 +834,7 @@ export function LendBorrowPanel({
       : null
   const permissionless =
     data?.protocol.lendingPermissionless && data?.protocol.lendingCollateral
-  const interestBps = data?.lending.interestRateTenthBps ?? 500
+  const interestBps = data?.lending.interestRateTenthBps ?? 5000
   const repayEstimate =
     Number.isFinite(borrowNum) && borrowNum > 0
       ? estimateBulletLoanDue(borrowNum, loanEpochs, interestBps)
