@@ -2,7 +2,13 @@
 // Body: { account: string, network?: 'testnet' | 'mainnet' }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { peekRateLimit, consumeRateLimit } from '@/lib/rate-limit'
+import {
+  consumeFaucetQuota,
+  faucetUtcDay,
+  hashIp,
+  logFaucetClaim,
+  peekFaucetQuota,
+} from '@/lib/faucet-quota'
 import { signPayment, dropsFromQxrp } from '@/lib/xrpl-sign'
 import { isOriginAllowed } from '@/lib/origin'
 import { isValidClassicAddress } from 'ripple-address-codec'
@@ -54,24 +60,36 @@ export async function POST(req: NextRequest) {
 
   const clientIp = ip(req)
   const ratePrefix = `${networkKey}:`
+  // 5 successful claims / UTC day + 1h cooldown (per address and per IP).
   const [ipLimit, acctLimit] = await Promise.all([
-    peekRateLimit(`${ratePrefix}ip:${clientIp}`),
-    peekRateLimit(`${ratePrefix}acct:${account}`),
+    peekFaucetQuota(`${ratePrefix}ip:${clientIp}`),
+    peekFaucetQuota(`${ratePrefix}acct:${account}`),
   ])
 
   if (!ipLimit.success) {
-    return err(
-      `Rate limit exceeded for your IP (${ipLimit.remaining ?? 0} left). Try again after reset.`,
-      429,
-      { reset: ipLimit.reset, limitType: 'ip' },
-    )
+    const why =
+      ipLimit.reason === 'cooldown'
+        ? `Wait at least 1 hour between faucet claims (IP). Try again after ${ipLimit.cooldownEndsAt ?? ipLimit.reset}.`
+        : `Daily faucet limit reached for your IP (${ipLimit.claimsToday ?? 5}/5 today). Resets at next UTC midnight.`
+    return err(why, 429, {
+      reset: ipLimit.reset,
+      limitType: 'ip',
+      reason: ipLimit.reason,
+      remainingToday: ipLimit.remainingToday,
+    })
   }
   if (!acctLimit.success) {
-    return err(
-      `Rate limit exceeded for this address (${acctLimit.remaining ?? 0} left). Try again after reset.`,
-      429,
-      { reset: acctLimit.reset, limitType: 'account' },
-    )
+    const why =
+      acctLimit.reason === 'cooldown'
+        ? `Wait at least 1 hour between faucet claims. Try again after ${acctLimit.cooldownEndsAt ?? acctLimit.reset}.`
+        : `Daily faucet limit reached for this address (${acctLimit.claimsToday ?? 5}/5 today). Come back tomorrow (UTC) for more — daily returns help airdrop score.`
+    return err(why, 429, {
+      reset: acctLimit.reset,
+      limitType: 'account',
+      reason: acctLimit.reason,
+      remainingToday: acctLimit.remainingToday,
+      claimsToday: acctLimit.claimsToday,
+    })
   }
 
   const faucet = resolveFaucet(networkKey)
@@ -199,16 +217,30 @@ export async function POST(req: NextRequest) {
   }
 
   await Promise.all([
-    consumeRateLimit(`${ratePrefix}ip:${clientIp}`),
-    consumeRateLimit(`${ratePrefix}acct:${account}`),
+    consumeFaucetQuota(`${ratePrefix}ip:${clientIp}`),
+    consumeFaucetQuota(`${ratePrefix}acct:${account}`),
   ])
 
+  const dayUtc = faucetUtcDay()
+  const ipHash = await hashIp(clientIp)
+  await logFaucetClaim({
+    network: networkKey,
+    address: account,
+    amountQxrp: faucet.dripAmountQxrp,
+    txHash,
+    ipHash,
+    dayUtc,
+  })
+
+  const remaining = Math.max(0, (acctLimit.remainingToday ?? 5) - 1)
   return NextResponse.json({
     txHash,
     amount: faucet.dripAmountQxrp,
     account,
     network: networkKey,
     engine_result: validatedResult,
-    reset: acctLimit.reset,
+    remainingToday: remaining,
+    claimsToday: (acctLimit.claimsToday ?? 0) + 1,
+    cooldownSeconds: 3600,
   })
 }
