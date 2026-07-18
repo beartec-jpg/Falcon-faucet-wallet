@@ -161,6 +161,16 @@ function BorrowLoanCard({
   const repayBlocked = payFullAmount
     ? repayBlockedReason(data, loan.id, payFullAmount)
     : null
+  /** Why Pay full amount is grayed — always surface this (was silent when !ready/busy). */
+  const repayDisabledReason = !payFullAmount
+    ? 'Could not compute installment due for this loan.'
+    : !ready
+      ? 'Lending protocol is not ready for signing on this network (check banner above).'
+      : busy
+        ? 'Another transaction is in progress…'
+        : !onRepay
+          ? 'Repay handler unavailable — refresh the page.'
+          : repayBlocked
   const addCollateralNum = parseFloat(addCollateralAmt)
   const projectedCollateral =
     Number.isFinite(addCollateralNum) && addCollateralNum > 0
@@ -174,8 +184,9 @@ function BorrowLoanCard({
     projectedCollateral != null && projectedCollateral > 0
       ? loanHealthSnapshot(projectedCollateral, loanDebt, falconPerFusdc)
       : null
-  const addCollateralBlocked = addCollateralAmt.trim()
-    ? (() => {
+  const addCollateralBlocked = !addCollateralAmt.trim()
+    ? 'Enter how much FALCON to add above, then tap Add collateral.'
+    : (() => {
         if (!Number.isFinite(addCollateralNum) || addCollateralNum <= 0) {
           return 'Enter how much FALCON to add.'
         }
@@ -184,7 +195,13 @@ function BorrowLoanCard({
         }
         return null
       })()
-    : null
+  const addCollateralDisabledReason = !ready
+    ? 'Lending protocol is not ready for signing on this network (check banner above).'
+    : busy
+      ? 'Another transaction is in progress…'
+      : !onAddCollateral
+        ? 'Add-collateral handler unavailable — refresh the page.'
+        : addCollateralBlocked
   const canAddCollateral =
     !!data.protocol.lendingCollateral && isRepayableLoan(loan)
 
@@ -293,13 +310,13 @@ function BorrowLoanCard({
           <button
             type="button"
             onClick={() => onAddCollateral?.(loan.id, addCollateralAmt)}
-            disabled={!ready || busy || !onAddCollateral || !!addCollateralBlocked || !addCollateralAmt}
+            disabled={!!addCollateralDisabledReason}
             className="w-full rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
           >
             Add collateral (sign with passkey)
           </button>
-          {addCollateralBlocked && (
-            <p className="text-xs text-amber-300">{addCollateralBlocked}</p>
+          {addCollateralDisabledReason && (
+            <p className="text-xs text-amber-300">{addCollateralDisabledReason}</p>
           )}
         </div>
       )}
@@ -339,12 +356,17 @@ function BorrowLoanCard({
           <button
             type="button"
             onClick={() => onRepay?.(loan.id, payFullAmount)}
-            disabled={!ready || busy || !onRepay || !!repayBlocked}
+            disabled={!!repayDisabledReason}
             className="w-full rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 px-4 py-3 text-sm font-semibold disabled:opacity-50"
           >
-            Pay full amount · {payFullAmount} F-USDC
+            {busy ? 'Signing…' : `Pay full amount · ${payFullAmount} F-USDC`}
           </button>
-          {repayBlocked && <p className="text-xs text-amber-300">{repayBlocked}</p>}
+          {repayDisabledReason && (
+            <p className="text-xs text-amber-300">{repayDisabledReason}</p>
+          )}
+          <p className="text-[10px] text-slate-500">
+            Liquidatable status does not block repay. You only need enough F-USDC and a working passkey.
+          </p>
         </div>
       )}
     </article>

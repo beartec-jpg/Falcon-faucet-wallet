@@ -97,7 +97,14 @@ export default function LendPage() {
 
   const withSecret = useCallback(
     async (fn: (falcon_secret: string) => Promise<void>) => {
-      if (!wallet || !network.live) return
+      if (!wallet) {
+        setError('No wallet loaded. Open the Wallet tab, unlock with your passkey, then return to Lend.')
+        return
+      }
+      if (!network.live) {
+        setError(network.comingSoonMessage ?? 'This network is not live — cannot sign transactions.')
+        return
+      }
       if (!isPasskeySupported()) {
         setError('Passkey not supported in this browser')
         return
@@ -116,7 +123,7 @@ export default function LendPage() {
         setBusy(false)
       }
     },
-    [wallet, network.live, refresh],
+    [wallet, network.live, network.comingSoonMessage, refresh],
   )
 
   const handleSupply = useCallback(
@@ -494,7 +501,14 @@ export default function LendPage() {
   const handleRepay = useCallback(
     async (loanId: string, amount: string) => {
       const tok = data?.token
-      if (!wallet || !tok?.issuer) return
+      if (!wallet) {
+        setError('No wallet loaded. Open the Wallet tab, unlock with your passkey, then return to Lend.')
+        return
+      }
+      if (!tok?.issuer) {
+        setError('F-USDC token config missing — cannot repay.')
+        return
+      }
       const loan = data?.loans?.find((l) => l.id === loanId)
       const blocked = repayBlockedReason(data, loanId, amount)
       if (blocked) {

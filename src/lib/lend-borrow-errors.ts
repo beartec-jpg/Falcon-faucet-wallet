@@ -94,7 +94,8 @@ export function repayBlockedReason(
   const amount = parseFloat(amountStr)
   if (!Number.isFinite(amount) || amount <= 0) return 'Enter a repay amount.'
   const due = repayDueFusdc(loan)
-  if (due != null && amount + 1e-9 < due) {
+  // 1e-6 F-USDC tolerance: float/IOU scale noise must not gray out Pay full amount.
+  if (due != null && amount + 1e-6 < due) {
     const full = fullRepayAmount(loan)
     return `Repay amount is too low. This installment requires at least ${full ?? formatRepayAmount(due)} F-USDC (principal ${loan.principalFusdc} + interest/fees). Tap Pay full amount to use the exact due.`
   }
