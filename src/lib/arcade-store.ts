@@ -17,20 +17,28 @@ export const GAME_SLUGS = [
 
 export type GameSlug = (typeof GAME_SLUGS)[number]
 
+/** Best single-run score required to claim (not sum of runs). */
 export const GAME_FAUCET_MIN_SCORE = parseInt(
-  process.env.GAME_FAUCET_MIN_SCORE ?? '100',
+  process.env.GAME_FAUCET_MIN_SCORE ?? '500',
   10,
 )
 
-/** Max successful game claims per address per game per UTC day. */
+/**
+ * Max successful game claims per address per game per UTC day.
+ * Default 8 so a player can put all daily claims on one favourite game.
+ */
 export const GAME_CLAIMS_PER_GAME_PER_DAY = parseInt(
-  process.env.GAME_CLAIMS_PER_GAME_PER_DAY ?? '1',
+  process.env.GAME_CLAIMS_PER_GAME_PER_DAY ?? '8',
   10,
 )
 
-/** Max successful game claims per address across all games per UTC day. */
+/**
+ * Max successful game claims per address across all games per UTC day.
+ * Combined with per-game cap: any mix (e.g. 2×4 games, or 8×1 game).
+ * Playing for high scores is unlimited; only payouts are capped.
+ */
 export const GAME_CLAIMS_TOTAL_PER_DAY = parseInt(
-  process.env.GAME_CLAIMS_TOTAL_PER_DAY ?? '4',
+  process.env.GAME_CLAIMS_TOTAL_PER_DAY ?? '8',
   10,
 )
 

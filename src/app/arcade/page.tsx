@@ -9,7 +9,7 @@ import { loadPrimaryWallet } from '@/lib/wallet-store'
 
 const ARCADE_URL =
   process.env.NEXT_PUBLIC_ARCADE_URL?.replace(/\/$/, '') ||
-  'https://falcon-arcade.vercel.app'
+  'https://falcon-arcade-lake.vercel.app'
 
 const ARCADE_ORIGIN = (() => {
   try {
@@ -234,9 +234,9 @@ export default function ArcadePage() {
               Falcon Arcade
             </h1>
             <p className="text-xs text-slate-500">
-              Play mini-games · hit 100 pts · claim from the{' '}
+              Play mini-games · hit 500 pts on a single run · claim from the{' '}
               <strong className="text-slate-300">{network.name}</strong> faucet
-              (same pool as the Faucet tab · separate game rate limits)
+              (same pool · up to 8 game claims/day · keep playing for high scores)
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs">

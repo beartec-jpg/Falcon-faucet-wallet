@@ -37,8 +37,16 @@ const nextConfig = {
       'https://sepolia.drpc.org',
     ]) connectOrigins.add(url)
 
-    // Arcade iframe origin (Game Faucet host)
-    const arcadeOrigins = new Set()
+    // Arcade iframe origin (Game Faucet host).
+    // CSP is baked at build time — always allow the known production arcade
+    // plus any operator-configured URL so embeds work without a rebuild surprise.
+    const arcadeOrigins = new Set([
+      'https://falcon-arcade-lake.vercel.app',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'http://localhost:4173',
+      'http://127.0.0.1:4173',
+    ])
     for (const envVar of [
       process.env.NEXT_PUBLIC_ARCADE_URL,
       process.env.ARCADE_URL,
@@ -50,10 +58,6 @@ const nextConfig = {
         /* ignore */
       }
     }
-    // Common local + preview defaults
-    arcadeOrigins.add('http://localhost:5173')
-    arcadeOrigins.add('http://127.0.0.1:5173')
-    arcadeOrigins.add('http://localhost:4173')
     for (const o of arcadeOrigins) connectOrigins.add(o)
 
     const frameSrc = ["'self'", 'https://vercel.live', ...arcadeOrigins].join(' ')
@@ -88,7 +92,8 @@ const nextConfig = {
               "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://vercel.live",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: blob:",
-              "font-src 'self' data:",
+              // vercel.live injects preview fonts; allow so the toolbar does not CSP-spam
+              "font-src 'self' data: https://vercel.live",
               `connect-src ${Array.from(connectOrigins).join(' ')}`,
               "object-src 'none'",
               "frame-ancestors 'none'",
