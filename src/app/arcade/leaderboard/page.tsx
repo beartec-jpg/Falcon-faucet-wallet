@@ -7,10 +7,10 @@ import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 
 const GAMES = [
-  { slug: 'falcon-flight', label: 'Falcon Flight' },
-  { slug: 'ledger-runner', label: 'Ledger Runner' },
-  { slug: 'epoch-rise', label: 'Epoch Rise' },
-  { slug: 'amendment-apocalypse', label: 'Amendment Apocalypse' },
+  { slug: 'falcon-flight', label: 'Flight' },
+  { slug: 'ledger-runner', label: 'Run' },
+  { slug: 'epoch-rise', label: 'Rise' },
+  { slug: 'amendment-apocalypse', label: 'Shoot' },
 ] as const
 
 interface Entry {
