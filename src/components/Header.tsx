@@ -23,6 +23,11 @@ interface HeaderProps {
   current: NavItem
   subtitle?: string
   children?: ReactNode
+  /**
+   * Use static positioning (no sticky pin). Prefer on full-viewport pages
+   * like Arcade so chrome never covers the game while the page scrolls.
+   */
+  sticky?: boolean
 }
 
 const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
@@ -79,7 +84,12 @@ function NavLinks({
   )
 }
 
-export default function Header({ current, subtitle, children }: HeaderProps) {
+export default function Header({
+  current,
+  subtitle,
+  children,
+  sticky = true,
+}: HeaderProps) {
   const { network } = useNetwork()
   const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => {
@@ -110,7 +120,11 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
                       : 'Faucet')
 
   return (
-    <header className="relative border-b border-slate-800/60 px-4 py-3 sticky top-0 bg-slate-950/95 backdrop-blur-md z-20">
+    <header
+      className={`relative border-b border-slate-800/60 px-4 py-3 bg-slate-950/95 backdrop-blur-md z-20 shrink-0 ${
+        sticky ? 'sticky top-0' : ''
+      }`}
+    >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <Link href="/" className="w-8 h-8 rounded-lg overflow-hidden shrink-0">
