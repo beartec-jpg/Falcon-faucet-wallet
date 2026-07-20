@@ -234,8 +234,9 @@ export default function ArcadePage() {
               Falcon Arcade
             </h1>
             <p className="text-xs text-slate-500">
-              Play mini-games · hit 100 pts · claim from the same FALCON faucet
-              (separate game rate limits) · {network.name}
+              Play mini-games · hit 100 pts · claim from the{' '}
+              <strong className="text-slate-300">{network.name}</strong> faucet
+              (same pool as the Faucet tab · separate game rate limits)
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs">

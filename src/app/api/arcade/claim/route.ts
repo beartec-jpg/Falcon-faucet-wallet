@@ -155,5 +155,7 @@ export async function POST(req: NextRequest) {
     minScore: GAME_FAUCET_MIN_SCORE,
     remainingGameClaimsToday: Math.max(0, quota.remainingGame - 1),
     remainingTotalGameClaimsToday: Math.max(0, quota.remainingTotal - 1),
+    // Same faucet account/pool as POST /api/faucet — only rate limits differ
+    faucetPool: 'shared',
   })
 }
