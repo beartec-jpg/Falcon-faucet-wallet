@@ -63,7 +63,7 @@ function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
 }
 
 export default function ArcadePage() {
-  const { networkKey, network } = useNetwork()
+  const { networkKey } = useNetwork()
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -234,77 +234,55 @@ export default function ArcadePage() {
 
   return (
     /*
-     * Full-viewport shell (no document scroll). Sticky chrome + a 70vh+
-     * iframe used to pin the intro over the game; hard flicks were needed
-     * to scroll the canvas free. Chrome stays in a fixed top band; the
-     * iframe fills everything left.
+     * Full-viewport shell: only site Header + network banner stay above the
+     * iframe. The old “Falcon Arcade / play mini-games / Leaderboard” strip is
+     * gone so it cannot pin over the game.
      */
     <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden">
       <Header current="arcade" subtitle="Arcade · Game Faucet" sticky={false}>
-        {walletAddress ? (
-          <span className="hidden sm:inline text-xs font-mono text-slate-400 truncate max-w-[10rem]">
-            {walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}
-          </span>
-        ) : (
+        <div className="flex items-center gap-2">
           <Link
-            href="/wallet"
-            className="text-xs text-brand-400 hover:text-brand-300 font-medium"
+            href="/arcade/leaderboard"
+            className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
           >
-            Connect wallet
+            Leaderboard
           </Link>
-        )}
+          {walletAddress ? (
+            <span className="hidden sm:inline text-xs font-mono text-slate-400 truncate max-w-[10rem]">
+              {walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}
+            </span>
+          ) : (
+            <Link
+              href="/wallet"
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-brand-500/20 text-brand-400 font-medium"
+            >
+              Wallet
+            </Link>
+          )}
+        </div>
       </Header>
       <div className="shrink-0">
         <NetworkBanner />
       </div>
 
-      <div className="shrink-0 px-3 sm:px-4 py-2 border-b border-slate-800/60 bg-slate-950/90">
-        <div className="flex items-center justify-between gap-2 min-w-0">
-          <div className="min-w-0">
-            <h1 className="text-sm sm:text-base font-semibold text-white leading-tight">
-              Falcon Arcade
-            </h1>
-            <p className="text-[11px] sm:text-xs text-slate-500 line-clamp-2 sm:truncate">
-              Play mini-games · hit 500 pts on a single run · claim from the{' '}
-              <strong className="text-slate-300 font-medium">{network.name}</strong>{' '}
-              faucet (same pool · up to 8 game claims/day · keep playing for high
-              scores)
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5 sm:gap-2 text-xs shrink-0">
-            <Link
-              href="/arcade/leaderboard"
-              className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
-            >
-              Leaderboard
-            </Link>
-            {!walletAddress && (
-              <Link
-                href="/wallet"
-                className="px-2.5 py-1.5 rounded-lg bg-brand-500/20 text-brand-400 font-medium"
-              >
-                Wallet
-              </Link>
-            )}
-          </div>
-        </div>
+      <div className="flex-1 min-h-0 bg-slate-950 relative">
+        {/* Claim status floats over the game only when active — never a pinned page section */}
         {(status || error || lastTx || claimBusy) && (
-          <div className="mt-1.5 space-y-0.5">
-            {status && <p className="text-xs text-emerald-400">{status}</p>}
-            {error && <p className="text-xs text-red-400">{error}</p>}
-            {lastTx && (
-              <p className="text-xs font-mono text-slate-400 break-all">
-                Tx: {lastTx}
-              </p>
-            )}
-            {claimBusy && (
-              <p className="text-xs text-amber-400">Submitting game claim…</p>
-            )}
+          <div className="absolute top-2 left-2 right-2 z-10 pointer-events-none">
+            <div className="mx-auto max-w-xl rounded-lg border border-slate-700/80 bg-slate-950/90 px-3 py-2 shadow-lg space-y-0.5">
+              {status && <p className="text-xs text-emerald-400">{status}</p>}
+              {error && <p className="text-xs text-red-400">{error}</p>}
+              {lastTx && (
+                <p className="text-xs font-mono text-slate-400 break-all">
+                  Tx: {lastTx}
+                </p>
+              )}
+              {claimBusy && (
+                <p className="text-xs text-amber-400">Submitting game claim…</p>
+              )}
+            </div>
           </div>
         )}
-      </div>
-
-      <div className="flex-1 min-h-0 bg-slate-950 relative">
         <iframe
           ref={iframeRef}
           src={ARCADE_URL}
