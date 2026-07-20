@@ -7,9 +7,32 @@ import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { loadPrimaryWallet } from '@/lib/wallet-store'
 
-const ARCADE_URL =
-  process.env.NEXT_PUBLIC_ARCADE_URL?.replace(/\/$/, '') ||
-  'https://falcon-arcade-lake.vercel.app'
+const PROD_ARCADE_URL = 'https://falcon-arcade-lake.vercel.app'
+
+/**
+ * Resolve the arcade iframe URL.
+ * Never ship localhost into production builds — a common footgun is setting
+ * NEXT_PUBLIC_ARCADE_URL=http://localhost:5173 for local dev on all envs.
+ */
+function resolveArcadeUrl(): string {
+  const raw = process.env.NEXT_PUBLIC_ARCADE_URL?.trim().replace(/\/$/, '')
+  if (!raw) return PROD_ARCADE_URL
+
+  if (process.env.NODE_ENV === 'production') {
+    try {
+      const host = new URL(raw).hostname
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return PROD_ARCADE_URL
+      }
+    } catch {
+      return PROD_ARCADE_URL
+    }
+  }
+
+  return raw
+}
+
+const ARCADE_URL = resolveArcadeUrl()
 
 const ARCADE_ORIGIN = (() => {
   try {
