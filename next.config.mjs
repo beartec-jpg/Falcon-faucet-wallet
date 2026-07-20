@@ -36,6 +36,27 @@ const nextConfig = {
       'https://1rpc.io',
       'https://sepolia.drpc.org',
     ]) connectOrigins.add(url)
+
+    // Arcade iframe origin (Game Faucet host)
+    const arcadeOrigins = new Set()
+    for (const envVar of [
+      process.env.NEXT_PUBLIC_ARCADE_URL,
+      process.env.ARCADE_URL,
+    ]) {
+      if (!envVar) continue
+      try {
+        arcadeOrigins.add(new URL(envVar).origin)
+      } catch {
+        /* ignore */
+      }
+    }
+    // Common local + preview defaults
+    arcadeOrigins.add('http://localhost:5173')
+    arcadeOrigins.add('http://127.0.0.1:5173')
+    arcadeOrigins.add('http://localhost:4173')
+    for (const o of arcadeOrigins) connectOrigins.add(o)
+
+    const frameSrc = ["'self'", 'https://vercel.live', ...arcadeOrigins].join(' ')
     // Vercel Live preview feedback (only active on preview deployments).
     connectOrigins.add('https://vercel.live')
     connectOrigins.add('wss://ws-us3.pusher.com')
@@ -63,7 +84,7 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "frame-src 'self' https://vercel.live",
+              `frame-src ${frameSrc}`,
               "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://vercel.live",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: blob:",

@@ -16,6 +16,7 @@ type NavItem =
   | 'airdrop'
   | 'board'
   | 'scan'
+  | 'arcade'
   | 'whitepaper'
 
 interface HeaderProps {
@@ -28,6 +29,7 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'faucet', label: 'Faucet', href: '/' },
   { key: 'scan', label: 'Explorer', href: '/scan' },
   { key: 'wallet', label: 'Wallet', href: '/wallet' },
+  { key: 'arcade', label: 'Arcade', href: '/arcade' },
   { key: 'swap', label: 'Swap', href: '/swap' },
   { key: 'pool', label: 'Pool', href: '/pool' },
   { key: 'lend', label: 'Lend', href: '/lend' },
@@ -101,9 +103,11 @@ export default function Header({ current, subtitle, children }: HeaderProps) {
                 ? 'Board · Community'
                 : current === 'scan'
                   ? 'Explorer'
-                  : current === 'whitepaper'
-                    ? 'White paper'
-                    : 'Faucet')
+                  : current === 'arcade'
+                    ? 'Arcade · Game Faucet'
+                    : current === 'whitepaper'
+                      ? 'White paper'
+                      : 'Faucet')
 
   return (
     <header className="relative border-b border-slate-800/60 px-4 py-3 sticky top-0 bg-slate-950/95 backdrop-blur-md z-20">
