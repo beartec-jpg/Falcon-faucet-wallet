@@ -139,25 +139,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid host' }, { status: 400 })
   }
 
-  // Production: require explicit allow-list (SSRF defence)
-  if (
-    (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') &&
-    ALLOWED_DASHBOARD_HOSTS.length === 0
-  ) {
-    return NextResponse.json(
-      {
-        error:
-          'Dashboard proxy disabled: set ALLOWED_DASHBOARD_HOSTS to an explicit allow-list.',
-      },
-      { status: 503 },
-    )
-  }
-
+  // Optional allow-list (stricter). When unset, any *public* host is allowed
+  // so wallet users can load their validator dashboard after bootstrap.
+  // SSRF defence = block private/link-local/metadata IPs below (always on).
   if (
     ALLOWED_DASHBOARD_HOSTS.length > 0 &&
     !ALLOWED_DASHBOARD_HOSTS.includes(host)
   ) {
-    return NextResponse.json({ error: 'Host not allowed' }, { status: 403 })
+    return NextResponse.json(
+      {
+        error: 'Host not on ALLOWED_DASHBOARD_HOSTS allow-list',
+        host,
+      },
+      { status: 403 },
+    )
   }
 
   // SSRF guard: never allow proxying to internal / non-routable addresses.

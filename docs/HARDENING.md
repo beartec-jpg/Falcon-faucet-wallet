@@ -14,7 +14,7 @@ Companion to the security hardening work. **Repos are public; secrets and open p
 | `ENABLE_SERVER_DERIVE` | unset / false |
 | `CRON_SECRET` | `openssl rand -hex 32` + Vercel Cron Bearer header |
 | `LEND_HF_MONITOR_TOKEN` | `openssl rand -hex 32` for HF monitor daemon |
-| `ALLOWED_DASHBOARD_HOSTS` | comma hosts if using node dashboard proxy |
+| `ALLOWED_DASHBOARD_HOSTS` | Optional. Comma hosts to restrict wallet dashboard proxy. **Unset = allow any public IP** (private/SSRF still blocked). |
 
 **Arcade project:**
 
