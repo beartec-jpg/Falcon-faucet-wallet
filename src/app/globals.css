@@ -44,3 +44,17 @@
     border-radius: 4px;
   }
 }
+
+/* Arcade claim toast — fade out before state clears */
+@keyframes arcade-claim-fade {
+  0%,
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.arcade-claim-toast {
+  animation: arcade-claim-fade 4.5s ease-in forwards;
+}

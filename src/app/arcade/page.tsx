@@ -239,6 +239,19 @@ export default function ArcadePage() {
     pushWallet()
   }, [pushWallet])
 
+  // Auto-dismiss claim banner so it doesn’t sit over the game forever
+  useEffect(() => {
+    if (!status && !error && !lastTx) return
+    if (claimBusy) return
+    const ms = error ? 7000 : 4500
+    const t = window.setTimeout(() => {
+      setStatus(null)
+      setError(null)
+      setLastTx(null)
+    }, ms)
+    return () => window.clearTimeout(t)
+  }, [status, error, lastTx, claimBusy])
+
   return (
     /*
      * Full-viewport shell: only site Header + network banner stay above the
@@ -273,10 +286,16 @@ export default function ArcadePage() {
       </div>
 
       <div className="flex-1 min-h-0 bg-slate-950 relative">
-        {/* Claim status floats over the game only when active — never a pinned page section */}
+        {/* Claim status toast — auto-dismisses after success/error */}
         {(status || error || lastTx || claimBusy) && (
           <div className="absolute top-2 left-2 right-2 z-10 pointer-events-none">
-            <div className="mx-auto max-w-xl rounded-lg border border-slate-700/80 bg-slate-950/90 px-3 py-2 shadow-lg space-y-0.5">
+            <div
+              className={`mx-auto max-w-xl rounded-lg border border-slate-700/80 bg-slate-950/90 px-3 py-2 shadow-lg space-y-0.5 ${
+                !claimBusy && (status || error || lastTx)
+                  ? 'arcade-claim-toast'
+                  : ''
+              }`}
+            >
               {status && <p className="text-xs text-emerald-400">{status}</p>}
               {error && <p className="text-xs text-red-400">{error}</p>}
               {lastTx && (
