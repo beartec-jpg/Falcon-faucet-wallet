@@ -38,22 +38,29 @@ const nextConfig = {
     ]) connectOrigins.add(url)
 
     // Arcade iframe origin (Game Faucet host).
-    // CSP is baked at build time — always allow the known production arcade
-    // plus any operator-configured URL so embeds work without a rebuild surprise.
-    const arcadeOrigins = new Set([
-      'https://falcon-arcade-lake.vercel.app',
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      'http://localhost:4173',
-      'http://127.0.0.1:4173',
-    ])
+    // Production: no localhost in CSP. Preview/dev: allow local Vite.
+    const isProdBuild = process.env.VERCEL_ENV === 'production'
+    const arcadeOrigins = new Set(['https://falcon-arcade-lake.vercel.app'])
+    if (!isProdBuild) {
+      arcadeOrigins.add('http://localhost:5173')
+      arcadeOrigins.add('http://127.0.0.1:5173')
+      arcadeOrigins.add('http://localhost:4173')
+      arcadeOrigins.add('http://127.0.0.1:4173')
+    }
     for (const envVar of [
       process.env.NEXT_PUBLIC_ARCADE_URL,
       process.env.ARCADE_URL,
     ]) {
       if (!envVar) continue
       try {
-        arcadeOrigins.add(new URL(envVar).origin)
+        const o = new URL(envVar).origin
+        if (
+          isProdBuild &&
+          (o.includes('localhost') || o.includes('127.0.0.1'))
+        ) {
+          continue
+        }
+        arcadeOrigins.add(o)
       } catch {
         /* ignore */
       }

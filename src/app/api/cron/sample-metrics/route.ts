@@ -1,18 +1,35 @@
 // Vercel cron — sample network metrics every 5 min into shared Redis (24h retention).
 
 import { NextRequest, NextResponse } from 'next/server'
-import { appendMetricSamples, getAllStoredSeries, mergeIntoStore, pruneMetricSamples } from '@/lib/metric-store'
+import {
+  appendMetricSamples,
+  getAllStoredSeries,
+  mergeIntoStore,
+  pruneMetricSamples,
+} from '@/lib/metric-store'
 import { collectNetworkMetrics, ledgerMetricBackfill } from '@/lib/scan-metrics'
+import {
+  bearerToken,
+  isProductionRuntime,
+  timingSafeEqualString,
+} from '@/lib/security'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (secret) {
-    const auth = req.headers.get('authorization')
-    if (auth !== `Bearer ${secret}`) {
+  const secret = process.env.CRON_SECRET?.trim()
+  if (!secret) {
+    if (isProductionRuntime()) {
+      return NextResponse.json(
+        { error: 'CRON_SECRET not configured' },
+        { status: 503 },
+      )
+    }
+  } else {
+    const auth = bearerToken(req)
+    if (!auth || !timingSafeEqualString(auth, secret)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
   }
@@ -38,6 +55,7 @@ export async function GET(req: NextRequest) {
       pruned,
     })
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 503 })
+    console.error('[cron/sample-metrics]', e)
+    return NextResponse.json({ error: 'Metrics sample failed' }, { status: 503 })
   }
 }

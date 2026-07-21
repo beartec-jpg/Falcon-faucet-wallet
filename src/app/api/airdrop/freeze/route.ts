@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSql, isDbConfigured } from '@/lib/db'
 import { recomputeAllocations } from '@/lib/airdrop-snapshot'
 import { requireAirdropScoringNetwork } from '@/lib/airdrop-network'
+import { bearerToken, timingSafeEqualString } from '@/lib/security'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -17,8 +18,8 @@ export const dynamic = 'force-dynamic'
 function authorized(req: NextRequest): boolean {
   const token = process.env.AIRDROP_ADMIN_TOKEN?.trim()
   if (!token) return false
-  const h = req.headers.get('authorization') ?? ''
-  return h === `Bearer ${token}` || h === token
+  const auth = bearerToken(req)
+  return !!auth && timingSafeEqualString(auth, token)
 }
 
 export async function POST(req: NextRequest) {

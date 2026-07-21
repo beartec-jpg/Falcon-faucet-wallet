@@ -346,6 +346,175 @@ export async function peekGameClaimQuota(opts: {
   }
 }
 
+const memReservations = new Map<
+  string,
+  { network: string; address: string; game: string; day: string }
+>()
+
+/**
+ * Reserve a claim slot before paying (re-checks quota at insert time).
+ * Prevents concurrent double-claims past daily caps.
+ */
+export async function reserveGameClaim(opts: {
+  network: string
+  address: string
+  game: string
+  scoreAtClaim: number
+  dayUtc?: string
+}): Promise<
+  | { ok: true; reservationId: string; quota: GameClaimQuota }
+  | { ok: false; reason: GameClaimQuota['reason']; quota: GameClaimQuota }
+> {
+  const day = opts.dayUtc ?? arcadeUtcDay()
+  const address = opts.address.trim()
+  const reservationId = `reserved:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`
+
+  const quota = await peekGameClaimQuota({
+    network: opts.network,
+    address,
+    game: opts.game,
+    dayUtc: day,
+  })
+  if (!quota.ok) {
+    return { ok: false, reason: quota.reason, quota }
+  }
+
+  if (isDbConfigured()) {
+    try {
+      await ensureTables()
+      const sql = getSql()
+      // Re-count inside a short critical section: insert only if still under caps.
+      const gameRows = await sql`
+        SELECT COUNT(*)::int AS c FROM arcade_claims
+        WHERE network = ${opts.network}
+          AND address = ${address}
+          AND game = ${opts.game}
+          AND day_utc = ${day}::date
+      `
+      const totalRows = await sql`
+        SELECT COUNT(*)::int AS c FROM arcade_claims
+        WHERE network = ${opts.network}
+          AND address = ${address}
+          AND day_utc = ${day}::date
+      `
+      const gameCount = Number(gameRows[0]?.c ?? 0)
+      const totalCount = Number(totalRows[0]?.c ?? 0)
+      if (gameCount >= GAME_CLAIMS_PER_GAME_PER_DAY) {
+        return {
+          ok: false,
+          reason: 'game_claimed',
+          quota: { ...quota, ok: false, reason: 'game_claimed', remainingGame: 0 },
+        }
+      }
+      if (totalCount >= GAME_CLAIMS_TOTAL_PER_DAY) {
+        return {
+          ok: false,
+          reason: 'daily_game_cap',
+          quota: { ...quota, ok: false, reason: 'daily_game_cap', remainingTotal: 0 },
+        }
+      }
+      await sql`
+        INSERT INTO arcade_claims (
+          network, address, game, day_utc, score_at_claim, amount_qxrp, tx_hash
+        ) VALUES (
+          ${opts.network},
+          ${address},
+          ${opts.game},
+          ${day}::date,
+          ${opts.scoreAtClaim},
+          ${0},
+          ${reservationId}
+        )
+      `
+      return { ok: true, reservationId, quota }
+    } catch (e) {
+      console.warn('[arcade-store] reserve claim db failed:', e)
+    }
+  }
+
+  // Memory path: re-check then bump
+  const k = claimKey(opts.network, address, opts.game, day)
+  const thisGame = memClaims.get(k) ?? 0
+  let total = 0
+  for (const g of GAME_SLUGS) {
+    total += memClaims.get(claimKey(opts.network, address, g, day)) ?? 0
+  }
+  if (thisGame >= GAME_CLAIMS_PER_GAME_PER_DAY) {
+    return {
+      ok: false,
+      reason: 'game_claimed',
+      quota: { ...quota, ok: false, reason: 'game_claimed' },
+    }
+  }
+  if (total >= GAME_CLAIMS_TOTAL_PER_DAY) {
+    return {
+      ok: false,
+      reason: 'daily_game_cap',
+      quota: { ...quota, ok: false, reason: 'daily_game_cap' },
+    }
+  }
+  memClaims.set(k, thisGame + 1)
+  memReservations.set(reservationId, {
+    network: opts.network,
+    address,
+    game: opts.game,
+    day,
+  })
+  return { ok: true, reservationId, quota }
+}
+
+/** Finalize a reserved claim after successful payment. */
+export async function finalizeGameClaim(opts: {
+  reservationId: string
+  amountQxrp: number
+  txHash: string
+  scoreAtClaim: number
+}): Promise<void> {
+  if (isDbConfigured()) {
+    try {
+      await ensureTables()
+      const sql = getSql()
+      await sql`
+        UPDATE arcade_claims
+        SET amount_qxrp = ${opts.amountQxrp},
+            tx_hash = ${opts.txHash},
+            score_at_claim = ${opts.scoreAtClaim}
+        WHERE tx_hash = ${opts.reservationId}
+      `
+      return
+    } catch (e) {
+      console.warn('[arcade-store] finalize claim db failed:', e)
+    }
+  }
+  memReservations.delete(opts.reservationId)
+  console.info(
+    '[arcade-claim]',
+    JSON.stringify({ ...opts, ts: new Date().toISOString() }),
+  )
+}
+
+/** Drop a reservation if payment failed (frees the slot). */
+export async function releaseGameClaim(reservationId: string): Promise<void> {
+  if (isDbConfigured()) {
+    try {
+      await ensureTables()
+      const sql = getSql()
+      await sql`
+        DELETE FROM arcade_claims WHERE tx_hash = ${reservationId}
+      `
+    } catch (e) {
+      console.warn('[arcade-store] release claim db failed:', e)
+    }
+  }
+  const meta = memReservations.get(reservationId)
+  if (meta) {
+    const k = claimKey(meta.network, meta.address, meta.game, meta.day)
+    const n = memClaims.get(k) ?? 0
+    if (n > 0) memClaims.set(k, n - 1)
+    memReservations.delete(reservationId)
+  }
+}
+
 export async function logGameClaim(opts: {
   network: string
   address: string
@@ -387,4 +556,36 @@ export async function logGameClaim(opts: {
     '[arcade-claim]',
     JSON.stringify({ ...opts, dayUtc: day, ts: new Date().toISOString() }),
   )
+}
+
+/** Max successful game claims across ALL addresses per network per UTC day (0 = unlimited). */
+export const GAME_GLOBAL_CLAIMS_PER_DAY = parseInt(
+  process.env.GAME_GLOBAL_CLAIMS_PER_DAY ?? '500',
+  10,
+)
+
+export async function countGlobalGameClaimsToday(
+  network: string,
+  dayUtc?: string,
+): Promise<number> {
+  const day = dayUtc ?? arcadeUtcDay()
+  if (GAME_GLOBAL_CLAIMS_PER_DAY <= 0) return 0
+  if (isDbConfigured()) {
+    try {
+      await ensureTables()
+      const sql = getSql()
+      const rows = await sql`
+        SELECT COUNT(*)::int AS c FROM arcade_claims
+        WHERE network = ${network}
+          AND day_utc = ${day}::date
+          AND tx_hash NOT LIKE 'reserved:%'
+      `
+      return Number(rows[0]?.c ?? 0)
+    } catch (e) {
+      console.warn('[arcade-store] global count failed:', e)
+    }
+  }
+  let total = 0
+  for (const [, n] of memClaims) total += n
+  return total
 }

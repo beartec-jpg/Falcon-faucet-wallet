@@ -1,21 +1,18 @@
 // DEPRECATED: client wallet generates Falcon keys in-browser via WASM.
+// Unauthenticated secret minting is disabled (fail closed).
+
 import { NextResponse } from 'next/server'
-import { proxyWalletPropose } from '@/lib/signer-proxy'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function POST() {
-  try {
-    const wallet = await proxyWalletPropose('falcon512')
-    return NextResponse.json({
-      address:       wallet.account_id,
-      publicKey:     wallet.public_key,
-      keyType:       wallet.key_type,
-      falcon_secret: wallet.falcon_secret,
-    })
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Wallet creation failed'
-    return NextResponse.json({ error: msg }, { status: 502 })
-  }
+  return NextResponse.json(
+    {
+      error:
+        'Server-side wallet propose is disabled. Create wallets in-browser (WASM); never request falcon_secret from the API.',
+      code: 'PROPOSE_DISABLED',
+    },
+    { status: 410 },
+  )
 }

@@ -19,16 +19,13 @@ import {
   serverRpcCall,
   serverSignerProxy,
 } from '@/lib/network-server'
+import { clientIp } from '@/lib/security'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 function ip(req: NextRequest): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    req.headers.get('x-real-ip') ??
-    'unknown'
-  )
+  return clientIp(req)
 }
 
 function err(msg: string, status = 400, extra?: Record<string, unknown>) {
@@ -60,10 +57,10 @@ export async function POST(req: NextRequest) {
 
   const clientIp = ip(req)
   const ratePrefix = `${networkKey}:`
-  // Testnet: no daily/cooldown caps (people actively testing). Mainnet keeps quotas.
+  // Explicit opt-in only — default false so public deploys are rate-limited.
   const unlimitedTestnet =
     networkKey === 'testnet' &&
-    (process.env.TESTNET_FAUCET_UNLIMITED ?? 'true').toLowerCase() !== 'false'
+    process.env.TESTNET_FAUCET_UNLIMITED?.toLowerCase() === 'true'
 
   const unlimitedOk = {
     success: true as const,

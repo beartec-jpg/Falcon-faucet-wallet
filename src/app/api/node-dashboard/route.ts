@@ -139,7 +139,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid host' }, { status: 400 })
   }
 
-  if (ALLOWED_DASHBOARD_HOSTS.length > 0 && !ALLOWED_DASHBOARD_HOSTS.includes(host)) {
+  // Production: require explicit allow-list (SSRF defence)
+  if (
+    (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') &&
+    ALLOWED_DASHBOARD_HOSTS.length === 0
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          'Dashboard proxy disabled: set ALLOWED_DASHBOARD_HOSTS to an explicit allow-list.',
+      },
+      { status: 503 },
+    )
+  }
+
+  if (
+    ALLOWED_DASHBOARD_HOSTS.length > 0 &&
+    !ALLOWED_DASHBOARD_HOSTS.includes(host)
+  ) {
     return NextResponse.json({ error: 'Host not allowed' }, { status: 403 })
   }
 

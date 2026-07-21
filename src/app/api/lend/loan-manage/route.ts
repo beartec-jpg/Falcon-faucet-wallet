@@ -1,31 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isOriginAllowed } from '@/lib/origin'
 import { brokerSecret, signAndSubmitLoanManage } from '@/lib/lend-broker-server'
 import type { LoanManageAction } from '@/lib/lend-loan-manage'
 import { resolveNetworkKey } from '@/lib/network-server'
+import { bearerToken, timingSafeEqualString } from '@/lib/security'
 
 const ACTIONS = new Set<LoanManageAction>(['impair', 'unimpair', 'default'])
 
 /**
  * Testnet broker owner submits LoanManage (impair / unimpair / default).
- * Used by the HF monitor daemon and ops tooling — not end-user borrowers.
+ * Daemon-only: requires LEND_HF_MONITOR_TOKEN. Browser origin path removed.
  */
 export async function POST(req: NextRequest) {
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
   const daemonToken = process.env.LEND_HF_MONITOR_TOKEN?.trim()
-  const auth = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') ?? ''
-  const isDaemon = !!daemonToken && auth === daemonToken
+  if (!daemonToken) {
+    return NextResponse.json(
+      {
+        error:
+          'LoanManage disabled: set LEND_HF_MONITOR_TOKEN (daemon bearer required).',
+        code: 'LOAN_MANAGE_TOKEN_REQUIRED',
+      },
+      { status: 503 },
+    )
+  }
 
-  if (!isDaemon && !isOriginAllowed(req)) {
-    return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
+  const auth = bearerToken(req)
+  if (!auth || !timingSafeEqualString(auth, daemonToken)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   if (networkKey !== 'testnet') {
-    return NextResponse.json({ error: 'LoanManage only available on testnet' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'LoanManage only available on testnet' },
+      { status: 400 },
+    )
   }
   if (!brokerSecret()) {
     return NextResponse.json(
-      { error: 'Broker secret not configured (TESTNET_LENDING_BROKER_SECRET)' },
+      { error: 'Broker secret not configured' },
       { status: 503 },
     )
   }
@@ -50,9 +62,7 @@ export async function POST(req: NextRequest) {
     const out = await signAndSubmitLoanManage(networkKey, loanId, action)
     return NextResponse.json(out, { status: out.success ? 200 : 422 })
   } catch (e: unknown) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : 'LoanManage failed' },
-      { status: 502 },
-    )
+    console.error('[loan-manage]', e instanceof Error ? e.message : e)
+    return NextResponse.json({ error: 'LoanManage failed' }, { status: 502 })
   }
 }

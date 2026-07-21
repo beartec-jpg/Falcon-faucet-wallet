@@ -7,20 +7,52 @@ import { resolveNetworkKey } from '@/lib/network-server'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+function buildAllowSet(): Set<string> {
+  const set = new Set<string>([
+    'https://falcon-ledger.com',
+    'https://www.falcon-ledger.com',
+    'https://falcon-arcade-lake.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+  ])
+  for (const envVar of [
+    process.env.NEXT_PUBLIC_ARCADE_URL,
+    process.env.ALLOWED_ORIGINS,
+  ]) {
+    if (!envVar) continue
+    for (const part of envVar.split(',')) {
+      const t = part.trim()
+      if (!t) continue
+      try {
+        set.add(new URL(t).origin)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return set
+}
+
+const EXACT_ALLOW = buildAllowSet()
+
 function corsHeaders(req: NextRequest): HeadersInit {
   const origin = req.headers.get('origin')
-  // Public read API — allow arcade iframe host + same-site
-  const allow =
+  let allow = 'https://falcon-ledger.com'
+  if (origin && EXACT_ALLOW.has(origin)) {
+    allow = origin
+  } else if (
     origin &&
-    (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
-      origin.includes('vercel.app') ||
-      origin.includes('falcon'))
-      ? origin
-      : '*'
+    /^https:\/\/falconledger[\w-]*\.vercel\.app$/.test(origin)
+  ) {
+    allow = origin
+  }
   return {
     'Access-Control-Allow-Origin': allow,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
+    Vary: 'Origin',
   }
 }
 

@@ -96,6 +96,19 @@ export function resolveFaucet(networkKey: NetworkKey): FaucetCredentials | null 
   return { account, secret, dripAmountQxrp: drip }
 }
 
+const IS_PRODUCTION = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
+const ALLOW_INSECURE_TRANSPORT = process.env.ALLOW_INSECURE_TRANSPORT === 'true'
+
+function assertSecureRpcUrl(url: string, method: string): void {
+  if (!IS_PRODUCTION || ALLOW_INSECURE_TRANSPORT) return
+  if (url.startsWith('http://')) {
+    // submit (and all methods in prod) must not travel plaintext when signed blobs may be involved
+    throw new Error(
+      `Refusing RPC ${method} over plaintext HTTP in production. Use https:// or set ALLOW_INSECURE_TRANSPORT=true on a trusted network only.`,
+    )
+  }
+}
+
 export async function serverRpcCall<T>(
   networkKey: NetworkKey,
   method: string,
@@ -105,6 +118,11 @@ export async function serverRpcCall<T>(
   const url = serverRpcUrl(networkKey)
   if (!url || url.includes('YOUR_NODE')) {
     throw new Error(`RPC not configured for ${networkKey}`)
+  }
+
+  // Always enforce TLS for submit; also block other methods in production over http.
+  if (method === 'submit' || IS_PRODUCTION) {
+    assertSecureRpcUrl(url, method)
   }
 
   const res = await fetch(url, {

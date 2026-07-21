@@ -209,6 +209,13 @@ export default function ArcadePage() {
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== ARCADE_ORIGIN) return
+      // Only accept messages from our arcade iframe, not other windows
+      if (
+        iframeRef.current?.contentWindow &&
+        event.source !== iframeRef.current.contentWindow
+      ) {
+        return
+      }
       if (!isArcadeOutbound(event.data)) return
 
       if (event.data.type === 'GAME_READY') {

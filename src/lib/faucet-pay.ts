@@ -110,11 +110,11 @@ export async function sendFaucetDrip(opts: {
   } catch (e) {
     const msg = String(e instanceof Error ? e.message : e)
     console.error('Signing error:', msg)
+    // Never surface signer/config hints to clients
     return {
       ok: false,
       error: 'Transaction signing failed',
       status: 500,
-      extra: { detail: msg.slice(0, 200) },
     }
   }
 
@@ -139,9 +139,10 @@ export async function sendFaucetDrip(opts: {
   }
 
   if (engineResult !== 'tesSUCCESS') {
+    console.error('[faucet-pay] rejected', engineResult, engineMsg)
     return {
       ok: false,
-      error: `Transaction rejected: ${engineResult} — ${engineMsg}`,
+      error: 'Transaction rejected by the network. Try again shortly.',
       status: 422,
     }
   }
