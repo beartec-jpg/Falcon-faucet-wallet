@@ -52,7 +52,7 @@ export const WHITEPAPER_SECTIONS: { id: string; title: string; body: string }[] 
 
 **Falcon signatures, everywhere, from genesis.** Falcon-512 lattice signatures are the standard signature scheme for validator identities and all transactions, built in at the protocol level from genesis — not retrofitted later. Every wallet is created with Falcon keys, every transaction is signed and verified with Falcon. This chain is built to be secure in 2026 and in 2046.
 
-**Fixed supply.** 200 billion qXRP. Hard cap. No exceptions. 98% of the supply is locked in a protocol treasury with no private key. It is released only by on-chain consensus rules — one epoch at a time, according to a declining CID emission schedule, to validators and lending/AMM liquidity providers who participate in the network. Validators get paid for doing the work under **fluid, EMA-smoothed scoring** and an ActiveSet of the top 32. Fees burn. The supply shrinks. No company can dump on you, and no foundation decides who gets a grant.
+**Fixed supply.** 200 billion qXRP. Hard cap. No exceptions. 98% of the supply is locked in a protocol treasury with no private key. It is released only by on-chain consensus rules — one epoch at a time, according to a declining CID emission schedule, to validators and lending/AMM liquidity providers who participate in the network. **Every bonded validator** who earns a composite score is paid a **percentage of the validator pot proportional to that score** (EMA-smoothed performance). Fees burn. The supply shrinks. No company can dump on you, and no foundation decides who gets a grant.
 
 **No exchange required.** Falcon Ledger ships with a built-in DEX and AMM. The launch target is an in-wallet experience — faucet, wallet, and swaps — that lets a validator convert qXRP rewards to USDC and USDT on-chain from day one of mainnet, with no centralized exchange in the loop.
 
@@ -129,7 +129,7 @@ The consensus model is unchanged. RPCA stays. Finality stays sub-second. Fees st
 | Epoch length | 172,800 ledgers (~7 days) — first reward epoch at ledger 172,800 |
 | Validator quorum | 5 of 6 validators |
 
-**Protocol (live / freeze-ready):** Falcon-512 account creation and transaction signing; Falcon validator consensus (\`validation_falcon_secret\`, Falcon hex UNL; classical \`node_seed\` banned); validator register/bond/unbond; CID epoch emission (first unlock epoch 8); **fluid composite scoring** (relative latency, EMA smooth, ActiveSet K=32); ClaimReward / ClaimLPReward; double-sign slashing; on-chain governance; AMM; **SingleAssetVault**, **LendingProtocol**, **LendingCollateral**, **LendingPermissionless**; **AccountNames** (\`NameSet\` / \`NameUnbond\` / \`NameRelease\`) on mainnet freeze pin.
+**Protocol (live / freeze-ready):** Falcon-512 account creation and transaction signing; Falcon validator consensus (\`validation_falcon_secret\`, Falcon hex UNL; classical \`node_seed\` banned); validator register/bond/unbond; CID epoch emission (first unlock epoch 8); **fluid composite scoring** (relative latency, EMA smooth; **all bonded paid ∝ score**); ClaimReward / ClaimLPReward; double-sign slashing; on-chain governance; AMM; **SingleAssetVault**, **LendingProtocol**, **LendingCollateral**, **LendingPermissionless**; **AccountNames** (\`NameSet\` / \`NameUnbond\` / \`NameRelease\`) on mainnet freeze pin.
 
 **Portal (live):** Passkey wallet, FALCON + F-USDC P2P (QR scan), instant AMM swap, DEX limit orders, FALCON/F-USDC liquidity pool, Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet; multi-sig lock proven on Sepolia 2-of-3; **F-USDC trust line required on Bridge tab before Bridge In**), **lending** (supply, borrow, repay, withdraw, claim rewards at \`/lend\`), explorer, rewards, and validator onboarding.
 
@@ -172,7 +172,7 @@ There is no hybrid mode for consensus, accounts, or peer identity — the protoc
 
 **Emission (CID model):** Continuous Inflationary Decline — per-epoch rate declines smoothly (no multi-year halving steps). Year-1 average ≈ 12% of remaining treasury; year-5 ≈ 4.5%; long-term floor ≈ 1.5%/year (~3 bps per epoch). Bootstrap: epochs **1–7** schedule zero claimable emission; first unlock at **epoch 8**.
 
-**PoPL split:** Validators, lending vault LPs, and AMM LPs share each epoch's emission. LP allocation is **participation-based** (distinct active providers add allocation, capped); validators receive the remainder proportional to ActiveSet composite scores. Vault LP shares are proportional to MPT holdings.
+**PoPL split:** Validators, lending vault LPs, and AMM LPs share each epoch's emission. LP allocation is **participation-based** (distinct active providers add allocation, capped); **validators receive the remainder proportional to each bonded validator's composite score** (\`pay = pot × score / sum(scores)\`). Vault LP shares are proportional to MPT holdings.
 
 **Fees:** 40%–70% burned; remainder to active validators. Burn fraction adjusts from on-chain treasury fill and fee volume signals.`,
   },
@@ -195,10 +195,16 @@ composite = EMA(rawSlashed, previous)   // 35% new window / 65% history
 | Consistency | 10% | Penalizes max consecutive absence streak |
 | Slash multiplier | after blend | Multiplicative; then EMA with prior composite |
 
-**ActiveSet(K=32):** After scoring, only the top 32 bonded validators by composite keep reward weight and contribute to \`sfAggregateCompositeScore\`. Others retain diagnostic component scores but are not reward-eligible until they re-enter the top K.
+**Pay ∝ score (all bonded):** Every bonded validator is scored from observed full validations (including joiners not yet on the bootstrap UNL when their validations are relayed). There is **no top-K wipe** — composites stay on all bonds. Aggregate score is the sum of composites. Each epoch:
+
+\`\`\`
+your_share = validator_pot × your_composite / sum(all_composites)
+\`\`\`
+
+Better score → larger % of the pot; idle/low scores earn little or nothing below the floor. **UNL** (who closes ledgers) is separate from pay — bootstrap UNL is operator-published; open/rotating UNL is a future amendment.
 
 - **Minimum bond:** 1,000 qXRP
-- **Minimum score for rewards:** 5% composite (within ActiveSet)
+- **Minimum score for rewards:** 5% composite (\`kMIN_COMPOSITE_SCORE_BPS\`)
 - **Unbonding:** ~30 days (262,800 ledgers at mainnet cadence)
 - **Claiming:** Pull-based via \`ClaimReward\` each epoch (pool hard-capped)
 - **Cadence:** re-scored every flag interval (256 ledgers)
@@ -258,7 +264,7 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
 |--|-----|---------------|
 | Supply control | Ripple controls ~40–44B (escrow + operational) | Protocol treasury, no private key |
 | Validator rewards | None | Paid every epoch on-chain |
-| Scoring | N/A | Fluid EMA + ActiveSet(K=32); relative latency |
+| Scoring | N/A | Fluid EMA; all bonded paid ∝ score |
 | Transaction crypto | ed25519/secp256k1 | Falcon-512 |
 | Validator consensus crypto | ed25519/secp256k1 | Falcon-512 |
 | P2P identity | Classical seeds | Falcon-only (\`node_seed\` banned) |
@@ -276,7 +282,7 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
 - Direct fork of XRPL reference implementation (replay-protected)
 - Falcon-512 for accounts, consensus, and P2P (\`node_seed\` banned)
 - Protocol treasury, CID epoch emission (first unlock epoch 8), PoPL LP/AMM split
-- Fluid composite scoring: relative latency, EMA (35/65), ActiveSet(K=32)
+- Fluid composite scoring: relative latency, EMA (35/65); all bonded paid ∝ score
 - Validator register, bond, unbond, ClaimReward / ClaimLPReward / ClaimAmmLpReward
 - Double-sign slashing (100% bond pure burn; re-proven on dress rehearsal)
 - Account Names — \`NameSet\` / \`NameUnbond\` / \`NameRelease\` (freeze-pin smoke PASS)
@@ -321,7 +327,7 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
 | Total supply | 200,000,000,000 qXRP |
 | Treasury | 196B qXRP (98%), no private key |
 | Emission | CID continuous decline; first unlock epoch 8 |
-| Scoring | Fluid EMA (35/65) + ActiveSet K=32; relative latency |
+| Scoring | Fluid EMA (35/65); all bonded paid ∝ score; relative latency |
 | Min validator bond | 1,000 qXRP |
 | Account name bond | 100 qXRP; 1/account; 1-epoch release cooldown |
 | Governance threshold | 67% aggregate composite score |
