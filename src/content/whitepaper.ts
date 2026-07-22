@@ -2,7 +2,7 @@
 
 import { LENDING_REPORT_SECTIONS } from '@/content/lending-report'
 
-export const WHITEPAPER_VERSION = '2.5'
+export const WHITEPAPER_VERSION = '2.6'
 export const WHITEPAPER_DATE = 'July 2026'
 
 export interface WhitepaperDownload {
@@ -52,9 +52,11 @@ export const WHITEPAPER_SECTIONS: { id: string; title: string; body: string }[] 
 
 **Falcon signatures, everywhere, from genesis.** Falcon-512 lattice signatures are the standard signature scheme for validator identities and all transactions, built in at the protocol level from genesis — not retrofitted later. Every wallet is created with Falcon keys, every transaction is signed and verified with Falcon. This chain is built to be secure in 2026 and in 2046.
 
-**Fixed supply.** 200 billion qXRP. Hard cap. No exceptions. 98% of the supply is locked in a protocol treasury with no private key. It is released only by on-chain consensus rules — one epoch at a time, according to a declining CID emission schedule, to validators and lending vault providers who participate in the network. Validators get paid for doing the work. Fees burn. The supply shrinks. No company can dump on you, and no foundation decides who gets a grant.
+**Fixed supply.** 200 billion qXRP. Hard cap. No exceptions. 98% of the supply is locked in a protocol treasury with no private key. It is released only by on-chain consensus rules — one epoch at a time, according to a declining CID emission schedule, to validators and lending/AMM liquidity providers who participate in the network. Validators get paid for doing the work under **fluid, EMA-smoothed scoring** and an ActiveSet of the top 32. Fees burn. The supply shrinks. No company can dump on you, and no foundation decides who gets a grant.
 
-**No exchange required.** Falcon Ledger ships with a built-in DEX and AMM. The launch target is an in-wallet experience — faucet, wallet, and swaps — that lets a validator convert qXRP rewards to USDC and USDT on-chain from day one of mainnet, with no centralized exchange in the loop.`,
+**No exchange required.** Falcon Ledger ships with a built-in DEX and AMM. The launch target is an in-wallet experience — faucet, wallet, and swaps — that lets a validator convert qXRP rewards to USDC and USDT on-chain from day one of mainnet, with no centralized exchange in the loop.
+
+**Human names, still self-custody.** Optional on-ledger Account Names map a readable handle (e.g. \`alice.bob\`) to an \`r…\` address with a 100 qXRP bond — payments always settle to the cryptographic address.`,
   },
   {
     id: 'problem',
@@ -103,11 +105,12 @@ Even where a chain pays participants, realizing that value usually means moving 
 | Layer | What Falcon Ledger Changes |
 |-------|---------------------------|
 | Supply | Protocol treasury replaces company wallet |
-| Incentives | Validators earn rewards every epoch |
+| Incentives | Validators earn rewards every epoch (CID + fluid scoring) |
 | Cryptography | Falcon-512 as the standard signature scheme for all keys and transactions |
 | Governance | Bonded validator supermajority on-chain |
 | Fees | Burn + validator split, no dead-end fee destruction |
 | Liquidity | Built-in DEX/AMM for in-wallet qXRP↔USDC/USDT swaps |
+| Identity UX | Optional Account Names (\`alice.bob\` → \`r…\`) with bonded claim |
 
 The consensus model is unchanged. RPCA stays. Finality stays sub-second. Fees stay low. The economic and cryptographic layers are replaced entirely.`,
   },
@@ -126,9 +129,9 @@ The consensus model is unchanged. RPCA stays. Finality stays sub-second. Fees st
 | Epoch length | 172,800 ledgers (~7 days) — first reward epoch at ledger 172,800 |
 | Validator quorum | 5 of 6 validators |
 
-**Protocol (live):** Falcon-512 account creation and transaction signing; Falcon validator consensus (\`validation_falcon_secret\`, Falcon hex UNL); validator register/bond/unbond; CID epoch emission; composite scoring; ClaimReward; double-sign slashing; on-chain governance; AMM; **SingleAssetVault**, **LendingProtocol**, **LendingCollateral**, and **LendingPermissionless** (fleet rollout) amendments.
+**Protocol (live / freeze-ready):** Falcon-512 account creation and transaction signing; Falcon validator consensus (\`validation_falcon_secret\`, Falcon hex UNL; classical \`node_seed\` banned); validator register/bond/unbond; CID epoch emission (first unlock epoch 8); **fluid composite scoring** (relative latency, EMA smooth, ActiveSet K=32); ClaimReward / ClaimLPReward; double-sign slashing; on-chain governance; AMM; **SingleAssetVault**, **LendingProtocol**, **LendingCollateral**, **LendingPermissionless**; **AccountNames** (\`NameSet\` / \`NameUnbond\` / \`NameRelease\`) on mainnet freeze pin.
 
-**Portal (live):** Passkey wallet, FALCON + F-USDC P2P (QR scan), instant AMM swap, DEX limit orders, FALCON/F-USDC liquidity pool, Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet; **F-USDC trust line required on Bridge tab before Bridge In**), **lending** (supply, borrow, repay, withdraw, claim rewards at \`/lend\`), explorer, rewards, and validator onboarding.
+**Portal (live):** Passkey wallet, FALCON + F-USDC P2P (QR scan), instant AMM swap, DEX limit orders, FALCON/F-USDC liquidity pool, Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet; multi-sig lock proven on Sepolia 2-of-3; **F-USDC trust line required on Bridge tab before Bridge In**), **lending** (supply, borrow, repay, withdraw, claim rewards at \`/lend\`), explorer, rewards, and validator onboarding.
 
 **Docs:** Current network parameters in \`public/config/testnet-stables.json\`. The bundled E2E PDF reflects a pre-genesis run; see \`docs/TESTNET-E2E-REPORT.md\` for the latest markdown report.`,
   },
@@ -147,12 +150,13 @@ Falcon Ledger does **not** use secp256k1 or ed25519 for:
 - Validator consensus proposals and validations
 - On-chain validator register/bond/claim/governance transactions
 - Trusted validator list (UNL) identity
+- **P2P overlay identity** — peer identity is Falcon (\`validation_falcon_secret\` by default, or optional separate \`node_falcon_secret\`). Classical \`node_seed\` is **disabled**; config refuses to start if present.
 
-**P2P overlay only:** Validators may configure a separate \`node_seed\` for peer-to-peer overlay identity and handshakes. This key does **not** sign consensus proposals, validations, or rewards — it is not part of validator authority or bonding.
+There is no hybrid mode for consensus, accounts, or peer identity — the protocol is Falcon-native for every security-critical path including P2P handshakes.
 
 ### 4.4 Design principles
 - Quantum resistance is a protocol requirement, not an optional feature.
-- Falcon is the only signing scheme for account and validator authority.
+- Falcon is the only signing scheme for account, validator, and P2P identity.
 - Consensus verification must never throw on malformed keys — invalid signatures return false.
 - Secret material is zeroized with \`OPENSSL_cleanse\` / \`secureErase\`.`,
   },
@@ -166,40 +170,71 @@ Falcon Ledger does **not** use secp256k1 or ed25519 for:
 | Genesis circulating | 4,000,000,000 | 2% | Bootstrap liquidity, development |
 | Protocol treasury | 196,000,000,000 | 98% | Epoch emission only |
 
-**Emission (CID model):** Per-epoch rate declines linearly from ~0.25% of treasury at epoch 1 (~12% yearly average in year 1) toward a 1.5% yearly floor around year 7. No halving resets — the rate steps down every epoch.
+**Emission (CID model):** Continuous Inflationary Decline — per-epoch rate declines smoothly (no multi-year halving steps). Year-1 average ≈ 12% of remaining treasury; year-5 ≈ 4.5%; long-term floor ≈ 1.5%/year (~3 bps per epoch). Bootstrap: epochs **1–7** schedule zero claimable emission; first unlock at **epoch 8**.
 
-**PoPL split:** Validators and lending vault LPs share each epoch's emission. LP allocation is **participation-based**: each distinct active vault depositor adds 1% to the LP basket (capped at 50 providers → 50%); validators receive the remainder. Shares within the LP basket are proportional to vault MPT holdings.
+**PoPL split:** Validators, lending vault LPs, and AMM LPs share each epoch's emission. LP allocation is **participation-based** (distinct active providers add allocation, capped); validators receive the remainder proportional to ActiveSet composite scores. Vault LP shares are proportional to MPT holdings.
 
 **Fees:** 40%–70% burned; remainder to active validators. Burn fraction adjusts from on-chain treasury fill and fee volume signals.`,
   },
   {
     id: 'pop',
     title: '6. Proof of Participation',
-    body: `Validators earn treasury emission proportional to a composite on-chain score:
+    body: `Validators earn treasury emission proportional to a **fluid, smoothed** on-chain composite. Signals are independent and continuous — not a shared flat demerit.
 
 \`\`\`
-composite = (uptime×40 + voteAccuracy×30 + latency×15 + consistency×10 + slashMultiplier×5) ÷ 100
+rawScore = (uptime×40 + voteAccuracy×30 + latency×15 + consistency×10) / 100
+rawSlashed = rawScore × slashMultiplier / 10_000
+composite = EMA(rawSlashed, previous)   // 35% new window / 65% history
 \`\`\`
+
+| Signal | Weight | Measurement (256-ledger window) |
+|--------|--------|----------------------------------|
+| Uptime | 40% | Presence: any trusted full validation / 256 |
+| Vote accuracy | 30% | Correct (canonical-hash) votes / votes cast |
+| Latency | 15% | Continuous vs **earliest correct signer** (−1 bps per 10 ms lag) |
+| Consistency | 10% | Penalizes max consecutive absence streak |
+| Slash multiplier | after blend | Multiplicative; then EMA with prior composite |
+
+**ActiveSet(K=32):** After scoring, only the top 32 bonded validators by composite keep reward weight and contribute to \`sfAggregateCompositeScore\`. Others retain diagnostic component scores but are not reward-eligible until they re-enter the top K.
 
 - **Minimum bond:** 1,000 qXRP
-- **Minimum score for rewards:** 5% composite
+- **Minimum score for rewards:** 5% composite (within ActiveSet)
 - **Unbonding:** ~30 days (262,800 ledgers at mainnet cadence)
-- **Claiming:** Pull-based via \`ClaimReward\` each epoch
+- **Claiming:** Pull-based via \`ClaimReward\` each epoch (pool hard-capped)
+- **Cadence:** re-scored every flag interval (256 ledgers)
 
-**Slashing (today):** Double-sign → 100% bond burn + forced unbond. Absence and invalid-vote offenses are defined but return \`temDISABLED\` on testnet pending further testing.
+**Slashing (today):** Double-sign → 100% bond burn + forced unbond (pure burn path; re-proven on mainnet dress rehearsal). Absence and invalid-vote offenses are defined but return \`temDISABLED\` until detection is production-ready.
 
-**Latency score:** Currently hard-floored at neutral (5,000 bps) — real latency measurement is on the roadmap.
+**Lending / AMM LPs:** Active vault and AMM providers count toward the PoPL participation basket and may claim via \`ClaimLPReward\` / \`ClaimAmmLpReward\` when allocated.`,
+  },
+  {
+    id: 'names',
+    title: '7. Account Names (Human Addresses)',
+    body: `Falcon wallets remain \`r…\` AccountIDs under Falcon-512 keys. On top of that, the protocol supports optional **Account Names** — a bonded, on-ledger map from a human-readable name to an account.
 
-**Lending vault LPs:** Active \`VaultDeposit\` providers count toward the LP participation basket and may claim LP epoch rewards via \`ClaimLPReward\` when the lending amendments are enabled.`,
+| Rule | Value |
+|------|-------|
+| Bond | **100 qXRP** locked while the name is held |
+| Ownership | **One** active or releasing name per account |
+| Claim | \`NameSet\` — name free, account funded, no existing name |
+| Release start | \`NameUnbond\` — status → releasing; name reserved to owner |
+| Cooldown | **1 epoch** (172,800 ledgers on mainnet) after unbond |
+| Finalize | \`NameRelease\` — bond returned, object deleted, name free |
+| While releasing | Name-routed resolution **rejects**; raw \`r…\` payments still work |
+| Format | Normalized lowercase ASCII (e.g. \`scott.reynolds\`, \`alice.bob\`) |
+
+Duplicate claims and second names fail with \`tecDUPLICATE\`. Releasing before the cooldown fails with \`tecTOO_SOON\`. Payments always settle to AccountIDs — names are resolve-only UX, not a separate key system.
+
+**Economics:** 100 qXRP opportunity cost while holding; unbonding frees the name after one epoch so squatters cannot lock handles forever without capital. Amendment: \`AccountNames\` (enabled on the mainnet freeze pin; private-net smoke 14/14 including NameSet/unbond).`,
   },
   {
     id: 'governance',
-    title: '7. On-Chain Governance',
+    title: '8. On-Chain Governance',
     body: `Bonded validators propose parameter changes via \`GovernanceProposal\`. Voting runs 7 days; each vote is weighted by composite score at submission. Passing requires >67% of aggregate score. Governable parameters include fee burn fraction within 40%–70% bounds. Supply cap, treasury lock, and RPCA rules are immutable.`,
   },
   {
     id: 'liquidity',
-    title: '8. Faucet, Wallet, and Built-In Liquidity',
+    title: '9. Faucet, Wallet, and Built-In Liquidity',
     body: `This portal (falcon-ledger.com) provides a full testnet financial stack:
 
 | Area | Features |
@@ -218,31 +253,38 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
   },
   {
     id: 'comparison',
-    title: '9. Falcon Ledger vs XRP',
+    title: '10. Falcon Ledger vs XRP',
     body: `| | XRP | Falcon Ledger |
 |--|-----|---------------|
 | Supply control | Ripple controls ~40–44B (escrow + operational) | Protocol treasury, no private key |
 | Validator rewards | None | Paid every epoch on-chain |
+| Scoring | N/A | Fluid EMA + ActiveSet(K=32); relative latency |
 | Transaction crypto | ed25519/secp256k1 | Falcon-512 |
-| Validator consensus crypto | ed25519/secp256k1 | Falcon-512 (live on testnet) |
+| Validator consensus crypto | ed25519/secp256k1 | Falcon-512 |
+| P2P identity | Classical seeds | Falcon-only (\`node_seed\` banned) |
+| Human addresses | None | Optional Account Names (100 qXRP bond) |
 | Lending / vault LPs | None | Participation-based LP emission share |
-| Escrow unlocks | Monthly Ripple releases | None — protocol emission only |
+| Escrow unlocks | Monthly Ripple releases | None — CID protocol emission only |
 | Governance | Off-chain / company-led | On-chain bonded supermajority |
 | Fee model | Burned only | Burn + validator share |
 | Slashing | None | Cryptographic proof on-chain |`,
   },
   {
     id: 'milestones',
-    title: '10. Milestones',
+    title: '11. Milestones',
     body: `### Completed — protocol
 - Direct fork of XRPL reference implementation (replay-protected)
-- Falcon-512 transaction signing — accounts, faucet, and wallet (verified end-to-end on testnet)
-- Protocol treasury, CID epoch emission, participation-based LP split
-- Validator register, bond, unbond, composite scoring, ClaimReward
-- Double-sign slashing (100% bond)
+- Falcon-512 for accounts, consensus, and P2P (\`node_seed\` banned)
+- Protocol treasury, CID epoch emission (first unlock epoch 8), PoPL LP/AMM split
+- Fluid composite scoring: relative latency, EMA (35/65), ActiveSet(K=32)
+- Validator register, bond, unbond, ClaimReward / ClaimLPReward / ClaimAmmLpReward
+- Double-sign slashing (100% bond pure burn; re-proven on dress rehearsal)
+- Account Names — \`NameSet\` / \`NameUnbond\` / \`NameRelease\` (freeze-pin smoke PASS)
 - On-chain governance proposals and voting
-- Drop conservation invariant
-- Sustained testnet load (850k+ payments, 71+ hours, zero consensus stalls)
+- AMM + SingleAssetVault + LendingProtocol (permissionless path)
+- USDC bridge multi-sig lock — Sepolia 2-of-3 e2e PASS; ETH mainnet redeploy pending
+- Drop conservation invariant; sustained testnet load (850k+ payments, 71+ hours)
+- Mainnet protocol freeze pin \`mainnet-v1\` @ \`1789d2fb4\` (private-net smoke 14/14)
 
 ### Completed — portal (July 2026)
 - Passkey wallet with client-side Falcon-512 signing and PWA install
@@ -250,33 +292,40 @@ Mainnet target: swap qXRP validator rewards to USDC/USDT entirely on-chain witho
 - Instant AMM swap and DEX limit orders (crossing default, post-only passive)
 - FALCON/F-USDC liquidity pool (deposit, partial withdraw)
 - Sepolia USDC ↔ F-USDC bridge (passkey EVM wallet, trust-line gate, bridge in/out, send out)
-- Lending live: \`SingleAssetVault\` + \`LendingProtocol\` + \`LendingCollateral\` + \`LendingPermissionless\`; full \`/lend\` supply/borrow/repay/claim/liquidation; duration picker + \`LoanCollateralDeposit\`; multi-loan Positions (see §12)
-- Coordinator lending E2E verified: borrow/repay, add collateral, HF liquidation; fleet on \`qxrp/xrpld:lending-v2\` (\`FALCON-LENDING-IMPLEMENTATION-REPORT.pdf\`)
-- Full Falcon validator consensus fleet upgrade (\`validation_falcon_secret\`, Falcon hex UNL)
+- Lending live: \`SingleAssetVault\` + \`LendingProtocol\` + \`LendingCollateral\` + \`LendingPermissionless\`; full \`/lend\` supply/borrow/repay/claim/liquidation; duration picker + \`LoanCollateralDeposit\`; multi-loan Positions (see lending sections below)
+- Coordinator lending E2E verified: borrow/repay, add collateral, HF liquidation (\`FALCON-LENDING-IMPLEMENTATION-REPORT.pdf\`)
+- Full Falcon validator consensus fleet (\`validation_falcon_secret\`, Falcon hex UNL)
 - Comprehensive E2E test documentation (\`docs/TESTNET-E2E-REPORT.md\`)
 
 ### In progress (July 2026)
+- Portal Account Names UX (claim / release / send-by-name)
 - Live APY from epoch emission data in lend overview
-- Latency scoring and additional slashing offenses
-- Mainnet genesis validator set and production security audit
-- Additional stablecoin pairs (USDT) and deeper testnet liquidity
-- Regenerated post-genesis E2E PDF report`,
+- Absence / invalid-vote slashing enablement (still \`temDISABLED\`)
+- Mainnet ceremony: registry image digest, genesis keys, network id **1026** go-live
+- ETH mainnet multi-sig lock with cold owners (Circle USDC)
+- Additional stablecoin pairs (USDT) and deeper liquidity
+- External audit of freeze scope`,
   },
   {
     id: 'technical',
-    title: '11. Technical Summary',
+    title: '12. Technical Summary',
     body: `| Component | Detail |
 |-----------|--------|
 | Chain name | Falcon Ledger |
 | Token | qXRP |
 | Testnet network ID | 1001 |
+| Mainnet network ID | 1026 (ceremony pack) |
 | Consensus | RPCA (XRP Ledger) |
 | Account / tx signatures | Falcon-512 |
-| Validator consensus signatures | Falcon-512 |
+| Validator / P2P signatures | Falcon-512 (\`node_seed\` refused) |
 | Total supply | 200,000,000,000 qXRP |
 | Treasury | 196B qXRP (98%), no private key |
-| Min bond | 1,000 qXRP |
+| Emission | CID continuous decline; first unlock epoch 8 |
+| Scoring | Fluid EMA (35/65) + ActiveSet K=32; relative latency |
+| Min validator bond | 1,000 qXRP |
+| Account name bond | 100 qXRP; 1/account; 1-epoch release cooldown |
 | Governance threshold | 67% aggregate composite score |
+| Freeze pin | \`qxrp/xrpld:mainnet-v1\` @ \`1789d2fb4\` |
 | liboqs pin | v0.12.0 (\`f4b96220…\`) |`,
   },
   ...LENDING_REPORT_SECTIONS,
