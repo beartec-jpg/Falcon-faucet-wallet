@@ -49,7 +49,7 @@ Sepolia testnet contract: `0x2dae31Cbf2E3a418d617081985661fCD0117b75C` (see `pub
 - **Overview** — pool utilization, AMM mid price, APY panel, risk monitor, health-factor preview
 - **Supply / Borrow / Repay** — portal-signed `VaultDeposit`, `LoanSet`, `LoanPay`, `VaultWithdraw`, and `ClaimLPReward`
 - **Positions** — multi-loan selector, on-chain collateral + health factor, repay preflight, claim estimates
-- **Liquidation** — on-chain `LoanManage` (HF breach or late payment); liquidator receives FALCON collateral; LPs remain in F-USDC vault (interest accrues via share value)
+- **Liquidation** — on-chain `LoanManage` (HF breach or late payment); **FALCON is not sold** — forfeited collateral goes to the vault **LP claim pot** (`VaultClaimCollateral`); LPs stay in F-USDC for interest via share value
 - **LP yield** — borrower interest returns as F-USDC to the vault; epoch FALCON emissions via `ClaimLPReward` (PoPL participation split)
 - **Legacy broker path** — pre-permissionless borrows still use `POST /api/lend/cosign` + broker cover (testnet only)
 
