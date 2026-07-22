@@ -28,7 +28,7 @@ Falcon Ledger lending is built on upstream **XRPL XLS-66** primitives (\`SingleA
 | Borrow / repay / claim / withdraw preflight | Yes — \`/api/lend/*-preflight\` | simulate before sign |
 | Multi-loan Positions UI | Yes — loan selector | filters paid/closed loans |
 
-**Economics:** LPs supply **F-USDC** to the vault. Borrowers pay **interest in F-USDC** via \`LoanPay\` — this increases vault \`AssetsTotal\`, so LP share value rises (no separate interest claim). Epoch **FALCON** emissions go to LPs via \`ClaimLPReward\` under the PoPL participation split. On default, the **liquidator receives FALCON collateral**; the vault books an AMM-price offset for collateral value and absorbs any residual shortfall in F-USDC accounting.
+**Economics:** LPs supply **F-USDC** to the vault. Borrowers pay **interest in F-USDC** via \`LoanPay\` — this increases vault \`AssetsTotal\`, so LP share value rises (no separate interest claim). Epoch **FALCON** emissions go to LPs via \`ClaimLPReward\` under the PoPL participation split. On default, **FALCON is not sold on the AMM** — it stays in protocol custody and accrues to the vault **LP collateral claim pot** (\`LiquidationCollateral\` / \`VaultClaimCollateral\`). The AMM is used only to **price** health factor and book an accounting offset; residual undercollateralized shortfall stays F-USDC risk on LPs.
 
 Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N\`), not bootstrap-minted supply.`,
   },
