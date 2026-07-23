@@ -123,7 +123,7 @@ export default function WhitepaperPage() {
             Version {WHITEPAPER_VERSION} · {WHITEPAPER_DATE}
           </p>
           <p className="text-brand-500 mt-3 text-sm font-medium">
-            Quantum-Resistant · Validator-Rewarding · No Company · No Escrow
+            Quantum-Resistant · Validator-Rewarding · 98% Protocol Treasury · Honest Bootstrap
           </p>
         </div>
 
