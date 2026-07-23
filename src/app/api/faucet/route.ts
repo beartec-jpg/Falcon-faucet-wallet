@@ -8,7 +8,10 @@ import {
   hashIp,
   logFaucetClaim,
   peekFaucetQuota,
+  cooldownSecondsForNetwork,
+  claimsPerDayForNetwork,
 } from '@/lib/faucet-quota'
+import { runFaucetSybilGates, consumeFaucetSybilBudgets } from '@/lib/faucet-sybil'
 import { signPayment, dropsFromQxrp } from '@/lib/xrpl-sign'
 import { isOriginAllowed } from '@/lib/origin'
 import { isValidClassicAddress } from 'ripple-address-codec'
@@ -39,10 +42,15 @@ export async function POST(req: NextRequest) {
 
   let account: string
   let networkKey = 'testnet' as ReturnType<typeof resolveNetworkKey>
+  let captchaToken: string | undefined
   try {
     const body = await req.json()
     account = (body.account ?? '').toString().trim()
     networkKey = resolveNetworkKey(body.network)
+    captchaToken =
+      (body.turnstileToken ?? body.captchaToken ?? body.cfTurnstileResponse ?? '')
+        .toString()
+        .trim() || undefined
   } catch {
     return err('Invalid JSON body')
   }
@@ -55,9 +63,25 @@ export async function POST(req: NextRequest) {
   if (!account) return err('Missing "account" field')
   if (!isValidClassicAddress(account)) return err('Invalid Falcon address')
 
+  // Anti-Sybil: captcha (if configured), UA block, subnet + global budgets,
+  // mainnet fail-closed without Redis/DB.
+  const sybil = await runFaucetSybilGates({
+    req,
+    networkKey: networkKey === 'mainnet' ? 'mainnet' : 'testnet',
+    captchaToken,
+  })
+  if (!sybil.ok) {
+    return err(sybil.error ?? 'Faucet request rejected', sybil.status ?? 403, {
+      code: sybil.code,
+    })
+  }
+
   const clientIp = ip(req)
   const ratePrefix = `${networkKey}:`
+  const dayCap = claimsPerDayForNetwork(networkKey)
+  const cooldownSec = cooldownSecondsForNetwork(networkKey)
   // Explicit opt-in only — default false so public deploys are rate-limited.
+  // Never allow unlimited on mainnet.
   const unlimitedTestnet =
     networkKey === 'testnet' &&
     process.env.TESTNET_FAUCET_UNLIMITED?.toLowerCase() === 'true'
@@ -79,8 +103,8 @@ export async function POST(req: NextRequest) {
   if (!ipLimit.success) {
     const why =
       ipLimit.reason === 'cooldown'
-        ? `Wait at least 1 hour between faucet claims (IP). Try again after ${ipLimit.cooldownEndsAt ?? ipLimit.reset}.`
-        : `Daily faucet limit reached for your IP (${ipLimit.claimsToday ?? 5}/5 today). Resets at next UTC midnight.`
+        ? `Wait at least ${Math.round(cooldownSec / 60)} minutes between faucet claims (IP). Try again after ${ipLimit.cooldownEndsAt ?? ipLimit.reset}.`
+        : `Daily faucet limit reached for your IP (${ipLimit.claimsToday ?? dayCap}/${dayCap} today). Resets at next UTC midnight.`
     return err(why, 429, {
       reset: ipLimit.reset,
       limitType: 'ip',
@@ -91,8 +115,8 @@ export async function POST(req: NextRequest) {
   if (!acctLimit.success) {
     const why =
       acctLimit.reason === 'cooldown'
-        ? `Wait at least 1 hour between faucet claims. Try again after ${acctLimit.cooldownEndsAt ?? acctLimit.reset}.`
-        : `Daily faucet limit reached for this address (${acctLimit.claimsToday ?? 5}/5 today). Come back tomorrow (UTC) for more — daily returns help airdrop score.`
+        ? `Wait at least ${Math.round(cooldownSec / 60)} minutes between faucet claims. Try again after ${acctLimit.cooldownEndsAt ?? acctLimit.reset}.`
+        : `Daily faucet limit reached for this address (${acctLimit.claimsToday ?? dayCap}/${dayCap} today). Come back tomorrow (UTC) for more — daily returns help airdrop score.`
     return err(why, 429, {
       reset: acctLimit.reset,
       limitType: 'account',
@@ -100,6 +124,18 @@ export async function POST(req: NextRequest) {
       remainingToday: acctLimit.remainingToday,
       claimsToday: acctLimit.claimsToday,
     })
+  }
+
+  if (!unlimitedTestnet) {
+    const budget = await consumeFaucetSybilBudgets({
+      networkKey: networkKey === 'mainnet' ? 'mainnet' : 'testnet',
+      ip: clientIp,
+    })
+    if (!budget.ok) {
+      return err(budget.error ?? 'Faucet budget exceeded', budget.status ?? 429, {
+        code: budget.code,
+      })
+    }
   }
 
   const faucet = resolveFaucet(networkKey)
@@ -246,7 +282,7 @@ export async function POST(req: NextRequest) {
 
   const remaining = unlimitedTestnet
     ? 999_999
-    : Math.max(0, (acctLimit.remainingToday ?? 5) - 1)
+    : Math.max(0, (acctLimit.remainingToday ?? dayCap) - 1)
   return NextResponse.json({
     txHash,
     amount: faucet.dripAmountQxrp,
@@ -255,7 +291,8 @@ export async function POST(req: NextRequest) {
     engine_result: validatedResult,
     remainingToday: remaining,
     claimsToday: unlimitedTestnet ? (acctLimit.claimsToday ?? 0) + 1 : (acctLimit.claimsToday ?? 0) + 1,
-    cooldownSeconds: unlimitedTestnet ? 0 : 3600,
+    cooldownSeconds: unlimitedTestnet ? 0 : cooldownSec,
+    dailyCap: dayCap,
     unlimited: unlimitedTestnet || undefined,
   })
 }

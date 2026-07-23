@@ -5,12 +5,34 @@
  *
  * Failed attempts do not consume quota (call only after ledger validation).
  * Every successful claim is logged for airdrop scoring (days + intensity).
+ *
+ * Anti-Sybil companions: `faucet-sybil.ts` (captcha, subnet, global budget,
+ * mainnet fail-closed without Redis/DB).
  */
 
 import { getSql, isDbConfigured } from '@/lib/db'
 
-export const FAUCET_CLAIMS_PER_DAY = parseInt(process.env.FAUCET_CLAIMS_PER_DAY ?? '5', 10)
-export const FAUCET_COOLDOWN_SECONDS = parseInt(process.env.FAUCET_COOLDOWN_SECONDS ?? '3600', 10)
+function envInt(name: string, fallback: number): number {
+  const v = process.env[name]
+  if (v === undefined || v === '') return fallback
+  const n = parseInt(v, 10)
+  return Number.isFinite(n) ? n : fallback
+}
+
+/** Per-address / per-IP daily cap. Mainnet default stricter if MAINNET_* set. */
+export const FAUCET_CLAIMS_PER_DAY = envInt('FAUCET_CLAIMS_PER_DAY', 5)
+export const FAUCET_COOLDOWN_SECONDS = envInt('FAUCET_COOLDOWN_SECONDS', 3600)
+
+/** Optional mainnet overrides (fall back to shared defaults). */
+export function claimsPerDayForNetwork(network: string): number {
+  if (network === 'mainnet') return envInt('MAINNET_FAUCET_CLAIMS_PER_DAY', FAUCET_CLAIMS_PER_DAY)
+  return FAUCET_CLAIMS_PER_DAY
+}
+
+export function cooldownSecondsForNetwork(network: string): number {
+  if (network === 'mainnet') return envInt('MAINNET_FAUCET_COOLDOWN_SECONDS', FAUCET_COOLDOWN_SECONDS)
+  return FAUCET_COOLDOWN_SECONDS
+}
 
 export interface FaucetQuotaResult {
   success: boolean
@@ -35,35 +57,45 @@ type MemEntry = {
 
 const mem = new Map<string, MemEntry>()
 
+function limitsFromKey(key: string): { dayCap: number; cooldown: number } {
+  // keys look like `mainnet:ip:…` or `testnet:acct:…`
+  const network = key.startsWith('mainnet:') ? 'mainnet' : key.startsWith('testnet:') ? 'testnet' : 'testnet'
+  return {
+    dayCap: claimsPerDayForNetwork(network),
+    cooldown: cooldownSecondsForNetwork(network),
+  }
+}
+
 function memPeek(key: string): FaucetQuotaResult {
   const now = Date.now()
   const day = utcDayKey()
+  const { dayCap, cooldown } = limitsFromKey(key)
   const e = mem.get(key)
   if (!e) {
     return {
       success: true,
       reason: 'ok',
-      remainingToday: FAUCET_CLAIMS_PER_DAY,
+      remainingToday: dayCap,
       claimsToday: 0,
     }
   }
 
   if (e.lastClaimAt > 0) {
-    const ends = e.lastClaimAt + FAUCET_COOLDOWN_SECONDS * 1000
+    const ends = e.lastClaimAt + cooldown * 1000
     if (now < ends) {
       return {
         success: false,
         reason: 'cooldown',
         cooldownEndsAt: new Date(ends).toISOString(),
         reset: new Date(ends).toISOString(),
-        remainingToday: e.day === day ? Math.max(0, FAUCET_CLAIMS_PER_DAY - e.dayCount) : FAUCET_CLAIMS_PER_DAY,
+        remainingToday: e.day === day ? Math.max(0, dayCap - e.dayCount) : dayCap,
         claimsToday: e.day === day ? e.dayCount : 0,
       }
     }
   }
 
   const claimsToday = e.day === day ? e.dayCount : 0
-  if (claimsToday >= FAUCET_CLAIMS_PER_DAY) {
+  if (claimsToday >= dayCap) {
     // next UTC midnight
     const next = new Date(`${day}T00:00:00.000Z`)
     next.setUTCDate(next.getUTCDate() + 1)
@@ -79,7 +111,7 @@ function memPeek(key: string): FaucetQuotaResult {
   return {
     success: true,
     reason: 'ok',
-    remainingToday: FAUCET_CLAIMS_PER_DAY - claimsToday,
+    remainingToday: dayCap - claimsToday,
     claimsToday,
   }
 }
@@ -147,10 +179,11 @@ async function redisPeek(key: string): Promise<FaucetQuotaResult | null> {
   }
   const e = parseState(raw)
   if (!e) {
+    const { dayCap } = limitsFromKey(key)
     return {
       success: true,
       reason: 'ok',
-      remainingToday: FAUCET_CLAIMS_PER_DAY,
+      remainingToday: dayCap,
       claimsToday: 0,
     }
   }

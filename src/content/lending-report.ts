@@ -92,7 +92,7 @@ Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78
 ### Loan lifecycle
 
 - **LoanPay** — installment must be ≥ periodic payment (principal + interest/fees). Principal-only repay → \`tecINSUFFICIENT_PAYMENT\`.
-- **LoanManage** — on permissionless loans, **any account** may \`impair\` (HF &lt; 1.1) or \`default\` (HF breach or payment past grace). Default transfers FALCON collateral to the liquidator and offsets vault loss at AMM price.
+- **LoanManage** — on permissionless loans, **any account** may \`impair\` (HF &lt; 1.1) or \`default\` (HF breach or payment past grace). Default **forfeits** the borrower's claim on locked FALCON into the vault **LP claim pot** (not an AMM dump, not a liquidator bounty). Vault books an AMM-price accounting offset for debt coverage.
 
 **Rate encoding:** 1 tenth-bip = 0.0001%; 100,000 tenth-bips = 100%.`,
   },
@@ -141,7 +141,7 @@ Positions auto-fills exact installment due and exposes **Pay full amount**. Borr
 
 **Claim LP rewards:** \`ClaimLPReward\` → FALCON from epoch emission.
 
-**Liquidation:** HF monitor (\`lend-hf-monitor.py\`) or any party calls \`LoanManage\` default → liquidator receives FALCON; vault loss offset at AMM price.`,
+**Liquidation:** HF monitor (\`lend-hf-monitor.py\`) or any party calls \`LoanManage\` default → FALCON remains in the **collateral pot** for LPs (\`VaultClaimCollateral\`); **no forced sell**. AMM price is used for HF checks and vault accounting only.`,
   },
   {
     id: 'lending-verified',
@@ -180,7 +180,7 @@ Positions auto-fills exact installment due and exposes **Pay full amount**. Borr
 | Borrow 5 F-USDC | 1.501 | \`0834FB47C0FB9CDE0D32E57FCD7666D54AD31A972BDB07FDF97C3601A63ED645\` | tesSUCCESS |
 | AMM dump 4000 FALCON | 1.231 | \`43E459BC0FB5C36B5D0CFAE7053E29DBDD0E40A72A4B7F5C8603B17D075A1984\` | tesSUCCESS |
 | AMM dump 8000 FALCON | 0.856 | \`989B04758E4BC7AFE598B73496DBCE48ABDA99CF002BFFF854E8898514734DBE\` | tesSUCCESS |
-| Liquidator \`LoanManage\` default | — | \`BA1C8431CEBDE5812DC9315EDE6B56FAAB4FCF0A592C0911303A3949DFA6588D\` | tesSUCCESS (+1928 FALCON to liquidator) |
+| Caller \`LoanManage\` default | — | \`BA1C8431CEBDE5812DC9315EDE6B56FAAB4FCF0A592C0911303A3949DFA6588D\` | tesSUCCESS (FALCON forfeited into LP claim pot; no AMM sell) |
 
 ### Portal session (legacy broker, 2026-07-10)
 
@@ -234,7 +234,8 @@ HF monitor: \`scripts/lend-hf-monitor.py\` + \`deploy-lend-hf-monitor.sh\` on co
 
 - Permissionless collateral-only borrow — no broker operator or HSM co-sign
 - Do not bootstrap-mint F-USDC into vault (bridge-only policy)
-- Liquidation under thin AMM depth / manipulation resistance
+- **No sell on liquidation** — forfeited FALCON stays in the LP collateral pot (\`VaultClaimCollateral\`); LPs may hold or sell later
+- AMM used for HF **pricing** only — watch thin-pool / manipulation risk on the *price* oracle path, not as a forced liquidation venue
 
 **Conclusion:** Falcon Ledger lending is **verified on testnet** — permissionless borrow/repay, add collateral (\`LoanCollateralDeposit\`), pickable 7-day epoch duration, HF-breach liquidation, HF monitor daemon, portal \`/lend\`, and real F-USDC vault liquidity. See the PDF download for the complete implementation reference.`,
   },
