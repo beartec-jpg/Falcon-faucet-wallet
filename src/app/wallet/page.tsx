@@ -77,7 +77,9 @@ interface TxRecord {
   amount?:      string
   amountAsset?: 'FALCON' | 'F-USDC'
   destination?: string
+  destinationName?: string | null
   account:      string
+  accountName?: string | null
   result:       string
   date?:        number
 }
@@ -847,13 +849,32 @@ export default function WalletPage() {
       return
     }
 
-    const to = sendTo.trim()
+    let to = sendTo.trim()
+    const destNameNorm = normalizeAccountName(to)
+    // Allow send to john.smith → resolve name to r-address
+    if (destNameNorm && !isValidFalconAddress(to)) {
+      try {
+        const r = await fetch(
+          withNetworkQuery(`/api/wallet/name?name=${encodeURIComponent(destNameNorm)}`, networkKey),
+        )
+        const j = (await r.json()) as { available?: boolean; owner?: string; error?: string }
+        if (!r.ok || j.available || !j.owner) {
+          setError(j.available ? `Name “${destNameNorm}” is not claimed` : (j.error || 'Could not resolve name'))
+          return
+        }
+        to = j.owner
+      } catch {
+        setError('Could not resolve named address')
+        return
+      }
+    }
+
     const amt = parseFloat(sendAmount)
     const fusdc = account.assets?.fusdc
     const fusdcBal = fusdc?.balance ?? 0
 
     if (!isValidFalconAddress(to)) {
-      setError('Invalid destination address'); return
+      setError('Invalid destination (use r… address or a claimed name like alice.bob)'); return
     }
     if (to === wallet.address) {
       setError('Destination must be a different Falcon address'); return
@@ -1834,13 +1855,13 @@ export default function WalletPage() {
                   ) : (
                     <form onSubmit={handleSend} className="space-y-4">
                       <div className="space-y-1.5">
-                        <label className="text-xs text-slate-400">Destination address</label>
+                        <label className="text-xs text-slate-400">Destination (r… or name)</label>
                         <div className="flex items-stretch gap-2">
                           <input
                             type="text"
                             value={sendTo}
                             onChange={e => { setSendTo(e.target.value); setError(null) }}
-                            placeholder="rXXX…"
+                            placeholder="rXXX… or alice.bob"
                             className="input-field flex-1 min-w-0 w-0"
                             disabled={busy}
                             autoComplete="off"
@@ -2396,6 +2417,27 @@ export default function WalletPage() {
                     const amountLabel = tx.type === 'Payment' && tx.amount
                       ? `${incoming ? '+' : '-'}${amt} ${asset}`
                       : tx.type
+
+                    // Counterparty: prefer AccountNames when set
+                    let partyLine = tx.type
+                    if (tx.type === 'Payment') {
+                      if (incoming) {
+                        const from =
+                          tx.accountName ||
+                          (tx.account ? shortAddr(tx.account) : 'unknown')
+                        partyLine = `Received from ${from}`
+                      } else {
+                        const to =
+                          tx.destinationName ||
+                          (tx.destination ? shortAddr(tx.destination) : 'unknown')
+                        partyLine = `Sent to ${to}`
+                      }
+                    } else if (tx.type === 'NameSet') {
+                      partyLine = 'Claimed name'
+                    } else if (tx.type === 'NameUnbond') {
+                      partyLine = 'Released name'
+                    }
+
                     return (
                       <div key={tx.hash ?? i} className="px-4 py-3 flex items-center justify-between">
                         <div className="flex items-center gap-3 min-w-0">
@@ -2405,7 +2447,9 @@ export default function WalletPage() {
                             {incoming ? '↓' : '↑'}
                           </div>
                           <div className="min-w-0">
-                            <div className="text-sm text-slate-300 truncate">{tx.type}</div>
+                            <div className="text-sm text-slate-200 truncate">
+                              {partyLine}
+                            </div>
                             <div className="text-xs text-slate-600 font-mono truncate">
                               {tx.hash ? `${tx.hash.slice(0, 12)}…` : ''}
                             </div>

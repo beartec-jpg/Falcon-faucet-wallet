@@ -5,6 +5,7 @@ import {
 } from '@/lib/network-server'
 import { fetchWalletAssets } from '@/lib/swap/wallet-assets'
 import { parseTxAmount } from '@/lib/tx-display'
+import { resolveNamesForAddresses } from '@/lib/account-name-server'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
@@ -14,7 +15,11 @@ export interface TxRecord {
   amount?:     string
   amountAsset?: 'FALCON' | 'F-USDC'
   destination?: string
+  /** Human name for destination when known (AccountNames). */
+  destinationName?: string | null
   account:     string
+  /** Human name for sender when known. */
+  accountName?: string | null
   result:      string
   date?:       number
 }
@@ -62,7 +67,7 @@ export async function GET(req: NextRequest) {
     const sequence: number = infoR.account_data!.Sequence
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const transactions: TxRecord[] = ((txR?.transactions ?? []) as any[])
+    const rawTxs: TxRecord[] = ((txR?.transactions ?? []) as any[])
       .map(t => {
         const tx = t.tx ?? t.tx_json ?? {}
         const parsed = parseTxAmount(tx.Amount)
@@ -79,6 +84,19 @@ export async function GET(req: NextRequest) {
       })
       .filter(t => t.hash)
 
+    // Resolve AccountNames for counterparty display (send/receive lines).
+    const addrs: string[] = []
+    for (const t of rawTxs) {
+      if (t.account) addrs.push(t.account)
+      if (t.destination) addrs.push(t.destination)
+    }
+    const nameMap = await resolveNamesForAddresses(networkKey, addrs)
+    const transactions: TxRecord[] = rawTxs.map((t) => ({
+      ...t,
+      accountName: t.account ? (nameMap[t.account] ?? null) : null,
+      destinationName: t.destination ? (nameMap[t.destination] ?? null) : null,
+    }))
+
     const assets = await fetchWalletAssets(networkKey, address)
 
     return NextResponse.json({
@@ -90,6 +108,7 @@ export async function GET(req: NextRequest) {
       currentLedger,
       network: networkKey,
       assets,
+      names: nameMap,
     })
   } catch (err: unknown) {
     return NextResponse.json(
