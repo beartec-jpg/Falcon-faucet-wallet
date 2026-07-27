@@ -8,6 +8,12 @@ import {
   readOnlineState,
 } from './lib/offlineGate'
 import {
+  assertInstalledPwa,
+  canImportVault,
+  isIos,
+  isStandalonePwa,
+} from './lib/pwaDetect'
+import {
   hasColdVault,
   loadColdVaultMeta,
   saveColdVaultWithPassword,
@@ -83,9 +89,14 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<{
     prompt: () => Promise<void>
   } | null>(null)
+  const [installed, setInstalled] = useState(() => isStandalonePwa())
 
   const refreshOnline = useCallback(() => {
     setOnline(readOnlineState().online)
+  }, [])
+
+  const refreshInstalled = useCallback(() => {
+    setInstalled(isStandalonePwa())
   }, [])
 
   useEffect(() => {
@@ -105,8 +116,18 @@ export default function App() {
       setDeferredPrompt(e as unknown as { prompt: () => Promise<void> })
     }
     window.addEventListener('beforeinstallprompt', h)
-    return () => window.removeEventListener('beforeinstallprompt', h)
-  }, [])
+    // Re-check when returning from home screen install
+    const onVis = () => refreshInstalled()
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('appinstalled', () => {
+      setInstalled(true)
+      setDeferredPrompt(null)
+    })
+    return () => {
+      window.removeEventListener('beforeinstallprompt', h)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [refreshInstalled])
 
   useEffect(() => {
     ;(async () => {
@@ -136,11 +157,12 @@ export default function App() {
   const opsBlocked = isVaultOpsBlocked(hasVault, online)
 
   // ── Import vault file ───────────────────────────────────────────────────────
-  // Allowed online (first-time path). Prefer airplane after import.
+  // Only from the installed PWA (not a browser tab). Online OK until vault loads.
 
   async function handleImport() {
     setError('')
     try {
+      assertInstalledPwa()
       if (!fileText) throw new Error('Choose a vault JSON file')
       const passErr = validateVaultPassphrase(vaultPass)
       if (passErr) throw new Error(passErr)
@@ -374,21 +396,112 @@ export default function App() {
     )
   }
 
-  // Empty — import (allowed while online so you can install the PWA first)
+  // Empty — install first (browser tab), then import only from installed PWA
   if (step === 'empty' || step === 'import') {
+    const pwaReady = canImportVault() || installed
+
+    // ── Step 1: Install PWA (first thing without a vault) ────────────────────
+    if (!pwaReady) {
+      return (
+        <div className="min-h-screen flex flex-col bg-slate-950">
+          {header}
+          <main className="flex-1 max-w-md mx-auto w-full px-4 py-10 flex flex-col items-center text-center gap-5">
+            <div className="w-20 h-20 rounded-full bg-cyan-950/60 border border-cyan-600/40 flex items-center justify-center text-4xl">
+              ❄
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white">Install Cold Signer</h1>
+              <p className="text-sm text-slate-400 mt-2 leading-relaxed max-w-sm">
+                This must be installed as an app before you can import a vault. Open it from your
+                home screen afterward — browser tabs cannot load secrets.
+              </p>
+            </div>
+
+            {error && (
+              <div className="w-full text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-xl p-3 text-left">
+                {error}
+              </div>
+            )}
+
+            {deferredPrompt ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  await deferredPrompt.prompt()
+                  setDeferredPrompt(null)
+                  // User may still need to open from home screen
+                  setTimeout(refreshInstalled, 500)
+                }}
+                className="w-full py-4 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-lg shadow-lg shadow-cyan-900/40"
+              >
+                Install app
+              </button>
+            ) : isIos() ? (
+              <div className="w-full rounded-2xl border border-cyan-700/40 bg-cyan-950/30 p-4 text-left space-y-3">
+                <p className="text-sm font-semibold text-cyan-200">Install on iPhone / iPad</p>
+                <ol className="text-xs text-slate-300 space-y-2 list-decimal list-inside leading-relaxed">
+                  <li>Tap the <strong>Share</strong> button in Safari</li>
+                  <li>Scroll and tap <strong>Add to Home Screen</strong></li>
+                  <li>Tap <strong>Add</strong></li>
+                  <li>Open <strong>Cold Signer</strong> from the home screen (not Safari)</li>
+                </ol>
+              </div>
+            ) : (
+              <div className="w-full rounded-2xl border border-slate-700 bg-slate-900/80 p-4 text-left space-y-3">
+                <p className="text-sm font-semibold text-slate-200">Install this site as an app</p>
+                <ol className="text-xs text-slate-400 space-y-2 list-decimal list-inside leading-relaxed">
+                  <li>Open the browser menu (⋮ or ⋯)</li>
+                  <li>Choose <strong className="text-slate-200">Install app</strong> or <strong className="text-slate-200">Add to Home screen</strong></li>
+                  <li>Open Cold Signer from the home screen / app list</li>
+                </ol>
+                <p className="text-[11px] text-slate-500">
+                  If no install option appears, use Chrome/Edge on Android or desktop, or Safari on iOS.
+                </p>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                refreshInstalled()
+                if (!canImportVault()) {
+                  setError(
+                    'Still running in a browser tab. Open Cold Signer from the home screen icon after installing.',
+                  )
+                } else {
+                  setError('')
+                }
+              }}
+              className="w-full py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-sm font-semibold"
+            >
+              I installed it — continue
+            </button>
+
+            <p className="text-[11px] text-slate-600 leading-relaxed max-w-sm">
+              After install you can import your vault file. Unlock and sign require airplane mode once
+              a vault is loaded.
+            </p>
+          </main>
+        </div>
+      )
+    }
+
+    // ── Step 2: Import (only when running as installed PWA) ──────────────────
     return (
       <div className="min-h-screen flex flex-col bg-slate-950">
         {header}
         <main className="flex-1 max-w-md mx-auto w-full px-4 py-6 space-y-4">
+          <div className="rounded-xl border border-emerald-700/30 bg-emerald-950/20 px-3 py-2 text-[11px] text-emerald-300/90">
+            Running as installed app — you can import a vault.
+          </div>
           <h1 className="text-xl font-bold text-white">Import vault</h1>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Online is OK until a vault is loaded — install this app, then import your encrypted vault
-            JSON (from SD / download). After import, go offline to unlock and sign.
+            Load the encrypted vault JSON. After import, enable airplane mode before unlocking or
+            signing.
           </p>
           {online && (
             <div className="text-xs text-amber-300/90 bg-amber-950/30 border border-amber-700/30 rounded-xl p-3">
-              You are online. Install to Home Screen if prompted, import the vault, then enable
-              airplane mode before unlocking.
+              Online is OK for import. Go offline before unlock / sign.
             </div>
           )}
           {error && (
@@ -484,17 +597,8 @@ export default function App() {
             onClick={() => void handleImport()}
             className="w-full py-3.5 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold"
           >
-            {busy ? 'Importing…' : importMethod === 'passkey' ? 'Import with passkey' : 'Import offline'}
+            {busy ? 'Importing…' : importMethod === 'passkey' ? 'Import with passkey' : 'Import vault'}
           </button>
-          {deferredPrompt && (
-            <button
-              type="button"
-              className="w-full py-2 text-xs text-cyan-400"
-              onClick={() => void deferredPrompt.prompt()}
-            >
-              Install to Home Screen
-            </button>
-          )}
         </main>
       </div>
     )

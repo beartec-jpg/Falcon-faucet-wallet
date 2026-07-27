@@ -2,17 +2,19 @@
 
 Air-gapped PWA for Falcon Ledger vault keys. Signs Payments offline via multi-part QR with the portal **Vault** page.
 
-## Security rule
+## Security rules
 
-| State | Online allowed? |
-|-------|-----------------|
-| **No vault** on this device | Yes — open URL, install PWA, import vault JSON |
-| **Vault loaded** | No for unlock/sign — full-screen wall until airplane mode |
+| State | Allowed? |
+|-------|----------|
+| Browser tab (not installed) | Install only — **no vault import** |
+| Installed PWA, no vault | Online OK — import vault file |
+| Installed PWA, vault loaded | Offline required for unlock/sign |
 
-Import is allowed online so first-time install works (same lesson as Crypto). After a vault exists, unlocking or signing while online is blocked.
+**First screen (no vault):** big **Install app** button (or iOS Share → Add to Home Screen). Import UI only after opening from the home-screen icon (`display-mode: standalone`).
 
-Dev-only override (never ship to users):  
-`localStorage.setItem('falcon-cold-allow-online', '1')`
+Dev-only overrides (never ship to users):  
+- `localStorage.setItem('falcon-cold-allow-online', '1')` — unlock online  
+- `localStorage.setItem('falcon-cold-allow-browser', '1')` — import in a normal tab
 
 ---
 
