@@ -5,7 +5,10 @@ import {
 } from '@/lib/network-server'
 import { fetchWalletAssets } from '@/lib/swap/wallet-assets'
 import { parseTxAmount } from '@/lib/tx-display'
-import { resolveNamesForAddresses } from '@/lib/account-name-server'
+import {
+  resolveNamesForAddresses,
+  resolveNameForAddress,
+} from '@/lib/account-name-server'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
@@ -90,7 +93,24 @@ export async function GET(req: NextRequest) {
       if (t.account) addrs.push(t.account)
       if (t.destination) addrs.push(t.destination)
     }
+    // Include self so own name is always in the map (header + txs)
+    addrs.push(address)
     const nameMap = await resolveNamesForAddresses(networkKey, addrs)
+    // Prefer dedicated lookup if map miss (self AccountName object)
+    let ownName: string | null = nameMap[address] ?? null
+    let ownNameStatus: 'active' | 'releasing' | null = ownName ? 'active' : null
+    {
+      const self = await resolveNameForAddress(networkKey, address)
+      if (self.name) {
+        ownName = self.name
+        ownNameStatus = self.status ?? 'active'
+        nameMap[address] = self.name
+      } else if (!ownName) {
+        ownName = null
+        ownNameStatus = null
+      }
+    }
+
     const transactions: TxRecord[] = rawTxs.map((t) => ({
       ...t,
       accountName: t.account ? (nameMap[t.account] ?? null) : null,
@@ -109,6 +129,8 @@ export async function GET(req: NextRequest) {
       network: networkKey,
       assets,
       names: nameMap,
+      accountName: ownName,
+      accountNameStatus: ownNameStatus,
     })
   } catch (err: unknown) {
     return NextResponse.json(

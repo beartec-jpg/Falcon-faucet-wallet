@@ -113,6 +113,9 @@ interface AccountData {
   transactions: TxRecord[]
   currentLedger: number
   assets?:      WalletAssets
+  accountName?: string | null
+  accountNameStatus?: 'active' | 'releasing' | null
+  names?: Record<string, string>
 }
 
 interface LendSupplySummary {
@@ -352,34 +355,44 @@ export default function WalletPage() {
       }
       setAccount(data)
 
-      // Own AccountNames reverse lookup (cache first, then chain)
+      // Own name: prefer account API, then dedicated name route, then cache
       const cached = readCachedAccountName(address)
-      if (cached) {
+      let resolvedName = data.accountName ?? null
+      let resolvedStatus: 'active' | 'releasing' | null =
+        data.accountNameStatus ?? (resolvedName ? 'active' : null)
+
+      if (!resolvedName) {
+        try {
+          const nameR = await fetch(
+            withNetworkQuery(`/api/wallet/name?address=${encodeURIComponent(address)}`, networkKey),
+            fetchOpts,
+          )
+          if (nameR.ok) {
+            const nj = (await nameR.json()) as {
+              name?: string | null
+              status?: 'active' | 'releasing'
+            }
+            if (nj.name) {
+              resolvedName = nj.name
+              resolvedStatus = nj.status ?? 'active'
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      if (resolvedName) {
+        setAccountName(resolvedName)
+        setAccountNameStatus(resolvedStatus ?? 'active')
+        cacheAccountName(address, resolvedName, resolvedStatus ?? 'active')
+      } else if (cached) {
         setAccountName(cached.name)
         setAccountNameStatus(cached.status)
-      }
-      try {
-        const nameR = await fetch(
-          withNetworkQuery(`/api/wallet/name?address=${encodeURIComponent(address)}`, networkKey),
-          fetchOpts,
-        )
-        if (nameR.ok) {
-          const nj = (await nameR.json()) as {
-            name?: string | null
-            status?: 'active' | 'releasing'
-          }
-          if (nj.name) {
-            setAccountName(nj.name)
-            setAccountNameStatus(nj.status ?? 'active')
-            cacheAccountName(address, nj.name, nj.status ?? 'active')
-          } else if (!cached) {
-            setAccountName(null)
-            setAccountNameStatus(null)
-            cacheAccountName(address, null)
-          }
-        }
-      } catch {
-        /* keep cache if any */
+      } else {
+        setAccountName(null)
+        setAccountNameStatus(null)
+        cacheAccountName(address, null)
       }
 
       if (lendR.ok) {
@@ -1386,45 +1399,119 @@ export default function WalletPage() {
 
               {view === 'dashboard' && walletSection === 'falcon' && (
               <div className="card p-5 space-y-4">
-                <div className="flex items-start justify-between">
-                  <div className="min-w-0">
-                    {accountName ? (
-                      <>
-                        <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                          <span className="text-xl font-semibold text-emerald-300 tracking-tight">
-                            {accountName}
-                          </span>
+                {/* Identity: name first (mobile + desktop), then r-address */}
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      {accountName ? (
+                        <div className="text-2xl sm:text-xl font-semibold text-emerald-300 tracking-tight break-all leading-tight">
+                          {accountName}
                           {accountNameStatus === 'releasing' && (
-                            <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                            <span className="ml-2 align-middle text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
                               releasing
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-slate-500 mb-0.5">
-                          {wallet.label} · Falcon
+                      ) : (
+                        <div className="text-sm font-medium text-slate-200">
+                          {wallet.label || 'Falcon wallet'}
                         </div>
-                      </>
-                    ) : (
-                      <div className="text-xs text-slate-500 mb-0.5">{wallet.label} · Falcon</div>
-                    )}
-                    <div className="font-mono text-slate-400 text-sm">{shortAddr(wallet.address)}</div>
+                      )}
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {accountName ? `${wallet.label || 'Wallet'} · Falcon` : 'Falcon'}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={copyAddress}
+                        className="mt-1 font-mono text-slate-400 text-sm hover:text-slate-200 break-all text-left"
+                        title="Copy full address"
+                      >
+                        {copied ? 'Copied!' : shortAddr(wallet.address)}
+                      </button>
+                    </div>
+                    <button
+                      onClick={copyAddress}
+                      className="p-2 text-slate-500 hover:text-slate-300 transition-colors shrink-0"
+                      title="Copy full address"
+                    >
+                      {copied ? (
+                        <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      )}
+                    </button>
                   </div>
-                  <button
-                    onClick={copyAddress}
-                    className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors shrink-0"
-                    title="Copy full address"
-                  >
-                    {copied ? (
-                      <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : (
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                    )}
-                  </button>
+
+                  {/* Unbond / release — always full-width under name so mobile sees it */}
+                  {account?.exists && network.live && accountName && accountNameStatus !== 'releasing' && (
+                    <button
+                      type="button"
+                      disabled={nameBusy}
+                      onClick={async () => {
+                        if (!wallet || !account || !accountName) return
+                        if (!confirm(`Unbond / release “${accountName}”? Name stays reserved for ~1 epoch, then bond returns.`)) {
+                          return
+                        }
+                        setNameBusy(true)
+                        setNameMsg(null)
+                        setError(null)
+                        try {
+                          const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+                          const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+                          await submitWithSequenceRetry({
+                            networkKey,
+                            fetchSequence: async () => {
+                              try {
+                                return await fetchSequenceInfo(wallet.address, networkKey)
+                              } catch {
+                                return {
+                                  sequence: account.sequence,
+                                  currentLedger: account.currentLedger,
+                                }
+                              }
+                            },
+                            sign: ({ sequence, lastLedgerSequence }) =>
+                              signNameUnbond(
+                                {
+                                  account: wallet.address,
+                                  name: accountName,
+                                  sequence,
+                                  lastLedgerSequence,
+                                  networkId: network.networkId,
+                                },
+                                falcon_secret,
+                              ),
+                          })
+                          setAccountNameStatus('releasing')
+                          cacheAccountName(wallet.address, accountName, 'releasing')
+                          setNameMsg(`Release started for “${accountName}”. Bond returns after 1 epoch.`)
+                          await refreshBalance(wallet.address)
+                        } catch (e: unknown) {
+                          const msg = e instanceof Error ? e.message : String(e)
+                          setNameMsg(msg)
+                          setError(msg)
+                        } finally {
+                          setNameBusy(false)
+                        }
+                      }}
+                      className="w-full py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-rose-950/40 text-rose-300 border border-rose-500/35 disabled:opacity-40"
+                    >
+                      {nameBusy ? 'Working…' : `Unbond name (${NAME_BOND_FALCON} FALCON locked)`}
+                    </button>
+                  )}
+                  {accountName && accountNameStatus === 'releasing' && (
+                    <div className="w-full rounded-xl border border-amber-500/30 bg-amber-950/25 px-3 py-2 text-xs text-amber-100">
+                      <span className="font-mono font-semibold">{accountName}</span> is unbonding — reserved for ~1 epoch, then bond returns.
+                    </div>
+                  )}
+                  {nameMsg && accountName && (
+                    <div className="text-[11px] text-slate-400">{nameMsg}</div>
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -1622,83 +1709,6 @@ export default function WalletPage() {
                       )}
                       {nameMsg && <span className="text-slate-300">{nameMsg}</span>}
                     </div>
-                  </div>
-                )}
-
-                {account?.exists && network.live && accountName && accountNameStatus !== 'releasing' && (
-                  <div className="rounded-xl border border-slate-600/40 bg-slate-900/40 p-3 space-y-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-medium text-slate-200">Named address</div>
-                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                          <span className="text-emerald-300 font-mono">{accountName}</span>
-                          {' · '}
-                          {NAME_BOND_FALCON} FALCON bond locked. Release starts a 1-epoch cooldown before the bond returns and the name is free.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={nameBusy}
-                        onClick={async () => {
-                          if (!wallet || !account || !accountName) return
-                          if (!confirm(`Release “${accountName}”? Name stays reserved for ~1 epoch, then bond returns.`)) {
-                            return
-                          }
-                          setNameBusy(true)
-                          setNameMsg(null)
-                          setError(null)
-                          try {
-                            const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-                            const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-                            await submitWithSequenceRetry({
-                              networkKey,
-                              fetchSequence: async () => {
-                                try {
-                                  return await fetchSequenceInfo(wallet.address, networkKey)
-                                } catch {
-                                  return {
-                                    sequence: account.sequence,
-                                    currentLedger: account.currentLedger,
-                                  }
-                                }
-                              },
-                              sign: ({ sequence, lastLedgerSequence }) =>
-                                signNameUnbond(
-                                  {
-                                    account: wallet.address,
-                                    name: accountName,
-                                    sequence,
-                                    lastLedgerSequence,
-                                    networkId: network.networkId,
-                                  },
-                                  falcon_secret,
-                                ),
-                            })
-                            setAccountNameStatus('releasing')
-                            cacheAccountName(wallet.address, accountName, 'releasing')
-                            setNameMsg(`Release started for “${accountName}”. Bond returns after 1 epoch via NameRelease.`)
-                            await refreshBalance(wallet.address)
-                          } catch (e: unknown) {
-                            const msg = e instanceof Error ? e.message : String(e)
-                            setNameMsg(msg)
-                            setError(msg)
-                          } finally {
-                            setNameBusy(false)
-                          }
-                        }}
-                        className="shrink-0 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-rose-950/50 text-rose-300 border border-rose-500/30 disabled:opacity-40"
-                      >
-                        {nameBusy ? '…' : 'Release name'}
-                      </button>
-                    </div>
-                    {nameMsg && <div className="text-[11px] text-slate-400">{nameMsg}</div>}
-                  </div>
-                )}
-
-                {account?.exists && accountName && accountNameStatus === 'releasing' && (
-                  <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-200/90">
-                    <span className="font-mono text-amber-100">{accountName}</span> is releasing — name reserved; bond returns after 1 epoch.
-                    {nameMsg ? <div className="text-slate-400 mt-1">{nameMsg}</div> : null}
                   </div>
                 )}
 
@@ -2439,44 +2449,66 @@ export default function WalletPage() {
                       ? `${incoming ? '+' : '-'}${amt} ${asset}`
                       : tx.type
 
-                    // Counterparty: prefer AccountNames when set
-                    let partyLine = tx.type
+                    // Name always takes precedence over r-address for counterparty
+                    const fromName = tx.accountName?.trim() || null
+                    const toName = tx.destinationName?.trim() || null
+                    const fromLabel = fromName || (tx.account ? shortAddr(tx.account) : 'unknown')
+                    const toLabel = toName || (tx.destination ? shortAddr(tx.destination) : 'unknown')
+
+                    let action = tx.type
+                    let party: string | null = null
+                    let partyIsName = false
                     if (tx.type === 'Payment') {
                       if (incoming) {
-                        const from =
-                          tx.accountName ||
-                          (tx.account ? shortAddr(tx.account) : 'unknown')
-                        partyLine = `Received from ${from}`
+                        action = 'Received from'
+                        party = fromLabel
+                        partyIsName = !!fromName
                       } else {
-                        const to =
-                          tx.destinationName ||
-                          (tx.destination ? shortAddr(tx.destination) : 'unknown')
-                        partyLine = `Sent to ${to}`
+                        action = 'Sent to'
+                        party = toLabel
+                        partyIsName = !!toName
                       }
                     } else if (tx.type === 'NameSet') {
-                      partyLine = 'Claimed name'
+                      action = 'Claimed name'
+                      party = accountName || null
+                      partyIsName = !!accountName
                     } else if (tx.type === 'NameUnbond') {
-                      partyLine = 'Released name'
+                      action = 'Unbonded name'
+                      party = accountName || null
+                      partyIsName = !!accountName
                     }
 
                     return (
-                      <div key={tx.hash ?? i} className="px-4 py-3 flex items-center justify-between">
-                        <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        key={tx.hash ?? i}
+                        className="px-4 py-3 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
                           <div className={`w-7 h-7 flex-shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${
                             incoming ? 'bg-emerald-500/15 text-emerald-400' : 'bg-brand-500/15 text-brand-400'
                           }`}>
                             {incoming ? '↓' : '↑'}
                           </div>
-                          <div className="min-w-0">
-                            <div className="text-sm text-slate-200 truncate">
-                              {partyLine}
-                            </div>
-                            <div className="text-xs text-slate-600 font-mono truncate">
-                              {tx.hash ? `${tx.hash.slice(0, 12)}…` : ''}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs text-slate-500">{action}</div>
+                            {party && (
+                              <div
+                                className={`text-sm font-medium break-all ${
+                                  partyIsName ? 'text-emerald-300' : 'text-slate-200 font-mono'
+                                }`}
+                              >
+                                {party}
+                              </div>
+                            )}
+                            {!party && (
+                              <div className="text-sm text-slate-300">{tx.type}</div>
+                            )}
+                            <div className="text-[10px] text-slate-600 font-mono truncate mt-0.5">
+                              {tx.hash ? `${tx.hash.slice(0, 14)}…` : ''}
                             </div>
                           </div>
                         </div>
-                        <div className="text-right flex-shrink-0 pl-3">
+                        <div className="text-right flex-shrink-0 pl-10 sm:pl-3">
                           <div className={`text-sm font-medium ${
                             !ok ? 'text-red-400' : incoming ? 'text-emerald-400' : 'text-slate-300'
                           }`}>
