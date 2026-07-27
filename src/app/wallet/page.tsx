@@ -274,6 +274,7 @@ export default function WalletPage() {
   const [savedNode, setSavedNode] = useState<SavedValidatorNode | null>(null)
   const [nodeHostInput, setNodeHostInput] = useState('')
   const [nodeStats, setNodeStats] = useState<NodeStatsPayload | null>(null)
+  const [networkStats, setNetworkStats] = useState<NodeStatsPayload['network'] | null>(null)
   const [nodeStatsError, setNodeStatsError] = useState<string | null>(null)
   const [nodeStatsLoading, setNodeStatsLoading] = useState(false)
   const [showNodeSetup, setShowNodeSetup] = useState(false)
@@ -434,25 +435,67 @@ export default function WalletPage() {
 
   // ── On mount: load wallet from IndexedDB ──────────────────────────────────
 
-  const refreshNodeStats = useCallback(async (host: string, port?: number) => {
+  /** Public full-history dashboard (network-wide metrics). */
+  const FULL_DASH_HOST = '46.224.0.140'
+  const FULL_DASH_PORT = 8080
+
+  const fetchDashStats = useCallback(async (host: string, port: number) => {
+    const q = new URLSearchParams({ host, port: String(port) })
+    const r = await fetch(`/api/node-dashboard?${q.toString()}`)
+    const data = await r.json()
+    if (!r.ok) {
+      throw new Error(data.error || data.hint || 'Dashboard unreachable')
+    }
+    return data as NodeStatsPayload
+  }, [])
+
+  const refreshNodeStats = useCallback(async (host: string, port?: number, nodeNameHint?: string) => {
     setNodeStatsLoading(true)
     setNodeStatsError(null)
+    const tryPorts = [
+      port && port > 0 ? port : 8080,
+      8080,
+      8081,
+    ].filter((p, i, a) => a.indexOf(p) === i)
+
+    // Network / full-node metrics (independent of personal node)
+    void fetchDashStats(FULL_DASH_HOST, FULL_DASH_PORT)
+      .then((data) => {
+        if (data.network) setNetworkStats(data.network)
+      })
+      .catch(() => { /* keep last good network stats */ })
+
     try {
-      const q = new URLSearchParams({ host })
-      if (port && port > 0) q.set('port', String(port))
-      const r = await fetch(`/api/node-dashboard?${q.toString()}`)
-      const data = await r.json()
-      if (!r.ok) {
-        throw new Error(data.error || data.hint || 'Dashboard unreachable')
+      let lastErr: Error | null = null
+      let data: NodeStatsPayload | null = null
+      let workingPort = tryPorts[0]
+      for (const p of tryPorts) {
+        try {
+          data = await fetchDashStats(host, p)
+          workingPort = p
+          break
+        } catch (e: unknown) {
+          lastErr = e instanceof Error ? e : new Error(String(e))
+        }
       }
-      setNodeStats(data as NodeStatsPayload)
+      if (!data) throw lastErr || new Error('Dashboard unreachable')
+      setNodeStats(data)
+      if (data.network) setNetworkStats(data.network)
+      // Persist working port (e.g. val2 on 8081) without depending on savedNode state
+      if (workingPort && workingPort !== port) {
+        const fixed = saveValidatorNode(
+          `${host}:${workingPort}`,
+          nodeNameHint || 'my-falcon-node',
+        )
+        setSavedNode(fixed)
+      }
     } catch (e: unknown) {
       setNodeStats(null)
       setNodeStatsError(e instanceof Error ? e.message : 'Failed to load dashboard')
     } finally {
       setNodeStatsLoading(false)
     }
-  }, [])
+  }, [fetchDashStats])
 
   const handleLinkValidatorNode = () => {
     const host = nodeHostInput.trim()
@@ -464,7 +507,7 @@ export default function WalletPage() {
     setSavedNode(saved)
     setShowNodeSetup(false)
     setError(null)
-    void refreshNodeStats(saved.host, saved.port)
+    void refreshNodeStats(saved.host, saved.port, saved.nodeName)
   }
 
   const handleUnlinkValidatorNode = () => {
@@ -487,8 +530,11 @@ export default function WalletPage() {
 
   useEffect(() => {
     if (view === 'node' && savedNode && !showNodeSetup) {
-      refreshNodeStats(savedNode.host, savedNode.port)
-      const id = setInterval(() => refreshNodeStats(savedNode.host, savedNode.port), 15000)
+      refreshNodeStats(savedNode.host, savedNode.port, savedNode.nodeName)
+      const id = setInterval(
+        () => refreshNodeStats(savedNode.host, savedNode.port, savedNode.nodeName),
+        15000,
+      )
       return () => clearInterval(id)
     }
   }, [view, savedNode, showNodeSetup, refreshNodeStats])
@@ -2015,7 +2061,10 @@ export default function WalletPage() {
                         </div>
                         <div className="flex gap-1.5 flex-shrink-0">
                           <button
-                            onClick={() => savedNode && refreshNodeStats(savedNode.host, savedNode.port)}
+                            onClick={() =>
+                              savedNode &&
+                              refreshNodeStats(savedNode.host, savedNode.port, savedNode.nodeName)
+                            }
                             disabled={nodeStatsLoading}
                             className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 disabled:opacity-50"
                             title="Refresh now"
@@ -2055,10 +2104,31 @@ export default function WalletPage() {
                         </div>
                       )}
 
+                      {/* Network (full) still shows if personal node fetch fails */}
+                      {!nodeStats?.node && networkStats && (
+                        <div className="space-y-2 rounded-xl border border-slate-700/60 p-3">
+                          <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Network (full)</div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <MetricTile label="Network ledger" value={`#${fmtStat(networkStats.ledger_seq)}`} tone="good" sub={networkStats.complete_ledgers} />
+                            <MetricTile label="Network state" value={networkStats.server_state || '—'} />
+                            <MetricTile label="Bonded validators" value={fmtStat(networkStats.bonded_validator_count)} tone="good" />
+                            <MetricTile
+                              label="Epoch"
+                              value={networkStats.epoch?.epoch_number != null ? String(networkStats.epoch.epoch_number) : '—'}
+                            />
+                          </div>
+                          {nodeStatsError && (
+                            <p className="text-[11px] text-amber-300/90">
+                              Personal node metrics failed ({nodeStatsError}). Network view above still works. Try re-link with <span className="font-mono">IP:8080</span> or <span className="font-mono">IP:8081</span>.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
                       {nodeStats?.node && (
                         <>
                           <div className="space-y-2">
-                            <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Your node</div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Your node (personal)</div>
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                               <MetricTile
                                 label="Server state"
@@ -2138,25 +2208,32 @@ export default function WalletPage() {
                             </Link>
                           </div>
 
-                          {nodeStats.network && (
+                          {(() => {
+                            const net = nodeStats.network || networkStats
+                            if (!net) return null
+                            return (
                             <div className="space-y-2 pt-1 border-t border-slate-800">
-                              <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Network</div>
+                              <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Network (full)</div>
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                <MetricTile label="Network ledger" value={`#${fmtStat(nodeStats.network.ledger_seq)}`} tone="good" sub={nodeStats.network.complete_ledgers} />
-                                <MetricTile label="Network state" value={nodeStats.network.server_state || '—'} />
-                                <MetricTile label="Bonded validators" value={fmtStat(nodeStats.network.bonded_validator_count)} tone="good" sub={`${fmtStat(nodeStats.network.total_validator_entries)} on ledger`} />
+                                <MetricTile label="Network ledger" value={`#${fmtStat(net.ledger_seq)}`} tone="good" sub={net.complete_ledgers} />
+                                <MetricTile label="Network state" value={net.server_state || '—'} />
+                                <MetricTile label="Bonded validators" value={fmtStat(net.bonded_validator_count)} tone="good" sub={`${fmtStat(net.total_validator_entries)} on ledger`} />
                                 <MetricTile
                                   label="Epoch"
-                                  value={nodeStats.network.epoch?.epoch_number != null ? String(nodeStats.network.epoch.epoch_number) : '—'}
-                                  sub={nodeStats.network.epoch?.epoch_pool_balance_qxrp != null
-                                   ? `pool ${fmtStat(nodeStats.network.epoch.epoch_pool_balance_qxrp, 2)} FALCON`
+                                  value={net.epoch?.epoch_number != null ? String(net.epoch.epoch_number) : '—'}
+                                  sub={net.epoch?.epoch_pool_balance_qxrp != null
+                                   ? `pool ${fmtStat(net.epoch.epoch_pool_balance_qxrp, 2)} FALCON`
                                     : undefined}
                                 />
                               </div>
                             </div>
-                          )}
+                            )
+                          })()}
 
-                          {(nodeStats.network?.validators?.length ?? 0) > 0 && (
+                          {(() => {
+                            const vals = (nodeStats.network || networkStats)?.validators
+                            if (!vals?.length) return null
+                            return (
                             <div className="space-y-2 pt-1 border-t border-slate-800">
                               <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">All bonded validators</div>
                               <div className="rounded-xl border border-slate-800 overflow-hidden">
@@ -2170,7 +2247,7 @@ export default function WalletPage() {
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-800/80">
-                                    {nodeStats.network!.validators!.map((v) => {
+                                    {vals.map((v) => {
                                       const mine = v.account === nodeStats.node?.validator_account
                                       return (
                                         <tr key={v.account} className={mine ? 'bg-cyan-950/30' : ''}>
@@ -2188,7 +2265,8 @@ export default function WalletPage() {
                                 </table>
                               </div>
                             </div>
-                          )}
+                            )
+                          })()}
 
                           {nodeStats.updated_at && (
                             <p className="text-[10px] text-slate-600 text-center">Auto-refreshes every 15s · Last update {nodeStats.updated_at}</p>

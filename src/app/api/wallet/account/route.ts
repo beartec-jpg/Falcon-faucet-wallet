@@ -96,18 +96,15 @@ export async function GET(req: NextRequest) {
     // Include self so own name is always in the map (header + txs)
     addrs.push(address)
     const nameMap = await resolveNamesForAddresses(networkKey, addrs)
-    // Prefer dedicated lookup if map miss (self AccountName object)
     let ownName: string | null = nameMap[address] ?? null
     let ownNameStatus: 'active' | 'releasing' | null = ownName ? 'active' : null
-    {
+    // One full resolve for self (status + account_objects fallback if needed)
+    if (!ownName) {
       const self = await resolveNameForAddress(networkKey, address)
       if (self.name) {
         ownName = self.name
         ownNameStatus = self.status ?? 'active'
         nameMap[address] = self.name
-      } else if (!ownName) {
-        ownName = null
-        ownNameStatus = null
       }
     }
 

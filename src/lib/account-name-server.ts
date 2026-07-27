@@ -70,18 +70,46 @@ export async function resolveNameForAddress(
   }
 }
 
-/** Resolve many addresses (deduped, parallel, capped). */
+/**
+ * Resolve many addresses (deduped, parallel, capped).
+ * Uses account_info → AccountName → ledger_entry only (no account_objects scan)
+ * so wallet refresh stays fast.
+ */
 export async function resolveNamesForAddresses(
   networkKey: NetworkKey,
   addresses: string[],
-  max = 24,
+  max = 16,
 ): Promise<Record<string, string>> {
   const unique = [...new Set(addresses.filter(Boolean))].slice(0, max)
   const out: Record<string, string> = {}
+
   await Promise.all(
     unique.map(async (addr) => {
-      const r = await resolveNameForAddress(networkKey, addr)
-      if (r.name) out[addr] = r.name
+      try {
+        const info = await serverRpcCall<{
+          error?: string
+          account_data?: { AccountName?: string }
+        }>(
+          networkKey,
+          'account_info',
+          { account: addr, ledger_index: 'validated' },
+          { allowError: true },
+        )
+        const nameKey = info?.account_data?.AccountName
+        if (!nameKey) return
+        const entry = await serverRpcCall<{
+          node?: { Name?: string }
+        }>(
+          networkKey,
+          'ledger_entry',
+          { index: nameKey, ledger_index: 'validated' },
+          { allowError: true },
+        )
+        const name = decodeLedgerName(entry?.node?.Name)
+        if (name) out[addr] = name
+      } catch {
+        /* skip */
+      }
     }),
   )
   return out
