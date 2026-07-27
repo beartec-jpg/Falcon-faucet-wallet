@@ -8,7 +8,11 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
-import { normalizeAccountName, NAME_BOND_FALCON } from '@/lib/account-name'
+import {
+  normalizeAccountName,
+  NAME_BOND_FALCON,
+  decodeLedgerName,
+} from '@/lib/account-name'
 import { isValidClassicAddress } from 'ripple-address-codec'
 
 export const runtime = 'nodejs'
@@ -126,6 +130,7 @@ export async function GET(req: NextRequest) {
       }
 
       if (!node) {
+        // Do not pass type=state — that filters out ltACCOUNT_NAME on this node.
         const objs = await serverRpcCall<{
           error?: string
           account_objects?: Array<{
@@ -140,16 +145,13 @@ export async function GET(req: NextRequest) {
           'account_objects',
           {
             account: addressQ,
-            type: 'state',
             ledger_index: 'validated',
-            limit: 50,
+            limit: 200,
           },
           { allowError: true },
         )
         const hit = (objs?.account_objects ?? []).find(
-          (o) =>
-            o.LedgerEntryType === 'AccountName' ||
-            (typeof o.Name === 'string' && o.Name.length > 0),
+          (o) => o.LedgerEntryType === 'AccountName',
         )
         if (hit) node = hit
       }
@@ -164,22 +166,7 @@ export async function GET(req: NextRequest) {
         })
       }
 
-      let decodedName: string | null = null
-      const rawName = node.Name
-      if (typeof rawName === 'string' && rawName.length > 0) {
-        if (/^[0-9A-Fa-f]+$/.test(rawName) && rawName.length % 2 === 0) {
-          try {
-            const bytes = new Uint8Array(
-              rawName.match(/.{1,2}/g)!.map((b) => parseInt(b, 16)),
-            )
-            decodedName = new TextDecoder().decode(bytes)
-          } catch {
-            decodedName = rawName
-          }
-        } else {
-          decodedName = rawName
-        }
-      }
+      const decodedName = decodeLedgerName(node.Name)
 
       return NextResponse.json({
         address: addressQ,

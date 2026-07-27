@@ -27,12 +27,15 @@ import {
   signPayment,
   signFusdcPayment,
   signNameSet,
+  signNameUnbond,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
 import {
   normalizeAccountName,
   nameHint,
   NAME_BOND_FALCON,
+  cacheAccountName,
+  readCachedAccountName,
 } from '@/lib/account-name'
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
 import {
@@ -344,7 +347,12 @@ export default function WalletPage() {
       }
       setAccount(data)
 
-      // Own AccountNames reverse lookup (best-effort)
+      // Own AccountNames reverse lookup (cache first, then chain)
+      const cached = readCachedAccountName(address)
+      if (cached) {
+        setAccountName(cached.name)
+        setAccountNameStatus(cached.status)
+      }
       try {
         const nameR = await fetch(
           withNetworkQuery(`/api/wallet/name?address=${encodeURIComponent(address)}`, networkKey),
@@ -355,11 +363,18 @@ export default function WalletPage() {
             name?: string | null
             status?: 'active' | 'releasing'
           }
-          setAccountName(nj.name ?? null)
-          setAccountNameStatus(nj.name ? (nj.status ?? 'active') : null)
+          if (nj.name) {
+            setAccountName(nj.name)
+            setAccountNameStatus(nj.status ?? 'active')
+            cacheAccountName(address, nj.name, nj.status ?? 'active')
+          } else if (!cached) {
+            setAccountName(null)
+            setAccountNameStatus(null)
+            cacheAccountName(address, null)
+          }
         }
       } catch {
-        /* ignore */
+        /* keep cache if any */
       }
 
       if (lendR.ok) {
@@ -1330,21 +1345,31 @@ export default function WalletPage() {
               {view === 'dashboard' && walletSection === 'falcon' && (
               <div className="card p-5 space-y-4">
                 <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-xs text-slate-500 mb-0.5">{wallet.label} · Falcon</div>
+                  <div className="min-w-0">
                     {accountName ? (
-                      <div className="text-lg font-semibold text-emerald-300 mb-0.5">
-                        {accountName}
-                        {accountNameStatus === 'releasing' && (
-                          <span className="ml-2 text-xs font-normal text-amber-400">releasing</span>
-                        )}
-                      </div>
-                    ) : null}
-                    <div className="font-mono text-slate-300 text-sm">{shortAddr(wallet.address)}</div>
+                      <>
+                        <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                          <span className="text-xl font-semibold text-emerald-300 tracking-tight">
+                            {accountName}
+                          </span>
+                          {accountNameStatus === 'releasing' && (
+                            <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                              releasing
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500 mb-0.5">
+                          {wallet.label} · Falcon
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-xs text-slate-500 mb-0.5">{wallet.label} · Falcon</div>
+                    )}
+                    <div className="font-mono text-slate-400 text-sm">{shortAddr(wallet.address)}</div>
                   </div>
                   <button
                     onClick={copyAddress}
-                    className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors"
+                    className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors shrink-0"
                     title="Copy full address"
                   >
                     {copied ? (
@@ -1531,6 +1556,7 @@ export default function WalletPage() {
                             setNameAvailability('idle')
                             setAccountName(n)
                             setAccountNameStatus('active')
+                            cacheAccountName(wallet.address, n, 'active')
                             await refreshBalance(wallet.address)
                           } catch (e: unknown) {
                             const msg = e instanceof Error ? e.message : String(e)
@@ -1557,12 +1583,80 @@ export default function WalletPage() {
                   </div>
                 )}
 
-                {account?.exists && accountName && (
-                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/15 px-3 py-2 text-[11px] text-slate-400">
-                    Named address <span className="text-emerald-300 font-mono">{accountName}</span>
-                    {' · '}
-                    {NAME_BOND_FALCON} FALCON bond locked
-                    {accountNameStatus === 'releasing' ? ' · release in progress' : ''}
+                {account?.exists && network.live && accountName && accountNameStatus !== 'releasing' && (
+                  <div className="rounded-xl border border-slate-600/40 bg-slate-900/40 p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-slate-200">Named address</div>
+                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                          <span className="text-emerald-300 font-mono">{accountName}</span>
+                          {' · '}
+                          {NAME_BOND_FALCON} FALCON bond locked. Release starts a 1-epoch cooldown before the bond returns and the name is free.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={nameBusy}
+                        onClick={async () => {
+                          if (!wallet || !account || !accountName) return
+                          if (!confirm(`Release “${accountName}”? Name stays reserved for ~1 epoch, then bond returns.`)) {
+                            return
+                          }
+                          setNameBusy(true)
+                          setNameMsg(null)
+                          setError(null)
+                          try {
+                            const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+                            const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+                            await submitWithSequenceRetry({
+                              networkKey,
+                              fetchSequence: async () => {
+                                try {
+                                  return await fetchSequenceInfo(wallet.address, networkKey)
+                                } catch {
+                                  return {
+                                    sequence: account.sequence,
+                                    currentLedger: account.currentLedger,
+                                  }
+                                }
+                              },
+                              sign: ({ sequence, lastLedgerSequence }) =>
+                                signNameUnbond(
+                                  {
+                                    account: wallet.address,
+                                    name: accountName,
+                                    sequence,
+                                    lastLedgerSequence,
+                                    networkId: network.networkId,
+                                  },
+                                  falcon_secret,
+                                ),
+                            })
+                            setAccountNameStatus('releasing')
+                            cacheAccountName(wallet.address, accountName, 'releasing')
+                            setNameMsg(`Release started for “${accountName}”. Bond returns after 1 epoch via NameRelease.`)
+                            await refreshBalance(wallet.address)
+                          } catch (e: unknown) {
+                            const msg = e instanceof Error ? e.message : String(e)
+                            setNameMsg(msg)
+                            setError(msg)
+                          } finally {
+                            setNameBusy(false)
+                          }
+                        }}
+                        className="shrink-0 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-rose-950/50 text-rose-300 border border-rose-500/30 disabled:opacity-40"
+                      >
+                        {nameBusy ? '…' : 'Release name'}
+                      </button>
+                    </div>
+                    {nameMsg && <div className="text-[11px] text-slate-400">{nameMsg}</div>}
+                  </div>
+                )}
+
+                {account?.exists && accountName && accountNameStatus === 'releasing' && (
+                  <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-200/90">
+                    <span className="font-mono text-amber-100">{accountName}</span> is releasing — name reserved; bond returns after 1 epoch.
+                    {nameMsg ? <div className="text-slate-400 mt-1">{nameMsg}</div> : null}
                   </div>
                 )}
 
