@@ -15,6 +15,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['wasm/falcon-512.min.js', 'icon-192.png', 'icon-512.png'],
       manifest: {
+        id: '/cold-signer/',
         name: 'Falcon Cold Signer',
         short_name: 'Cold Signer',
         description: 'Air-gapped Falcon Ledger vault signing',
@@ -22,7 +23,7 @@ export default defineConfig({
         background_color: '#020617',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/cold-signer/',
+        start_url: '/cold-signer/?source=pwa',
         scope: '/cold-signer/',
         // Separate any / maskable icons — combined purpose can block installability
         icons: [

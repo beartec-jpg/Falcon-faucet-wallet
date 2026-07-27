@@ -135,28 +135,29 @@ export default function App() {
   async function handleInstallClick() {
     setError('')
     setInstallBusy(true)
+    setShowInstallHelp(false)
     try {
-      // Wait briefly — prompt sometimes arrives a moment after SW is ready
-      if (!getDeferredInstallPrompt()) {
-        await new Promise((r) => setTimeout(r, 800))
-      }
-      const outcome = await promptInstall()
-      if (outcome === 'accepted') {
+      const result = await promptInstall()
+      if (result.status === 'accepted') {
         setInstalled(true)
         setShowInstallHelp(false)
+        setError(
+          'Installed. Close this tab and open “Cold Signer” from your home screen / app list, then continue.',
+        )
         return
       }
-      if (outcome === 'dismissed') {
-        setError('Install was cancelled. Tap Install again when ready.')
+      if (result.status === 'dismissed') {
+        setError('Install was cancelled. Tap Install app again when ready.')
         return
       }
-      // Native prompt not available — still show Install as primary; open help under it
+      if (result.status === 'sw-failed') {
+        setShowInstallHelp(true)
+        setError(`Could not finish app setup: ${result.reason}`)
+        return
+      }
+      // unavailable — native dialog never offered
       setShowInstallHelp(true)
-      setError(
-        isIos()
-          ? 'Tap Share, then Add to Home Screen, then open Cold Signer from the home screen.'
-          : 'Use the Install button in your browser bar if shown, or the browser menu → Install app.',
-      )
+      setError(result.reason)
     } finally {
       setInstallBusy(false)
       setTimeout(refreshInstalled, 400)
@@ -464,11 +465,13 @@ export default function App() {
               onClick={() => void handleInstallClick()}
               className="w-full py-4 rounded-2xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 text-white font-bold text-lg shadow-lg shadow-cyan-900/40"
             >
-              {installBusy ? 'Opening installer…' : 'Install app'}
+              {installBusy ? 'Preparing install…' : 'Install app'}
             </button>
-            {canNativeInstall && (
-              <p className="text-[11px] text-emerald-400/90 -mt-2">Ready to install on this browser</p>
-            )}
+            <p className="text-[11px] text-slate-500 -mt-2">
+              {canNativeInstall
+                ? 'Install dialog ready — tap Install app'
+                : 'Tap Install app (sets up offline package, then browser install dialog)'}
+            </p>
 
             {showInstallHelp && (
               <div className="w-full rounded-2xl border border-slate-700 bg-slate-900/80 p-4 text-left space-y-2 text-xs text-slate-400">
