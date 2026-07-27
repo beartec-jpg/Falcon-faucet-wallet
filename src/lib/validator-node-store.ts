@@ -1,36 +1,59 @@
 /**
  * Browser localStorage for linked validator node (dashboard host + port).
+ *
+ * Important: RPC ports (6005/5005) must never be used as the dashboard port.
+ * Users often paste the public RPC URL by mistake.
  */
 
 const STORAGE_KEY = 'qxrp-validator-node'
 const DEFAULT_DASHBOARD_PORT = 8080
 
+/** Ports that are xrpld RPC/admin — not the Python dashboard. */
+const RPC_PORTS = new Set([5005, 6005, 51235])
+
 export interface SavedValidatorNode {
-  /** Hostname or IP only (no scheme). */
+  /** Hostname or IP only (no scheme, no port). */
   host: string
-  /** Public dashboard port (compose publish / reverse-proxy listen). Default 8080. */
+  /** Public dashboard port (compose publish). Default 8080. */
   port: number
   nodeName: string
   savedAt: number
 }
 
+/**
+ * Parse user input into dashboard host + port.
+ * Accepts: IP, domain, host:port, http(s)://host:port/...
+ * Strips mistaken RPC ports (6005/5005) → uses 8080 for dashboard.
+ */
 export function parseHostPort(raw: string): { host: string; port: number } {
   let s = raw.trim()
   s = s.replace(/^https?:\/\//i, '')
   s = s.replace(/\/.*$/, '')
 
-  // host:port (IPv4 / hostname only — not full IPv6)
+  let host = s
+  let port = DEFAULT_DASHBOARD_PORT
+
+  // host:port (IPv4 / hostname — not full IPv6)
   const m = s.match(/^(.+):(\d{2,5})$/)
   if (m) {
-    const port = parseInt(m[2], 10)
-    if (port >= 1 && port <= 65535) {
-      return { host: m[1].toLowerCase(), port }
+    const p = parseInt(m[2], 10)
+    if (p >= 1 && p <= 65535) {
+      host = m[1]
+      port = p
     }
   }
-  return { host: s.toLowerCase(), port: DEFAULT_DASHBOARD_PORT }
+
+  host = host.toLowerCase().trim()
+
+  // User pasted RPC URL (…:6005) — dashboard is not on 6005
+  if (RPC_PORTS.has(port)) {
+    port = DEFAULT_DASHBOARD_PORT
+  }
+
+  return { host, port }
 }
 
-function normalizeHost(raw: string): string {
+export function normalizeHost(raw: string): string {
   return parseHostPort(raw).host
 }
 
@@ -41,14 +64,20 @@ export function loadValidatorNode(): SavedValidatorNode | null {
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<SavedValidatorNode> & { host?: string }
     if (!parsed?.host) return null
-    const { host, port: fromString } = parseHostPort(parsed.host)
-    const port =
-      typeof parsed.port === 'number' && parsed.port > 0
-        ? parsed.port
-        : fromString
+
+    // Re-parse host field (may still contain :6005 from older saves)
+    const fromHost = parseHostPort(
+      typeof parsed.port === 'number' && parsed.port > 0 && !String(parsed.host).includes(':')
+        ? `${parsed.host}:${parsed.port}`
+        : parsed.host,
+    )
+
+    let port = fromHost.port
+    if (RPC_PORTS.has(port)) port = DEFAULT_DASHBOARD_PORT
+
     return {
-      host,
-      port: port || DEFAULT_DASHBOARD_PORT,
+      host: fromHost.host,
+      port,
       nodeName: parsed.nodeName?.trim() || 'my-falcon-node',
       savedAt: parsed.savedAt ?? Date.now(),
     }
@@ -63,12 +92,15 @@ export function saveValidatorNode(
   portOverride?: number,
 ): SavedValidatorNode {
   const parsed = parseHostPort(hostOrUrl)
+  let port =
+    typeof portOverride === 'number' && portOverride > 0
+      ? portOverride
+      : parsed.port
+  if (RPC_PORTS.has(port)) port = DEFAULT_DASHBOARD_PORT
+
   const entry: SavedValidatorNode = {
     host: parsed.host,
-    port:
-      typeof portOverride === 'number' && portOverride > 0
-        ? portOverride
-        : parsed.port,
+    port,
     nodeName: nodeName.trim() || 'my-falcon-node',
     savedAt: Date.now(),
   }
@@ -80,14 +112,19 @@ export function clearValidatorNode(): void {
   localStorage.removeItem(STORAGE_KEY)
 }
 
+/** Always returns a valid single-port URL (never host:6005:8080). */
 export function dashboardUrl(host: string, port?: number): string {
-  const p = parseHostPort(host)
-  const usePort = port && port > 0 ? port : p.port
-  return `http://${p.host}:${usePort}`
+  // If host already embeds a port, parseHostPort cleans it
+  const combined =
+    port && port > 0 && !/:\d{2,5}$/.test(host.trim())
+      ? `${host.trim()}:${port}`
+      : host
+  const p = parseHostPort(combined)
+  return `http://${p.host}:${p.port}`
 }
 
 export function dashboardStatsPath(host: string, port?: number): string {
   return `${dashboardUrl(host, port)}/api/stats`
 }
 
-export { DEFAULT_DASHBOARD_PORT, normalizeHost }
+export { DEFAULT_DASHBOARD_PORT, RPC_PORTS }

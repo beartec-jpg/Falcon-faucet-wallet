@@ -500,10 +500,19 @@ export default function WalletPage() {
   const handleLinkValidatorNode = () => {
     const host = nodeHostInput.trim()
     if (!host) {
-      setError('Enter your server public IP, domain, or host:port (e.g. node.example.com:6080)')
+      setError('Enter dashboard host: public IP, domain, or host:port (e.g. 46.224.0.140 or 46.224.0.140:8080). Not the RPC :6005 port.')
       return
     }
     const saved = saveValidatorNode(host, nodeName)
+    // Guard against RPC port paste producing broken double-port URLs
+    if (saved.port === 6005 || saved.port === 5005) {
+      const fixed = saveValidatorNode(`${saved.host}:8080`, nodeName)
+      setSavedNode(fixed)
+      setShowNodeSetup(false)
+      setError(null)
+      void refreshNodeStats(fixed.host, fixed.port, fixed.nodeName)
+      return
+    }
     setSavedNode(saved)
     setShowNodeSetup(false)
     setError(null)
@@ -2317,15 +2326,19 @@ export default function WalletPage() {
                     </p>
                     <div>
                       <label className="block text-[10px] text-cyan-200/70 mb-1">
-                        Dashboard host (IP / domain / host:port)
+                        Dashboard host (not RPC :6005)
                       </label>
                       <input
                         value={nodeHostInput}
                         onChange={(e) => setNodeHostInput(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleLinkValidatorNode()}
                         className="w-full bg-slate-900 border border-cyan-500/30 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-cyan-400"
-                        placeholder="node.example.com:6080"
+                        placeholder="46.224.0.140   or   46.224.0.140:8080"
                       />
+                      <p className="text-[10px] text-cyan-100/60 mt-1">
+                        Full-history dashboard: <span className="font-mono">46.224.0.140</span> (port 8080).
+                        RPC is <span className="font-mono">:6005</span> — do not use that for the dashboard link.
+                      </p>
                     </div>
                     <button
                       onClick={handleLinkValidatorNode}

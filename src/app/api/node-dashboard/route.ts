@@ -8,6 +8,8 @@ export const dynamic = 'force-dynamic'
 const HOST_RE = /^[a-z0-9]([a-z0-9.-]{0,253}[a-z0-9])?$/i
 const IP_RE = /^(?:\d{1,3}\.){3}\d{1,3}$/
 const DEFAULT_PORT = 8080
+/** xrpld RPC/admin/peer — not the dashboard HTTP service. */
+const RPC_PORTS = new Set([5005, 6005, 51235])
 
 // Optional allow-list of validator hosts/IPs (comma-separated). When set, only
 // these hosts may be proxied — the strongest defence against SSRF.
@@ -126,6 +128,9 @@ function parseHostAndPort(raw: string): { host: string; port: number } | null {
   }
 
   host = host.toLowerCase()
+  // Pasted RPC URL (…:6005) — dashboard is on 8080 (or 8081), not JSON-RPC
+  if (RPC_PORTS.has(port)) port = DEFAULT_PORT
+
   if (!isValidHost(host)) return null
   return { host, port }
 }
@@ -145,8 +150,9 @@ export async function GET(req: NextRequest) {
   let { host, port } = parsed
   if (portParam) {
     const p = parseInt(portParam, 10)
-    if (Number.isFinite(p) && p >= 1 && p <= 65535) port = p
+    if (Number.isFinite(p) && p >= 1 && p <= 65535 && !RPC_PORTS.has(p)) port = p
   }
+  if (RPC_PORTS.has(port)) port = DEFAULT_PORT
 
   if (
     ALLOWED_DASHBOARD_HOSTS.length > 0 &&
