@@ -26,8 +26,14 @@ import {
   validateFalconSecret,
   signPayment,
   signFusdcPayment,
+  signNameSet,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
+import {
+  normalizeAccountName,
+  nameHint,
+  NAME_BOND_FALCON,
+} from '@/lib/account-name'
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
 import {
   backupHasBridgeKeys,
@@ -284,6 +290,16 @@ export default function WalletPage() {
   } | null>(null)
   const [showSendScanner, setShowSendScanner] = useState(false)
 
+  // Account name (AccountNames amendment)
+  const [accountName, setAccountName] = useState<string | null>(null)
+  const [accountNameStatus, setAccountNameStatus] = useState<'active' | 'releasing' | null>(null)
+  const [nameInput, setNameInput] = useState('')
+  const [nameAvailability, setNameAvailability] = useState<
+    'idle' | 'checking' | 'available' | 'taken' | 'invalid'
+  >('idle')
+  const [nameBusy, setNameBusy] = useState(false)
+  const [nameMsg, setNameMsg] = useState<string | null>(null)
+
   // Restore form
   const [restoreSeed,  setRestoreSeed]  = useState('')
   const [restoreLabel, setRestoreLabel] = useState('')
@@ -327,6 +343,24 @@ export default function WalletPage() {
         if (assetsData.assets) data.assets = assetsData.assets
       }
       setAccount(data)
+
+      // Own AccountNames reverse lookup (best-effort)
+      try {
+        const nameR = await fetch(
+          withNetworkQuery(`/api/wallet/name?address=${encodeURIComponent(address)}`, networkKey),
+          fetchOpts,
+        )
+        if (nameR.ok) {
+          const nj = (await nameR.json()) as {
+            name?: string | null
+            status?: 'active' | 'releasing'
+          }
+          setAccountName(nj.name ?? null)
+          setAccountNameStatus(nj.name ? (nj.status ?? 'active') : null)
+        }
+      } catch {
+        /* ignore */
+      }
 
       if (lendR.ok) {
         const lend = await lendR.json() as {
@@ -1298,6 +1332,14 @@ export default function WalletPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="text-xs text-slate-500 mb-0.5">{wallet.label} · Falcon</div>
+                    {accountName ? (
+                      <div className="text-lg font-semibold text-emerald-300 mb-0.5">
+                        {accountName}
+                        {accountNameStatus === 'releasing' && (
+                          <span className="ml-2 text-xs font-normal text-amber-400">releasing</span>
+                        )}
+                      </div>
+                    ) : null}
                     <div className="font-mono text-slate-300 text-sm">{shortAddr(wallet.address)}</div>
                   </div>
                   <button
@@ -1392,6 +1434,137 @@ export default function WalletPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Account name claim — AccountNames amendment live on testnet */}
+                {account?.exists && network.live && !accountName && (
+                  <div className="rounded-xl border border-violet-500/25 bg-violet-950/20 p-3 space-y-2">
+                    <div className="text-sm font-medium text-violet-200">Create named address</div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Claim a human name for this wallet. Locks <strong className="text-slate-400">{NAME_BOND_FALCON} FALCON</strong> until you release the name (1-epoch cooldown).
+                      Settlement still uses your <span className="font-mono">r…</span> address.
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={nameInput}
+                        onChange={(e) => {
+                          const v = e.target.value.toLowerCase()
+                          setNameInput(v)
+                          setNameMsg(null)
+                          const n = normalizeAccountName(v)
+                          if (!v.trim()) setNameAvailability('idle')
+                          else if (!n) setNameAvailability('invalid')
+                          else setNameAvailability('idle')
+                        }}
+                        onBlur={async () => {
+                          const n = normalizeAccountName(nameInput)
+                          if (!n) {
+                            setNameAvailability(nameInput.trim() ? 'invalid' : 'idle')
+                            return
+                          }
+                          setNameAvailability('checking')
+                          try {
+                            const r = await fetch(
+                              withNetworkQuery(`/api/wallet/name?name=${encodeURIComponent(n)}`, networkKey),
+                            )
+                            const j = await r.json()
+                            if (!r.ok && j.error === 'Invalid name') setNameAvailability('invalid')
+                            else if (j.available) setNameAvailability('available')
+                            else setNameAvailability('taken')
+                          } catch {
+                            setNameAvailability('idle')
+                          }
+                        }}
+                        placeholder="alice.bob"
+                        maxLength={32}
+                        className="flex-1 rounded-lg bg-slate-900/80 border border-slate-700 px-3 py-2 text-sm font-mono text-slate-100 placeholder:text-slate-600"
+                        disabled={nameBusy}
+                      />
+                      <button
+                        type="button"
+                        disabled={
+                          nameBusy ||
+                          !normalizeAccountName(nameInput) ||
+                          nameAvailability === 'taken' ||
+                          nameAvailability === 'invalid' ||
+                          (account?.balance ?? 0) < NAME_BOND_FALCON + 1
+                        }
+                        onClick={async () => {
+                          const n = normalizeAccountName(nameInput)
+                          if (!n || !wallet || !account) return
+                          if ((account.balance ?? 0) < NAME_BOND_FALCON + 1) {
+                            setNameMsg(`Need at least ${NAME_BOND_FALCON + 1} FALCON (bond + fee). Use the faucet first.`)
+                            return
+                          }
+                          setNameBusy(true)
+                          setNameMsg(null)
+                          setError(null)
+                          try {
+                            const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+                            const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+                            await submitWithSequenceRetry({
+                              networkKey,
+                              fetchSequence: async () => {
+                                try {
+                                  return await fetchSequenceInfo(wallet.address, networkKey)
+                                } catch {
+                                  return {
+                                    sequence: account.sequence,
+                                    currentLedger: account.currentLedger,
+                                  }
+                                }
+                              },
+                              sign: ({ sequence, lastLedgerSequence }) =>
+                                signNameSet(
+                                  {
+                                    account: wallet.address,
+                                    name: n,
+                                    sequence,
+                                    lastLedgerSequence,
+                                    networkId: network.networkId,
+                                  },
+                                  falcon_secret,
+                                ),
+                            })
+                            setNameMsg(`Claimed “${n}”. Bond of ${NAME_BOND_FALCON} FALCON locked.`)
+                            setNameInput('')
+                            setNameAvailability('idle')
+                            setAccountName(n)
+                            setAccountNameStatus('active')
+                            await refreshBalance(wallet.address)
+                          } catch (e: unknown) {
+                            const msg = e instanceof Error ? e.message : String(e)
+                            setNameMsg(msg)
+                            setError(msg)
+                          } finally {
+                            setNameBusy(false)
+                          }
+                        }}
+                        className="px-4 py-2 rounded-lg text-sm font-semibold bg-violet-500 hover:bg-violet-400 disabled:opacity-40 text-slate-950"
+                      >
+                        {nameBusy ? '…' : 'Claim'}
+                      </button>
+                    </div>
+                    <div className="text-[11px] min-h-[1rem]">
+                      {nameAvailability === 'checking' && <span className="text-slate-500">Checking…</span>}
+                      {nameAvailability === 'available' && <span className="text-emerald-400">Available</span>}
+                      {nameAvailability === 'taken' && <span className="text-rose-400">Taken</span>}
+                      {nameAvailability === 'invalid' && (
+                        <span className="text-amber-400">{nameHint(nameInput) ?? 'Invalid name'}</span>
+                      )}
+                      {nameMsg && <span className="text-slate-300">{nameMsg}</span>}
+                    </div>
+                  </div>
+                )}
+
+                {account?.exists && accountName && (
+                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/15 px-3 py-2 text-[11px] text-slate-400">
+                    Named address <span className="text-emerald-300 font-mono">{accountName}</span>
+                    {' · '}
+                    {NAME_BOND_FALCON} FALCON bond locked
+                    {accountNameStatus === 'releasing' ? ' · release in progress' : ''}
+                  </div>
+                )}
 
                 <div className="flex gap-2 flex-wrap">
                   <button

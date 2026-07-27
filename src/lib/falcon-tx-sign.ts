@@ -297,6 +297,72 @@ export async function signClaimRewardTx(
   return { tx_blob: await signPrepared(tx, decoded) }
 }
 
+/** UTF-8 name → uppercase hex for VL/Blob sfName field. */
+export function nameStringToHex(name: string): string {
+  const bytes = new TextEncoder().encode(name)
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase()
+}
+
+/** Claim a human-readable name (locks 100 FALCON bond). Requires AccountNames amendment. */
+export async function signNameSetTx(
+  params: {
+    account: string
+    /** Already-normalized lowercase name (3–32, a-z0-9.) */
+    name: string
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const tx = {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      decoded.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'NameSet',
+    Name: nameStringToHex(params.name),
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}
+
+/** Start name release cooldown (1 epoch). */
+export async function signNameUnbondTx(
+  params: {
+    account: string
+    name?: string
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  const tx: Record<string, unknown> = {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      decoded.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'NameUnbond',
+  }
+  if (params.name) tx.Name = nameStringToHex(params.name)
+  return { tx_blob: await signPrepared(tx as TxCore & Record<string, unknown>, decoded) }
+}
+
 export async function signOfferCreateTx(
   params: {
     account: string

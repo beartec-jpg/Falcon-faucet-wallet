@@ -27,6 +27,8 @@ import {
   signBridgeWithdrawTx,
   signFusdcPaymentTx,
   signClaimRewardTx,
+  signNameSetTx,
+  signNameUnbondTx,
   TF_TWO_ASSET,
   TF_LP_TOKEN,
   TF_WITHDRAW_ALL,
@@ -260,6 +262,40 @@ export async function signAmmWithdraw(
   falcon_secret: string,
 ): Promise<SignedTx> {
   const { tx_blob } = await signAmmWithdrawTx(params, falcon_secret)
+  return { tx_blob }
+}
+
+export interface NameSetParams {
+  account: string
+  name: string
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  fee?: string
+}
+
+export async function signNameSet(
+  params: NameSetParams,
+  falcon_secret: string,
+): Promise<SignedTx> {
+  const { tx_blob } = await signNameSetTx(params, falcon_secret)
+  return { tx_blob }
+}
+
+export interface NameUnbondParams {
+  account: string
+  name?: string
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  fee?: string
+}
+
+export async function signNameUnbond(
+  params: NameUnbondParams,
+  falcon_secret: string,
+): Promise<SignedTx> {
+  const { tx_blob } = await signNameUnbondTx(params, falcon_secret)
   return { tx_blob }
 }
 

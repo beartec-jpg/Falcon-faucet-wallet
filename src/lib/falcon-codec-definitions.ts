@@ -110,6 +110,37 @@ const QXRP_FIELDS: FieldEntry[] = [
       type: 'UInt32',
     },
   ],
+  // AccountNames (sfName VL #36, sfNameStatus UInt32 #94, sfAccountName Hash256 #42)
+  [
+    'Name',
+    {
+      isSerialized: true,
+      isSigningField: true,
+      isVLEncoded: true,
+      nth: 36,
+      type: 'Blob',
+    },
+  ],
+  [
+    'NameStatus',
+    {
+      isSerialized: true,
+      isSigningField: true,
+      isVLEncoded: false,
+      nth: 94,
+      type: 'UInt32',
+    },
+  ],
+  [
+    'AccountName',
+    {
+      isSerialized: true,
+      isSigningField: true,
+      isVLEncoded: false,
+      nth: 42,
+      type: 'Hash256',
+    },
+  ],
 ]
 
 const QXRP_TRANSACTION_TYPES: Record<string, number> = {
@@ -123,6 +154,9 @@ const QXRP_TRANSACTION_TYPES: Record<string, number> = {
   GovernanceVote: 92,
   ClaimLPReward: 93,
   ClaimAmmLpReward: 94,
+  NameSet: 95,
+  NameUnbond: 96,
+  NameRelease: 97,
   LoanCollateralDeposit: 83,
   VaultClaimCollateral: 79,
 }
@@ -168,6 +202,9 @@ const QXRP_TRANSACTION_FORMATS: Record<string, TxFormatEntry[]> = {
     { name: 'LoanBrokerID', optionality: 0 },
     { name: 'Amount', optionality: 1 },
   ],
+  NameSet: [{ name: 'Name', optionality: 0 }],
+  NameUnbond: [{ name: 'Name', optionality: 1 }],
+  NameRelease: [{ name: 'Name', optionality: 0 }],
 }
 
 let cached: XrplDefinitionsBase | null = null
