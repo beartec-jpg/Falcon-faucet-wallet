@@ -434,11 +434,13 @@ export default function WalletPage() {
 
   // ── On mount: load wallet from IndexedDB ──────────────────────────────────
 
-  const refreshNodeStats = useCallback(async (host: string) => {
+  const refreshNodeStats = useCallback(async (host: string, port?: number) => {
     setNodeStatsLoading(true)
     setNodeStatsError(null)
     try {
-      const r = await fetch(`/api/node-dashboard?host=${encodeURIComponent(host)}`)
+      const q = new URLSearchParams({ host })
+      if (port && port > 0) q.set('port', String(port))
+      const r = await fetch(`/api/node-dashboard?${q.toString()}`)
       const data = await r.json()
       if (!r.ok) {
         throw new Error(data.error || data.hint || 'Dashboard unreachable')
@@ -455,14 +457,14 @@ export default function WalletPage() {
   const handleLinkValidatorNode = () => {
     const host = nodeHostInput.trim()
     if (!host) {
-      setError('Enter your server public IP or hostname')
+      setError('Enter your server public IP, domain, or host:port (e.g. node.example.com:6080)')
       return
     }
     const saved = saveValidatorNode(host, nodeName)
     setSavedNode(saved)
     setShowNodeSetup(false)
     setError(null)
-    void refreshNodeStats(saved.host)
+    void refreshNodeStats(saved.host, saved.port)
   }
 
   const handleUnlinkValidatorNode = () => {
@@ -485,8 +487,8 @@ export default function WalletPage() {
 
   useEffect(() => {
     if (view === 'node' && savedNode && !showNodeSetup) {
-      refreshNodeStats(savedNode.host)
-      const id = setInterval(() => refreshNodeStats(savedNode.host), 15000)
+      refreshNodeStats(savedNode.host, savedNode.port)
+      const id = setInterval(() => refreshNodeStats(savedNode.host, savedNode.port), 15000)
       return () => clearInterval(id)
     }
   }, [view, savedNode, showNodeSetup, refreshNodeStats])
@@ -2005,12 +2007,15 @@ export default function WalletPage() {
                             <h3 className="font-semibold text-white text-sm">Validator Dashboard</h3>
                           </div>
                           <p className="text-xs text-slate-500 mt-1">
-                            {savedNode.nodeName} · <span className="font-mono text-slate-400">{savedNode.host}</span>
+                            {savedNode.nodeName} ·{' '}
+                            <span className="font-mono text-slate-400">
+                              {savedNode.host}:{savedNode.port ?? 8080}
+                            </span>
                           </p>
                         </div>
                         <div className="flex gap-1.5 flex-shrink-0">
                           <button
-                            onClick={() => savedNode && refreshNodeStats(savedNode.host)}
+                            onClick={() => savedNode && refreshNodeStats(savedNode.host, savedNode.port)}
                             disabled={nodeStatsLoading}
                             className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 disabled:opacity-50"
                             title="Refresh now"
@@ -2032,18 +2037,21 @@ export default function WalletPage() {
                       </div>
 
                       <a
-                        href={dashboardUrl(savedNode.host)}
+                        href={dashboardUrl(savedNode.host, savedNode.port)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block text-center py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold transition"
+                        className="block text-center py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold transition break-all px-2"
                       >
-                        Open full dashboard → {dashboardUrl(savedNode.host)}
+                        Open full dashboard → {dashboardUrl(savedNode.host, savedNode.port)}
                       </a>
 
                       {nodeStatsError && (
                         <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
                           {nodeStatsError}
-                          <p className="text-[10px] text-red-400/80 mt-1">Ensure bootstrap finished and TCP 8080 is open on your server.</p>
+                          <p className="text-[10px] text-red-400/80 mt-1">
+                            Ensure the dashboard container is up and TCP {savedNode.port ?? 8080} is open
+                            (or reverse-proxy TLS on 443). Private/LAN IPs are blocked by the portal.
+                          </p>
                         </div>
                       )}
 
@@ -2223,16 +2231,22 @@ export default function WalletPage() {
                   <div className="space-y-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-4 py-3">
                     <div className="text-sm font-semibold text-cyan-200">Already ran the one-liner?</div>
                     <p className="text-xs text-cyan-100/80 leading-snug">
-                      Paste your server&apos;s public IP below. This tab switches to a live validator dashboard (node + network metrics, auto-refresh 15s).
+                      Paste your server&apos;s <strong className="text-cyan-100">public IP</strong>,{' '}
+                      <strong className="text-cyan-100">domain</strong>, or <strong className="text-cyan-100">host:port</strong>.
+                      Examples: <span className="font-mono text-[11px]">203.0.113.10</span>,{' '}
+                      <span className="font-mono text-[11px]">node.example.com</span>,{' '}
+                      <span className="font-mono text-[11px]">node.example.com:6080</span>.
                     </p>
                     <div>
-                      <label className="block text-[10px] text-cyan-200/70 mb-1">Server public IP or hostname</label>
+                      <label className="block text-[10px] text-cyan-200/70 mb-1">
+                        Dashboard host (IP / domain / host:port)
+                      </label>
                       <input
                         value={nodeHostInput}
                         onChange={(e) => setNodeHostInput(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleLinkValidatorNode()}
                         className="w-full bg-slate-900 border border-cyan-500/30 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none focus:border-cyan-400"
-                        placeholder="192.241.247.158"
+                        placeholder="node.example.com:6080"
                       />
                     </div>
                     <button
@@ -2258,8 +2272,10 @@ export default function WalletPage() {
                   <div className="flex gap-2 bg-amber-950/50 border border-amber-700/50 rounded-xl px-3 py-2.5">
                     <span className="text-amber-400 text-base leading-none mt-0.5">⚠</span>
                     <p className="text-xs text-amber-200 leading-snug">
-                      <span className="font-semibold">Ports 51235 and 8080 (TCP) must be reachable.</span>{' '}
-                      51235 for peering; 8080 for the validator dashboard. Works on a VPS <span className="text-amber-400">(automatic)</span> or home PC with router port-forwarding.
+                      <span className="font-semibold">Port 51235 (TCP)</span> must be public for peering.{' '}
+                      Dashboard defaults to <span className="font-semibold">8080</span> but you may publish{' '}
+                      <span className="font-semibold">6080</span> (or any port) and enter <span className="font-mono">host:6080</span> here.
+                      Domain + reverse proxy (HTTPS :443) is fine too — enter the domain and map to the dashboard container.
                     </p>
                   </div>
 
