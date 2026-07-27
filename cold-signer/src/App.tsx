@@ -81,10 +81,12 @@ export default function App() {
   const [vaultPass, setVaultPass] = useState('')
   const [coldPass, setColdPass] = useState('')
   const [coldPass2, setColdPass2] = useState('')
-  /** How to protect secret on this cold device after import */
-  const [importMethod, setImportMethod] = useState<'password' | 'passkey'>(
-    isPasskeySupported() ? 'passkey' : 'password',
-  )
+  /**
+   * Protect secret on this cold device after import.
+   * Default password — Android credential manager often fails on passkey create
+   * ("unknown error while talking to the credential manager").
+   */
+  const [importMethod, setImportMethod] = useState<'password' | 'passkey'>('password')
 
   // Unlock / sign QR
   const [respEnc, setRespEnc] = useState<EncodedMultiQr | null>(null)
@@ -212,22 +214,30 @@ export default function App() {
       }
 
       if (importMethod === 'passkey') {
-        if (!isPasskeySupported()) throw new Error('Passkeys not supported on this device')
-        const reg = await registerColdPasskey(inner.label || 'Falcon Cold Vault')
-        await saveColdVaultWithPasskey(
-          metaBase,
-          inner.falcon_secret,
-          reg.credentialId,
-          reg.keyBytes,
-          reg.hasPrf,
-        )
-        setMeta({
-          id: 'main',
-          ...metaBase,
-          unlockMethod: 'passkey',
-          credentialId: reg.credentialId,
-          hasPrf: reg.hasPrf,
-        })
+        if (!isPasskeySupported()) {
+          throw new Error('Passkeys not supported on this device. Switch to Password and import again.')
+        }
+        try {
+          const reg = await registerColdPasskey(inner.label || 'Falcon Cold Vault')
+          await saveColdVaultWithPasskey(
+            metaBase,
+            inner.falcon_secret,
+            reg.credentialId,
+            reg.keyBytes,
+            reg.hasPrf,
+          )
+          setMeta({
+            id: 'main',
+            ...metaBase,
+            unlockMethod: 'passkey',
+            credentialId: reg.credentialId,
+            hasPrf: reg.hasPrf,
+          })
+        } catch (pkErr) {
+          // Keep vault file loaded; user can switch to password without re-picking file
+          setImportMethod('password')
+          throw pkErr
+        }
       } else {
         if (coldPass.length < 12) throw new Error('Cold unlock password must be ≥ 12 characters')
         if (coldPass !== coldPass2) throw new Error('Cold passwords do not match')
@@ -574,6 +584,17 @@ export default function App() {
           <div className="space-y-2">
             <p className="text-xs text-slate-400">Protect secret on this device with</p>
             <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setImportMethod('password')}
+                className={`flex-1 py-2 rounded-xl text-xs font-semibold border ${
+                  importMethod === 'password'
+                    ? 'border-cyan-500 bg-cyan-950/50 text-cyan-200'
+                    : 'border-slate-700 bg-slate-900 text-slate-400'
+                }`}
+              >
+                Password (recommended)
+              </button>
               {isPasskeySupported() && (
                 <button
                   type="button"
@@ -587,18 +608,12 @@ export default function App() {
                   Passkey
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setImportMethod('password')}
-                className={`flex-1 py-2 rounded-xl text-xs font-semibold border ${
-                  importMethod === 'password'
-                    ? 'border-cyan-500 bg-cyan-950/50 text-cyan-200'
-                    : 'border-slate-700 bg-slate-900 text-slate-400'
-                }`}
-              >
-                Password
-              </button>
             </div>
+            {importMethod === 'passkey' && (
+              <p className="text-[11px] text-amber-400/90">
+                Passkey can fail on some phones (credential manager). If import errors, use Password.
+              </p>
+            )}
           </div>
           {importMethod === 'password' && (
             <>
@@ -621,12 +636,6 @@ export default function App() {
                 />
               </label>
             </>
-          )}
-          {importMethod === 'passkey' && (
-            <p className="text-[11px] text-slate-500">
-              You will register a device passkey (Face ID / fingerprint). Prefer PRF-capable browsers
-              (Chrome 115+, Safari 17.4+).
-            </p>
           )}
           <button
             type="button"
