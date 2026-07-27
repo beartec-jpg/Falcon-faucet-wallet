@@ -208,6 +208,12 @@ interface NodeStatsPayload {
     tx_per_min?: number | null
     total_txs?: number | null
     last_ledger_txs?: number | null
+    tx_index_complete?: boolean
+    tx_index_scanned_through?: number | null
+    tx_index_tip?: number | null
+    tx_index_progress_pct?: number | null
+    tx_index_scanning?: boolean
+    tx_index_remaining?: number | null
     validators?: Array<{
       account?: string
       bond_status?: string
@@ -2155,13 +2161,15 @@ export default function WalletPage() {
                               label="Tx rate"
                               value={fmtTxPerSec(networkStats.tx_per_sec)}
                               tone={(networkStats.tx_per_sec ?? 0) > 0 ? 'good' : ''}
-                              sub={networkStats.tx_per_min != null ? `${Number(networkStats.tx_per_min).toFixed(1)}/min` : undefined}
+                              sub="network-wide closes"
                             />
                             <MetricTile
                               label="Total txs"
                               value={fmtStat(networkStats.total_txs)}
-                              tone={(networkStats.total_txs ?? 0) > 0 ? 'good' : ''}
-                              sub="observed by dashboard"
+                              tone={networkStats.tx_index_complete ? 'good' : 'warn'}
+                              sub={networkStats.tx_index_complete
+                                ? 'all closed ledgers'
+                                : `indexing… ${networkStats.tx_index_progress_pct != null ? `${Number(networkStats.tx_index_progress_pct).toFixed(1)}%` : ''}`}
                             />
                           </div>
                           {nodeStatsError && (
@@ -2288,15 +2296,17 @@ export default function WalletPage() {
                                   label="Tx rate"
                                   value={fmtTxPerSec(net.tx_per_sec)}
                                   tone={(net.tx_per_sec ?? 0) > 0 ? 'good' : ''}
-                                  sub={net.tx_per_min != null
-                                    ? `${Number(net.tx_per_min).toFixed(1)}/min` + (net.last_ledger_txs != null ? ` · last ledger ${net.last_ledger_txs}` : '')
-                                    : 'network-wide'}
+                                  sub={net.last_ledger_txs != null
+                                    ? `network-wide · last ledger ${net.last_ledger_txs}`
+                                    : 'network-wide closes'}
                                 />
                                 <MetricTile
                                   label="Total txs"
                                   value={fmtStat(net.total_txs)}
-                                  tone={(net.total_txs ?? 0) > 0 ? 'good' : ''}
-                                  sub="observed by dashboard"
+                                  tone={net.tx_index_complete ? 'good' : 'warn'}
+                                  sub={net.tx_index_complete
+                                    ? `all closed ledgers · tip #${fmtStat(net.tx_index_tip ?? net.ledger_seq)}`
+                                    : `indexing on-ledger… ${net.tx_index_progress_pct != null ? `${Number(net.tx_index_progress_pct).toFixed(1)}%` : ''}${net.tx_index_scanned_through != null ? ` · through #${fmtStat(net.tx_index_scanned_through)}` : ''}`}
                                 />
                               </div>
                             </div>
