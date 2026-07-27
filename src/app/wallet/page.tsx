@@ -1879,6 +1879,13 @@ export default function WalletPage() {
                   >
                     Receive
                   </button>
+                  <Link
+                    href="/vault"
+                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-cyan-950/50 hover:bg-cyan-900/40 text-cyan-300 border border-cyan-500/25 text-center"
+                    title="Air-gapped vault (cold signer)"
+                  >
+                    Vault
+                  </Link>
                   <button
                     type="button"
                     onClick={() => setWalletSection('bridge')}

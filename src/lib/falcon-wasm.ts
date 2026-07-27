@@ -6,11 +6,24 @@ import { createFalcon512, type Falcon512Signer } from './falcon-512-browser'
 
 let instance: Falcon512Signer | null = null
 let loading: Promise<Falcon512Signer> | null = null
+let resolvedWasmPath = '/wasm/falcon-512.min.js'
+
+/**
+ * Optional: cold-signer PWA calls this once at boot with
+ * `${import.meta.env.BASE_URL}wasm/falcon-512.min.js` so offline scope works.
+ */
+export function configureFalconWasmPath(wasmPath: string): void {
+  if (instance || loading) {
+    throw new Error('configureFalconWasmPath must be called before getFalcon512()')
+  }
+  resolvedWasmPath = wasmPath
+}
 
 export async function getFalcon512(): Promise<Falcon512Signer> {
   if (instance) return instance
   if (!loading) {
-    loading = createFalcon512().then(f => {
+    const path = resolvedWasmPath
+    loading = createFalcon512(path).then(f => {
       instance = f
       return f
     })

@@ -15,6 +15,8 @@ const FALCON_512 = {
 export interface Falcon512Signer {
   generateKeyPair(): { publicKey: Uint8Array; secretKey: Uint8Array }
   sign(message: Uint8Array, secretKey: Uint8Array): Uint8Array
+  /** Verify Falcon-512 signature. publicKey is raw 897 bytes (no 0xFB prefix). */
+  verify(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean
   destroy(): void
 }
 
@@ -33,6 +35,14 @@ type WasmModule = {
     msgPtr: number,
     msgLen: number,
     secPtr: number,
+  ) => number
+  _OQS_SIG_verify: (
+    sigPtr: number,
+    msgPtr: number,
+    msgLen: number,
+    sigInPtr: number,
+    sigLen: number,
+    pubPtr: number,
   ) => number
   _OQS_SIG_free: (sigPtr: number) => void
   getValue: (ptr: number, type: string) => number
@@ -91,6 +101,37 @@ class Falcon512 implements Falcon512Signer {
     }
   }
 
+  verify(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
+    this.#check()
+    if (publicKey.length !== FALCON_512.publicKey) {
+      throw new Error(`Invalid Falcon public key length: ${publicKey.length}`)
+    }
+    if (signature.length === 0 || signature.length > FALCON_512.signature) {
+      throw new Error(`Invalid Falcon signature length: ${signature.length}`)
+    }
+    const msgPtr = this.#wasm._malloc(message.length)
+    const sigInPtr = this.#wasm._malloc(signature.length)
+    const pubPtr = this.#wasm._malloc(FALCON_512.publicKey)
+    try {
+      this.#wasm.HEAPU8.set(message, msgPtr)
+      this.#wasm.HEAPU8.set(signature, sigInPtr)
+      this.#wasm.HEAPU8.set(publicKey, pubPtr)
+      const rc = this.#wasm._OQS_SIG_verify(
+        this.#sigPtr,
+        msgPtr,
+        message.length,
+        sigInPtr,
+        signature.length,
+        pubPtr,
+      )
+      return rc === 0
+    } finally {
+      this.#wasm._free(msgPtr)
+      this.#wasm._free(sigInPtr)
+      this.#wasm._free(pubPtr)
+    }
+  }
+
   destroy() {
     if (!this.#destroyed && this.#sigPtr) {
       this.#wasm._OQS_SIG_free(this.#sigPtr)
@@ -103,8 +144,13 @@ class Falcon512 implements Falcon512Signer {
   }
 }
 
-async function loadWasmFactory(): Promise<() => Promise<WasmModule>> {
-  const url = new URL('/wasm/falcon-512.min.js', window.location.origin).href
+async function loadWasmFactory(
+  wasmPath = '/wasm/falcon-512.min.js',
+): Promise<() => Promise<WasmModule>> {
+  // Absolute path or full URL. Cold signer PWA uses e.g. /cold-signer/wasm/…
+  const url = wasmPath.startsWith('http')
+    ? wasmPath
+    : new URL(wasmPath, window.location.origin).href
   const mod = await import(/* webpackIgnore: true */ url)
   const factory = mod.default as () => Promise<WasmModule>
   if (typeof factory !== 'function') {
@@ -113,8 +159,10 @@ async function loadWasmFactory(): Promise<() => Promise<WasmModule>> {
   return factory
 }
 
-export async function createFalcon512(): Promise<Falcon512Signer> {
-  const factory = await loadWasmFactory()
+export async function createFalcon512(
+  wasmPath = '/wasm/falcon-512.min.js',
+): Promise<Falcon512Signer> {
+  const factory = await loadWasmFactory(wasmPath)
   const wasm = await factory()
   wasm._OQS_init()
 

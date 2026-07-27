@@ -10,3 +10,6 @@ out/
 .DS_Store
 .vercel
 .env*
+
+# Cold signer Vite build (shipped copy lives in public/cold-signer/)
+cold-signer/dist

@@ -86,6 +86,52 @@ export function baseTx(
   ) as TxCore
 }
 
+/** Build unsigned Payment tx_json (no secret). Used by hot wallet and vault cold-sign path. */
+export function buildPaymentTxJson(params: {
+  account: string
+  destination: string
+  amountDrops: string
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  /** Hex SigningPubKey (Falcon pub blob including 0xFB prefix). */
+  publicKeyHex: string
+  fee?: string
+}): TxCore & Record<string, unknown> {
+  return {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      params.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'Payment',
+    Destination: params.destination,
+    Amount: params.amountDrops,
+  }
+}
+
+/**
+ * Sign a previously built tx_json (vault cold path).
+ * Mutates a copy only — does not trust display fields from the package.
+ */
+export async function signTxJson(
+  tx_json: Record<string, unknown>,
+  falcon_secret: string,
+): Promise<string> {
+  const decoded = decodeFalconSecret(falcon_secret)
+  try {
+    const tx = { ...tx_json } as TxCore & Record<string, unknown>
+    // Ensure SigningPubKey matches secret
+    tx.SigningPubKey = decoded.publicKeyHex
+    return await signPrepared(tx, decoded)
+  } finally {
+    // signPrepared zeroizes secretKey; decoded.secretKey already wiped
+  }
+}
+
 export async function signPaymentTx(
   params: {
     account: string
@@ -99,19 +145,10 @@ export async function signPaymentTx(
   falcon_secret: string,
 ): Promise<{ tx_blob: string }> {
   const decoded = decodeFalconSecret(falcon_secret)
-  const tx = {
-    ...baseTx(
-      params.account,
-      params.sequence,
-      params.lastLedgerSequence,
-      decoded.publicKeyHex,
-      params.networkId,
-      params.fee,
-    ),
-    TransactionType: 'Payment',
-    Destination: params.destination,
-    Amount: params.amountDrops,
-  }
+  const tx = buildPaymentTxJson({
+    ...params,
+    publicKeyHex: decoded.publicKeyHex,
+  })
   return { tx_blob: await signPrepared(tx, decoded) }
 }
 
