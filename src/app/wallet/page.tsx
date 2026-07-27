@@ -204,6 +204,10 @@ interface NodeStatsPayload {
     load_factor?: number
     bonded_validator_count?: number
     total_validator_entries?: number
+    tx_per_sec?: number | null
+    tx_per_min?: number | null
+    total_txs?: number | null
+    last_ledger_txs?: number | null
     validators?: Array<{
       account?: string
       bond_status?: string
@@ -235,6 +239,15 @@ function fmtUptimeSeconds(sec: number | null | undefined): string {
   if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
   if (m > 0) return `${m}m`
   return s > 0 ? '<1m' : 'just started'
+}
+
+function fmtTxPerSec(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(Number(n))) return '—'
+  const v = Number(n)
+  if (v >= 10) return `${v.toFixed(1)}/s`
+  if (v >= 1) return `${v.toFixed(2)}/s`
+  if (v > 0) return `${v.toFixed(3)}/s`
+  return '0/s'
 }
 
 function MetricTile({
@@ -2129,7 +2142,7 @@ export default function WalletPage() {
                       {/* Network (full) still shows if personal node fetch fails */}
                       {!nodeStats?.node && networkStats && (
                         <div className="space-y-2 rounded-xl border border-slate-700/60 p-3">
-                          <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Network (full)</div>
+                          <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Network activity</div>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                             <MetricTile label="Network ledger" value={`#${fmtStat(networkStats.ledger_seq)}`} tone="good" sub={networkStats.complete_ledgers} />
                             <MetricTile label="Network state" value={networkStats.server_state || '—'} />
@@ -2137,6 +2150,18 @@ export default function WalletPage() {
                             <MetricTile
                               label="Epoch"
                               value={networkStats.epoch?.epoch_number != null ? String(networkStats.epoch.epoch_number) : '—'}
+                            />
+                            <MetricTile
+                              label="Tx rate"
+                              value={fmtTxPerSec(networkStats.tx_per_sec)}
+                              tone={(networkStats.tx_per_sec ?? 0) > 0 ? 'good' : ''}
+                              sub={networkStats.tx_per_min != null ? `${Number(networkStats.tx_per_min).toFixed(1)}/min` : undefined}
+                            />
+                            <MetricTile
+                              label="Total txs"
+                              value={fmtStat(networkStats.total_txs)}
+                              tone={(networkStats.total_txs ?? 0) > 0 ? 'good' : ''}
+                              sub="observed by dashboard"
                             />
                           </div>
                           {nodeStatsError && (
@@ -2147,16 +2172,24 @@ export default function WalletPage() {
                         </div>
                       )}
 
-                      {nodeStats?.node && (
+                      {nodeStats?.node && (() => {
+                        const isValidatorNode = !!nodeStats.node.validator_account
+                        const bond = nodeStats.node.bond
+                        const bondOk = bond?.status === 'bonded'
+                        return (
                         <>
                           <div className="space-y-2">
-                            <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Your node (personal)</div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">
+                              {isValidatorNode ? 'Your node (personal)' : 'Your node (full-history)'}
+                            </div>
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                               <MetricTile
                                 label="Server state"
                                 value={nodeStats.node.server_state || '—'}
-                                tone={nodeStats.node.server_state === 'proposing' ? 'good' : 'warn'}
-                                sub={(nodeStats.node.validation_pubkey || '').slice(0, 20) + '…'}
+                                tone={nodeStats.node.server_state === 'proposing' ? 'good' : (nodeStats.node.server_state === 'full' ? '' : 'warn')}
+                                sub={isValidatorNode
+                                  ? ((nodeStats.node.validation_pubkey || '').slice(0, 20) + (nodeStats.node.validation_pubkey ? '…' : ''))
+                                  : 'full-history node'}
                               />
                               <MetricTile
                                 label="Ledger"
@@ -2176,26 +2209,30 @@ export default function WalletPage() {
                                 tone={(nodeStats.node.peers ?? 0) >= 3 ? 'good' : 'warn'}
                               />
                               <MetricTile
-                                label="Bond"
-                                value={nodeStats.node.bond?.status || '—'}
-                                tone={nodeStats.node.bond?.status === 'bonded' ? 'good' : 'warn'}
-                                sub={`${fmtStat(nodeStats.node.bond?.bonded_amount_qxrp, 2)} FALCON`}
+                                label="Bond status"
+                                value={isValidatorNode ? (bond?.status || 'unknown') : 'n/a'}
+                                tone={bondOk ? 'good' : (isValidatorNode ? 'warn' : '')}
+                                sub={isValidatorNode
+                                  ? `${fmtStat(bond?.bonded_amount_qxrp, 2)} FALCON locked`
+                                  : 'full-history node · not a validator'}
                               />
                               <MetricTile
                                 label="Composite score"
-                                value={fmtStat(nodeStats.node.bond?.composite_score)}
-                                tone={(nodeStats.node.bond?.composite_score ?? 0) >= 5000 ? 'good' : 'warn'}
-                                sub="basis points / 10000"
+                                value={isValidatorNode ? fmtStat(bond?.composite_score) : 'n/a'}
+                                tone={isValidatorNode
+                                  ? ((bond?.composite_score ?? 0) >= 5000 ? 'good' : 'warn')
+                                  : ''}
+                                sub={isValidatorNode ? 'basis points / 10000' : 'see bonded table'}
                               />
                               <MetricTile
                                 label="Rewards pending"
-                                value={`${fmtStat(nodeStats.node.bond?.reward_accum_qxrp, 4)}`}
-                                sub="FALCON accumulator"
+                                value={isValidatorNode ? `${fmtStat(bond?.reward_accum_qxrp, 4)}` : 'n/a'}
+                                sub={isValidatorNode ? 'FALCON accumulator' : 'not a validator'}
                               />
                               <MetricTile
-                                label="Validator balance"
-                                value={`${fmtStat(nodeStats.node.balance_qxrp, 2)}`}
-                                sub="FALCON on-chain"
+                                label={isValidatorNode ? 'Validator balance' : 'Balance'}
+                                value={isValidatorNode ? `${fmtStat(nodeStats.node.balance_qxrp, 2)}` : 'n/a'}
+                                sub={isValidatorNode ? 'FALCON on-chain' : 'see bonded table'}
                               />
                               <MetricTile
                                 label="Uptime"
@@ -2235,7 +2272,7 @@ export default function WalletPage() {
                             if (!net) return null
                             return (
                             <div className="space-y-2 pt-1 border-t border-slate-800">
-                              <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Network (full)</div>
+                              <div className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">Network activity</div>
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                 <MetricTile label="Network ledger" value={`#${fmtStat(net.ledger_seq)}`} tone="good" sub={net.complete_ledgers} />
                                 <MetricTile label="Network state" value={net.server_state || '—'} />
@@ -2246,6 +2283,20 @@ export default function WalletPage() {
                                   sub={net.epoch?.epoch_pool_balance_qxrp != null
                                    ? `pool ${fmtStat(net.epoch.epoch_pool_balance_qxrp, 2)} FALCON`
                                     : undefined}
+                                />
+                                <MetricTile
+                                  label="Tx rate"
+                                  value={fmtTxPerSec(net.tx_per_sec)}
+                                  tone={(net.tx_per_sec ?? 0) > 0 ? 'good' : ''}
+                                  sub={net.tx_per_min != null
+                                    ? `${Number(net.tx_per_min).toFixed(1)}/min` + (net.last_ledger_txs != null ? ` · last ledger ${net.last_ledger_txs}` : '')
+                                    : 'network-wide'}
+                                />
+                                <MetricTile
+                                  label="Total txs"
+                                  value={fmtStat(net.total_txs)}
+                                  tone={(net.total_txs ?? 0) > 0 ? 'good' : ''}
+                                  sub="observed by dashboard"
                                 />
                               </div>
                             </div>
@@ -2294,7 +2345,8 @@ export default function WalletPage() {
                             <p className="text-[10px] text-slate-600 text-center">Auto-refreshes every 15s · Last update {nodeStats.updated_at}</p>
                           )}
                         </>
-                      )}
+                        )
+                      })()}
 
                       {!nodeStats && !nodeStatsError && nodeStatsLoading && (
                         <div className="flex items-center justify-center gap-2 py-8 text-slate-500 text-sm">
