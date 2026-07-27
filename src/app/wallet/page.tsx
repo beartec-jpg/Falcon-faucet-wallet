@@ -224,15 +224,17 @@ function fmtStat(n: number | null | undefined, digits = 0): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
-/** Human uptime — never show "0h" for sub-hour runtimes. */
+/** Human uptime — never show "0h" / bare "0" for short runtimes. */
 function fmtUptimeSeconds(sec: number | null | undefined): string {
-  const s = Math.max(0, Math.floor(Number(sec) || 0))
+  if (sec == null || Number.isNaN(Number(sec))) return '—'
+  const s = Math.max(0, Math.floor(Number(sec)))
   const d = Math.floor(s / 86400)
   const h = Math.floor((s % 86400) / 3600)
   const m = Math.floor((s % 3600) / 60)
   if (d > 0) return h > 0 ? `${d}d ${h}h` : `${d}d`
   if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
-  return `${m}m`
+  if (m > 0) return `${m}m`
+  return s > 0 ? '<1m' : 'just started'
 }
 
 function MetricTile({
