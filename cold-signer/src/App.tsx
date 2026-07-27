@@ -14,6 +14,11 @@ import {
   isStandalonePwa,
 } from './lib/pwaDetect'
 import {
+  getDeferredInstallPrompt,
+  promptInstall,
+  subscribeInstallPrompt,
+} from './lib/installPrompt'
+import {
   hasColdVault,
   loadColdVaultMeta,
   saveColdVaultWithPassword,
@@ -86,10 +91,12 @@ export default function App() {
   const [preview, setPreview] = useState<ReturnType<typeof parseUnsignedPayment> | null>(null)
   const [signedEnc, setSignedEnc] = useState<EncodedMultiQr | null>(null)
 
-  const [deferredPrompt, setDeferredPrompt] = useState<{
-    prompt: () => Promise<void>
-  } | null>(null)
+  const [canNativeInstall, setCanNativeInstall] = useState(
+    () => !!getDeferredInstallPrompt(),
+  )
   const [installed, setInstalled] = useState(() => isStandalonePwa())
+  const [installBusy, setInstallBusy] = useState(false)
+  const [showInstallHelp, setShowInstallHelp] = useState(false)
 
   const refreshOnline = useCallback(() => {
     setOnline(readOnlineState().online)
@@ -111,23 +118,50 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const h = (e: Event) => {
-      e.preventDefault()
-      setDeferredPrompt(e as unknown as { prompt: () => Promise<void> })
-    }
-    window.addEventListener('beforeinstallprompt', h)
-    // Re-check when returning from home screen install
+    const unsub = subscribeInstallPrompt((p) => setCanNativeInstall(!!p))
     const onVis = () => refreshInstalled()
     document.addEventListener('visibilitychange', onVis)
     window.addEventListener('appinstalled', () => {
       setInstalled(true)
-      setDeferredPrompt(null)
+      setCanNativeInstall(false)
+      setShowInstallHelp(false)
     })
     return () => {
-      window.removeEventListener('beforeinstallprompt', h)
+      unsub()
       document.removeEventListener('visibilitychange', onVis)
     }
   }, [refreshInstalled])
+
+  async function handleInstallClick() {
+    setError('')
+    setInstallBusy(true)
+    try {
+      // Wait briefly — prompt sometimes arrives a moment after SW is ready
+      if (!getDeferredInstallPrompt()) {
+        await new Promise((r) => setTimeout(r, 800))
+      }
+      const outcome = await promptInstall()
+      if (outcome === 'accepted') {
+        setInstalled(true)
+        setShowInstallHelp(false)
+        return
+      }
+      if (outcome === 'dismissed') {
+        setError('Install was cancelled. Tap Install again when ready.')
+        return
+      }
+      // Native prompt not available — still show Install as primary; open help under it
+      setShowInstallHelp(true)
+      setError(
+        isIos()
+          ? 'Tap Share, then Add to Home Screen, then open Cold Signer from the home screen.'
+          : 'Use the Install button in your browser bar if shown, or the browser menu → Install app.',
+      )
+    } finally {
+      setInstallBusy(false)
+      setTimeout(refreshInstalled, 400)
+    }
+  }
 
   useEffect(() => {
     ;(async () => {
@@ -356,8 +390,8 @@ export default function App() {
     return (
       <OfflineWall
         vaultLabel={meta?.label}
-        canInstall={!!deferredPrompt}
-        onInstall={() => void deferredPrompt?.prompt()}
+        canInstall={canNativeInstall}
+        onInstall={() => void handleInstallClick()}
         onRetry={() => {
           refreshOnline()
           if (!navigator.onLine) {
@@ -412,51 +446,51 @@ export default function App() {
             <div>
               <h1 className="text-2xl font-bold text-white">Install Cold Signer</h1>
               <p className="text-sm text-slate-400 mt-2 leading-relaxed max-w-sm">
-                This must be installed as an app before you can import a vault. Open it from your
-                home screen afterward — browser tabs cannot load secrets.
+                Install this as an app first. Vault import only works from the installed app — not a
+                browser tab.
               </p>
             </div>
 
             {error && (
-              <div className="w-full text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-xl p-3 text-left">
+              <div className="w-full text-sm text-amber-200 bg-amber-950/40 border border-amber-700/40 rounded-xl p-3 text-left">
                 {error}
               </div>
             )}
 
-            {deferredPrompt ? (
-              <button
-                type="button"
-                onClick={async () => {
-                  await deferredPrompt.prompt()
-                  setDeferredPrompt(null)
-                  // User may still need to open from home screen
-                  setTimeout(refreshInstalled, 500)
-                }}
-                className="w-full py-4 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-lg shadow-lg shadow-cyan-900/40"
-              >
-                Install app
-              </button>
-            ) : isIos() ? (
-              <div className="w-full rounded-2xl border border-cyan-700/40 bg-cyan-950/30 p-4 text-left space-y-3">
-                <p className="text-sm font-semibold text-cyan-200">Install on iPhone / iPad</p>
-                <ol className="text-xs text-slate-300 space-y-2 list-decimal list-inside leading-relaxed">
-                  <li>Tap the <strong>Share</strong> button in Safari</li>
-                  <li>Scroll and tap <strong>Add to Home Screen</strong></li>
-                  <li>Tap <strong>Add</strong></li>
-                  <li>Open <strong>Cold Signer</strong> from the home screen (not Safari)</li>
-                </ol>
-              </div>
-            ) : (
-              <div className="w-full rounded-2xl border border-slate-700 bg-slate-900/80 p-4 text-left space-y-3">
-                <p className="text-sm font-semibold text-slate-200">Install this site as an app</p>
-                <ol className="text-xs text-slate-400 space-y-2 list-decimal list-inside leading-relaxed">
-                  <li>Open the browser menu (⋮ or ⋯)</li>
-                  <li>Choose <strong className="text-slate-200">Install app</strong> or <strong className="text-slate-200">Add to Home screen</strong></li>
-                  <li>Open Cold Signer from the home screen / app list</li>
-                </ol>
-                <p className="text-[11px] text-slate-500">
-                  If no install option appears, use Chrome/Edge on Android or desktop, or Safari on iOS.
-                </p>
+            {/* Always a real Install button — triggers native prompt when Chrome/Edge allows it */}
+            <button
+              type="button"
+              disabled={installBusy}
+              onClick={() => void handleInstallClick()}
+              className="w-full py-4 rounded-2xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 text-white font-bold text-lg shadow-lg shadow-cyan-900/40"
+            >
+              {installBusy ? 'Opening installer…' : 'Install app'}
+            </button>
+            {canNativeInstall && (
+              <p className="text-[11px] text-emerald-400/90 -mt-2">Ready to install on this browser</p>
+            )}
+
+            {showInstallHelp && (
+              <div className="w-full rounded-2xl border border-slate-700 bg-slate-900/80 p-4 text-left space-y-2 text-xs text-slate-400">
+                {isIos() ? (
+                  <>
+                    <p className="font-semibold text-slate-200">iPhone / iPad (Safari)</p>
+                    <p>
+                      Apple does not allow a one-tap install from the page. Use Share →{' '}
+                      <strong className="text-slate-200">Add to Home Screen</strong>, then open the
+                      Cold Signer icon.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-semibold text-slate-200">If the install dialog did not open</p>
+                    <p>
+                      Look for the install icon in the address bar, or browser menu →{' '}
+                      <strong className="text-slate-200">Install app</strong>. Then open Cold Signer
+                      from your apps / home screen.
+                    </p>
+                  </>
+                )}
               </div>
             )}
 
@@ -466,7 +500,7 @@ export default function App() {
                 refreshInstalled()
                 if (!canImportVault()) {
                   setError(
-                    'Still running in a browser tab. Open Cold Signer from the home screen icon after installing.',
+                    'Open Cold Signer from the home screen / app icon after installing — not this browser tab.',
                   )
                 } else {
                   setError('')
@@ -474,12 +508,12 @@ export default function App() {
               }}
               className="w-full py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-sm font-semibold"
             >
-              I installed it — continue
+              Opened from home screen — continue
             </button>
 
             <p className="text-[11px] text-slate-600 leading-relaxed max-w-sm">
-              After install you can import your vault file. Unlock and sign require airplane mode once
-              a vault is loaded.
+              After install you can import your vault. Unlock and sign need airplane mode once a vault
+              is loaded.
             </p>
           </main>
         </div>
