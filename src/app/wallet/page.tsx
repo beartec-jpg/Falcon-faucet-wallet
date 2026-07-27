@@ -55,7 +55,10 @@ import {
   dashboardUrl,
   type SavedValidatorNode,
 } from '@/lib/validator-node-store'
-import { isValidFalconAddress, parseFalconAddressFromScan } from '@/lib/parse-falcon-address'
+import {
+  isValidFalconAddress,
+  parseFalconAddressFromScan,
+} from '@/lib/parse-falcon-address'
 import {
   createEvmWalletForPasskey,
   createRandomEvmWallet,
@@ -849,22 +852,38 @@ export default function WalletPage() {
       return
     }
 
+    // Resolve destination: r-address, QR paste, or claimed name (alice.bob)
     let to = sendTo.trim()
-    const destNameNorm = normalizeAccountName(to)
-    // Allow send to john.smith → resolve name to r-address
-    if (destNameNorm && !isValidFalconAddress(to)) {
+    const extracted = parseFalconAddressFromScan(to)
+    if (extracted) to = extracted
+
+    const destNameNorm = !isValidFalconAddress(to) ? normalizeAccountName(to) : null
+    if (destNameNorm) {
       try {
         const r = await fetch(
           withNetworkQuery(`/api/wallet/name?name=${encodeURIComponent(destNameNorm)}`, networkKey),
         )
-        const j = (await r.json()) as { available?: boolean; owner?: string; error?: string }
-        if (!r.ok || j.available || !j.owner) {
-          setError(j.available ? `Name “${destNameNorm}” is not claimed` : (j.error || 'Could not resolve name'))
+        const j = (await r.json()) as {
+          available?: boolean
+          owner?: string
+          error?: string
+          status?: string
+        }
+        if (j.available) {
+          setError(`Name “${destNameNorm}” is not claimed yet`)
           return
         }
-        to = j.owner
+        if (!r.ok || !j.owner || !isValidFalconAddress(String(j.owner).trim())) {
+          setError(j.error || `Could not resolve “${destNameNorm}” to an address`)
+          return
+        }
+        if (j.status === 'releasing') {
+          setError(`Name “${destNameNorm}” is releasing and cannot receive by name`)
+          return
+        }
+        to = String(j.owner).trim()
       } catch {
-        setError('Could not resolve named address')
+        setError('Could not resolve named address — check network and try again')
         return
       }
     }
@@ -874,10 +893,12 @@ export default function WalletPage() {
     const fusdcBal = fusdc?.balance ?? 0
 
     if (!isValidFalconAddress(to)) {
-      setError('Invalid destination (use r… address or a claimed name like alice.bob)'); return
+      setError('Invalid destination — use an r… address or a claimed name (e.g. alice.bob)')
+      return
     }
     if (to === wallet.address) {
-      setError('Destination must be a different Falcon address'); return
+      setError('Destination must be a different Falcon address')
+      return
     }
     if (isNaN(amt) || amt <= 0) {
       setError('Invalid amount'); return
