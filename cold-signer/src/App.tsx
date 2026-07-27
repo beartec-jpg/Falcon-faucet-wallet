@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import OfflineWall from './components/OfflineWall'
 import { AnimatedQr, MultiQrScan } from './components/MultiQr'
 import {
-  assertOfflineForOps,
+  assertOfflineForVaultOps,
   allowOnlineOverride,
+  isVaultOpsBlocked,
   readOnlineState,
 } from './lib/offlineGate'
 import {
@@ -39,8 +40,7 @@ import { getFalcon512 } from '@/lib/falcon-wasm'
 
 type Step =
   | 'boot'
-  | 'install-hint' // online allowed: install PWA only
-  | 'empty' // offline, no vault
+  | 'empty' // no vault yet — online OK (install + import)
   | 'import'
   | 'locked'
   | 'actions' // unlocked: action list
@@ -113,36 +113,34 @@ export default function App() {
       const has = await hasColdVault()
       const m = has ? await loadColdVaultMeta() : null
       setMeta(m)
-      if (online && !allowOnlineOverride()) {
-        setStep(has ? 'install-hint' : 'install-hint')
-      } else {
-        setStep(has ? 'locked' : 'empty')
-      }
+      // No vault → always show empty/import (online OK for install + first load).
+      // Vault present → locked when offline; wall when online (handled below).
+      setStep(has ? 'locked' : 'empty')
     })().catch((e) => {
       setError(e instanceof Error ? e.message : 'Boot failed')
       setStep('empty')
     })
-  }, [online])
+  }, [])
 
-  // Hard gate: if we go online mid-session, wipe session keys and wall
+  // If a vault exists and we come online mid-session, wipe keys from RAM.
   useEffect(() => {
+    if (!meta) return
     if (online && !allowOnlineOverride()) {
-      if (session) {
-        // best-effort clear
-        setSession(null)
-      }
-      setStep((s) => (s === 'boot' ? s : 'install-hint'))
+      if (session) setSession(null)
+      setStep('locked')
     }
-  }, [online, session])
+  }, [online, meta, session])
 
-  const opsBlocked = online && !allowOnlineOverride()
+  const hasVault = !!meta
+  /** Block secret ops only after a vault is on device AND online. */
+  const opsBlocked = isVaultOpsBlocked(hasVault, online)
 
   // ── Import vault file ───────────────────────────────────────────────────────
+  // Allowed online (first-time path). Prefer airplane after import.
 
   async function handleImport() {
     setError('')
     try {
-      assertOfflineForOps()
       if (!fileText) throw new Error('Choose a vault JSON file')
       const passErr = validateVaultPassphrase(vaultPass)
       if (passErr) throw new Error(passErr)
@@ -188,6 +186,7 @@ export default function App() {
       setVaultPass('')
       setColdPass('')
       setColdPass2('')
+      // After import, require offline before unlock if still online
       setStep('locked')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Import failed')
@@ -201,7 +200,7 @@ export default function App() {
   async function handleUnlockDevice() {
     setError('')
     try {
-      assertOfflineForOps()
+      assertOfflineForVaultOps(true)
       setBusy(true)
       const keys = await unlockColdVaultWithPassword(coldPass)
       setColdPass('')
@@ -217,7 +216,7 @@ export default function App() {
   async function handleUnlockPasskey() {
     setError('')
     try {
-      assertOfflineForOps()
+      assertOfflineForVaultOps(true)
       if (!meta?.credentialId) throw new Error('No passkey registered for this vault')
       setBusy(true)
       const auth = await authenticateColdPasskey(meta.credentialId, !!meta.hasPrf)
@@ -244,7 +243,7 @@ export default function App() {
   async function onUnlockChallenge(payload: string) {
     setError('')
     try {
-      assertOfflineForOps()
+      assertOfflineForVaultOps(true)
       if (!session) throw new Error('Unlock cold device first')
       const chal = parseUnlockChallenge(payload)
       if (chal.address !== session.address) {
@@ -287,7 +286,7 @@ export default function App() {
   function onUnsignedPayload(payload: string) {
     setError('')
     try {
-      assertOfflineForOps()
+      assertOfflineForVaultOps(true)
       const pkg = parseUnsignedPayment(payload)
       if (session && pkg.display.account !== session.address) {
         throw new Error('Transaction account does not match this vault')
@@ -305,7 +304,7 @@ export default function App() {
     setError('')
     setBusy(true)
     try {
-      assertOfflineForOps()
+      assertOfflineForVaultOps(true)
       const tx_blob = await signTxJson(preview.tx_json, session.falcon_secret)
       setSignedEnc(
         encodeMultiQr(
@@ -326,25 +325,21 @@ export default function App() {
     await wipeColdVault()
     setSession(null)
     setMeta(null)
-    setStep(opsBlocked ? 'install-hint' : 'empty')
+    setStep('empty')
   }
 
-  // ── Online wall ─────────────────────────────────────────────────────────────
-
-  if (opsBlocked && step !== 'install-hint') {
-    // fall through to wall via install-hint
-  }
+  // ── Online wall: only after a vault is loaded ────────────────────────────────
 
   if (opsBlocked) {
     return (
       <OfflineWall
-        installMode={!meta}
+        vaultLabel={meta?.label}
         canInstall={!!deferredPrompt}
         onInstall={() => void deferredPrompt?.prompt()}
         onRetry={() => {
           refreshOnline()
           if (!navigator.onLine) {
-            setStep(meta ? 'locked' : 'empty')
+            setStep('locked')
           }
         }}
       />
@@ -379,11 +374,7 @@ export default function App() {
     )
   }
 
-  if (step === 'install-hint' && !opsBlocked) {
-    // shouldn't stick when offline
-  }
-
-  // Empty — import
+  // Empty — import (allowed while online so you can install the PWA first)
   if (step === 'empty' || step === 'import') {
     return (
       <div className="min-h-screen flex flex-col bg-slate-950">
@@ -391,9 +382,15 @@ export default function App() {
         <main className="flex-1 max-w-md mx-auto w-full px-4 py-6 space-y-4">
           <h1 className="text-xl font-bold text-white">Import vault</h1>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Load the encrypted vault JSON from offline media (SD card / USB). Keep a copy offline
-            forever — this device never phones home.
+            Online is OK until a vault is loaded — install this app, then import your encrypted vault
+            JSON (from SD / download). After import, go offline to unlock and sign.
           </p>
+          {online && (
+            <div className="text-xs text-amber-300/90 bg-amber-950/30 border border-amber-700/30 rounded-xl p-3">
+              You are online. Install to Home Screen if prompted, import the vault, then enable
+              airplane mode before unlocking.
+            </div>
+          )}
           {error && (
             <div className="text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-xl p-3">
               {error}

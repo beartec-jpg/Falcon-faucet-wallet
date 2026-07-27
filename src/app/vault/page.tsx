@@ -816,8 +816,9 @@ export default function VaultPage() {
             <strong className="text-slate-300">Path A:</strong> On a dedicated phone, open{' '}
             <a href="/cold-signer/" className="text-cyan-500 underline">
               /cold-signer/
-            </a>
-            , install the PWA, then enable airplane mode. The app refuses to unlock or sign while online.
+            </a>{' '}
+            while online (install is allowed until a vault is loaded), import the vault file, then enable
+            airplane mode. Unlock/sign are blocked while online after import.
           </p>
           <p>
             <strong className="text-slate-300">Path B:</strong> Copy the built cold-signer package + this vault JSON
