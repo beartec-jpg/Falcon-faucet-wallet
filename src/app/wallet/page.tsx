@@ -350,6 +350,7 @@ export default function WalletPage() {
   const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
   const [walletSection, setWalletSection] = useState<'falcon' | 'multichain' | 'bridge'>('falcon')
   const [bridgeInitialMode, setBridgeInitialMode] = useState<'deposit' | 'withdraw' | 'send' | 'receive'>('deposit')
+  const [bridgeInitialRoute, setBridgeInitialRoute] = useState<'fusdc-sepolia' | 'feth-sepolia'>('fusdc-sepolia')
   const [receiveAssetId, setReceiveAssetId] = useState<MultiChainAssetId>('falcon')
   const [ethNativeBal, setEthNativeBal] = useState<string | null>(null)
   const [usdcNativeBal, setUsdcNativeBal] = useState<string | null>(null)
@@ -2099,9 +2100,16 @@ export default function WalletPage() {
                               type="button"
                               disabled={!isLive || !asset.canBridge}
                               onClick={() => {
-                                setBridgeInitialMode(
-                                  asset.id === 'fusdc' ? 'withdraw' : 'deposit',
-                                )
+                                if (asset.id === 'feth') {
+                                  setBridgeInitialRoute('feth-sepolia')
+                                  setBridgeInitialMode('deposit')
+                                } else if (asset.id === 'fusdc') {
+                                  setBridgeInitialRoute('fusdc-sepolia')
+                                  setBridgeInitialMode('withdraw')
+                                } else {
+                                  setBridgeInitialRoute('fusdc-sepolia')
+                                  setBridgeInitialMode('deposit')
+                                }
                                 setWalletSection('bridge')
                               }}
                               className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25 disabled:opacity-35"
@@ -2268,6 +2276,10 @@ export default function WalletPage() {
                               disabled={!isLive || !chain.canBridge || !hasKey}
                               onClick={() => {
                                 setBridgeInitialMode('deposit')
+                                // ETH multi-chain → FETH route; USDC path remains default for Bridge tab
+                                setBridgeInitialRoute(
+                                  chain.id === 'eth' ? 'feth-sepolia' : 'fusdc-sepolia',
+                                )
                                 setWalletSection('bridge')
                               }}
                               className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25 disabled:opacity-35"
@@ -2493,13 +2505,14 @@ export default function WalletPage() {
 
               {view === 'dashboard' && walletSection === 'bridge' && bridgeCfg && (
                 <BridgeDepositPanel
-                  key={`bridge-${bridgeInitialMode}`}
+                  key={`bridge-${bridgeInitialMode}-${bridgeInitialRoute}`}
                   wallet={wallet}
                   bridgeCfg={bridgeCfg}
                   fusdcBalance={account?.assets?.fusdc?.balance ?? null}
                   onWalletUpdate={setWallet}
                   onFalconRefresh={() => refreshBalance(wallet.address)}
                   initialMode={bridgeInitialMode}
+                  initialRoute={bridgeInitialRoute}
                 />
               )}
 

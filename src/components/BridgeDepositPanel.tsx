@@ -91,6 +91,8 @@ interface Props {
   onFalconRefresh?: () => void
   /** Open on Bridge In (deposit) or Bridge Out (withdraw). Default deposit. */
   initialMode?: 'deposit' | 'withdraw' | 'send' | 'receive'
+  /** Which bridge route to open (e.g. FETH from Falcon tab). */
+  initialRoute?: 'fusdc-sepolia' | 'feth-sepolia'
 }
 
 type BridgeMode = 'bridge' | 'send' | 'receive'
@@ -120,14 +122,14 @@ export default function BridgeDepositPanel({
   onWalletUpdate,
   onFalconRefresh,
   initialMode = 'deposit',
+  initialRoute = 'fusdc-sepolia',
 }: Props) {
   const { networkKey, network } = useNetwork()
   const [balances, setBalances] = useState<{ eth: string; usdc: string } | null>(null)
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
-  const [mode, setMode] = useState<BridgeMode>(() =>
-    initialMode === 'send' || initialMode === 'receive' ? initialMode : 'bridge',
-  )
+  // Send/Receive live on Multi-chain tab; bridge panel is In/Out only.
+  const [mode, setMode] = useState<BridgeMode>('bridge')
   const [direction, setDirection] = useState<BridgeDirection>(() =>
     initialMode === 'withdraw' ? 'withdraw' : 'deposit',
   )
@@ -157,8 +159,10 @@ export default function BridgeDepositPanel({
   const [fethLive, setFethLive] = useState<number | null>(null)
   const [hasFethTrustLine, setHasFethTrustLine] = useState(false)
   const [trustLineResult, setTrustLineResult] = useState<{ ok: boolean; msg: string } | null>(null)
-  /** Live bridge routes */
-  const [bridgeRoute, setBridgeRoute] = useState<'fusdc-sepolia' | 'feth-sepolia'>('fusdc-sepolia')
+  /** Live bridge routes — honour initialRoute from Falcon FETH / F-USDC buttons */
+  const [bridgeRoute, setBridgeRoute] = useState<'fusdc-sepolia' | 'feth-sepolia'>(() =>
+    initialRoute === 'feth-sepolia' ? 'feth-sepolia' : 'fusdc-sepolia',
+  )
 
   const bridgeReady = lockContractReady(bridgeCfg)
   const fethReady = fethLockReady(bridgeCfg)
@@ -760,14 +764,23 @@ export default function BridgeDepositPanel({
   const usdcAvail = parseFloat(usdcAvailRaw) || 0
   const ethAvail = balances ? parseFloat(balances.eth) : 0
 
+  const routeTitleIn = isFethRoute ? 'Bridge In — ETH → FETH' : 'Bridge In — USDC → F-USDC'
+  const routeTitleOut = isFethRoute ? 'Bridge Out — FETH (soon)' : 'Bridge Out — F-USDC → USDC'
+  const sourceAvailLabel = isFethRoute
+    ? `${balanceLoading ? '…' : balances ? fmt(balances.eth, 6) : '—'} ETH`
+    : `${balanceLoading ? '…' : balances ? fmtFloor(usdcAvailRaw, 2) : '—'} USDC`
+  const falconAvailLabel = isFethRoute
+    ? `${fusdcLoading ? '…' : fmt(fethLive ?? 0, 6)} FETH`
+    : `${fusdcLoading ? '…' : fmt(fusdcAvail, 2)} F-USDC`
+
   return (
     <div className="space-y-4">
       <div className="card p-5 space-y-4">
         <div>
           <h2 className="text-sm font-semibold text-white">Bridge</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Choose <strong className="text-slate-300">In</strong> or <strong className="text-slate-300">Out</strong>, pick the
-            chain/asset, enter amount, then bridge.
+            Lock on the source chain → mint the F-asset on Falcon. Deposit wallets live under{' '}
+            <strong className="text-slate-300">Multi-chain</strong>.
           </p>
         </div>
 
@@ -784,7 +797,7 @@ export default function BridgeDepositPanel({
               <button
                 type="button"
                 onClick={() => { setMode('bridge'); setDirection('deposit'); setError(null) }}
-                className={`flex-1 py-2.5 font-semibold ${direction === 'deposit' && mode === 'bridge' ? 'bg-emerald-500/15 text-emerald-400' : 'text-slate-500'}`}
+                className={`flex-1 py-2.5 font-semibold ${direction === 'deposit' ? 'bg-emerald-500/15 text-emerald-400' : 'text-slate-500'}`}
               >
                 In
               </button>
@@ -800,23 +813,18 @@ export default function BridgeDepositPanel({
                   setError(null)
                   refreshFusdcBalance()
                 }}
-                className={`flex-1 py-2.5 font-semibold ${direction === 'withdraw' && mode === 'bridge' ? 'bg-amber-500/15 text-amber-400' : 'text-slate-500'}`}
+                className={`flex-1 py-2.5 font-semibold ${direction === 'withdraw' ? 'bg-amber-500/15 text-amber-400' : 'text-slate-500'}`}
               >
                 Out
               </button>
             </div>
-            <p className="text-[10px] text-slate-600">
-              {direction === 'deposit'
-                ? 'Lock source-chain asset → mint F-asset on Falcon'
-                : 'Burn F-asset on Falcon → release source-chain asset'}
-            </p>
           </div>
         )}
 
-        {/* 2) Chain / asset selector */}
-        {hasEvm && mode === 'bridge' && (
+        {/* 2) Asset route */}
+        {hasEvm && (
           <div className="space-y-1.5">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">2 · Chain / asset</div>
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">2 · Asset</div>
             <select
               className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-sm text-slate-100"
               value={bridgeRoute}
@@ -826,57 +834,34 @@ export default function BridgeDepositPanel({
                 setError(null)
                 setResult(null)
                 setAmount('')
+                setWithdrawAmount('')
                 setTrustLineResult(null)
-                // FETH bridge-out not live yet
                 if (v === 'feth-sepolia' && direction === 'withdraw') {
                   setDirection('deposit')
                 }
               }}
             >
               <option value="fusdc-sepolia">
-                {direction === 'deposit'
-                  ? 'Ethereum Sepolia · USDC → F-USDC'
-                  : 'Falcon · F-USDC → Sepolia USDC'}
+                {direction === 'deposit' ? 'USDC → F-USDC' : 'F-USDC → USDC'}
               </option>
-              <option value="feth-sepolia" disabled={!fethReady && direction === 'deposit'}>
-                {direction === 'deposit'
-                  ? fethReady
-                    ? 'Ethereum Sepolia · ETH → FETH'
-                    : 'Ethereum · ETH → FETH (config missing)'
-                  : 'Falcon · FETH → WETH (soon)'}
+              <option value="feth-sepolia" disabled={!fethReady}>
+                {fethReady ? 'ETH → FETH' : 'ETH → FETH (config missing)'}
               </option>
               <option value="fbtc" disabled>
-                Ethereum · WBTC → FBTC (soon)
+                BTC → FBTC (soon)
               </option>
               <option value="fbnb" disabled>
-                BNB Chain · BNB → FBNB (soon)
+                BNB → FBNB (soon)
               </option>
             </select>
           </div>
         )}
 
-        {hasEvm && (
-          <div className="flex gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() => { setMode('send'); setError(null) }}
-              className={`px-2.5 py-1 rounded-lg border ${mode === 'send' ? 'border-brand-500/40 text-brand-400 bg-brand-500/10' : 'border-slate-700 text-slate-500'}`}
-            >
-              Send Sepolia
-            </button>
-            <button
-              type="button"
-              onClick={() => { setMode('receive'); setError(null) }}
-              className={`px-2.5 py-1 rounded-lg border ${mode === 'receive' ? 'border-slate-500 text-slate-200 bg-slate-800' : 'border-slate-700 text-slate-500'}`}
-            >
-              Receive Sepolia
-            </button>
-          </div>
-        )}
-
-        {!bridgeReady && (
+        {hasEvm && !activeLockReady && (
           <div className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2.5">
-            Lock contract not configured. Set SEPOLIA_LOCK_CONTRACT in deployment env.
+            {isFethRoute
+              ? 'FETH lock contract not configured.'
+              : 'USDC lock contract not configured. Set SEPOLIA_LOCK_CONTRACT in deployment env.'}
           </div>
         )}
 
@@ -1065,43 +1050,45 @@ export default function BridgeDepositPanel({
           </div>
         ) : (
           <div className="space-y-4">
-            {mode === 'bridge' && direction === 'deposit' && (
-              <div className="card p-5 space-y-3 bg-emerald-500/5 border-emerald-500/25">
+            {/* Route summary — only the selected asset */}
+            {direction === 'deposit' && (
+              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <div className="text-xs text-emerald-400/80 mb-0.5">Bridge In — Sepolia USDC</div>
-                    <div className="font-mono text-sm text-slate-300">{shortEvmAddr(wallet.evmAddress!)}</div>
-                  </div>
+                  <div className="text-sm font-semibold text-emerald-300">{routeTitleIn}</div>
                   <button
                     type="button"
-                    onClick={() => refreshBalances()}
-                    disabled={balanceLoading}
+                    onClick={() => { refreshBalances(); refreshFusdcBalance() }}
+                    disabled={balanceLoading || fusdcLoading}
                     className="text-xs px-2.5 py-1 rounded-md bg-slate-800 text-emerald-400 hover:bg-slate-700 disabled:opacity-40"
                   >
-                    {balanceLoading ? '…' : 'Refresh'}
+                    {balanceLoading || fusdcLoading ? '…' : 'Refresh'}
                   </button>
                 </div>
-                <div>
-                  <div className="text-3xl font-bold text-white">
-                    {balanceLoading ? '…' : fmtFloor(usdcAvailRaw, 2)}
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1">
-                    Sepolia USDC you lock on-chain — validators mint matching F-USDC to your Falcon wallet
-                  </div>
-                </div>
+                <div className="text-2xl font-bold text-white font-mono">{sourceAvailLabel}</div>
+                <p className="text-[11px] text-slate-500 leading-snug">
+                  {isFethRoute
+                    ? 'Available ETH on Multi-chain (wrap + lock → mint FETH). Keep ~0.001 ETH for gas.'
+                    : 'Available USDC on Multi-chain (lock → mint F-USDC). Needs a little ETH for gas.'}
+                </p>
+                {ethAvail < 0.001 && (
+                  <p className="text-xs text-amber-400">
+                    Low gas ETH — fund on Multi-chain or a{' '}
+                    <a href="https://sepoliafaucet.com" target="_blank" rel="noopener noreferrer" className="underline text-brand-400">
+                      Sepolia faucet
+                    </a>
+                    .
+                  </p>
+                )}
                 {balanceError && (
-                  <p className="text-xs text-amber-400">Sepolia balance lookup failed: {balanceError}</p>
+                  <p className="text-xs text-amber-400">Balance lookup failed: {balanceError}</p>
                 )}
               </div>
             )}
 
-            {mode === 'bridge' && direction === 'withdraw' && (
-              <div className="card p-5 space-y-3 bg-amber-500/5 border-amber-500/25">
+            {direction === 'withdraw' && (
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <div className="text-xs text-amber-400/80 mb-0.5">Bridge Out — Falcon F-USDC</div>
-                    <div className="font-mono text-xs text-slate-400 break-all">{wallet.address}</div>
-                  </div>
+                  <div className="text-sm font-semibold text-amber-300">{routeTitleOut}</div>
                   <button
                     type="button"
                     onClick={() => { refreshFusdcBalance(); onFalconRefresh?.() }}
@@ -1111,128 +1098,17 @@ export default function BridgeDepositPanel({
                     {fusdcLoading ? '…' : 'Refresh'}
                   </button>
                 </div>
-                <div>
-                  <div className="text-3xl font-bold text-white">
-                    {fusdcLoading ? '…' : fmt(fusdcAvail, 2)}
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1">
-                    Falcon ledger F-USDC you return to the bridge — Sepolia USDC is released to your Sepolia wallet
-                  </div>
-                </div>
+                <div className="text-2xl font-bold text-white font-mono">{falconAvailLabel}</div>
+                <p className="text-[11px] text-slate-500 leading-snug">
+                  Falcon balance returned to the bridge; USDC is released to your Multi-chain ETH wallet.
+                </p>
                 {fusdcError && (
                   <p className="text-xs text-amber-400">Falcon balance lookup failed: {fusdcError}</p>
-                )}
-                {fusdcAvail <= 0 && !fusdcLoading && !fusdcError && (
-                  <p className="text-xs text-slate-500">
-                    Withdraw F-USDC from the{' '}
-                    <a href="/pool" className="text-brand-400 hover:text-brand-300">pool</a>
-                    {' '}or buy on Swap first.
-                  </p>
                 )}
               </div>
             )}
 
-            <div className="space-y-4 card p-5 bg-slate-900/40 border-slate-700/80">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="text-xs text-slate-500 mb-0.5">Sepolia address</div>
-                  <div className="font-mono text-sm text-slate-300">{shortEvmAddr(wallet.evmAddress!)}</div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <CopyButton text={wallet.evmAddress!} label="Copy" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      refreshBalances()
-                      if (mode === 'bridge' && direction === 'withdraw') refreshFusdcBalance()
-                    }}
-                    disabled={balanceLoading || fusdcLoading}
-                    className="p-1.5 text-slate-500 hover:text-slate-300 disabled:opacity-40"
-                    title="Refresh balances"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              {(mode !== 'bridge' || direction === 'withdraw') && (
-                <div>
-                  <div className="text-xs text-slate-500 mb-1">
-                    {mode === 'bridge' && direction === 'withdraw' ? 'Sepolia USDC (receive)' : 'Sepolia USDC'}
-                  </div>
-                  <div className={`font-bold text-white ${mode === 'bridge' && direction === 'withdraw' ? 'text-xl' : 'text-3xl'}`}>
-                    {balanceLoading ? '…' : balances ? fmt(balances.usdc, 2) : '—'}
-                  </div>
-                  <div className="text-[10px] text-slate-600 mt-1">
-                    {mode === 'bridge' && direction === 'withdraw'
-                      ? 'Released here after you bridge F-USDC out'
-                      : 'Sepolia testnet USDC'}
-                  </div>
-                </div>
-              )}
-
-              <>
-                <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
-                    <div className="text-xs text-slate-500">Sepolia ETH</div>
-                    <div className="font-mono text-slate-100 mt-0.5 text-lg">
-                      {balanceLoading ? '…' : balances ? fmt(balances.eth, 6) : '—'}
-                    </div>
-                    <div className="text-[10px] text-slate-600 mt-0.5">Gas for deposits and sends</div>
-                  </div>
-                  {balanceError && (
-                    <p className="text-xs text-amber-400">
-                      Balance lookup failed: {balanceError}
-                    </p>
-                  )}
-                  <a
-                    href={`${bridgeCfg.sepolia.explorer_url}/address/${wallet.evmAddress}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-brand-400 hover:text-brand-300 inline-block"
-                  >
-                    Etherscan →
-                  </a>
-              </>
-
-              {ethAvail < 0.001 && mode === 'bridge' && direction === 'deposit' && (
-                <p className="text-xs text-amber-400">
-                  Need Sepolia ETH for gas.{' '}
-                  <a href="https://sepoliafaucet.com" target="_blank" rel="noopener noreferrer" className="underline text-brand-400">
-                    Get test ETH
-                  </a>
-                </p>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => { setEvmPanel('backup'); setError(null) }}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
-              >
-                Backup
-              </button>
-              <button
-                type="button"
-                onClick={() => { setEvmPanel('restore'); setError(null) }}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700"
-              >
-                Restore
-              </button>
-              <button
-                type="button"
-                onClick={handleRemoveEvmWallet}
-                disabled={busy}
-                className="px-3 py-1.5 rounded-lg text-red-400 hover:bg-red-500/10 border border-red-500/20"
-              >
-                Remove
-              </button>
-            </div>
-
-            {mode === 'bridge' && direction === 'withdraw' && (
+            {direction === 'withdraw' && (
               <>
                 <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-slate-400">
                   Return F-USDC on Falcon to the bridge issuer. Validators release matching Sepolia USDC
@@ -1455,138 +1331,9 @@ export default function BridgeDepositPanel({
               </>
             )}
 
-            {mode === 'receive' && (
-              <div className="space-y-3">
-                <p className="text-xs text-slate-400">Receive Sepolia ETH or USDC at this address (e.g. from a faucet).</p>
-                <div className="bg-white rounded-xl p-3 mx-auto w-fit">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(wallet.evmAddress!)}&size=160x160&margin=0`}
-                    alt="Sepolia address QR"
-                    width={160}
-                    height={160}
-                    className="rounded"
-                  />
-                </div>
-                <div className="font-mono text-xs text-slate-300 break-all text-center">{wallet.evmAddress}</div>
-                <CopyButton text={wallet.evmAddress!} label="Copy 0x address" />
-              </div>
-            )}
-
-            {showSendScanner && (
-              <AddressQrScanner
-                hint="Point at a Sepolia 0x address QR"
-                manualHint="Paste the 0x address manually, or allow camera access and retry."
-                onScan={(raw) => {
-                  setShowSendScanner(false)
-                  const addr = parseEvmAddressFromScan(raw)
-                  if (!addr) {
-                    setError('QR code does not contain a valid 0x address')
-                    return
-                  }
-                  setSendTo(addr)
-                  setError(null)
-                }}
-                onClose={() => setShowSendScanner(false)}
-              />
-            )}
-
-            {mode === 'send' && (
-              <div className="space-y-3">
-                <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
-                  <button
-                    type="button"
-                    onClick={() => setSendAsset('usdc')}
-                    className={`flex-1 py-2 ${sendAsset === 'usdc' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
-                  >
-                    USDC
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSendAsset('eth')}
-                    className={`flex-1 py-2 ${sendAsset === 'eth' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
-                  >
-                    ETH
-                  </button>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">Recipient (0x…)</label>
-                  <div className="flex items-stretch gap-2">
-                    <input
-                      type="text"
-                      value={sendTo}
-                      onChange={(e) => { setSendTo(e.target.value); setError(null) }}
-                      placeholder="0x…"
-                      className="input-field font-mono text-sm flex-1 min-w-0 w-0"
-                      disabled={busy}
-                      spellCheck={false}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => { setShowSendScanner(true); setError(null) }}
-                      disabled={busy}
-                      className="shrink-0 flex flex-col items-center justify-center gap-0.5 min-w-[4.25rem] px-2.5 rounded-xl border border-brand-500/50 bg-brand-500/15 text-brand-400 hover:bg-brand-500/25 hover:text-brand-300 disabled:opacity-40 transition-colors"
-                      title="Scan recipient QR code"
-                      aria-label="Scan recipient QR code"
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
-                          d="M4 7V4h3M4 17v3h3M17 4h3v3M20 17v3h-3M7 7h3v3H7zm0 7h3v3H7zm7-7h3v3h-3zm0 7h3v3h-3z" />
-                      </svg>
-                      <span className="text-[10px] font-semibold leading-none">Scan</span>
-                    </button>
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">Amount ({sendAsset.toUpperCase()})</label>
-                  <input
-                    type="number"
-                    value={sendAmount}
-                    onChange={(e) => { setSendAmount(e.target.value); setError(null) }}
-                    placeholder="0.00"
-                    min="0"
-                    step="any"
-                    className="input-field"
-                    disabled={busy}
-                  />
-                  <div className="flex justify-between text-xs text-slate-600">
-                    <span>
-                      Available:{' '}
-                      {sendAsset === 'eth' ? fmt(ethAvail, 6) + ' ETH' : `${usdcAvailRaw} USDC`}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSendAmount(sendAsset === 'eth' ? String(Math.max(0, ethAvail - 0.002)) : usdcAvailRaw)}
-                      className="text-brand-500"
-                    >
-                      Max
-                    </button>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleSend}
-                  disabled={busy || sendAmtNum <= 0 || ethAvail < 0.0001}
-                  className="btn-primary flex items-center justify-center gap-2"
-                >
-                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Send with Passkey'}
-                </button>
-                <p className="text-[10px] text-slate-500">
-                  Send Sepolia assets to any address — e.g. after bridge-out releases USDC here, or to move leftover faucet funds.
-                </p>
-              </div>
-            )}
           </div>
         )}
       </div>
-
-      {sendHash && (
-        <div className="card p-4 space-y-2 border border-brand-500/20">
-          <div className="text-sm font-medium text-brand-400">Sent on Sepolia</div>
-          <div className="text-xs text-slate-400 break-all">Tx: {sendHash}</div>
-          <button type="button" onClick={() => setSendHash(null)} className="text-xs text-brand-400">Dismiss</button>
-        </div>
-      )}
 
       {withdrawResult && (
         <div className="card p-4 space-y-2 border border-amber-500/20">
@@ -1595,26 +1342,20 @@ export default function BridgeDepositPanel({
             <div className="text-xs text-slate-400 break-all">Falcon tx: {withdrawResult.falconTxHash}</div>
           )}
           <p className="text-xs text-slate-500">
-            Returned {withdrawResult.amount} F-USDC on Falcon. The coordinator relay releases matching{' '}
-            <span className="text-emerald-400">Sepolia USDC</span> to{' '}
-            <span className="font-mono">{withdrawResult.sepoliaRecipient.slice(0, 10)}…</span> — usually
-            within a few minutes. Switch to <span className="text-emerald-400">Bridge In · USDC</span> and
-            refresh to see it; use Send Out to move it elsewhere.
+            Returned {withdrawResult.amount} F-USDC. Matching USDC is released to your Multi-chain ETH wallet
+            (usually within a few minutes).
           </p>
           {releaseStatus === 'pending' && (
             <div className="flex items-center gap-2 text-xs text-amber-400">
-              <Spinner /> Watching Sepolia for the release…
+              <Spinner /> Watching for release…
             </div>
           )}
           {releaseStatus === 'released' && (
-            <div className="text-xs text-emerald-400">
-              ✓ Sepolia USDC released to your address.
-            </div>
+            <div className="text-xs text-emerald-400">✓ USDC released to your Multi-chain ETH wallet.</div>
           )}
           {releaseStatus === 'unconfirmed' && (
             <div className="text-xs text-amber-400">
-              Release not detected yet. The relay may still be processing — check your Sepolia USDC
-              balance shortly, or contact the operator if it does not arrive.
+              Release not detected yet — check Multi-chain ETH USDC shortly.
             </div>
           )}
           <button type="button" onClick={() => { setWithdrawResult(null); setReleaseStatus(null) }} className="text-xs text-brand-400">
@@ -1625,7 +1366,9 @@ export default function BridgeDepositPanel({
 
       {result && (
         <div className="card p-4 space-y-2 border border-emerald-500/20">
-          <div className="text-sm font-medium text-emerald-400">Deposit submitted on Sepolia</div>
+          <div className="text-sm font-medium text-emerald-400">
+            {isFethRoute ? 'FETH deposit submitted' : 'F-USDC deposit submitted'}
+          </div>
           {result.approveHash && (
             <div className="text-xs text-slate-400 break-all">Approve: {result.approveHash}</div>
           )}
@@ -1634,8 +1377,9 @@ export default function BridgeDepositPanel({
             <div className="text-xs text-slate-400 break-all">Deposit ID: {result.depositId}</div>
           )}
           <p className="text-xs text-slate-500">
-            Sepolia deposit confirmed. Validators will mint F-USDC to your Falcon wallet in a few minutes —
-            refresh your F-USDC balance on the Falcon wallet tab.
+            {isFethRoute
+              ? 'Lock confirmed. Relay mints FETH to your Falcon wallet in ~30s — refresh the Falcon tab.'
+              : 'Lock confirmed. Relay mints F-USDC to your Falcon wallet in ~30s — refresh the Falcon tab.'}
           </p>
           <a
             href={`${bridgeCfg.sepolia.explorer_url}/tx/${result.depositHash}`}
@@ -1643,7 +1387,7 @@ export default function BridgeDepositPanel({
             rel="noopener noreferrer"
             className="text-xs text-brand-400 hover:text-brand-300 inline-block"
           >
-            View deposit on Etherscan →
+            View on Etherscan →
           </a>
           <button type="button" onClick={() => setResult(null)} className="text-xs text-brand-400">
             Dismiss
@@ -1660,15 +1404,13 @@ export default function BridgeDepositPanel({
         </div>
       )}
 
-      <div className="card p-4 text-xs text-slate-500 space-y-2">
-        <div className="text-slate-400 font-medium">Bridge wallet</div>
-        <ol className="list-decimal list-inside space-y-1">
-          <li>Created together with your Falcon wallet (one passkey secures both)</li>
-          <li>Back up the Sepolia key before switching devices</li>
-          <li>Bridge In: lock Sepolia USDC → F-USDC on Falcon</li>
-          <li>Bridge Out: return F-USDC → Sepolia USDC released here</li>
-          <li>Send / Receive: move Sepolia ETH or USDC from this tab</li>
-        </ol>
+      <div className="card p-4 text-xs text-slate-500 space-y-1.5">
+        <div className="text-slate-400 font-medium">How it works</div>
+        <ul className="list-disc list-inside space-y-1">
+          <li>Pick <strong className="text-slate-400">In</strong> or <strong className="text-slate-400">Out</strong>, then the asset</li>
+          <li><strong className="text-slate-400">USDC → F-USDC</strong> and <strong className="text-slate-400">ETH → FETH</strong> are live on testnet</li>
+          <li>Fund / send / receive on the <strong className="text-slate-400">Multi-chain</strong> tab</li>
+        </ul>
       </div>
     </div>
   )
