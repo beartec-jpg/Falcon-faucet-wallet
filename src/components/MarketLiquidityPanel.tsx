@@ -72,6 +72,14 @@ function fmt(n: number, d = 4): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: d })
 }
 
+/** Prefer enough decimals for sub-cent IOUs (0.002 FBTC must not render as 0). */
+function fmtToken(n: number, d = 8): string {
+  if (!Number.isFinite(n)) return '—'
+  const abs = Math.abs(n)
+  const decimals = abs === 0 ? 2 : abs < 0.01 ? Math.max(d, 8) : abs < 1 ? 6 : Math.min(d, 4)
+  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: decimals })
+}
+
 /** FALCON per token — same units as pool price display. */
 function poolRatioFromPools(falconPool: number, usdcPool: number): number {
   if (usdcPool <= 0) return 0
@@ -511,6 +519,9 @@ export default function MarketLiquidityPanel({
                   className="input-field"
                   disabled={busy}
                 />
+                {xrpBalance != null && (
+                  <p className="text-[10px] text-slate-500">Available: {fmt(xrpBalance, 4)}</p>
+                )}
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-slate-400">{token.symbol}</label>
@@ -520,7 +531,13 @@ export default function MarketLiquidityPanel({
                   onChange={(e) => setUsdcAmt(e.target.value)}
                   className="input-field"
                   disabled={busy}
+                  step="any"
                 />
+                {usdcBalance != null && (
+                  <p className="text-[10px] text-slate-500">
+                    Available: {fmtToken(usdcBalance)}
+                  </p>
+                )}
               </div>
             </div>
             {parseFloat(xrpAmt) > 0 && parseFloat(usdcAmt) > 0 && (
@@ -567,7 +584,7 @@ export default function MarketLiquidityPanel({
                   </div>
                   <div>
                     <div className="text-slate-500">Withdrawable {token.symbol}</div>
-                    <div className="font-mono text-slate-200">{fmt(lpPosition.estUsdcOut, 4)}</div>
+                    <div className="font-mono text-slate-200">{fmtToken(lpPosition.estUsdcOut)}</div>
                   </div>
                 </div>
                 <div className="flex gap-2 pt-1">
@@ -617,6 +634,9 @@ export default function MarketLiquidityPanel({
                   className="input-field"
                   disabled={busy}
                 />
+                {xrpBalance != null && (
+                  <p className="text-[10px] text-slate-500">Available: {fmt(xrpBalance, 4)}</p>
+                )}
                 {xrpBalance != null && activePoolRatio > 0 && (
                   <button type="button" className="text-xs text-brand-500" onClick={applyMaxBalancedFromFalcon}>
                     Max (balanced)
@@ -631,7 +651,13 @@ export default function MarketLiquidityPanel({
                   onChange={(e) => handleUsdcDepositChange(e.target.value)}
                   className="input-field"
                   disabled={busy}
+                  step="any"
                 />
+                {usdcBalance != null && (
+                  <p className="text-[10px] text-slate-500">
+                    Available: {fmtToken(usdcBalance)}
+                  </p>
+                )}
                 {usdcBalance != null && activePoolRatio > 0 && (
                   <button type="button" className="text-xs text-brand-500" onClick={applyMaxBalancedFromUsdc}>
                     Max (balanced)

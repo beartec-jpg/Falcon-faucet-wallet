@@ -52,6 +52,14 @@ function fmt(n: number, decimals = 4): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: decimals })
 }
 
+/** IOU balances (esp. FBTC) need more than 2dp — 0.002 must not round to 0. */
+function fmtTokenBal(n: number): string {
+  if (!Number.isFinite(n)) return '—'
+  const abs = Math.abs(n)
+  const decimals = abs === 0 ? 2 : abs < 0.01 ? 8 : abs < 1 ? 6 : 4
+  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: decimals })
+}
+
 function mapConfigToken(t: { symbol: string; currency: string; issuer: string }): PairToken {
   const sym = t.symbol
   const displaySymbol =
@@ -280,7 +288,9 @@ export default function PoolPage() {
                 <div className="bg-slate-800/60 rounded-xl p-3 text-center">
                   <div className="text-xs text-slate-500 mb-1">{tokenLabel}</div>
                   {swapData?.userBalance ? (
-                    <div className="text-lg font-bold text-white">{fmt(swapData.userBalance.balance, 2)}</div>
+                    <div className="text-lg font-bold text-white">
+                      {fmtTokenBal(swapData.userBalance.balance)}
+                    </div>
                   ) : (
                     <div className="text-sm text-slate-500 mt-1">No trust line</div>
                   )}
