@@ -11,6 +11,11 @@ export interface SepoliaBridgeConfig {
   usdc_token: string
   lock_contract: string
   usdc_decimals: number
+  /** Sepolia WETH (canonical) for FETH bridge-in */
+  weth_token?: string
+  /** Separate FalconCollateralLock deployed with WETH as collateral token */
+  weth_lock_contract?: string
+  weth_decimals?: number
   /**
    * How many blocks back the WithdrawalReleased watcher scans from the chain tip.
    * Optional; when omitted a chain-appropriate default is used (deeper on mainnet
@@ -27,12 +32,20 @@ export interface FalconBridgeToken {
   token_issuer: string
 }
 
+export interface FethBridgeMeta {
+  token_symbol: string
+  token_currency: string
+  token_issuer: string
+  status?: string
+}
+
 export interface UsdcBridgeManifest {
   version: number
   status: string
   description: string
   sepolia: SepoliaBridgeConfig
   falcon: FalconBridgeToken
+  feth?: FethBridgeMeta
   deposit_flow: {
     type: string
     steps: string[]
@@ -43,6 +56,14 @@ export interface UsdcBridgeManifest {
     relay_script: string
     note: string
   }
+}
+
+export function fethLockReady(cfg: UsdcBridgeManifest | null): boolean {
+  return !!(
+    cfg?.sepolia?.weth_lock_contract?.match(/^0x[a-fA-F0-9]{40}$/) &&
+    cfg?.sepolia?.weth_token?.match(/^0x[a-fA-F0-9]{40}$/) &&
+    cfg?.feth?.token_issuer?.match(/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/)
+  )
 }
 
 let cached: UsdcBridgeManifest | null = null

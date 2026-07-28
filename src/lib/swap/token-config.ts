@@ -9,9 +9,13 @@ export interface StableTokenRef {
 }
 
 function mapToken(t: { symbol: string; currency: string; issuer: string }): StableTokenRef {
+  const sym = t.symbol
+  // Keep F-USDC, FETH, FBTC, FBNB as-is; only prefix bare symbols like USDC
+  const displaySymbol =
+    sym.startsWith('F-') || /^F[A-Z]{2,}$/.test(sym) ? sym : `F-${sym}`
   return {
     symbol: t.symbol,
-    displaySymbol: t.symbol.startsWith('F-') ? t.symbol : `F-${t.symbol}`,
+    displaySymbol,
     currency: t.currency,
     issuer: t.issuer,
   }

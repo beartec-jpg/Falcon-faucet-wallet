@@ -224,7 +224,97 @@ export async function depositUsdcToBridge(opts: {
   })
 }
 
-/** WETH → FETH lock deposit (requires FETH lock contract + issuer online). */
+const WETH_ABI = [
+  'function deposit() payable',
+  'function withdraw(uint256 wad)',
+  'function balanceOf(address) view returns (uint256)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+] as const
+
+/** Wrap native ETH into WETH on Sepolia. */
+export async function wrapEthToWeth(opts: {
+  rpcUrl: string
+  wethToken: string
+  evmPrivateKey: string
+  amountEth: string
+  onStep?: (step: string) => void
+}): Promise<string> {
+  const p = await resolveProvider(opts.rpcUrl)
+  const signer = new Wallet(opts.evmPrivateKey, p)
+  const weth = new Contract(opts.wethToken, WETH_ABI, signer)
+  const value = parseUnits(opts.amountEth, 18)
+  if (value <= 0n) throw new Error('Amount must be greater than zero')
+  const ethBal = await p.getBalance(signer.address)
+  // leave ~0.001 ETH for gas headroom
+  const gasReserve = parseUnits('0.001', 18)
+  if (ethBal < value + gasReserve) {
+    throw new Error(
+      `Need ${opts.amountEth} ETH + ~0.001 for gas (have ${formatUnits(ethBal, 18)} ETH)`,
+    )
+  }
+  opts.onStep?.(`Wrapping ${opts.amountEth} ETH → WETH…`)
+  const tx = await weth.deposit({ value })
+  const rc = await waitForTx(tx, 'WETH wrap', opts.onStep)
+  return rc.hash
+}
+
+/**
+ * Bridge In FETH: wrap ETH→WETH if needed, approve, lock into FETH FalconCollateralLock.
+ * `amountEth` is the amount of ETH to lock as WETH (1:1 mint of FETH).
+ */
+export async function depositEthToFethBridge(opts: {
+  cfg: SepoliaBridgeConfig
+  evmPrivateKey: string
+  amountEth: string
+  falconAccount: string
+  onStep?: (step: string) => void
+}): Promise<BridgeDepositResult & { wrapHash?: string }> {
+  const { cfg, evmPrivateKey, amountEth, falconAccount, onStep } = opts
+  const weth = cfg.weth_token
+  const lock = cfg.weth_lock_contract
+  if (!weth?.match(/^0x[a-fA-F0-9]{40}$/) || !lock?.match(/^0x[a-fA-F0-9]{40}$/)) {
+    throw new Error('FETH bridge not deployed yet — WETH lock contract missing from config')
+  }
+  if (!FALCON_ADDRESS_RE.test(falconAccount.trim())) {
+    throw new Error('Invalid Falcon destination address — cannot bridge in')
+  }
+
+  onStep?.('Connecting to Sepolia…')
+  const p = await resolveProvider(cfg.rpc_url)
+  const signer = new Wallet(evmPrivateKey, p)
+  const wethC = new Contract(weth, WETH_ABI, signer)
+  const amount = parseUnits(amountEth, cfg.weth_decimals ?? 18)
+  if (amount <= 0n) throw new Error('Amount must be greater than zero')
+
+  let wrapHash: string | undefined
+  const wethBal: bigint = await wethC.balanceOf(signer.address)
+  if (wethBal < amount) {
+    const need = amount - wethBal
+    wrapHash = await wrapEthToWeth({
+      rpcUrl: cfg.rpc_url,
+      wethToken: weth,
+      evmPrivateKey,
+      amountEth: formatUnits(need, 18),
+      onStep,
+    })
+  }
+
+  const result = await depositErc20ToBridge({
+    rpcUrl: cfg.rpc_url,
+    tokenAddress: weth,
+    lockContract: lock,
+    tokenDecimals: cfg.weth_decimals ?? 18,
+    tokenSymbol: 'WETH',
+    evmPrivateKey,
+    amount: amountEth,
+    falconAccount,
+    onStep,
+  })
+  return { ...result, wrapHash }
+}
+
+/** WETH → FETH lock deposit (pre-wrapped). Prefer depositEthToFethBridge for UX. */
 export async function depositWethToBridge(opts: {
   cfg: SepoliaBridgeConfig & { weth_token?: string; weth_lock_contract?: string; weth_decimals?: number }
   evmPrivateKey: string

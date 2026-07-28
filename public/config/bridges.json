@@ -1,5 +1,5 @@
 {
-  "note": "Multi-asset lock-mint routes. fusdc-sepolia is live; feth uses same FalconCollateralLock bytecode with WETH as the locked token once deployed.",
+  "note": "Multi-asset lock-mint routes. fusdc-sepolia and feth-sepolia are live on testnet.",
   "routes": [
     {
       "id": "fusdc-sepolia",
@@ -18,15 +18,16 @@
       },
       "falcon": {
         "symbol": "F-USDC",
-        "currency": "QUC"
+        "currency": "QUC",
+        "issuer": "rPh77fAAmvbVuMQQP9H9JKtyTFuhRjp3Fk"
       }
     },
     {
       "id": "feth-sepolia",
-      "status": "scaffold",
+      "status": "live",
       "direction_labels": {
-        "in": "Ethereum Sepolia · WETH → Falcon FETH",
-        "out": "Falcon FETH → Sepolia WETH"
+        "in": "Ethereum Sepolia · ETH/WETH → Falcon FETH",
+        "out": "Falcon FETH → Sepolia WETH (soon)"
       },
       "source": {
         "chain": "ethereum",
@@ -34,26 +35,20 @@
         "chain_id": 11155111,
         "native_symbol": "ETH",
         "token_symbol": "WETH",
-        "token_address": "0xfff9976782d46CC05630D1f6eBAb18b2324d6B14",
+        "token_address": "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
         "decimals": 18,
-        "lock_contract": null
+        "lock_contract": "0x11808B5Cda14d4144dbD2279f92f447e0f8F8F1d"
       },
       "falcon": {
         "symbol": "FETH",
         "currency": "ETH",
-        "issuer": null
+        "issuer": "rNn8xd3hbeTEAcEmRQae8xVaKshAj7HrED"
       },
       "relay": {
+        "service": "qxrp-feth-relay.service",
         "script": "scripts/bridge-deposit-relay.py",
-        "args_example": "--currency ETH --decimals 18 --issuer-key FETH_issuer --lock-contract 0x… --relay-state /var/lib/qxrp-bridge/feth_relay_state.json",
-        "issue_script": "scripts/issue-bridge-iou.py --symbol FETH --currency ETH"
-      },
-      "deploy_notes": [
-        "Deploy FalconCollateralLock with USDC_TOKEN=WETH Sepolia address via deploy-falcon-lock.js",
-        "Create Falcon issuer: python3 scripts/issue-bridge-iou.py --symbol FETH --currency ETH",
-        "Run dedicated relay with --currency ETH --decimals 18 --issuer-key FETH_issuer",
-        "Set source.lock_contract + falcon.issuer, flip status to live, enable FETH in multi-chain-assets"
-      ]
+        "args": "--currency ETH --decimals 18 --issuer-key FETH_issuer"
+      }
     },
     {
       "id": "fbtc-wbtc",

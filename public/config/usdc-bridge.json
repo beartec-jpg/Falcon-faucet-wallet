@@ -9,7 +9,10 @@
     "explorer_url": "https://sepolia.etherscan.io",
     "usdc_token": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
     "lock_contract": "0x2dae31Cbf2E3a418d617081985661fCD0117b75C",
-    "usdc_decimals": 6
+    "usdc_decimals": 6,
+    "weth_token": "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
+    "weth_lock_contract": "0x11808B5Cda14d4144dbD2279f92f447e0f8F8F1d",
+    "weth_decimals": 18
   },
   "falcon": {
     "network_id": 1001,
@@ -17,6 +20,12 @@
     "token_symbol": "USDC",
     "token_currency": "QUC",
     "token_issuer": "rPh77fAAmvbVuMQQP9H9JKtyTFuhRjp3Fk"
+  },
+  "feth": {
+    "token_symbol": "FETH",
+    "token_currency": "ETH",
+    "token_issuer": "rNn8xd3hbeTEAcEmRQae8xVaKshAj7HrED",
+    "status": "live"
   },
   "deposit_flow": {
     "type": "passkey_evm_wallet",

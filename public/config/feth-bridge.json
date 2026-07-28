@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "status": "testnet",
+  "description": "Sepolia WETH ↔ Falcon FETH. Bridge In wraps ETH→WETH, locks WETH, relay mints FETH (currency ETH). No free bootstrap mint.",
+  "sepolia": {
+    "chain_id": 11155111,
+    "chain_name": "Sepolia",
+    "rpc_url": "https://ethereum-sepolia-rpc.publicnode.com",
+    "explorer_url": "https://sepolia.etherscan.io",
+    "weth_token": "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
+    "lock_contract": "0x11808B5Cda14d4144dbD2279f92f447e0f8F8F1d",
+    "weth_decimals": 18
+  },
+  "falcon": {
+    "network_id": 1001,
+    "rpc_url": "",
+    "token_symbol": "FETH",
+    "token_currency": "ETH",
+    "token_issuer": "rNn8xd3hbeTEAcEmRQae8xVaKshAj7HrED"
+  },
+  "deposit_flow": {
+    "type": "passkey_evm_wallet",
+    "steps": [
+      "Open Wallet → Bridge, ensure ETH deposit wallet exists",
+      "Add FETH trust line (required before Bridge In)",
+      "Fund Sepolia address with test ETH (gas + amount to wrap)",
+      "Bridge In FETH: wrap ETH→WETH, approve, lock; relay mints FETH",
+      "Send FETH on Falcon like any IOU"
+    ],
+    "note": "Bridge Out (FETH→WETH) not enabled yet — deposit mint path is live."
+  }
+}

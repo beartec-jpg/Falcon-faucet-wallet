@@ -48,11 +48,11 @@ export const FALCON_WALLET_ASSETS: FalconAssetDef[] = [
   {
     id: 'feth',
     symbol: 'FETH',
-    subtitle: 'Scaffold ready · WETH lock + issuer deploy next (see bridges.json feth-sepolia)',
-    status: 'coming_soon',
-    canSend: false,
-    canReceive: false,
-    canBridge: false,
+    subtitle: 'Bridged ETH on Falcon (via Bridge ← wrap ETH → lock WETH)',
+    status: 'live',
+    canSend: true,
+    canReceive: true,
+    canBridge: true,
     currency: 'ETH',
   },
   {

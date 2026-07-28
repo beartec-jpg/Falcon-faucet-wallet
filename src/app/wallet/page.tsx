@@ -370,7 +370,7 @@ export default function WalletPage() {
   const [createLabel, setCreateLabel] = useState('')
 
   // Send form (Falcon IOUs + native multi-chain)
-  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'btc' | 'bnb' | 'eth'>('falcon')
+  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'feth' | 'btc' | 'bnb' | 'eth'>('falcon')
   const [sendTo,     setSendTo]     = useState('')
   const [sendAmount, setSendAmount] = useState('')
   const [sendResult, setSendResult] = useState<{
@@ -1279,6 +1279,10 @@ export default function WalletPage() {
     const amt = parseFloat(sendAmount)
     const fusdc = account!.assets?.fusdc
     const fusdcBal = fusdc?.balance ?? 0
+    const fethTok = account!.assets?.tokens?.find(
+      (t) => t.currency === 'ETH' || t.symbol === 'FETH',
+    )
+    const fethBal = fethTok?.balance ?? 0
 
     if (!isValidFalconAddress(to)) {
       setError('Invalid destination — use an r… address or a claimed name (e.g. alice.bob)')
@@ -1294,6 +1298,13 @@ export default function WalletPage() {
     if (sendAsset === 'falcon') {
       if (amt > account!.balance) {
         setError('Insufficient FALCON balance'); return
+      }
+    } else if (sendAsset === 'feth') {
+      if (!fethTok?.issuer || fethTok.hasTrustLine === false) {
+        setError('Add a FETH trust line on Bridge before sending'); return
+      }
+      if (amt > fethBal) {
+        setError('Insufficient FETH balance'); return
       }
     } else {
       if (!fusdc?.issuer || fusdc.hasTrustLine === false) {
@@ -1331,32 +1342,38 @@ export default function WalletPage() {
       const data = await submitWithSequenceRetry({
         networkKey,
         fetchSequence,
-        sign: ({ sequence, lastLedgerSequence }) =>
-          sendAsset === 'falcon'
-            ? signPayment(
-                {
-                  account:            wallet.address,
-                  destination:        to,
-                  amountDrops:        qxrpToDrops(amt),
-                  sequence,
-                  lastLedgerSequence,
-                  networkId:          network.networkId,
-                },
-                falcon_secret,
-              )
-            : signFusdcPayment(
-                {
-                  account:            wallet.address,
-                  destination:        to,
-                  issuer:             fusdc!.issuer,
-                  currency:           fusdc!.currency,
-                  amount:             String(amt),
-                  sequence,
-                  lastLedgerSequence,
-                  networkId:          network.networkId,
-                },
-                falcon_secret,
-              ),
+        sign: ({ sequence, lastLedgerSequence }) => {
+          if (sendAsset === 'falcon') {
+            return signPayment(
+              {
+                account:            wallet.address,
+                destination:        to,
+                amountDrops:        qxrpToDrops(amt),
+                sequence,
+                lastLedgerSequence,
+                networkId:          network.networkId,
+              },
+              falcon_secret,
+            )
+          }
+          const iou =
+            sendAsset === 'feth'
+              ? { issuer: fethTok!.issuer, currency: fethTok!.currency }
+              : { issuer: fusdc!.issuer, currency: fusdc!.currency }
+          return signFusdcPayment(
+            {
+              account:            wallet.address,
+              destination:        to,
+              issuer:             iou.issuer,
+              currency:           iou.currency,
+              amount:             String(amt),
+              sequence,
+              lastLedgerSequence,
+              networkId:          network.networkId,
+            },
+            falcon_secret,
+          )
+        },
       }).catch((e: unknown): SubmitResult => ({
         success: false,
         message: e instanceof Error ? e.message : 'Failed',
@@ -2005,6 +2022,22 @@ export default function WalletPage() {
                             </span>
                           )
                         }
+                      } else if (asset.id === 'feth') {
+                        const fethTok = account?.assets?.tokens?.find(
+                          (t) => t.currency === 'ETH' || t.symbol === 'FETH',
+                        )
+                        balanceLabel = (fethTok?.balance ?? 0).toLocaleString(undefined, {
+                          maximumFractionDigits: 6,
+                        })
+                        if (fethTok && !fethTok.hasTrustLine) {
+                          detail = (
+                            <span>
+                              Need trust line — open Bridge · FETH
+                            </span>
+                          )
+                        } else if (!fethTok) {
+                          detail = asset.subtitle
+                        }
                       }
                       return (
                         <div
@@ -2047,7 +2080,13 @@ export default function WalletPage() {
                               type="button"
                               disabled={!isLive || !asset.canSend || !account?.exists || !network.live}
                               onClick={() => {
-                                setSendAsset(asset.id === 'fusdc' ? 'fusdc' : 'falcon')
+                                setSendAsset(
+                                  asset.id === 'fusdc'
+                                    ? 'fusdc'
+                                    : asset.id === 'feth'
+                                      ? 'feth'
+                                      : 'falcon',
+                                )
                                 setView('send')
                                 setError(null)
                                 setSendResult(null)
@@ -2060,7 +2099,9 @@ export default function WalletPage() {
                               type="button"
                               disabled={!isLive || !asset.canBridge}
                               onClick={() => {
-                                setBridgeInitialMode(asset.id === 'fusdc' ? 'withdraw' : 'deposit')
+                                setBridgeInitialMode(
+                                  asset.id === 'fusdc' ? 'withdraw' : 'deposit',
+                                )
                                 setWalletSection('bridge')
                               }}
                               className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25 disabled:opacity-35"
@@ -2630,7 +2671,7 @@ export default function WalletPage() {
                     </h3>
                   </div>
 
-                  {(sendAsset === 'falcon' || sendAsset === 'fusdc') && (
+                  {(sendAsset === 'falcon' || sendAsset === 'fusdc' || sendAsset === 'feth') && (
                   <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
                     <button
                       type="button"
@@ -2645,6 +2686,13 @@ export default function WalletPage() {
                       className={`flex-1 py-2 ${sendAsset === 'fusdc' ? 'bg-amber-500/10 text-amber-400' : 'text-slate-500'}`}
                     >
                       F-USDC
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSendAsset('feth'); setSendAmount(''); setError(null) }}
+                      className={`flex-1 py-2 ${sendAsset === 'feth' ? 'bg-sky-500/10 text-sky-400' : 'text-slate-500'}`}
+                    >
+                      FETH
                     </button>
                   </div>
                   )}
@@ -2754,11 +2802,13 @@ export default function WalletPage() {
                             ? 'FALCON'
                             : sendAsset === 'fusdc'
                               ? 'F-USDC'
-                              : sendAsset === 'btc'
-                                ? 'BTC'
-                                : sendAsset === 'bnb'
-                                  ? 'BNB'
-                                  : 'ETH'}
+                              : sendAsset === 'feth'
+                                ? 'FETH'
+                                : sendAsset === 'btc'
+                                  ? 'BTC'
+                                  : sendAsset === 'bnb'
+                                    ? 'BNB'
+                                    : 'ETH'}
                           )
                         </label>
                         <input
@@ -2792,6 +2842,40 @@ export default function WalletPage() {
                               <button
                                 type="button"
                                 onClick={() => setSendAmount(String(account.assets!.fusdc.balance))}
+                                className="text-brand-500 hover:text-brand-400 transition-colors"
+                              >
+                                Max
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {account?.exists && sendAsset === 'feth' && (
+                          <div className="flex justify-between text-xs text-slate-600">
+                            <span>
+                              Available:{' '}
+                              {(
+                                account.assets?.tokens?.find(
+                                  (t) => t.currency === 'ETH' || t.symbol === 'FETH',
+                                )?.balance ?? 0
+                              ).toLocaleString(undefined, { maximumFractionDigits: 6 })}{' '}
+                              FETH
+                            </span>
+                            {(
+                              account.assets?.tokens?.find(
+                                (t) => t.currency === 'ETH' || t.symbol === 'FETH',
+                              )?.balance ?? 0
+                            ) > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSendAmount(
+                                    String(
+                                      account.assets!.tokens!.find(
+                                        (t) => t.currency === 'ETH' || t.symbol === 'FETH',
+                                      )!.balance,
+                                    ),
+                                  )
+                                }
                                 className="text-brand-500 hover:text-brand-400 transition-colors"
                               >
                                 Max
