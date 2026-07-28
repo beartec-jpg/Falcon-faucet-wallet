@@ -15,7 +15,13 @@ import Header from '@/components/Header'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
-import { generateWallet, buildPaymentTxJson, qxrpToDrops, WALLET_BASE_FEE } from '@/lib/wallet-sign-client'
+import {
+  generateWallet,
+  buildPaymentTxJson,
+  buildFusdcPaymentTxJson,
+  qxrpToDrops,
+  WALLET_BASE_FEE,
+} from '@/lib/wallet-sign-client'
 import {
   createEncryptedVaultFile,
   downloadVaultFile,
@@ -58,6 +64,7 @@ import {
   DEFAULT_LEDGER_OFFSET,
 } from '@/lib/wallet-submit'
 import { isValidFalconAddress, parseFalconAddressFromScan } from '@/lib/parse-falcon-address'
+import { normalizeAccountName } from '@/lib/account-name'
 
 const MultiQrDisplay = dynamic(() => import('@/components/MultiQrDisplay'), { ssr: false })
 const MultiQrScanner = dynamic(() => import('@/components/MultiQrScanner'), { ssr: false })
@@ -81,6 +88,12 @@ interface AccountSnap {
   exists: boolean
   sequence: number
   currentLedger: number
+  fusdc?: {
+    balance: number
+    currency: string
+    issuer: string
+    hasTrustLine?: boolean
+  }
 }
 
 export default function VaultPage() {
@@ -108,6 +121,7 @@ export default function VaultPage() {
   // Send
   const [dest, setDest] = useState('')
   const [amount, setAmount] = useState('')
+  const [sendAsset, setSendAsset] = useState<'falcon' | 'fusdc'>('falcon')
   const [scanDest, setScanDest] = useState(false)
   const [unsignedEnc, setUnsignedEnc] = useState<EncodedMultiQr | null>(null)
   const [sendHash, setSendHash] = useState<string | null>(null)
@@ -156,11 +170,20 @@ export default function VaultPage() {
       )
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Account fetch failed')
+      const fusdc = data.assets?.fusdc
       setAccount({
         balance: data.balance ?? 0,
         exists: !!data.exists,
         sequence: data.sequence ?? 0,
         currentLedger: data.currentLedger ?? 0,
+        fusdc: fusdc
+          ? {
+              balance: fusdc.balance ?? 0,
+              currency: fusdc.currency ?? 'QUC',
+              issuer: fusdc.issuer ?? '',
+              hasTrustLine: fusdc.hasTrustLine,
+            }
+          : undefined,
       })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Balance fetch failed')
@@ -357,14 +380,43 @@ export default function VaultPage() {
 
   // ── Send (Payment) ──────────────────────────────────────────────────────────
 
+  async function resolveDestination(raw: string): Promise<{ address: string; name?: string }> {
+    let to = raw.trim()
+    const extracted = parseFalconAddressFromScan(to)
+    if (extracted) to = extracted
+
+    const destNameNorm = !isValidFalconAddress(to) ? normalizeAccountName(to) : null
+    if (destNameNorm) {
+      const r = await fetch(
+        withNetworkQuery(`/api/wallet/name?name=${encodeURIComponent(destNameNorm)}`, network.key),
+      )
+      const j = (await r.json()) as {
+        available?: boolean
+        owner?: string
+        error?: string
+        status?: string
+      }
+      if (j.available) {
+        throw new Error(`Name “${destNameNorm}” is not claimed yet`)
+      }
+      if (!r.ok || !j.owner || !isValidFalconAddress(String(j.owner).trim())) {
+        throw new Error(j.error || `Could not resolve “${destNameNorm}” to an address`)
+      }
+      if (j.status === 'releasing') {
+        throw new Error(`Name “${destNameNorm}” is releasing and cannot receive by name`)
+      }
+      return { address: String(j.owner).trim(), name: destNameNorm }
+    }
+
+    if (!isValidFalconAddress(to)) {
+      throw new Error('Invalid destination — use an r… address or a claimed name (e.g. alice.bob)')
+    }
+    return { address: to }
+  }
+
   async function buildUnsignedPayment() {
     if (!vault) return
     setError(null)
-    const destination = dest.trim()
-    if (!isValidFalconAddress(destination)) {
-      setError('Invalid destination address')
-      return
-    }
     const amt = parseFloat(amount)
     if (!Number.isFinite(amt) || amt <= 0) {
       setError('Enter a valid amount')
@@ -376,23 +428,72 @@ export default function VaultPage() {
     }
     setBusy(true)
     try {
+      const resolved = await resolveDestination(dest)
+      if (resolved.address === vault.address) {
+        throw new Error('Destination must be a different Falcon address')
+      }
+      const destination = resolved.address
       const seq = await fetchSequenceInfo(vault.address, network.key)
       if (!seq.exists) {
         throw new Error('Vault address is not funded on-ledger yet — receive FALCON first')
       }
-      const amountDrops = qxrpToDrops(amt)
+
+      if (sendAsset === 'falcon') {
+        if (account && amt > account.balance) {
+          throw new Error('Insufficient FALCON balance')
+        }
+      } else {
+        const fusdc = account?.fusdc
+        if (!fusdc?.issuer || fusdc.hasTrustLine === false) {
+          throw new Error('Add a F-USDC trust line on Swap or Bridge before sending from this vault')
+        }
+        if (amt > fusdc.balance) {
+          throw new Error('Insufficient F-USDC balance')
+        }
+      }
+
       const fee = WALLET_BASE_FEE
       const lastLedgerSequence = seq.currentLedger + DEFAULT_LEDGER_OFFSET
-      const tx_json = buildPaymentTxJson({
-        account: vault.address,
-        destination,
-        amountDrops,
-        sequence: seq.sequence,
-        lastLedgerSequence,
-        networkId: network.networkId,
-        publicKeyHex: vault.publicKey,
-        fee,
-      })
+      const displayDest = resolved.name
+        ? `${resolved.name} → ${destination}`
+        : destination
+
+      let tx_json: Record<string, unknown>
+      let amountDrops: string
+      let asset: 'FALCON' | 'F-USDC'
+
+      if (sendAsset === 'falcon') {
+        amountDrops = qxrpToDrops(amt)
+        asset = 'FALCON'
+        tx_json = buildPaymentTxJson({
+          account: vault.address,
+          destination,
+          amountDrops,
+          sequence: seq.sequence,
+          lastLedgerSequence,
+          networkId: network.networkId,
+          publicKeyHex: vault.publicKey,
+          fee,
+        })
+      } else {
+        const fusdc = account!.fusdc!
+        // Preserve user precision without float junk
+        amountDrops = amount.trim()
+        asset = 'F-USDC'
+        tx_json = buildFusdcPaymentTxJson({
+          account: vault.address,
+          destination,
+          issuer: fusdc.issuer,
+          currency: fusdc.currency,
+          amount: amountDrops,
+          sequence: seq.sequence,
+          lastLedgerSequence,
+          networkId: network.networkId,
+          publicKeyHex: vault.publicKey,
+          fee,
+        })
+      }
+
       const pkg: VaultUnsignedPayment = {
         type: 'falcon-unsigned-tx',
         v: 1,
@@ -401,8 +502,9 @@ export default function VaultPage() {
         display: {
           transactionType: 'Payment',
           account: vault.address,
-          destination,
+          destination: displayDest,
           amountDrops,
+          asset,
           fee,
           sequence: seq.sequence,
           lastLedgerSequence,
@@ -680,22 +782,37 @@ export default function VaultPage() {
                 <p className="text-xs font-mono text-cyan-400">{sessionLabel}</p>
               </div>
             </div>
-            <div className="rounded-xl bg-slate-950/80 border border-slate-800 px-4 py-3">
-              <p className="text-[11px] text-slate-500">Balance</p>
-              <p className="text-2xl font-bold text-white">
-                {account ? account.balance.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—'}{' '}
-                <span className="text-sm font-medium text-slate-400">FALCON</span>
-              </p>
-              {account && !account.exists && (
-                <p className="text-[11px] text-amber-400 mt-1">Unfunded — receive FALCON to activate</p>
-              )}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl bg-slate-950/80 border border-slate-800 px-4 py-3">
+                <p className="text-[11px] text-slate-500">FALCON</p>
+                <p className="text-xl font-bold text-white">
+                  {account
+                    ? account.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })
+                    : '—'}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-950/80 border border-slate-800 px-4 py-3">
+                <p className="text-[11px] text-slate-500">F-USDC</p>
+                <p className="text-xl font-bold text-white">
+                  {account?.fusdc
+                    ? account.fusdc.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })
+                    : '—'}
+                </p>
+                {account?.fusdc?.hasTrustLine === false && (
+                  <p className="text-[10px] text-amber-400 mt-1">No trust line</p>
+                )}
+              </div>
             </div>
+            {account && !account.exists && (
+              <p className="text-[11px] text-amber-400">Unfunded — receive FALCON to activate</p>
+            )}
             <div className="flex gap-2 flex-wrap">
               <button
                 type="button"
                 disabled={!network.live}
                 onClick={() => {
                   setView('send')
+                  setSendAsset('falcon')
                   setSendHash(null)
                   setError(null)
                 }}
@@ -768,17 +885,46 @@ export default function VaultPage() {
         {/* Send form */}
         {view === 'send' && vault && (
           <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-            <h2 className="text-sm font-semibold text-white">Send FALCON (cold sign)</h2>
+            <h2 className="text-sm font-semibold text-white">Send (cold sign)</h2>
             <p className="text-[11px] text-slate-400">
-              This device builds an unsigned payment. Your cold signer signs it via multi-part QR.
+              Builds an unsigned payment for cold signing. Destination can be an r… address or a
+              claimed name (e.g. alice.bob).
             </p>
+            <div className="flex rounded-xl overflow-hidden border border-slate-700">
+              <button
+                type="button"
+                onClick={() => {
+                  setSendAsset('falcon')
+                  setAmount('')
+                  setError(null)
+                }}
+                className={`flex-1 py-2 text-sm font-semibold ${
+                  sendAsset === 'falcon' ? 'bg-brand-500/15 text-brand-400' : 'text-slate-500'
+                }`}
+              >
+                FALCON
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSendAsset('fusdc')
+                  setAmount('')
+                  setError(null)
+                }}
+                className={`flex-1 py-2 text-sm font-semibold ${
+                  sendAsset === 'fusdc' ? 'bg-amber-500/15 text-amber-400' : 'text-slate-500'
+                }`}
+              >
+                F-USDC
+              </button>
+            </div>
             <label className="block text-xs text-slate-400">
               Destination
               <div className="flex gap-2 mt-1">
                 <input
                   value={dest}
                   onChange={(e) => setDest(e.target.value)}
-                  placeholder="r…"
+                  placeholder="r… or name (alice.bob)"
                   className="flex-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-white font-mono"
                 />
                 <button
@@ -791,7 +937,7 @@ export default function VaultPage() {
               </div>
             </label>
             <label className="block text-xs text-slate-400">
-              Amount (FALCON)
+              Amount ({sendAsset === 'falcon' ? 'FALCON' : 'F-USDC'})
               <input
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
@@ -799,6 +945,29 @@ export default function VaultPage() {
                 className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-white"
               />
             </label>
+            {account && sendAsset === 'falcon' && (
+              <p className="text-[11px] text-slate-500">
+                Available:{' '}
+                {account.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })} FALCON
+              </p>
+            )}
+            {account && sendAsset === 'fusdc' && (
+              <p className="text-[11px] text-slate-500">
+                Available:{' '}
+                {(account.fusdc?.balance ?? 0).toLocaleString(undefined, {
+                  maximumFractionDigits: 4,
+                })}{' '}
+                F-USDC
+                {account.fusdc?.hasTrustLine === false && (
+                  <span className="text-amber-400"> — no trust line on this vault</span>
+                )}
+              </p>
+            )}
+            {sendAsset === 'fusdc' && (
+              <p className="text-[11px] text-slate-500">
+                Recipient needs a F-USDC trust line. Peer-to-peer on Falcon Ledger — not a bridge.
+              </p>
+            )}
             <button
               type="button"
               disabled={busy}

@@ -30,13 +30,14 @@ import {
   signNameSetTx,
   signNameUnbondTx,
   buildPaymentTxJson,
+  buildFusdcPaymentTxJson,
   signTxJson,
   TF_TWO_ASSET,
   TF_LP_TOKEN,
   TF_WITHDRAW_ALL,
 } from './falcon-tx-sign'
 
-export { buildPaymentTxJson, signTxJson }
+export { buildPaymentTxJson, buildFusdcPaymentTxJson, signTxJson }
 
 export { validateFalconSecret, keysFromFalconSecret }
 

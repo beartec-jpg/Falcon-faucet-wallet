@@ -86,7 +86,7 @@ export function baseTx(
   ) as TxCore
 }
 
-/** Build unsigned Payment tx_json (no secret). Used by hot wallet and vault cold-sign path. */
+/** Build unsigned native FALCON Payment tx_json (no secret). Hot + vault cold path. */
 export function buildPaymentTxJson(params: {
   account: string
   destination: string
@@ -110,6 +110,38 @@ export function buildPaymentTxJson(params: {
     TransactionType: 'Payment',
     Destination: params.destination,
     Amount: params.amountDrops,
+  }
+}
+
+/** Build unsigned F-USDC (IOU) Payment tx_json (no secret). Hot + vault cold path. */
+export function buildFusdcPaymentTxJson(params: {
+  account: string
+  destination: string
+  issuer: string
+  currency: string
+  amount: string
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  publicKeyHex: string
+  fee?: string
+}): TxCore & Record<string, unknown> {
+  return {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      params.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'Payment',
+    Destination: params.destination,
+    Amount: {
+      currency: params.currency,
+      issuer: params.issuer,
+      value: params.amount,
+    },
   }
 }
 
@@ -168,23 +200,10 @@ export async function signFusdcPaymentTx(
   falcon_secret: string,
 ): Promise<{ tx_blob: string }> {
   const decoded = decodeFalconSecret(falcon_secret)
-  const tx = {
-    ...baseTx(
-      params.account,
-      params.sequence,
-      params.lastLedgerSequence,
-      decoded.publicKeyHex,
-      params.networkId,
-      params.fee,
-    ),
-    TransactionType: 'Payment',
-    Destination: params.destination,
-    Amount: {
-      currency: params.currency,
-      issuer: params.issuer,
-      value: params.amount,
-    },
-  }
+  const tx = buildFusdcPaymentTxJson({
+    ...params,
+    publicKeyHex: decoded.publicKeyHex,
+  })
   return { tx_blob: await signPrepared(tx, decoded) }
 }
 

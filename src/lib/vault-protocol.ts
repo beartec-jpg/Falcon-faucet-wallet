@@ -121,7 +121,13 @@ export interface VaultUnsignedPayment {
     transactionType: 'Payment'
     account: string
     destination: string
+    /**
+     * Native FALCON: amount in drops.
+     * F-USDC: human amount string (same as IOU value).
+     */
     amountDrops: string
+    /** Display asset; default FALCON for older packages */
+    asset?: 'FALCON' | 'F-USDC'
     fee: string
     sequence: number
     lastLedgerSequence: number

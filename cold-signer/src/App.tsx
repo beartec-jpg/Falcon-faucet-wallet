@@ -841,7 +841,11 @@ export default function App() {
             <Row k="To" v={d.destination} mono />
             <Row
               k="Amount"
-              v={`${(Number(d.amountDrops) / 1_000_000).toLocaleString()} FALCON`}
+              v={
+                d.asset === 'F-USDC'
+                  ? `${d.amountDrops} F-USDC`
+                  : `${(Number(d.amountDrops) / 1_000_000).toLocaleString()} FALCON`
+              }
             />
             <Row k="Fee" v={`${d.fee} drops`} />
             <Row k="Sequence" v={String(d.sequence)} />
