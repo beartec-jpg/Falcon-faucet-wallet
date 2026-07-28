@@ -293,6 +293,36 @@ export async function signPaymentSwapTx(
   return { tx_blob: await signPrepared(tx as TxCore & Record<string, unknown>, decoded) }
 }
 
+/** Build unsigned TrustSet tx_json (no secret). Hot + vault cold path. */
+export function buildTrustSetTxJson(params: {
+  account: string
+  currency: string
+  issuer: string
+  limit: string
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  publicKeyHex: string
+  fee?: string
+}): TxCore & Record<string, unknown> {
+  return {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      params.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'TrustSet',
+    LimitAmount: {
+      currency: params.currency,
+      issuer: params.issuer,
+      value: params.limit,
+    },
+  }
+}
+
 export async function signTrustSetTx(
   params: {
     account: string
@@ -307,22 +337,10 @@ export async function signTrustSetTx(
   falcon_secret: string,
 ): Promise<{ tx_blob: string }> {
   const decoded = decodeFalconSecret(falcon_secret)
-  const tx = {
-    ...baseTx(
-      params.account,
-      params.sequence,
-      params.lastLedgerSequence,
-      decoded.publicKeyHex,
-      params.networkId,
-      params.fee,
-    ),
-    TransactionType: 'TrustSet',
-    LimitAmount: {
-      currency: params.currency,
-      issuer: params.issuer,
-      value: params.limit,
-    },
-  }
+  const tx = buildTrustSetTxJson({
+    ...params,
+    publicKeyHex: decoded.publicKeyHex,
+  })
   return { tx_blob: await signPrepared(tx, decoded) }
 }
 

@@ -19,9 +19,11 @@ import {
   generateWallet,
   buildPaymentTxJson,
   buildFusdcPaymentTxJson,
+  buildTrustSetTxJson,
   qxrpToDrops,
   WALLET_BASE_FEE,
 } from '@/lib/wallet-sign-client'
+import { resolveNetworkTokens } from '@/lib/stables-config'
 import {
   createEncryptedVaultFile,
   downloadVaultFile,
@@ -535,6 +537,71 @@ export default function VaultPage() {
     }
   }
 
+  async function buildFusdcTrustSet() {
+    if (!vault) return
+    setError(null)
+    if (!network.live) {
+      setError('Network is not live')
+      return
+    }
+    setBusy(true)
+    try {
+      const seq = await fetchSequenceInfo(vault.address, network.key)
+      if (!seq.exists) {
+        throw new Error('Vault must be funded with FALCON before setting a trust line')
+      }
+      // Prefer live account issuer if trust already half-set; else network stables config
+      let currency = account?.fusdc?.currency || 'QUC'
+      let issuer = account?.fusdc?.issuer || ''
+      if (!issuer) {
+        const tokens = await resolveNetworkTokens(network.key)
+        const fusdcTok = tokens.find((t) => t.symbol === 'F-USDC' || t.currency === 'QUC')
+        if (!fusdcTok?.issuer) {
+          throw new Error('F-USDC issuer not configured for this network')
+        }
+        currency = fusdcTok.currency
+        issuer = fusdcTok.issuer
+      }
+      const fee = WALLET_BASE_FEE
+      const lastLedgerSequence = seq.currentLedger + DEFAULT_LEDGER_OFFSET
+      const limit = '10000000'
+      const tx_json = buildTrustSetTxJson({
+        account: vault.address,
+        currency,
+        issuer,
+        limit,
+        sequence: seq.sequence,
+        lastLedgerSequence,
+        networkId: network.networkId,
+        publicKeyHex: vault.publicKey,
+        fee,
+      })
+      const pkg: VaultUnsignedPayment = {
+        type: 'falcon-unsigned-tx',
+        v: 1,
+        codecVersion: CODEC_VERSION,
+        networkId: network.networkId,
+        display: {
+          transactionType: 'TrustSet',
+          account: vault.address,
+          limitCurrency: currency,
+          limitIssuer: issuer,
+          limitValue: limit,
+          fee,
+          sequence: seq.sequence,
+          lastLedgerSequence,
+        },
+        tx_json,
+      }
+      setUnsignedEnc(encodeMultiQr(encodeUnsignedPayment(pkg), 'unsigned-tx'))
+      setView('send-unsigned')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to build TrustSet')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function onSignedPayload(payload: string) {
     setError(null)
     setBusy(true)
@@ -549,7 +616,7 @@ export default function VaultPage() {
       if (vault) await loadBalance(vault.address)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Submit failed')
-      setView('send')
+      setView('unlocked')
     } finally {
       setBusy(false)
     }
@@ -821,6 +888,16 @@ export default function VaultPage() {
             {account && !account.exists && (
               <p className="text-[11px] text-amber-400">Unfunded — receive FALCON to activate</p>
             )}
+            {account?.exists && account.fusdc?.hasTrustLine === false && (
+              <button
+                type="button"
+                disabled={busy || !network.live}
+                onClick={() => void buildFusdcTrustSet()}
+                className="w-full py-2.5 rounded-xl text-sm font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 disabled:opacity-40"
+              >
+                {busy ? 'Preparing…' : 'Add F-USDC trust line (cold sign)'}
+              </button>
+            )}
             <div className="flex gap-2 flex-wrap">
               <button
                 type="button"
@@ -1006,9 +1083,9 @@ export default function VaultPage() {
             <MultiQrDisplay
               encoded={unsignedEnc}
               title="Show unsigned tx to cold signer"
-              hint="Cold: Sign transaction → scan these frames → confirm amount → show signed QR."
+              hint="Cold: Sign → scan/paste → review carefully → approve → return signed payload."
               onDone={() => setView('send-scan-signed')}
-              doneLabel="Cold signed — scan result →"
+              doneLabel="Cold signed — scan/paste result →"
             />
           </div>
         )}

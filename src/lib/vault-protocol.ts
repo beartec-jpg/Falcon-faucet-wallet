@@ -116,7 +116,7 @@ export function unlockResponseSigBytes(r: VaultUnlockResponse): Uint8Array {
   return b64uDecode(r.sig)
 }
 
-// ── Unsigned / signed payment packages ────────────────────────────────────────
+// ── Unsigned / signed packages (Payment + TrustSet) ───────────────────────────
 
 export interface VaultUnsignedPayment {
   type: 'falcon-unsigned-tx'
@@ -124,16 +124,21 @@ export interface VaultUnsignedPayment {
   codecVersion: typeof CODEC_VERSION
   networkId: number
   display: {
-    transactionType: 'Payment'
+    transactionType: 'Payment' | 'TrustSet'
     account: string
-    destination: string
+    /** Payment destination (r… or name → r…) */
+    destination?: string
     /**
-     * Native FALCON: amount in drops.
-     * F-USDC: human amount string (same as IOU value).
+     * Payment: native FALCON drops, or F-USDC human amount.
+     * TrustSet: unused (see limit*).
      */
-    amountDrops: string
-    /** Display asset; default FALCON for older packages */
+    amountDrops?: string
+    /** Display asset for Payment; default FALCON for older packages */
     asset?: 'FALCON' | 'F-USDC'
+    /** TrustSet limit */
+    limitCurrency?: string
+    limitIssuer?: string
+    limitValue?: string
     fee: string
     sequence: number
     lastLedgerSequence: number
@@ -157,8 +162,9 @@ export function parseUnsignedPayment(payload: string): VaultUnsignedPayment {
   if (obj.codecVersion !== CODEC_VERSION) {
     throw new Error(`Codec version mismatch: ${obj.codecVersion} (need ${CODEC_VERSION})`)
   }
-  if (!obj.tx_json || obj.display?.transactionType !== 'Payment') {
-    throw new Error('Invalid unsigned payment package')
+  const tt = obj.display?.transactionType
+  if (!obj.tx_json || (tt !== 'Payment' && tt !== 'TrustSet')) {
+    throw new Error('Invalid unsigned package (Payment or TrustSet)')
   }
   return obj
 }

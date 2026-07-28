@@ -867,6 +867,12 @@ export default function App() {
 
   if (step === 'sign-preview' && preview) {
     const d = preview.display
+    const isTrust = d.transactionType === 'TrustSet'
+    const amountLabel = isTrust
+      ? undefined
+      : d.asset === 'F-USDC'
+        ? `${d.amountDrops ?? ''} F-USDC`
+        : `${(Number(d.amountDrops ?? 0) / 1_000_000).toLocaleString()} FALCON`
     return (
       <div className="min-h-screen flex flex-col bg-slate-950">
         {header}
@@ -874,20 +880,25 @@ export default function App() {
           <h2 className="text-lg font-bold text-white">Review carefully</h2>
           <div className="rounded-2xl border border-amber-600/30 bg-amber-950/20 p-4 space-y-2 text-sm">
             <Row k="Type" v={d.transactionType} />
-            <Row k="From" v={d.account} mono />
-            <Row k="To" v={d.destination} mono />
-            <Row
-              k="Amount"
-              v={
-                d.asset === 'F-USDC'
-                  ? `${d.amountDrops} F-USDC`
-                  : `${(Number(d.amountDrops) / 1_000_000).toLocaleString()} FALCON`
-              }
-            />
+            <Row k="Account" v={d.account} mono />
+            {!isTrust && d.destination && <Row k="To" v={d.destination} mono />}
+            {!isTrust && amountLabel && <Row k="Amount" v={amountLabel} />}
+            {isTrust && (
+              <>
+                <Row k="Trust asset" v={d.limitCurrency === 'QUC' ? 'F-USDC' : (d.limitCurrency ?? '—')} />
+                <Row k="Issuer" v={d.limitIssuer ?? '—'} mono />
+                <Row k="Limit" v={d.limitValue ?? '—'} />
+              </>
+            )}
             <Row k="Fee" v={`${d.fee} drops`} />
             <Row k="Sequence" v={String(d.sequence)} />
             <Row k="Last ledger" v={String(d.lastLedgerSequence)} />
           </div>
+          {isTrust && (
+            <p className="text-[11px] text-amber-200/90">
+              This adds a trust line so the vault can hold F-USDC. Review issuer carefully.
+            </p>
+          )}
           {error && <p className="text-sm text-red-400">{error}</p>}
           <button
             type="button"
