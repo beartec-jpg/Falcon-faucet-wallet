@@ -1,11 +1,11 @@
 {
   "network_id": 1001,
   "rpc_url": "http://46.224.0.140:6005",
-  "issued_at": "2026-07-28T15:20:24Z",
+  "issued_at": "2026-07-28T16:03:46Z",
   "genesis": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
   "bridge_only": true,
   "bootstrap_liquidity": false,
-  "note": "F-USDC, FETH, FBNB minted ONLY by lock-mint relays. No free bootstrap mint.",
+  "note": "F-USDC, FETH, FBNB, FBTC minted ONLY by bridge relays. No free bootstrap mint.",
   "liquidity_provider": "rfSB7uTdtZsXEEupKSLuCwoH96SsMdXgCa",
   "tokens": [
     {
@@ -25,6 +25,12 @@
       "currency": "BNB",
       "issuer": "rf8NZLdcwxrXAnPppttTeenQcAJW75uj7E",
       "liquidity": "bridge_user_lp"
+    },
+    {
+      "symbol": "FBTC",
+      "currency": "BTC",
+      "issuer": "rnvzCKcBU7G8Kb9JXHwEKTHiK9aTrZAqWT",
+      "liquidity": "bridge_user_lp"
     }
   ],
   "env": {
@@ -33,6 +39,8 @@
     "NEXT_PUBLIC_TESTNET_FETH_CURRENCY": "ETH",
     "NEXT_PUBLIC_TESTNET_FETH_ISSUER": "rNn8xd3hbeTEAcEmRQae8xVaKshAj7HrED",
     "NEXT_PUBLIC_TESTNET_FBNB_CURRENCY": "BNB",
-    "NEXT_PUBLIC_TESTNET_FBNB_ISSUER": "rf8NZLdcwxrXAnPppttTeenQcAJW75uj7E"
+    "NEXT_PUBLIC_TESTNET_FBNB_ISSUER": "rf8NZLdcwxrXAnPppttTeenQcAJW75uj7E",
+    "NEXT_PUBLIC_TESTNET_FBTC_CURRENCY": "BTC",
+    "NEXT_PUBLIC_TESTNET_FBTC_ISSUER": "rnvzCKcBU7G8Kb9JXHwEKTHiK9aTrZAqWT"
   }
 }

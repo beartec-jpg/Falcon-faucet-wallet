@@ -93,6 +93,18 @@ export function fbnbLockReady(cfg: UsdcBridgeManifest | null): boolean {
   )
 }
 
+/** FBTC uses native BTC custody + claim relay (not EVM lock). */
+export function fbtcBridgeReady(cfg: {
+  falcon?: { token_issuer?: string }
+  bitcoin?: { custody_testnet?: string }
+} | null): boolean {
+  return !!(
+    cfg?.falcon?.token_issuer?.match(/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/) &&
+    cfg?.bitcoin?.custody_testnet &&
+    cfg.bitcoin.custody_testnet.length >= 26
+  )
+}
+
 let cached: UsdcBridgeManifest | null = null
 
 export async function fetchBridgeConfig(): Promise<UsdcBridgeManifest | null> {

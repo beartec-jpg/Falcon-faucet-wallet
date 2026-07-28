@@ -51,20 +51,32 @@
       }
     },
     {
-      "id": "fbtc-wbtc",
-      "status": "coming_soon",
+      "id": "fbtc-native",
+      "status": "live",
       "direction_labels": {
-        "in": "Ethereum · WBTC → Falcon FBTC",
-        "out": "Falcon FBTC → Ethereum WBTC"
+        "in": "Bitcoin testnet · BTC → Falcon FBTC",
+        "out": "Falcon FBTC → BTC (soon)"
       },
       "source": {
-        "chain": "ethereum",
-        "token_symbol": "WBTC",
-        "decimals": 8
+        "chain": "bitcoin",
+        "network": "testnet",
+        "token_symbol": "BTC",
+        "decimals": 8,
+        "custody_testnet": "mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik"
       },
       "falcon": {
         "symbol": "FBTC",
-        "currency": "BTC"
+        "currency": "BTC",
+        "issuer": "rnvzCKcBU7G8Kb9JXHwEKTHiK9aTrZAqWT"
+      },
+      "ux": {
+        "label": "BTC → FBTC",
+        "hide_wbtc": true,
+        "flow": "send multi-chain BTC to custody → claim → mint FBTC"
+      },
+      "relay": {
+        "service": "qxrp-fbtc-relay.service",
+        "script": "scripts/bridge-btc-deposit-relay.py"
       }
     },
     {

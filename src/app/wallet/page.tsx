@@ -350,7 +350,9 @@ export default function WalletPage() {
   const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
   const [walletSection, setWalletSection] = useState<'falcon' | 'multichain' | 'bridge'>('falcon')
   const [bridgeInitialMode, setBridgeInitialMode] = useState<'deposit' | 'withdraw' | 'send' | 'receive'>('deposit')
-  const [bridgeInitialRoute, setBridgeInitialRoute] = useState<'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc'>('fusdc-sepolia')
+  const [bridgeInitialRoute, setBridgeInitialRoute] = useState<
+    'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc' | 'fbtc-btc'
+  >('fusdc-sepolia')
   const [receiveAssetId, setReceiveAssetId] = useState<MultiChainAssetId>('falcon')
   const [ethNativeBal, setEthNativeBal] = useState<string | null>(null)
   const [usdcNativeBal, setUsdcNativeBal] = useState<string | null>(null)
@@ -371,7 +373,7 @@ export default function WalletPage() {
   const [createLabel, setCreateLabel] = useState('')
 
   // Send form (Falcon IOUs + native multi-chain)
-  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'feth' | 'fbnb' | 'btc' | 'bnb' | 'eth'>('falcon')
+  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'feth' | 'fbnb' | 'fbtc' | 'btc' | 'bnb' | 'eth'>('falcon')
   const [sendTo,     setSendTo]     = useState('')
   const [sendAmount, setSendAmount] = useState('')
   const [sendResult, setSendResult] = useState<{
@@ -1284,6 +1286,10 @@ export default function WalletPage() {
       (t) => t.currency === 'BNB' || t.symbol === 'FBNB',
     )
     const fbnbBal = fbnbTok?.balance ?? 0
+    const fbtcTok = account!.assets?.tokens?.find(
+      (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+    )
+    const fbtcBal = fbtcTok?.balance ?? 0
 
     if (!isValidFalconAddress(to)) {
       setError('Invalid destination — use an r… address or a claimed name (e.g. alice.bob)')
@@ -1313,6 +1319,13 @@ export default function WalletPage() {
       }
       if (amt > fbnbBal) {
         setError('Insufficient FBNB balance'); return
+      }
+    } else if (sendAsset === 'fbtc') {
+      if (!fbtcTok?.issuer || fbtcTok.hasTrustLine === false) {
+        setError('Add a FBTC trust line on Bridge before sending'); return
+      }
+      if (amt > fbtcBal) {
+        setError('Insufficient FBTC balance'); return
       }
     } else {
       if (!fusdc?.issuer || fusdc.hasTrustLine === false) {
@@ -1369,7 +1382,9 @@ export default function WalletPage() {
               ? { issuer: fethTok!.issuer, currency: fethTok!.currency }
               : sendAsset === 'fbnb'
                 ? { issuer: fbnbTok!.issuer, currency: fbnbTok!.currency }
-                : { issuer: fusdc!.issuer, currency: fusdc!.currency }
+                : sendAsset === 'fbtc'
+                  ? { issuer: fbtcTok!.issuer, currency: fbtcTok!.currency }
+                  : { issuer: fusdc!.issuer, currency: fusdc!.currency }
           return signFusdcPayment(
             {
               account:            wallet.address,
@@ -2064,6 +2079,22 @@ export default function WalletPage() {
                         } else if (!fbnbTok) {
                           detail = asset.subtitle
                         }
+                      } else if (asset.id === 'fbtc') {
+                        const fbtcTok = account?.assets?.tokens?.find(
+                          (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+                        )
+                        balanceLabel = (fbtcTok?.balance ?? 0).toLocaleString(undefined, {
+                          maximumFractionDigits: 8,
+                        })
+                        if (fbtcTok && !fbtcTok.hasTrustLine) {
+                          detail = (
+                            <span>
+                              Need trust line — open Bridge · BTC → FBTC
+                            </span>
+                          )
+                        } else if (!fbtcTok) {
+                          detail = asset.subtitle
+                        }
                       }
                       return (
                         <div
@@ -2113,7 +2144,9 @@ export default function WalletPage() {
                                       ? 'feth'
                                       : asset.id === 'fbnb'
                                         ? 'fbnb'
-                                        : 'falcon',
+                                        : asset.id === 'fbtc'
+                                          ? 'fbtc'
+                                          : 'falcon',
                                 )
                                 setView('send')
                                 setError(null)
@@ -2132,6 +2165,9 @@ export default function WalletPage() {
                                   setBridgeInitialMode('deposit')
                                 } else if (asset.id === 'fbnb') {
                                   setBridgeInitialRoute('fbnb-bsc')
+                                  setBridgeInitialMode('deposit')
+                                } else if (asset.id === 'fbtc') {
+                                  setBridgeInitialRoute('fbtc-btc')
                                   setBridgeInitialMode('deposit')
                                 } else if (asset.id === 'fusdc') {
                                   setBridgeInitialRoute('fusdc-sepolia')
@@ -2368,7 +2404,9 @@ export default function WalletPage() {
                                     ? 'feth-sepolia'
                                     : chain.id === 'bnb'
                                       ? 'fbnb-bsc'
-                                      : 'fusdc-sepolia',
+                                      : chain.id === 'btc'
+                                        ? 'fbtc-btc'
+                                        : 'fusdc-sepolia',
                                 )
                                 setWalletSection('bridge')
                               }}
