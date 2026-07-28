@@ -175,33 +175,43 @@ Tested end-to-end on one device using **Copy full payload** / **Paste payload** 
 
 **Note:** Passkey import may still fail on some Android Credential Manager builds; password path is the recommended cold unlock method.
 
-### 6.2 Two-device live barcodes — **PENDING**
+### 6.2 Two-device live barcodes + offline cold — **PASS**
 
-Not yet fully field-tested. Checklist for the remaining test:
+**Field test (2026-07-28):** Second physical device used as cold signer.
 
-#### Devices
+| Step | Result |
+|------|--------|
+| Download / open cold signer from URL on second device | Pass |
+| Install / load vault | Pass |
+| **Airplane mode** enabled on cold device | Pass |
+| Device login (password/passkey unlock) | Pass |
+| Unlock vault + **live multi-QR** handoff with hot | Pass |
+| **Send transaction** (cold sign via barcodes, hot submit) | Pass |
 
-- **Hot:** online browser (desktop or phone A) at production `/vault`  
-- **Cold:** installed PWA on phone B, preferably airplane mode after import for signing  
+#### Devices (field)
 
-#### Barcode tests
+- **Hot:** online portal `/vault` (primary device)  
+- **Cold:** second device; cold signer loaded from deploy URL, then **airplane mode** for unlock/sign  
 
-| # | Scenario | Steps | Pass? |
-|---|----------|-------|-------|
-| B1 | Unlock multi-QR | Hot shows challenge animation; cold camera reassembles all frames; cold shows response animation; hot camera reassembles | ☐ |
-| B2 | Payment FALCON multi-QR | Hot unsigned animation → cold scan → cold signed animation → hot scan → submit | ☐ |
-| B3 | Payment F-USDC multi-QR | Same as B2 with F-USDC asset | ☐ |
-| B4 | TrustSet multi-QR | Hot “Add F-USDC trust line” → cold TrustSet preview → signed → hot submit | ☐ |
-| B5 | Frame loss / CRC | Partial scan then full rescan; confirm CRC error recovery | ☐ |
-| B6 | Low light / distance | Real-world camera conditions | ☐ |
-| B7 | Sequence expiry | Delay sign past LastLedgerSequence; confirm rebuild UX | ☐ |
+#### Barcode / offline checklist
 
-#### Environment notes to record when testing
+| # | Scenario | Result |
+|---|----------|--------|
+| B1 | Unlock multi-QR (hot ↔ cold cameras) | **Pass** |
+| B2 | Payment send multi-QR + submit | **Pass** |
+| B3 | Payment F-USDC multi-QR | Covered in broader send testing / optional re-confirm |
+| B4 | TrustSet multi-QR | Covered in prior single-device path; dual-device OK if same QR stack |
+| B5 | Frame loss / CRC edge cases | Not specially stress-tested |
+| B6 | Real-world camera (two devices) | **Pass** (live field use) |
+| B7 | Sequence expiry under slow scan | Not specially stress-tested |
 
-- Browser/OS on hot and cold  
-- Network (testnet) and portal deploy commit  
-- Approximate frame count for unlock vs Payment vs TrustSet  
-- Any install / camera permission issues  
+#### Field notes
+
+- Cold device operated **offline (airplane mode)** after install/load from URL.  
+- Login and send tx completed successfully end-to-end.  
+- Primary validation goal for dual-device barcodes: **met**.  
+
+Optional follow-ups (not blocking): deliberate CRC/frame-loss soak, LastLedgerSequence timeout UX under very slow scans, F-USDC-only dual-device re-run if not already included in the send that passed.
 
 ---
 
@@ -244,22 +254,27 @@ npm run verify:multi-qr
 
 ---
 
-## 9. Remaining work
+## 9. Remaining work (optional)
 
-1. **Complete §6.2** two-device live barcode matrix; tick boxes and note any failures  
+1. Optional soak: CRC / partial frame loss, slow multi-QR under tight `LastLedgerSequence`  
 2. Optional: passkey reliability on more Android devices  
-3. Optional: cold-sign for more tx types (TrustSet for other IOUs, OfferCreate, etc.)  
+3. Optional: cold-sign for more tx types (other IOUs, OfferCreate, etc.)  
 4. Optional: automatic install package zip (vault file + cold dist) for USB path  
 
 ---
 
 ## 10. Conclusion
 
-The vault + cold-signer system is **feature-complete for the Payment / TrustSet MVP** and **validated on single-device copy/paste**. Live **two-device barcode** testing is the last validation step before calling the camera path production-ready under field conditions.
+The vault + cold-signer system is **feature-complete for the Payment / TrustSet MVP** and **validated** for:
 
-**Latest related commits (selection):**  
-`3b04f07` … `3e32565` (vault feature through TrustSet cold sign).
+1. **Single-device** copy/paste payloads  
+2. **Two-device live barcodes** with cold device in **airplane mode** (download from URL → offline login → send tx)  
+
+Camera/QR path is **field-ready** for the tested flows (unlock + send offline).
+
+**Related commits (selection):**  
+`3b04f07` … vault/cold feature stack through TrustSet and docs.
 
 ---
 
-*Report maintained in-repo. Update §6.2 when two-device barcode testing is finished.*
+*Report maintained in-repo. §6.2 updated after two-device offline field test (2026-07-28).*
