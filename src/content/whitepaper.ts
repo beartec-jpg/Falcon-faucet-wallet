@@ -42,6 +42,13 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
     href: '/Docs/FALCON-LENDING-IMPLEMENTATION-REPORT.pdf',
     filename: 'FALCON-LENDING-IMPLEMENTATION-REPORT.pdf',
   },
+  {
+    title: 'Vault & Cold Signer Implementation Report',
+    description:
+      'Air-gapped vault custody: portal public vault metadata, cold signer PWA, multi-part QR and payload handoff, FALCON/F-USDC payments, named destinations, TrustSet, and single-device plus offline two-device field tests (July 2026).',
+    href: '/Docs/FALCON-VAULT-COLD-SIGNER-IMPLEMENTATION-REPORT.pdf',
+    filename: 'FALCON-VAULT-COLD-SIGNER-IMPLEMENTATION-REPORT.pdf',
+  },
 ]
 
 export const WHITEPAPER_SECTIONS: { id: string; title: string; body: string }[] = [
