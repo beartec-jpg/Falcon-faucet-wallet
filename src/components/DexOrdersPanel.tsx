@@ -91,22 +91,37 @@ export default function DexOrdersPanel({
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<string | null>(null)
 
+  const pairQs = useCallback(() => {
+    const p = new URLSearchParams()
+    if (token.symbol) p.set('symbol', token.symbol)
+    if (token.currency) p.set('currency', token.currency)
+    if (token.issuer) p.set('issuer', token.issuer)
+    return p.toString()
+  }, [token.symbol, token.currency, token.issuer])
+
   const loadOffers = useCallback(async () => {
     setOffersLoading(true)
     try {
+      const pair = pairQs()
       const r = await fetch(
-        withNetworkQuery(`/api/market/offers?address=${encodeURIComponent(wallet.address)}`, networkKey),
+        withNetworkQuery(
+          `/api/market/offers?address=${encodeURIComponent(wallet.address)}${pair ? `&${pair}` : ''}`,
+          networkKey,
+        ),
       )
       const d = await r.json()
       if (!d.error) setOffers(d.offers ?? [])
     } finally {
       setOffersLoading(false)
     }
-  }, [wallet.address, networkKey])
+  }, [wallet.address, networkKey, pairQs])
 
   const loadBookTop = useCallback(async () => {
     try {
-      const r = await fetch(withNetworkQuery('/api/market/orderbook', networkKey))
+      const pair = pairQs()
+      const r = await fetch(
+        withNetworkQuery(`/api/market/orderbook${pair ? `?${pair}` : ''}`, networkKey),
+      )
       const d = await r.json()
       if (!d.error) {
         const bids = (d.bids ?? []) as Array<{ price: number }>
@@ -115,7 +130,7 @@ export default function DexOrdersPanel({
         setBestAsk(asks[0]?.price ?? null)
       }
     } catch { /* optional */ }
-  }, [networkKey])
+  }, [networkKey, pairQs])
 
   useEffect(() => {
     loadOffers()
@@ -133,7 +148,7 @@ export default function DexOrdersPanel({
     const amt = parseFloat(tokenAmt)
     const px = parseFloat(price)
     if (!Number.isFinite(amt) || amt <= 0 || !Number.isFinite(px) || px <= 0) {
-      setError('Enter valid amount and price (FALCON per F-USDC)')
+      setError(`Enter valid amount and price (FALCON per ${token.symbol})`)
       return
     }
 
@@ -206,8 +221,12 @@ export default function DexOrdersPanel({
         onRefresh()
         onBookRefresh?.()
         loadBookTop()
+        const pair = pairQs()
         const r = await fetch(
-          withNetworkQuery(`/api/market/offers?address=${encodeURIComponent(wallet.address)}`, networkKey),
+          withNetworkQuery(
+            `/api/market/offers?address=${encodeURIComponent(wallet.address)}${pair ? `&${pair}` : ''}`,
+            networkKey,
+          ),
         )
         const offersNow: UserOffer[] = (await r.json()).offers ?? []
         const sameSide = offersNow.filter((o) => o.side === submittedSide)
@@ -217,7 +236,7 @@ export default function DexOrdersPanel({
           setResult(`${msg} — filled completely (matched book and/or AMM).`)
         } else if (!postOnly && remaining > 0 && remaining < submittedAmt - 1e-6) {
           setResult(
-            `${msg} — partially filled: ~${fmt(submittedAmt - remaining, 4)} F-USDC traded, ~${fmt(remaining, 4)} still on the book.`,
+            `${msg} — partially filled: ~${fmt(submittedAmt - remaining, 4)} ${token.symbol} traded, ~${fmt(remaining, 4)} still on the book.`,
           )
         } else if (postOnly) {
           setResult(`${msg} — posted to book (post-only; did not take existing orders).`)
@@ -294,11 +313,11 @@ export default function DexOrdersPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">DEX Limit Orders</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Price field is <strong className="text-slate-300">FALCON per F-USDC</strong> (not F-USDC per FALCON).
+            Price field is <strong className="text-slate-300">FALCON per {token.symbol}</strong> (not {token.symbol} per FALCON).
             {marketPrice ? (
               <>
-                {' '}AMM mid ≈ <span className="font-mono text-slate-200">{fmt(marketPrice, 4)}</span> FALCON/F-USDC
-                ({fmt(falconPerFusdcToInverse(marketPrice) ?? 0, 4)} F-USDC per FALCON).
+                {' '}AMM mid ≈ <span className="font-mono text-slate-200">{fmt(marketPrice, 4)}</span> FALCON/{token.symbol}
+                ({fmt(falconPerFusdcToInverse(marketPrice) ?? 0, 4)} {token.symbol} per FALCON).
               </>
             ) : null}
           </p>
@@ -313,20 +332,20 @@ export default function DexOrdersPanel({
             onClick={() => setSide('sell')}
             className={`flex-1 py-2 ${side === 'sell' ? 'bg-red-500/10 text-red-400' : 'text-slate-500'}`}
           >
-            Sell F-USDC
+            Sell {token.symbol}
           </button>
           <button
             type="button"
             onClick={() => setSide('buy')}
             className={`flex-1 py-2 ${side === 'buy' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
           >
-            Buy F-USDC (bid)
+            Buy {token.symbol} (bid)
           </button>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <label className="text-xs text-slate-400">F-USDC amount</label>
+            <label className="text-xs text-slate-400">{token.symbol} amount</label>
             <input
               type="number"
               value={tokenAmt}
@@ -338,7 +357,7 @@ export default function DexOrdersPanel({
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs text-slate-400">Price (FALCON per F-USDC)</label>
+            <label className="text-xs text-slate-400">Price (FALCON per {token.symbol})</label>
             <input
               type="number"
               value={price}
@@ -356,7 +375,7 @@ export default function DexOrdersPanel({
                     : 'text-emerald-400/90'
                 }`}
               >
-                {fmt(priceNum, 4)} FALCON/F-USDC = {fmt(falconPerFusdcToInverse(priceNum) ?? 0, 4)} F-USDC/FALCON
+                {fmt(priceNum, 4)} FALCON/{token.symbol} = {fmt(falconPerFusdcToInverse(priceNum) ?? 0, 4)} {token.symbol}/FALCON
                 {side === 'sell'
                   ? priceNum < marketPrice
                     ? ` · below AMM (${fmt(marketPrice, 4)}) → fills via AMM`
@@ -381,7 +400,7 @@ export default function DexOrdersPanel({
 
         {priceNum > 0 && wouldCross && !postOnly && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-            This price crosses the AMM{marketPrice ? ` (~${fmt(marketPrice, 4)} FALCON/F-USDC)` : ''} — your order will
+            This price crosses the AMM{marketPrice ? ` (~${fmt(marketPrice, 4)} FALCON/${token.symbol})` : ''} — your order will
             <strong className="text-amber-100"> execute immediately</strong> (AMM swap), not rest on the book.
             Tap <strong className="text-amber-100">Maker price</strong> or raise sell / lower buy vs AMM mid to list.
           </div>
@@ -396,7 +415,7 @@ export default function DexOrdersPanel({
         {tokenNum > 0 && priceNum > 0 && (
           <p className="text-xs text-slate-500">
             {side === 'sell'
-              ? `Locks ${fmt(tokenNum, 4)} F-USDC on the book`
+              ? `Locks ${fmt(tokenNum, 4)} ${token.symbol} on the book`
               : `Locks ~${fmt(falconNeeded, 4)} FALCON as bid`}
           </p>
         )}
@@ -407,7 +426,7 @@ export default function DexOrdersPanel({
             onClick={() => setTokenAmt(String(usdcBalance))}
             className="text-xs text-brand-500"
           >
-            Max F-USDC ({fmt(usdcBalance, 4)})
+            Max {token.symbol} ({fmt(usdcBalance, 4)})
           </button>
         )}
         {side === 'buy' && xrpBalance != null && xrpBalance > 0.1 && priceNum > 0 && (
@@ -485,7 +504,7 @@ export default function DexOrdersPanel({
               <tr className="text-slate-500 border-b border-slate-800/50">
                 <th className="text-left px-3 py-2">Side</th>
                 <th className="text-right px-3 py-2">Price</th>
-                <th className="text-right px-3 py-2">F-USDC</th>
+                <th className="text-right px-3 py-2">{token.symbol}</th>
                 <th className="text-right px-3 py-2 hidden sm:table-cell">FALCON</th>
                 <th className="text-right px-3 py-2"></th>
               </tr>

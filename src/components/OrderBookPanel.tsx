@@ -44,11 +44,13 @@ function BookTable({
   rows,
   accent,
   empty,
+  tokenSymbol,
 }: {
   title: string
   rows: BookEntry[]
   accent: string
   empty: string
+  tokenSymbol: string
 }) {
   return (
     <div className="card overflow-hidden">
@@ -62,7 +64,7 @@ function BookTable({
           <thead>
             <tr className="text-slate-500 border-b border-slate-800/50">
               <th className="text-left px-3 py-2 font-medium">Price</th>
-              <th className="text-right px-3 py-2 font-medium">F-USDC</th>
+              <th className="text-right px-3 py-2 font-medium">{tokenSymbol}</th>
               <th className="text-right px-3 py-2 font-medium hidden sm:table-cell">FALCON</th>
               <th className="text-right px-3 py-2 font-medium hidden md:table-cell">Owner</th>
             </tr>
@@ -86,9 +88,18 @@ function BookTable({
 interface Props {
   compact?: boolean
   pollMs?: number
+  symbol?: string
+  currency?: string
+  issuer?: string
 }
 
-export default function OrderBookPanel({ compact = false, pollMs = 8000 }: Props) {
+export default function OrderBookPanel({
+  compact = false,
+  pollMs = 8000,
+  symbol,
+  currency,
+  issuer,
+}: Props) {
   const { networkKey } = useNetwork()
   const [data, setData] = useState<OrderBookData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -96,7 +107,14 @@ export default function OrderBookPanel({ compact = false, pollMs = 8000 }: Props
 
   const refresh = useCallback(async () => {
     try {
-      const r = await fetch(withNetworkQuery('/api/market/orderbook', networkKey))
+      const params = new URLSearchParams()
+      if (symbol) params.set('symbol', symbol)
+      if (currency) params.set('currency', currency)
+      if (issuer) params.set('issuer', issuer)
+      const qs = params.toString()
+      const r = await fetch(
+        withNetworkQuery(`/api/market/orderbook${qs ? `?${qs}` : ''}`, networkKey),
+      )
       const d = await r.json()
       if (d.error) throw new Error(d.error)
       setData(d)
@@ -106,9 +124,10 @@ export default function OrderBookPanel({ compact = false, pollMs = 8000 }: Props
     } finally {
       setLoading(false)
     }
-  }, [networkKey])
+  }, [networkKey, symbol, currency, issuer])
 
   useEffect(() => {
+    setLoading(true)
     refresh()
     const t = setInterval(refresh, pollMs)
     return () => clearInterval(t)
@@ -155,7 +174,7 @@ export default function OrderBookPanel({ compact = false, pollMs = 8000 }: Props
             <div className="font-mono text-slate-200">{fmt(data.amm.xrp, 0)}</div>
           </div>
           <div>
-            <div className="text-slate-500">AMM F-USDC</div>
+            <div className="text-slate-500">AMM {data.token.symbol}</div>
             <div className="font-mono text-slate-200">{fmt(data.amm.usdc, 0)}</div>
           </div>
         </div>
@@ -169,8 +188,20 @@ export default function OrderBookPanel({ compact = false, pollMs = 8000 }: Props
       )}
 
       <div className={`grid gap-4 ${compact ? 'grid-cols-1' : 'lg:grid-cols-2'}`}>
-        <BookTable title="Bids (buy F-USDC)" rows={data.bids} accent="text-emerald-400" empty="No bids" />
-        <BookTable title="Asks (sell F-USDC)" rows={data.asks} accent="text-red-400" empty="No asks — post a sell limit order above" />
+        <BookTable
+          title={`Bids (buy ${data.token.symbol})`}
+          rows={data.bids}
+          accent="text-emerald-400"
+          empty="No bids"
+          tokenSymbol={data.token.symbol}
+        />
+        <BookTable
+          title={`Asks (sell ${data.token.symbol})`}
+          rows={data.asks}
+          accent="text-red-400"
+          empty={`No asks — post a sell limit order above`}
+          tokenSymbol={data.token.symbol}
+        />
       </div>
     </div>
   )

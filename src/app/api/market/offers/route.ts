@@ -1,23 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { isDustOffer } from '@/lib/swap/dust-offers'
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
+import { resolveStableToken } from '@/lib/swap/token-config'
 
 const DROPS = 1_000_000
-
-async function tokenRef(networkKey: ReturnType<typeof resolveNetworkKey>) {
-  try {
-    const raw = await readFile(
-      path.join(process.cwd(), 'public', 'config', 'testnet-stables.json'),
-      'utf8',
-    )
-    const m = JSON.parse(raw) as { tokens?: Array<{ currency: string; issuer: string }> }
-    const t = m.tokens?.[0]
-    if (t) return t
-  } catch { /* ignore */ }
-  return { currency: 'QUC', issuer: '' }
-}
 
 function parseUserOffer(
   o: Record<string, unknown>,
@@ -68,9 +54,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'address required' }, { status: 400 })
   }
 
-  const token = await tokenRef(networkKey)
+  const token = await resolveStableToken({
+    symbol: req.nextUrl.searchParams.get('symbol'),
+    currency: req.nextUrl.searchParams.get('currency'),
+    issuer: req.nextUrl.searchParams.get('issuer'),
+  })
   if (!token.issuer) {
-    return NextResponse.json({ error: 'F-USDC issuer not configured' }, { status: 503 })
+    return NextResponse.json(
+      { error: `${token.displaySymbol} issuer not configured` },
+      { status: 503 },
+    )
   }
 
   const r = await serverRpcCall<{ offers?: Array<Record<string, unknown>> }>(
@@ -85,7 +78,11 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     address,
-    token: { ...token, symbol: 'F-USDC' },
+    token: {
+      currency: token.currency,
+      issuer: token.issuer,
+      symbol: token.displaySymbol,
+    },
     offers,
     updatedAt: new Date().toISOString(),
   })
