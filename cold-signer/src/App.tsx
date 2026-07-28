@@ -42,7 +42,6 @@ import {
   encodeSignedTx,
   parseUnlockChallenge,
   parseUnsignedPayment,
-  parsePastedTransport,
 } from '@/lib/vault-protocol'
 import { encodeMultiQr, type EncodedMultiQr, b64uEncode } from '@/lib/multi-qr'
 import { signTxJson } from '@/lib/falcon-tx-sign'
@@ -55,11 +54,9 @@ type Step =
   | 'import'
   | 'locked'
   | 'actions' // unlocked: action list
-  | 'unlock-scan-chal'
-  | 'unlock-camera'
+  | 'unlock-scan'
   | 'unlock-show-resp'
   | 'sign-scan'
-  | 'sign-camera'
   | 'sign-preview'
   | 'sign-show'
 
@@ -80,7 +77,6 @@ export default function App() {
 
   // Import form
   const [fileText, setFileText] = useState<string | null>(null)
-  const [payloadPaste, setPayloadPaste] = useState('')
   const [vaultPass, setVaultPass] = useState('')
   const [coldPass, setColdPass] = useState('')
   const [coldPass2, setColdPass2] = useState('')
@@ -183,27 +179,8 @@ export default function App() {
     })
   }, [])
 
-  // Going online mid-session: keep device unlock for read-only balance, but clear
-  // in-progress sign state. Signing still asserts offline.
-  useEffect(() => {
-    if (!meta) return
-    if (online && !allowOnlineOverride()) {
-      setPreview(null)
-      setSignedEnc(null)
-      setRespEnc(null)
-      if (
-        step === 'sign-preview' ||
-        step === 'sign-show' ||
-        step === 'sign-scan' ||
-        step === 'sign-camera' ||
-        step === 'unlock-scan-chal' ||
-        step === 'unlock-camera' ||
-        step === 'unlock-show-resp'
-      ) {
-        setStep(session ? 'actions' : 'locked')
-      }
-    }
-  }, [online, meta, session, step])
+  // Do NOT unmount camera/paste screens when online — that caused camera flash-and-close.
+  // Signing still enforces airplane mode via assertOfflineForVaultOps.
 
   const hasVault = !!meta
 
@@ -327,7 +304,7 @@ export default function App() {
   async function onUnlockChallenge(payload: string) {
     setError('')
     try {
-      assertOfflineForVaultOps(true)
+      // Unlock response may be done online for one-device testing; payment sign stays offline.
       if (!session) throw new Error('Unlock cold device first')
       const chal = parseUnlockChallenge(payload)
       if (chal.address !== session.address) {
@@ -770,22 +747,28 @@ export default function App() {
           </p>
           <button
             type="button"
-            onClick={() => setStep('unlock-scan-chal')}
+            onClick={() => {
+              setError('')
+              setStep('unlock-scan')
+            }}
             className="w-full text-left px-4 py-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-cyan-600/50"
           >
             <div className="font-semibold text-white">1. Unlock vault (hot challenge)</div>
             <div className="text-xs text-slate-400 mt-1">
-              Scan or paste challenge from hot → returns live balance + response for portal
+              Camera opens — use Paste payload for one-device testing
             </div>
           </button>
           <button
             type="button"
-            onClick={() => setStep('sign-scan')}
+            onClick={() => {
+              setError('')
+              setStep('sign-scan')
+            }}
             className="w-full text-left px-4 py-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-brand-500/40"
           >
             <div className="font-semibold text-white">2. Sign transaction</div>
             <div className="text-xs text-slate-400 mt-1">
-              Scan or paste unsigned Payment → preview → sign → show / copy result
+              Camera opens — use Paste payload for one-device testing
             </div>
           </button>
           <button
@@ -800,76 +783,12 @@ export default function App() {
     )
   }
 
-  // Unlock challenge — paste first (one-device), camera optional
-  if (step === 'unlock-scan-chal') {
-    return (
-      <div className="min-h-screen flex flex-col bg-slate-950">
-        {header}
-        <main className="flex-1 max-w-md mx-auto w-full px-4 py-6 space-y-4">
-          <button
-            type="button"
-            className="text-xs text-slate-400"
-            onClick={() => {
-              setPayloadPaste('')
-              setStep('actions')
-            }}
-          >
-            ← Back
-          </button>
-          <h2 className="text-lg font-bold text-white">Unlock vault</h2>
-          <p className="text-xs text-slate-400">
-            On hot: Vault → Unlock → <strong className="text-slate-200">Copy full payload</strong>.
-            Paste it below (easiest for one-device testing).
-          </p>
-          {error && (
-            <div className="text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-xl p-3">
-              {error}
-            </div>
-          )}
-          <label className="block text-sm font-semibold text-cyan-200">
-            Paste challenge from hot
-            <textarea
-              rows={8}
-              value={payloadPaste}
-              onChange={(e) => setPayloadPaste(e.target.value)}
-              placeholder='{"type":"vault-unlock-chal","v":1,...}'
-              className="mt-2 w-full rounded-xl bg-slate-900 border-2 border-cyan-600/50 px-3 py-3 text-[11px] font-mono text-slate-100"
-            />
-          </label>
-          <button
-            type="button"
-            disabled={busy || !payloadPaste.trim()}
-            onClick={() => {
-              setError('')
-              try {
-                const payload = parsePastedTransport(payloadPaste)
-                void onUnlockChallenge(payload)
-              } catch (e) {
-                setError(e instanceof Error ? e.message : 'Paste failed')
-              }
-            }}
-            className="w-full py-3.5 rounded-2xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white font-semibold"
-          >
-            Use pasted challenge
-          </button>
-          <button
-            type="button"
-            onClick={() => setStep('unlock-camera')}
-            className="w-full py-3 rounded-2xl bg-slate-800 text-slate-200 text-sm"
-          >
-            Scan QR instead
-          </button>
-        </main>
-      </div>
-    )
-  }
-
-  if (step === 'unlock-camera') {
+  if (step === 'unlock-scan') {
     return (
       <MultiQrScan
-        title="Scan unlock challenge from hot"
+        title="Unlock vault — scan or paste challenge"
         expectedCt="vault-unlock-chal"
-        onCancel={() => setStep('unlock-scan-chal')}
+        onCancel={() => setStep('actions')}
         onComplete={(payload) => void onUnlockChallenge(payload)}
       />
     )
@@ -882,15 +801,13 @@ export default function App() {
         <main className="flex-1 flex flex-col items-center justify-center px-4 py-6 gap-3">
           <AnimatedQr encoded={respEnc} title="Copy this → paste on hot portal" />
           <p className="text-xs text-slate-400 text-center max-w-sm">
-            Use <strong className="text-slate-200">Copy full payload</strong> above, then on hot
-            open the scan step and paste.
+            Tap <strong className="text-slate-200">Copy full payload</strong>, then paste on hot.
           </p>
           <button
             type="button"
             className="mt-2 px-4 py-2 rounded-xl bg-slate-800 text-sm"
             onClick={() => {
               setRespEnc(null)
-              setPayloadPaste('')
               setStep('actions')
             }}
           >
@@ -901,76 +818,12 @@ export default function App() {
     )
   }
 
-  // Sign — paste first
   if (step === 'sign-scan') {
     return (
-      <div className="min-h-screen flex flex-col bg-slate-950">
-        {header}
-        <main className="flex-1 max-w-md mx-auto w-full px-4 py-6 space-y-4">
-          <button
-            type="button"
-            className="text-xs text-slate-400"
-            onClick={() => {
-              setPayloadPaste('')
-              setStep('actions')
-            }}
-          >
-            ← Back
-          </button>
-          <h2 className="text-lg font-bold text-white">Sign transaction</h2>
-          <p className="text-xs text-slate-400">
-            On hot: prepare send → <strong className="text-slate-200">Copy full payload</strong>.
-            Paste the unsigned package below.
-          </p>
-          {error && (
-            <div className="text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-xl p-3">
-              {error}
-            </div>
-          )}
-          <label className="block text-sm font-semibold text-cyan-200">
-            Paste unsigned tx from hot
-            <textarea
-              rows={8}
-              value={payloadPaste}
-              onChange={(e) => setPayloadPaste(e.target.value)}
-              placeholder='{"type":"falcon-unsigned-tx","v":1,...}'
-              className="mt-2 w-full rounded-xl bg-slate-900 border-2 border-cyan-600/50 px-3 py-3 text-[11px] font-mono text-slate-100"
-            />
-          </label>
-          <button
-            type="button"
-            disabled={!payloadPaste.trim()}
-            onClick={() => {
-              setError('')
-              try {
-                const payload = parsePastedTransport(payloadPaste)
-                onUnsignedPayload(payload)
-              } catch (e) {
-                setError(e instanceof Error ? e.message : 'Paste failed')
-              }
-            }}
-            className="w-full py-3.5 rounded-2xl bg-brand-500 hover:bg-brand-400 disabled:opacity-40 text-slate-950 font-semibold"
-          >
-            Use pasted transaction
-          </button>
-          <button
-            type="button"
-            onClick={() => setStep('sign-camera')}
-            className="w-full py-3 rounded-2xl bg-slate-800 text-slate-200 text-sm"
-          >
-            Scan QR instead
-          </button>
-        </main>
-      </div>
-    )
-  }
-
-  if (step === 'sign-camera') {
-    return (
       <MultiQrScan
-        title="Scan unsigned transaction"
+        title="Sign — scan or paste unsigned tx"
         expectedCt="unsigned-tx"
-        onCancel={() => setStep('sign-scan')}
+        onCancel={() => setStep('actions')}
         onComplete={(payload) => onUnsignedPayload(payload)}
       />
     )

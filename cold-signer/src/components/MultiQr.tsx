@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import jsQR from 'jsqr'
 import QRCode from 'qrcode'
 import { MultiQrAssembler, type EncodedMultiQr, type MultiQrContentType } from '@/lib/multi-qr'
@@ -74,12 +74,15 @@ export function AnimatedQr({
         onClick={() => void copyPayload()}
         className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-cyan-300 border border-cyan-500/20"
       >
-        {copied ? 'Copied!' : 'Copy full payload (one-device paste)'}
+        {copied ? 'Copied!' : 'Copy full payload'}
       </button>
     </div>
   )
 }
 
+/**
+ * Camera scanner with a clear "Paste payload" button on the same screen.
+ */
 export function MultiQrScan({
   onComplete,
   onCancel,
@@ -93,18 +96,29 @@ export function MultiQrScan({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const onCompleteRef = useRef(onComplete)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [paste, setPaste] = useState('')
-  const [showPaste, setShowPaste] = useState(true)
+  const [showPaste, setShowPaste] = useState(false)
+  const [camMsg, setCamMsg] = useState('Starting camera…')
   const asm = useRef(new MultiQrAssembler())
   const last = useRef('')
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete
+  }, [onComplete])
+
+  const finish = useCallback((payload: string, ct: MultiQrContentType) => {
+    onCompleteRef.current(payload, ct)
+  }, [])
 
   useEffect(() => {
     let stream: MediaStream | null = null
     let cancelled = false
     let anim = 0
     asm.current.reset()
+    last.current = ''
 
     const tick = () => {
       if (cancelled) return
@@ -129,7 +143,7 @@ export function MultiQrScan({
                 const ct = asm.current.contentType!
                 if (expectedCt && ct !== expectedCt) throw new Error(`Expected ${expectedCt}`)
                 stream?.getTracks().forEach((t) => t.stop())
-                onComplete(payload, ct)
+                finish(payload, ct)
                 return
               }
             } catch (e) {
@@ -145,34 +159,42 @@ export function MultiQrScan({
       anim = requestAnimationFrame(tick)
     }
 
-    navigator.mediaDevices
-      ?.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
-      .then(async (s) => {
-        if (cancelled) {
-          s.getTracks().forEach((t) => t.stop())
+    ;(async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setCamMsg('Camera not available — use Paste payload')
+          setShowPaste(true)
           return
         }
-        stream = s
-        if (videoRef.current) {
-          videoRef.current.srcObject = s
-          await videoRef.current.play()
-          tick()
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        })
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop())
+          return
         }
-      })
-      .catch(() => {
-        // Camera optional when pasting for one-device test
-        setError(null)
+        const video = videoRef.current
+        if (!video) return
+        video.srcObject = stream
+        await video.play()
+        setCamMsg('Point at the animated QR')
+        tick()
+      } catch {
+        setCamMsg('Camera denied — use Paste payload')
         setShowPaste(true)
-      })
+      }
+    })()
 
     return () => {
       cancelled = true
       cancelAnimationFrame(anim)
       stream?.getTracks().forEach((t) => t.stop())
     }
-  }, [onComplete, expectedCt])
+  }, [expectedCt, finish])
 
   function applyPaste() {
+    setError(null)
     try {
       const payload = parsePastedTransport(paste)
       let ct: MultiQrContentType = expectedCt ?? 'unsigned-tx'
@@ -184,7 +206,7 @@ export function MultiQrScan({
         else if (t === 'falcon-signed-tx') ct = 'signed-tx'
       } catch { /* keep */ }
       if (expectedCt && ct !== expectedCt) throw new Error(`Expected ${expectedCt}, got ${ct}`)
-      onComplete(payload, ct)
+      finish(payload, ct)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Paste failed')
     }
@@ -192,58 +214,82 @@ export function MultiQrScan({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
-      <div className="flex justify-between items-center px-4 py-3 border-b border-slate-800">
-        <span className="text-sm font-semibold">{title}</span>
-        <button type="button" onClick={onCancel} className="text-slate-400">
+      <div className="flex justify-between items-center px-4 py-3 border-b border-slate-800 shrink-0">
+        <span className="text-sm font-semibold text-white">{title}</span>
+        <button type="button" onClick={onCancel} className="text-slate-400 px-2 text-lg" aria-label="Close">
           ✕
         </button>
       </div>
-      <div className="flex-1 flex flex-col items-center justify-center p-4 gap-3 overflow-y-auto">
-        {error && !error.includes('CRC') && !showPaste ? (
-          <p className="text-amber-400 text-sm">{error}</p>
-        ) : null}
-        <video
-          ref={videoRef}
-          className="w-full max-w-sm aspect-square object-cover rounded-2xl bg-black"
-          playsInline
-          muted
-        />
-        <canvas ref={canvasRef} className="hidden" />
-        <div className="w-full max-w-sm h-1.5 bg-slate-800 rounded-full overflow-hidden">
-          <div className="h-full bg-emerald-500" style={{ width: `${progress * 100}%` }} />
-        </div>
-        {error?.includes('CRC') && <p className="text-xs text-amber-400">CRC error — rescan</p>}
 
-        <div className="w-full max-w-sm space-y-2">
+      <div className="flex-1 flex flex-col items-center p-4 gap-3 overflow-y-auto">
+        <div className="relative w-full max-w-sm aspect-square rounded-2xl overflow-hidden border border-slate-700 bg-black">
+          <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+          <div className="absolute inset-8 border-2 border-cyan-500/50 rounded-xl pointer-events-none" />
+          <p className="absolute bottom-2 inset-x-0 text-center text-[11px] text-white/80 bg-black/40 py-1">
+            {camMsg}
+          </p>
+        </div>
+        <canvas ref={canvasRef} className="hidden" />
+
+        {progress > 0 && (
+          <div className="w-full max-w-sm">
+            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+              <div className="h-full bg-emerald-500" style={{ width: `${progress * 100}%` }} />
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <p className="text-xs text-amber-400 text-center max-w-sm">{error}</p>
+        )}
+
+        {/* Always visible primary control under camera */}
+        {!showPaste ? (
           <button
             type="button"
-            className="w-full text-xs text-cyan-400 py-1"
-            onClick={() => setShowPaste((v) => !v)}
+            onClick={() => setShowPaste(true)}
+            className="w-full max-w-sm py-3.5 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-sm"
           >
-            {showPaste ? 'Hide paste' : 'Paste payload (one-device test)'}
+            Paste payload
           </button>
-          {showPaste && (
-            <>
-              <textarea
-                value={paste}
-                onChange={(e) => setPaste(e.target.value)}
-                rows={5}
-                placeholder="Paste full JSON from Copy payload on hot/cold"
-                className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-[11px] font-mono text-slate-200"
-              />
-              {error && (
-                <p className="text-xs text-amber-400">{error}</p>
-              )}
+        ) : (
+          <div className="w-full max-w-sm space-y-2 rounded-2xl border border-cyan-600/40 bg-cyan-950/20 p-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-semibold text-cyan-200">Paste payload</span>
               <button
                 type="button"
-                onClick={applyPaste}
-                className="w-full py-2.5 rounded-xl text-sm font-semibold bg-cyan-700 hover:bg-cyan-600 text-white"
+                className="text-xs text-slate-400"
+                onClick={() => setShowPaste(false)}
               >
-                Use pasted payload
+                Hide
               </button>
-            </>
-          )}
-        </div>
+            </div>
+            <textarea
+              value={paste}
+              onChange={(e) => setPaste(e.target.value)}
+              rows={6}
+              autoFocus
+              placeholder="Paste full JSON copied from hot (Copy full payload)"
+              className="w-full rounded-xl bg-slate-950 border border-slate-600 px-3 py-2 text-[11px] font-mono text-slate-100"
+            />
+            <button
+              type="button"
+              onClick={applyPaste}
+              disabled={!paste.trim()}
+              className="w-full py-3 rounded-xl text-sm font-semibold bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white"
+            >
+              Use pasted payload
+            </button>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-xs text-slate-500 py-2"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   )
