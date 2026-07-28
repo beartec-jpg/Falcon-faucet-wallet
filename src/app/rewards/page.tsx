@@ -47,6 +47,19 @@ interface BondInfo {
   epoch?: { number?: number; pool_balance_qxrp?: number | null } | null
 }
 
+interface AmmPoolRow {
+  symbol: string
+  currency: string
+  issuer: string
+  canClaim: boolean
+  estFalcon: number | null
+  lpBalance: number | null
+  sharePct: number | null
+  poolFalconTvl: number | null
+  lastClaimedEpoch: number | null
+  reason?: string
+}
+
 interface LpOverview {
   address: string
   epoch: {
@@ -56,6 +69,7 @@ interface LpOverview {
     lpAllocBps: number
     ammAllocBps: number
     validatorAllocBps: number
+    aggregateAmmTvlFalcon?: number
   }
   vaultLp: {
     canClaim: boolean
@@ -65,6 +79,7 @@ interface LpOverview {
     vaultId: string | null
     reason?: string
   }
+  /** @deprecated prefer ammPools */
   ammLp: {
     canClaim: boolean
     estFalcon: number | null
@@ -72,8 +87,11 @@ interface LpOverview {
     sharePct: number | null
     currency: string | null
     issuer: string | null
+    symbol?: string | null
     reason?: string
   }
+  ammPools?: AmmPoolRow[]
+  ammTotalEstFalcon?: number
 }
 
 interface TokenRow {
@@ -302,58 +320,153 @@ export default function RewardsPage() {
     }
   }
 
-  const handleClaimAmmLp = async () => {
+  const claimAmmPool = async (pool: {
+    symbol: string
+    currency: string
+    issuer: string
+  }): Promise<{ ok: boolean; msg: string; hash?: string }> => {
+    if (!payoutWallet || !network.live) {
+      throw new Error('Passkey wallet required')
+    }
+    const preflightR = await fetch(
+      withNetworkQuery('/api/rewards/amm-claim-preflight', networkKey),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: payoutWallet.address,
+          symbol: pool.symbol,
+          currency: pool.currency,
+          issuer: pool.issuer,
+        }),
+      },
+    )
+    const preflight = (await preflightR.json()) as {
+      error?: string
+      canClaim?: boolean
+      softPass?: boolean
+      alreadyClaimed?: boolean
+      currency?: string
+      issuer?: string
+      symbol?: string
+    }
+    if (!preflightR.ok) {
+      throw new Error(preflight.error ?? `AMM LP claim preflight failed (${pool.symbol})`)
+    }
+    if (preflight.alreadyClaimed) {
+      return { ok: true, msg: `${pool.symbol}: already claimed this epoch` }
+    }
+    const currency = preflight.currency ?? pool.currency
+    const issuer = preflight.issuer ?? pool.issuer
+    if (!currency || !issuer) throw new Error(`AMM pair not configured for ${pool.symbol}`)
+
+    // Soft-pass allows attempt when fleet may not simulate ClaimAmmLpReward yet.
+    if (!preflight.canClaim && !preflight.softPass) {
+      throw new Error(preflight.error ?? `No AMM LP rewards for ${pool.symbol}`)
+    }
+
+    const data = await withPayoutSecret(async (secret) => {
+      return submitSequenced(payoutWallet.address, ({ sequence, lastLedgerSequence }) =>
+        signClaimAmmLpRewardTx(
+          {
+            account: payoutWallet.address,
+            currency,
+            issuer,
+            sequence,
+            lastLedgerSequence,
+            networkId: network.networkId,
+          },
+          secret,
+        ),
+      )
+    })
+    return {
+      ok: !!data.success,
+      msg: `${pool.symbol}: ${[data.result, data.message].filter(Boolean).join(' — ') || 'submitted'}`,
+      hash: data.hash,
+    }
+  }
+
+  const handleClaimAmmLp = async (pool?: AmmPoolRow) => {
     if (!payoutWallet || !network.live) return
     setBusy(true)
     setError(null)
     setTxResult(null)
     try {
-      const preflightR = await fetch(
-        withNetworkQuery('/api/rewards/amm-claim-preflight', networkKey),
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address: payoutWallet.address }),
-        },
-      )
-      const preflight = (await preflightR.json()) as {
-        error?: string
-        canClaim?: boolean
-        softPass?: boolean
-        currency?: string
-        issuer?: string
-        simulateResult?: string
+      const target = pool ??
+        lpOverview?.ammPools?.find((p) => p.canClaim) ??
+        (lpOverview?.ammLp.currency && lpOverview.ammLp.issuer
+          ? {
+              symbol: lpOverview.ammLp.symbol ?? 'F-USDC',
+              currency: lpOverview.ammLp.currency,
+              issuer: lpOverview.ammLp.issuer,
+              canClaim: lpOverview.ammLp.canClaim,
+              estFalcon: lpOverview.ammLp.estFalcon,
+              lpBalance: lpOverview.ammLp.lpBalance,
+              sharePct: lpOverview.ammLp.sharePct,
+              poolFalconTvl: null,
+              lastClaimedEpoch: null,
+            }
+          : null)
+      if (!target?.currency || !target?.issuer) {
+        throw new Error('Select a pool with AMM LP position')
       }
-      if (!preflightR.ok) {
-        throw new Error(preflight.error ?? 'AMM LP claim preflight failed')
-      }
-      const currency = preflight.currency ?? lpOverview?.ammLp.currency
-      const issuer = preflight.issuer ?? lpOverview?.ammLp.issuer
-      if (!currency || !issuer) throw new Error('AMM asset pair not configured')
-
-      // Allow attempt after soft-pass so users can claim once fleet has the new tx type.
-      if (!preflight.canClaim && !preflight.softPass) {
-        throw new Error(preflight.error ?? 'No AMM LP rewards to claim')
-      }
-
-      await withPayoutSecret(async (secret) => {
-        return submitSequenced(payoutWallet.address, ({ sequence, lastLedgerSequence }) =>
-          signClaimAmmLpRewardTx(
-            {
-              account: payoutWallet.address,
-              currency,
-              issuer,
-              sequence,
-              lastLedgerSequence,
-              networkId: network.networkId,
-            },
-            secret,
-          ),
-        )
-      })
+      const result = await claimAmmPool(target)
+      setTxResult(result)
       setTimeout(() => refreshLpOverview(payoutWallet.address), 4000)
     } catch (e: unknown) {
       const raw = e instanceof Error ? e.message : 'AMM LP claim failed'
+      if (raw.includes('ClaimAmmLpReward') || raw.includes('Unable to interpret')) {
+        setError(
+          'ClaimAmmLpReward not accepted by this network yet — needs lending-v5 (or newer) fleet image.',
+        )
+      } else {
+        setError(raw)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Claim every claimable FALCON-paired AMM pool (one tx per pair). */
+  const handleClaimAllAmmLp = async () => {
+    if (!payoutWallet || !network.live) return
+    const claimable = (lpOverview?.ammPools ?? []).filter(
+      (p) => p.canClaim || (p.lpBalance ?? 0) > 0,
+    )
+    if (claimable.length === 0) {
+      setError('No AMM LP positions to claim')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setTxResult(null)
+    const msgs: string[] = []
+    let anyOk = false
+    let lastHash: string | undefined
+    try {
+      for (const pool of claimable) {
+        try {
+          const r = await claimAmmPool(pool)
+          msgs.push(r.msg)
+          if (r.ok) {
+            anyOk = true
+            if (r.hash) lastHash = r.hash
+          }
+        } catch (e: unknown) {
+          msgs.push(
+            `${pool.symbol}: ${e instanceof Error ? e.message : 'failed'}`,
+          )
+        }
+      }
+      setTxResult({
+        ok: anyOk,
+        msg: msgs.join(' · '),
+        hash: lastHash,
+      })
+      setTimeout(() => refreshLpOverview(payoutWallet.address), 4000)
+    } catch (e: unknown) {
+      const raw = e instanceof Error ? e.message : 'AMM claim-all failed'
       if (raw.includes('ClaimAmmLpReward') || raw.includes('Unable to interpret')) {
         setError(
           'ClaimAmmLpReward not accepted by this network yet — needs lending-v5 (or newer) fleet image.',
@@ -656,12 +769,13 @@ export default function RewardsPage() {
               )}
             </div>
 
-            {/* ── AMM LP ────────────────────────────────────────────── */}
+            {/* ── AMM LP (all FALCON-paired pools) ───────────────────── */}
             <div className="card p-5 space-y-3">
               <h2 className="text-sm font-semibold text-white">3 · AMM / DEX LP</h2>
               <p className="text-xs text-slate-500">
-                <code className="text-slate-400">ClaimAmmLpReward</code> — pro-rata by LP tokens on
-                native FALCON pools, weighted by pool TVL. Add liquidity on{' '}
+                <code className="text-slate-400">ClaimAmmLpReward</code> — one claim per pool per
+                epoch. Native FALCON pairs share a single AMM basket, weighted by FALCON TVL.
+                Pools:{' '}
                 <Link href="/pool" className="text-brand-400 hover:underline">/pool</Link>.
               </p>
               {!payoutWallet ? (
@@ -670,35 +784,119 @@ export default function RewardsPage() {
                 <>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="bg-slate-800/60 rounded-lg p-3">
-                      <div className="text-slate-500">LP balance</div>
-                      <div className="text-white font-semibold">
-                        {fmt(lpOverview?.ammLp.lpBalance, 4)}
-                        {lpOverview?.ammLp.sharePct != null
-                          ? ` · ${fmt(lpOverview.ammLp.sharePct, 2)}%`
-                          : ''}
+                      <div className="text-slate-500">Total est. (all pools)</div>
+                      <div className="text-emerald-400 font-semibold">
+                        {fmt(
+                          lpOverview?.ammTotalEstFalcon ?? lpOverview?.ammLp.estFalcon,
+                          4,
+                        )}{' '}
+                        FALCON
                       </div>
                     </div>
                     <div className="bg-slate-800/60 rounded-lg p-3">
-                      <div className="text-slate-500">Est. this epoch</div>
-                      <div className="text-emerald-400 font-semibold">
-                        {fmt(lpOverview?.ammLp.estFalcon, 4)} FALCON
+                      <div className="text-slate-500">Aggregate AMM TVL</div>
+                      <div className="text-white font-semibold">
+                        {fmt(lpOverview?.epoch.aggregateAmmTvlFalcon, 0)} FALCON
                       </div>
                     </div>
                   </div>
-                  {lpOverview?.ammLp.reason && !lpOverview.ammLp.canClaim && (
-                    <p className="text-xs text-amber-500/90">{lpOverview.ammLp.reason}</p>
+
+                  {(lpOverview?.ammPools?.length ?? 0) > 0 ? (
+                    <div className="space-y-2">
+                      {lpOverview!.ammPools!.map((pool) => {
+                        const hasLp = (pool.lpBalance ?? 0) > 0
+                        return (
+                          <div
+                            key={`${pool.currency}:${pool.issuer}`}
+                            className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-2"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-sm font-semibold text-white">
+                                FALCON / {pool.symbol}
+                              </div>
+                              {pool.canClaim && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
+                                  claimable
+                                </span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-[11px]">
+                              <div>
+                                <div className="text-slate-500">Your LP</div>
+                                <div className="text-slate-200 font-mono">
+                                  {fmt(pool.lpBalance, 4)}
+                                  {pool.sharePct != null ? ` · ${fmt(pool.sharePct, 2)}%` : ''}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-slate-500">Pool TVL</div>
+                                <div className="text-slate-200 font-mono">
+                                  {fmt(pool.poolFalconTvl, 0)} FALCON
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-slate-500">Est. epoch</div>
+                                <div className="text-emerald-400 font-mono">
+                                  {fmt(pool.estFalcon, 4)}
+                                </div>
+                              </div>
+                            </div>
+                            {pool.reason && !pool.canClaim && (
+                              <p className="text-[11px] text-amber-500/90">{pool.reason}</p>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleClaimAmmLp(pool)}
+                              disabled={
+                                busy ||
+                                !isPasskeySupported() ||
+                                !(pool.canClaim || hasLp)
+                              }
+                              className="btn-primary w-full text-sm py-2"
+                            >
+                              {busy ? <Spinner /> : `Claim ${pool.symbol} pool`}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <>
+                      {lpOverview?.ammLp.reason && !lpOverview.ammLp.canClaim && (
+                        <p className="text-xs text-amber-500/90">{lpOverview.ammLp.reason}</p>
+                      )}
+                      <button
+                        onClick={() => handleClaimAmmLp()}
+                        disabled={
+                          busy ||
+                          !isPasskeySupported() ||
+                          !(lpOverview?.ammLp.canClaim || (lpOverview?.ammLp.lpBalance ?? 0) > 0)
+                        }
+                        className="btn-primary w-full"
+                      >
+                        {busy ? <Spinner /> : 'Claim AMM LP rewards'}
+                      </button>
+                    </>
                   )}
-                  <button
-                    onClick={handleClaimAmmLp}
-                    disabled={
-                      busy ||
-                      !isPasskeySupported() ||
-                      !(lpOverview?.ammLp.canClaim || (lpOverview?.ammLp.lpBalance ?? 0) > 0)
-                    }
-                    className="btn-primary w-full"
-                  >
-                    {busy ? <Spinner /> : 'Claim AMM LP rewards'}
-                  </button>
+
+                  {(lpOverview?.ammPools?.length ?? 0) > 1 && (
+                    <button
+                      type="button"
+                      onClick={handleClaimAllAmmLp}
+                      disabled={
+                        busy ||
+                        !isPasskeySupported() ||
+                        !(
+                          lpOverview?.ammPools?.some(
+                            (p) => p.canClaim || (p.lpBalance ?? 0) > 0,
+                          ) ?? false
+                        )
+                      }
+                      className="w-full py-2.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-sm font-semibold hover:bg-cyan-500/15 disabled:opacity-40"
+                    >
+                      {busy ? <Spinner /> : 'Claim all AMM pools'}
+                    </button>
+                  )}
                 </>
               )}
             </div>

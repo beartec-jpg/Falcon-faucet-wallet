@@ -3,8 +3,7 @@ import { isOriginAllowed } from '@/lib/origin'
 import { loadLendingManifestServer } from '@/lib/lending-config'
 import { isActiveVaultLp, mptScaled } from '@/lib/lend-pool-stats'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
+import { loadPoolPairTokens, type StableTokenRef } from '@/lib/swap/token-config'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const BPS = 10_000
@@ -20,19 +19,110 @@ function parseDrops(em: unknown): number {
   return 0
 }
 
-async function tokenRef() {
-  try {
-    const raw = await readFile(
-      path.join(process.cwd(), 'public', 'config', 'testnet-stables.json'),
-      'utf8',
-    )
-    const m = JSON.parse(raw) as { tokens?: Array<{ currency: string; issuer: string; symbol?: string }> }
-    const t = m.tokens?.[0]
-    if (t?.issuer) return t
-  } catch {
-    /* ignore */
+export interface AmmPoolClaimRow {
+  symbol: string
+  currency: string
+  issuer: string
+  canClaim: boolean
+  estFalcon: number | null
+  lpBalance: number | null
+  sharePct: number | null
+  poolFalconTvl: number | null
+  lastClaimedEpoch: number | null
+  reason?: string
+}
+
+async function buildAmmPoolRow(
+  networkKey: ReturnType<typeof resolveNetworkKey>,
+  address: string,
+  token: StableTokenRef,
+  epoch: {
+    number: number | null
+    emissionDrops: number
+    ammAllocBps: number
+    aggregateAmmTvlDrops: number
+  },
+  lines: Array<{ currency: string; account: string; balance: string }>,
+): Promise<AmmPoolClaimRow> {
+  const base: AmmPoolClaimRow = {
+    symbol: token.displaySymbol,
+    currency: token.currency,
+    issuer: token.issuer,
+    canClaim: false,
+    estFalcon: null,
+    lpBalance: null,
+    sharePct: null,
+    poolFalconTvl: null,
+    lastClaimedEpoch: null,
   }
-  return { currency: 'QUC', issuer: '', symbol: 'F-USDC' }
+
+  if (!token.issuer) {
+    return { ...base, reason: 'Issuer not configured' }
+  }
+
+  try {
+    const ammR = await serverRpcCall<{ amm?: Record<string, unknown> }>(
+      networkKey,
+      'amm_info',
+      {
+        asset: { currency: 'XRP' },
+        asset2: { currency: token.currency, issuer: token.issuer },
+        ledger_index: 'validated',
+      },
+      { allowError: true },
+    )
+    const amm = ammR.amm
+    if (!amm) {
+      return { ...base, reason: `No FALCON/${token.displaySymbol} AMM pool` }
+    }
+
+    const ammAccount = String(amm.account ?? '')
+    const lpMeta = amm.lp_token as { currency?: string; issuer?: string; value?: string } | undefined
+    const poolLpTotal = parseFloat(lpMeta?.value ?? '0')
+    const poolXrpDrops =
+      typeof amm.amount === 'string' ? parseInt(amm.amount, 10) || 0 : 0
+
+    let lpBalance = 0
+    if (lpMeta?.currency && ammAccount) {
+      const line = lines.find(
+        (l) => l.account === ammAccount && l.currency === lpMeta.currency,
+      )
+      if (line) lpBalance = Math.abs(parseFloat(line.balance))
+    }
+
+    base.lpBalance = lpBalance
+    base.sharePct = poolLpTotal > 0 ? (lpBalance / poolLpTotal) * 100 : 0
+    base.poolFalconTvl = poolXrpDrops / DROPS
+
+    if (lpBalance <= 0) {
+      return { ...base, reason: 'No AMM LP tokens' }
+    }
+
+    if (
+      epoch.number != null &&
+      epoch.aggregateAmmTvlDrops > 0 &&
+      epoch.emissionDrops > 0 &&
+      epoch.ammAllocBps > 0 &&
+      poolLpTotal > 0 &&
+      poolXrpDrops > 0
+    ) {
+      const ammBasket = Math.floor((epoch.emissionDrops * epoch.ammAllocBps) / BPS)
+      const poolBasket = Math.floor((ammBasket * poolXrpDrops) / epoch.aggregateAmmTvlDrops)
+      const shareDrops = Math.floor((poolBasket * lpBalance) / poolLpTotal)
+      base.estFalcon = shareDrops / DROPS
+      base.canClaim = shareDrops > 0
+      base.reason = shareDrops === 0 ? 'Estimated reward rounds to zero' : undefined
+    } else {
+      base.reason =
+        epoch.number != null && epoch.number < 8
+          ? `Emissions start at epoch 8 (now ${epoch.number})`
+          : 'No AMM LP allocation this epoch'
+    }
+
+    return base
+  } catch {
+    return { ...base, reason: 'Could not load AMM state' }
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -188,98 +278,70 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── AMM LP (FALCON / F-USDC) ────────────────────────────────────────────
-  const token = await tokenRef()
-  let ammLp: {
-    canClaim: boolean
-    estFalcon: number | null
-    lpBalance: number | null
-    sharePct: number | null
-    lastClaimedEpoch: number | null
-    currency: string | null
-    issuer: string | null
-    reason?: string
-  } = {
-    canClaim: false,
-    estFalcon: null,
-    lpBalance: null,
-    sharePct: null,
-    lastClaimedEpoch: null,
-    currency: token.issuer ? token.currency : null,
-    issuer: token.issuer || null,
-    reason: token.issuer ? undefined : 'Stablecoin issuer not configured',
-  }
+  // ── AMM LP — all native FALCON-paired pools ─────────────────────────────
+  const pairTokens = await loadPoolPairTokens()
+  const linesR = await serverRpcCall<{
+    lines?: Array<{ currency: string; account: string; balance: string }>
+  }>(
+    networkKey,
+    'account_lines',
+    { account: address, ledger_index: 'validated' },
+    { allowError: true },
+  ).catch(() => ({ lines: [] as Array<{ currency: string; account: string; balance: string }> }))
+  const lines = linesR.lines ?? []
 
-  if (token.issuer) {
-    try {
-      const ammR = await serverRpcCall<{ amm?: Record<string, unknown> }>(
+  const ammPools: AmmPoolClaimRow[] = []
+  for (const token of pairTokens) {
+    ammPools.push(
+      await buildAmmPoolRow(
         networkKey,
-        'amm_info',
+        address,
+        token,
         {
-          asset: { currency: 'XRP' },
-          asset2: { currency: token.currency, issuer: token.issuer },
-          ledger_index: 'validated',
+          number: epoch.number,
+          emissionDrops: epoch.emissionDrops,
+          ammAllocBps: epoch.ammAllocBps,
+          aggregateAmmTvlDrops: epoch.aggregateAmmTvlDrops,
         },
-        { allowError: true },
-      )
-      const amm = ammR.amm
-      if (!amm) {
-        ammLp.reason = 'No FALCON/F-USDC AMM pool'
-      } else {
-        const ammAccount = String(amm.account ?? '')
-        const lpMeta = amm.lp_token as { currency?: string; issuer?: string; value?: string } | undefined
-        const poolLpTotal = parseFloat(lpMeta?.value ?? '0')
-        const poolXrpDrops =
-          typeof amm.amount === 'string' ? parseInt(amm.amount, 10) || 0 : 0
-
-        let lpBalance = 0
-        if (lpMeta?.currency && ammAccount) {
-          const linesR = await serverRpcCall<{
-            lines?: Array<{ currency: string; account: string; balance: string }>
-          }>(
-            networkKey,
-            'account_lines',
-            { account: address, ledger_index: 'validated' },
-            { allowError: true },
-          )
-          const line = (linesR.lines ?? []).find(
-            (l) => l.account === ammAccount && l.currency === lpMeta.currency,
-          )
-          if (line) lpBalance = Math.abs(parseFloat(line.balance))
-        }
-
-        ammLp.lpBalance = lpBalance
-        ammLp.sharePct = poolLpTotal > 0 ? (lpBalance / poolLpTotal) * 100 : 0
-
-        if (lpBalance <= 0) {
-          ammLp.reason = 'No AMM LP tokens'
-        } else if (
-          epoch.number != null &&
-          epoch.aggregateAmmTvlDrops > 0 &&
-          epoch.emissionDrops > 0 &&
-          epoch.ammAllocBps > 0 &&
-          poolLpTotal > 0
-        ) {
-          const ammBasket = Math.floor((epoch.emissionDrops * epoch.ammAllocBps) / BPS)
-          const poolBasket = Math.floor(
-            (ammBasket * poolXrpDrops) / epoch.aggregateAmmTvlDrops,
-          )
-          // Mantissa-scale: use float share of LP supply
-          const shareDrops = Math.floor((poolBasket * lpBalance) / poolLpTotal)
-          ammLp.estFalcon = shareDrops / DROPS
-          ammLp.canClaim = shareDrops > 0
-          ammLp.reason = shareDrops === 0 ? 'Estimated reward rounds to zero' : undefined
-        } else {
-          ammLp.reason =
-            epoch.number != null && epoch.number < 8
-              ? `Emissions start at epoch 8 (now ${epoch.number})`
-              : 'No AMM LP allocation this epoch'
-        }
-      }
-    } catch {
-      ammLp.reason = 'Could not load AMM state'
-    }
+        lines,
+      ),
+    )
   }
+
+  const totalAmmEst = ammPools.reduce((s, p) => s + (p.estFalcon ?? 0), 0)
+  const anyAmmClaimable = ammPools.some((p) => p.canClaim)
+  // Backward-compat single row: prefer first claimable, else first pool, else empty.
+  const primary =
+    ammPools.find((p) => p.canClaim) ??
+    ammPools.find((p) => (p.lpBalance ?? 0) > 0) ??
+    ammPools[0] ??
+    null
+
+  const ammLp = primary
+    ? {
+        canClaim: anyAmmClaimable,
+        estFalcon: totalAmmEst > 0 ? totalAmmEst : primary.estFalcon,
+        lpBalance: primary.lpBalance,
+        sharePct: primary.sharePct,
+        lastClaimedEpoch: primary.lastClaimedEpoch,
+        currency: primary.currency,
+        issuer: primary.issuer,
+        symbol: primary.symbol,
+        reason: anyAmmClaimable
+          ? undefined
+          : primary.reason ?? (ammPools.length === 0 ? 'No pools configured' : undefined),
+      }
+    : {
+        canClaim: false,
+        estFalcon: null,
+        lpBalance: null,
+        sharePct: null,
+        lastClaimedEpoch: null,
+        currency: null,
+        issuer: null,
+        symbol: null,
+        reason: 'No AMM pairs configured',
+      }
 
   return NextResponse.json({
     address,
@@ -290,8 +352,12 @@ export async function GET(req: NextRequest) {
       lpAllocBps: epoch.lpAllocBps,
       ammAllocBps: epoch.ammAllocBps,
       validatorAllocBps: Math.max(0, BPS - epoch.lpAllocBps - epoch.ammAllocBps),
+      aggregateAmmTvlFalcon: epoch.aggregateAmmTvlDrops / DROPS,
     },
     vaultLp,
+    /** @deprecated use ammPools — summed / primary for older clients */
     ammLp,
+    ammPools,
+    ammTotalEstFalcon: totalAmmEst,
   })
 }
