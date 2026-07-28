@@ -188,6 +188,27 @@ async function explorerGet(path: string, network: BtcNetwork): Promise<Response>
 }
 
 async function explorerPostText(path: string, body: string, network: BtcNetwork): Promise<string> {
+  // Prefer same-origin proxy (CSP blocks many explorer hosts in production)
+  if (path === '/tx') {
+    try {
+      const r = await fetch('/api/wallet/btc-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'broadcast', rawHex: body, network }),
+        cache: 'no-store',
+      })
+      const j = (await r.json()) as { txid?: string; error?: string }
+      if (r.ok && j.txid) return j.txid
+      if (j.error) throw new Error(j.error)
+    } catch (e) {
+      if (e instanceof Error && !/Failed to fetch|NetworkError|Load failed/i.test(e.message)) {
+        // business error from proxy — rethrow
+        if (!/fetch|network|offline/i.test(e.message)) throw e
+      }
+      /* fall through to direct */
+    }
+  }
+
   let lastErr: unknown
   for (const base of EXPLORERS[network]) {
     try {
@@ -205,6 +226,12 @@ async function explorerPostText(path: string, body: string, network: BtcNetwork)
     } catch (e) {
       lastErr = e
     }
+  }
+  const msg = lastErr instanceof Error ? lastErr.message : 'Broadcast failed'
+  if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
+    throw new Error(
+      'Could not broadcast Bitcoin tx (network blocked). Hard-refresh and try again.',
+    )
   }
   throw lastErr instanceof Error ? lastErr : new Error('Broadcast failed')
 }
@@ -267,10 +294,32 @@ export async function fetchBtcUtxos(
   address: string,
   network: BtcNetwork = 'testnet',
 ): Promise<BtcUtxo[]> {
-  const r = await explorerGet(`/address/${encodeURIComponent(address)}/utxo`, network)
-  if (!r.ok) throw new Error('Could not fetch UTXOs')
-  const list = (await r.json()) as BtcUtxo[]
-  return (list || []).filter((u) => u.value > 0)
+  // Prefer same-origin proxy
+  try {
+    const q = new URLSearchParams({ op: 'utxo', address, network })
+    const r = await fetch(`/api/wallet/btc-proxy?${q}`, { cache: 'no-store' })
+    if (r.ok) {
+      const j = (await r.json()) as { utxos?: BtcUtxo[]; error?: string }
+      if (Array.isArray(j.utxos)) return j.utxos.filter((u) => u.value > 0)
+    }
+  } catch {
+    /* fall through */
+  }
+
+  try {
+    const r = await explorerGet(`/address/${encodeURIComponent(address)}/utxo`, network)
+    if (!r.ok) throw new Error('Could not fetch UTXOs')
+    const list = (await r.json()) as BtcUtxo[]
+    return (list || []).filter((u) => u.value > 0)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
+      throw new Error(
+        'Could not load Bitcoin UTXOs (network blocked). Hard-refresh and try again.',
+      )
+    }
+    throw e instanceof Error ? e : new Error(msg)
+  }
 }
 
 /** Default fee rate (sat/vB) — testnet can be low. */

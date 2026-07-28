@@ -139,9 +139,11 @@ export async function POST(req: NextRequest) {
     amount_sats,
   }
 
-  // Prefer coordinator claims intake so the mint relay sees it
+  // Prefer coordinator claims intake (8s timeout — never hang wallet)
   if (remote) {
     try {
+      const ac = new AbortController()
+      const timer = setTimeout(() => ac.abort(), 8_000)
       const r = await fetch(remote, {
         method: 'POST',
         headers: {
@@ -151,7 +153,9 @@ export async function POST(req: NextRequest) {
             : {}),
         },
         body: JSON.stringify(claimBody),
+        signal: ac.signal,
       })
+      clearTimeout(timer)
       if (r.ok) {
         const j = (await r.json().catch(() => ({}))) as { claim_id?: string }
         return NextResponse.json({
@@ -160,9 +164,8 @@ export async function POST(req: NextRequest) {
           message: 'Claim registered — FBTC mints after relay verifies the BTC tx',
         })
       }
-      // fall through to local queue if webhook fails (dev)
     } catch {
-      /* fall through */
+      /* fall through to local file queue */
     }
   }
 

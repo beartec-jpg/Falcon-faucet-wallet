@@ -968,7 +968,12 @@ export default function BridgeDepositPanel({
         onFalconRefresh?.()
       }, 8000)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Bridge deposit failed')
+      const msg = e instanceof Error ? e.message : 'Bridge deposit failed'
+      setError(
+        /Failed to fetch|NetworkError|Load failed/i.test(msg)
+          ? 'Network blocked mid-bridge. Hard-refresh and try again. If BTC already left your wallet, keep the txid for a manual claim.'
+          : msg,
+      )
     } finally {
       setBusy(false)
       setStep(null)
