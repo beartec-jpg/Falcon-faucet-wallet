@@ -80,7 +80,6 @@ export default function App() {
 
   // Import form
   const [fileText, setFileText] = useState<string | null>(null)
-  const [vaultPaste, setVaultPaste] = useState('')
   const [payloadPaste, setPayloadPaste] = useState('')
   const [vaultPass, setVaultPass] = useState('')
   const [coldPass, setColdPass] = useState('')
@@ -593,41 +592,22 @@ export default function App() {
               {error}
             </div>
           )}
-          <div className="rounded-2xl border border-cyan-600/40 bg-cyan-950/20 p-4 space-y-2">
-            <p className="text-sm font-semibold text-cyan-200">Paste vault JSON</p>
-            <p className="text-[11px] text-slate-400">
-              One-device test: open the downloaded vault file in a text editor, copy all, paste here.
-            </p>
-            <textarea
-              rows={6}
-              value={vaultPaste}
-              placeholder='{"type":"falcon-vault-export","version":1,...}'
-              className="w-full rounded-xl bg-slate-950 border border-slate-600 px-3 py-2 text-[11px] font-mono text-slate-100"
-              onChange={(e) => {
-                setVaultPaste(e.target.value)
-                const v = e.target.value.trim()
-                setFileText(v || null)
-              }}
-            />
-            {fileText && (
-              <p className="text-[11px] text-emerald-400">Loaded {fileText.length} characters</p>
-            )}
-          </div>
-          <label className="block text-xs text-slate-500">
-            Or pick vault file from disk
+          <label className="block text-xs text-slate-400">
+            Vault file
             <input
               type="file"
-              accept="application/json,.json,text/plain"
+              accept="application/json,.json"
               className="mt-1 block w-full text-sm text-slate-300"
               onChange={async (e) => {
                 const f = e.target.files?.[0]
                 if (!f) return
-                const t = await f.text()
-                setFileText(t)
-                setVaultPaste(t)
+                setFileText(await f.text())
               }}
             />
           </label>
+          {fileText && (
+            <p className="text-[11px] text-emerald-400">File loaded ({fileText.length} bytes)</p>
+          )}
           <label className="block text-xs text-slate-400">
             Vault file password (from hot create)
             <input
