@@ -49,6 +49,13 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
     href: '/Docs/FALCON-VAULT-COLD-SIGNER-IMPLEMENTATION-REPORT.pdf',
     filename: 'FALCON-VAULT-COLD-SIGNER-IMPLEMENTATION-REPORT.pdf',
   },
+  {
+    title: 'Multi-Chain Wallet & Bridge Report',
+    description:
+      'Multi-chain wallet and bridge implementation (July 2026): Falcon / Multi-chain / Bridge tabs, ETH–BNB–BTC native wallets under one passkey, lock-mint bridges for F-USDC, FETH, FBNB (FBTC path), backup model, and testnet ops.',
+    href: '/Docs/FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
+    filename: 'FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
+  },
 ]
 
 export const WHITEPAPER_SECTIONS: { id: string; title: string; body: string }[] = [
