@@ -306,7 +306,7 @@ export default function VaultPage() {
     setError(null)
     setBusy(true)
     try {
-      // Live on-chain snapshot travels with the challenge so cold can cache balance
+      // Live on-chain snapshot (FALCON + F-USDC) for cold last-known balances
       let accountSnap:
         | {
             balance: number
@@ -315,6 +315,12 @@ export default function VaultPage() {
             currentLedger: number
             fetchedAt: number
             networkKey: string
+            fusdc?: {
+              balance: number
+              currency?: string
+              issuer?: string
+              hasTrustLine?: boolean
+            }
           }
         | undefined
       try {
@@ -326,6 +332,7 @@ export default function VaultPage() {
         )
         const data = await res.json()
         if (res.ok) {
+          const fusdc = data.assets?.fusdc
           accountSnap = {
             balance: data.balance ?? 0,
             exists: !!data.exists,
@@ -333,6 +340,14 @@ export default function VaultPage() {
             currentLedger: data.currentLedger ?? 0,
             fetchedAt: Date.now(),
             networkKey: network.key,
+            fusdc: fusdc
+              ? {
+                  balance: fusdc.balance ?? 0,
+                  currency: fusdc.currency,
+                  issuer: fusdc.issuer,
+                  hasTrustLine: fusdc.hasTrustLine,
+                }
+              : undefined,
           }
         }
       } catch {

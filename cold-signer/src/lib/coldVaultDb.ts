@@ -13,6 +13,12 @@ export interface ColdAccountSnapshot {
   currentLedger: number
   fetchedAt: number
   networkKey?: string
+  fusdc?: {
+    balance: number
+    currency?: string
+    issuer?: string
+    hasTrustLine?: boolean
+  }
 }
 
 export interface ColdVaultRecord {

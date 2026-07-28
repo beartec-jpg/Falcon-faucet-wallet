@@ -24,6 +24,12 @@ export interface VaultAccountSnapshot {
   /** Unix ms when hot fetched this */
   fetchedAt: number
   networkKey?: string
+  fusdc?: {
+    balance: number
+    currency?: string
+    issuer?: string
+    hasTrustLine?: boolean
+  }
 }
 
 // ── Unlock challenge / response ───────────────────────────────────────────────

@@ -319,6 +319,14 @@ export default function App() {
           currentLedger: chal.account.currentLedger,
           fetchedAt: chal.account.fetchedAt,
           networkKey: chal.account.networkKey,
+          fusdc: chal.account.fusdc
+            ? {
+                balance: chal.account.fusdc.balance ?? 0,
+                currency: chal.account.fusdc.currency,
+                issuer: chal.account.fusdc.issuer,
+                hasTrustLine: chal.account.fusdc.hasTrustLine,
+              }
+            : undefined,
         })
         setMeta(await loadColdVaultMeta())
       }
@@ -427,20 +435,34 @@ export default function App() {
   )
 
   const balanceCard = meta?.lastAccount && (
-    <div className="rounded-xl bg-slate-950/80 border border-slate-800 px-4 py-3">
-      <p className="text-[11px] text-slate-500">Last known balance</p>
-      <p className="text-2xl font-bold text-white">
-        {meta.lastAccount.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}{' '}
-        <span className="text-sm font-medium text-slate-400">FALCON</span>
-      </p>
-      <p className="text-[10px] text-slate-600 mt-1">
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-xl bg-slate-950/80 border border-slate-800 px-3 py-3">
+          <p className="text-[11px] text-slate-500">FALCON</p>
+          <p className="text-lg font-bold text-white">
+            {meta.lastAccount.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+          </p>
+        </div>
+        <div className="rounded-xl bg-slate-950/80 border border-slate-800 px-3 py-3">
+          <p className="text-[11px] text-slate-500">F-USDC</p>
+          <p className="text-lg font-bold text-white">
+            {(meta.lastAccount.fusdc?.balance ?? 0).toLocaleString(undefined, {
+              maximumFractionDigits: 4,
+            })}
+          </p>
+          {meta.lastAccount.fusdc?.hasTrustLine === false && (
+            <p className="text-[10px] text-amber-400 mt-0.5">No trust line</p>
+          )}
+        </div>
+      </div>
+      <p className="text-[10px] text-slate-600">
         {meta.lastAccount.exists ? 'Funded' : 'Unfunded'} · seq {meta.lastAccount.sequence}
         {meta.lastAccount.fetchedAt
           ? ` · ${new Date(meta.lastAccount.fetchedAt).toLocaleString()}`
           : ''}
       </p>
       <p className="text-[10px] text-slate-600">
-        Refreshes when you complete Unlock vault with hot (includes live chain data).
+        Refreshes when you complete Unlock vault with hot (live chain data).
       </p>
     </div>
   )
@@ -677,11 +699,26 @@ export default function App() {
             </p>
           </div>
           {meta?.lastAccount && (
-            <div className="rounded-xl bg-slate-900/80 border border-slate-800 px-4 py-3 text-center">
-              <p className="text-[11px] text-slate-500">Last known (unlock device to view)</p>
-              <p className="text-lg font-semibold text-slate-300">
-                {meta.lastAccount.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} FALCON
-              </p>
+            <div className="rounded-xl bg-slate-900/80 border border-slate-800 px-4 py-3">
+              <p className="text-[11px] text-slate-500 text-center mb-2">Last known</p>
+              <div className="grid grid-cols-2 gap-2 text-center">
+                <div>
+                  <p className="text-[10px] text-slate-500">FALCON</p>
+                  <p className="text-sm font-semibold text-slate-200">
+                    {meta.lastAccount.balance.toLocaleString(undefined, {
+                      maximumFractionDigits: 4,
+                    })}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500">F-USDC</p>
+                  <p className="text-sm font-semibold text-slate-200">
+                    {(meta.lastAccount.fusdc?.balance ?? 0).toLocaleString(undefined, {
+                      maximumFractionDigits: 4,
+                    })}
+                  </p>
+                </div>
+              </div>
             </div>
           )}
           {error && (
