@@ -103,7 +103,7 @@ interface TxRecord {
   hash:         string
   type:         string
   amount?:      string
-  amountAsset?: 'FALCON' | 'F-USDC'
+  amountAsset?: string
   destination?: string
   destinationName?: string | null
   account:      string

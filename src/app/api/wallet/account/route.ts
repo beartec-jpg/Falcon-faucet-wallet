@@ -16,7 +16,8 @@ export interface TxRecord {
   hash:        string
   type:        string
   amount?:     string
-  amountAsset?: 'FALCON' | 'F-USDC'
+  /** FALCON | F-USDC | FETH | FBNB | … from parseTxAmount */
+  amountAsset?: string
   destination?: string
   /** Human name for destination when known (AccountNames). */
   destinationName?: string | null
@@ -73,7 +74,14 @@ export async function GET(req: NextRequest) {
     const rawTxs: TxRecord[] = ((txR?.transactions ?? []) as any[])
       .map(t => {
         const tx = t.tx ?? t.tx_json ?? {}
-        const parsed = parseTxAmount(tx.Amount)
+        // Prefer delivered amount when present (partial payments / bridge mints)
+        const meta = t.meta ?? t.metaData ?? {}
+        const amountField =
+          meta.delivered_amount ??
+          meta.DeliveredAmount ??
+          tx.DeliverMax ??
+          tx.Amount
+        const parsed = parseTxAmount(amountField)
         return {
           hash:        (t.hash ?? tx.hash) as string,
           type:        (tx.TransactionType ?? 'Unknown') as string,
@@ -81,7 +89,7 @@ export async function GET(req: NextRequest) {
           amountAsset: parsed?.asset,
           destination: tx.Destination as string | undefined,
           account:     (tx.Account ?? '') as string,
-          result:      (t.meta?.TransactionResult ?? '') as string,
+          result:      (meta.TransactionResult ?? t.meta?.TransactionResult ?? '') as string,
           date:        tx.date as number | undefined,
         }
       })
