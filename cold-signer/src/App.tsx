@@ -42,6 +42,7 @@ import {
   encodeSignedTx,
   parseUnlockChallenge,
   parseUnsignedPayment,
+  parsePastedTransport,
 } from '@/lib/vault-protocol'
 import { encodeMultiQr, type EncodedMultiQr, b64uEncode } from '@/lib/multi-qr'
 import { signTxJson } from '@/lib/falcon-tx-sign'
@@ -55,8 +56,10 @@ type Step =
   | 'locked'
   | 'actions' // unlocked: action list
   | 'unlock-scan-chal'
+  | 'unlock-camera'
   | 'unlock-show-resp'
   | 'sign-scan'
+  | 'sign-camera'
   | 'sign-preview'
   | 'sign-show'
 
@@ -77,6 +80,8 @@ export default function App() {
 
   // Import form
   const [fileText, setFileText] = useState<string | null>(null)
+  const [vaultPaste, setVaultPaste] = useState('')
+  const [payloadPaste, setPayloadPaste] = useState('')
   const [vaultPass, setVaultPass] = useState('')
   const [coldPass, setColdPass] = useState('')
   const [coldPass2, setColdPass2] = useState('')
@@ -187,7 +192,15 @@ export default function App() {
       setPreview(null)
       setSignedEnc(null)
       setRespEnc(null)
-      if (step === 'sign-preview' || step === 'sign-show' || step === 'sign-scan' || step === 'unlock-scan-chal' || step === 'unlock-show-resp') {
+      if (
+        step === 'sign-preview' ||
+        step === 'sign-show' ||
+        step === 'sign-scan' ||
+        step === 'sign-camera' ||
+        step === 'unlock-scan-chal' ||
+        step === 'unlock-camera' ||
+        step === 'unlock-show-resp'
+      ) {
         setStep(session ? 'actions' : 'locked')
       }
     }
@@ -580,34 +593,41 @@ export default function App() {
               {error}
             </div>
           )}
-          <label className="block text-xs text-slate-400">
-            Vault file
+          <div className="rounded-2xl border border-cyan-600/40 bg-cyan-950/20 p-4 space-y-2">
+            <p className="text-sm font-semibold text-cyan-200">Paste vault JSON</p>
+            <p className="text-[11px] text-slate-400">
+              One-device test: open the downloaded vault file in a text editor, copy all, paste here.
+            </p>
+            <textarea
+              rows={6}
+              value={vaultPaste}
+              placeholder='{"type":"falcon-vault-export","version":1,...}'
+              className="w-full rounded-xl bg-slate-950 border border-slate-600 px-3 py-2 text-[11px] font-mono text-slate-100"
+              onChange={(e) => {
+                setVaultPaste(e.target.value)
+                const v = e.target.value.trim()
+                setFileText(v || null)
+              }}
+            />
+            {fileText && (
+              <p className="text-[11px] text-emerald-400">Loaded {fileText.length} characters</p>
+            )}
+          </div>
+          <label className="block text-xs text-slate-500">
+            Or pick vault file from disk
             <input
               type="file"
-              accept="application/json,.json"
+              accept="application/json,.json,text/plain"
               className="mt-1 block w-full text-sm text-slate-300"
               onChange={async (e) => {
                 const f = e.target.files?.[0]
                 if (!f) return
-                setFileText(await f.text())
+                const t = await f.text()
+                setFileText(t)
+                setVaultPaste(t)
               }}
             />
           </label>
-          <label className="block text-xs text-slate-400">
-            Or paste vault JSON (one-device test)
-            <textarea
-              rows={4}
-              placeholder='{"type":"falcon-vault-export",...}'
-              className="mt-1 w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-[11px] font-mono text-slate-200"
-              onChange={(e) => {
-                const v = e.target.value.trim()
-                if (v) setFileText(v)
-              }}
-            />
-          </label>
-          {fileText && (
-            <p className="text-[11px] text-emerald-400">Vault data loaded ({fileText.length} chars)</p>
-          )}
           <label className="block text-xs text-slate-400">
             Vault file password (from hot create)
             <input
@@ -800,12 +820,76 @@ export default function App() {
     )
   }
 
+  // Unlock challenge — paste first (one-device), camera optional
   if (step === 'unlock-scan-chal') {
+    return (
+      <div className="min-h-screen flex flex-col bg-slate-950">
+        {header}
+        <main className="flex-1 max-w-md mx-auto w-full px-4 py-6 space-y-4">
+          <button
+            type="button"
+            className="text-xs text-slate-400"
+            onClick={() => {
+              setPayloadPaste('')
+              setStep('actions')
+            }}
+          >
+            ← Back
+          </button>
+          <h2 className="text-lg font-bold text-white">Unlock vault</h2>
+          <p className="text-xs text-slate-400">
+            On hot: Vault → Unlock → <strong className="text-slate-200">Copy full payload</strong>.
+            Paste it below (easiest for one-device testing).
+          </p>
+          {error && (
+            <div className="text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-xl p-3">
+              {error}
+            </div>
+          )}
+          <label className="block text-sm font-semibold text-cyan-200">
+            Paste challenge from hot
+            <textarea
+              rows={8}
+              value={payloadPaste}
+              onChange={(e) => setPayloadPaste(e.target.value)}
+              placeholder='{"type":"vault-unlock-chal","v":1,...}'
+              className="mt-2 w-full rounded-xl bg-slate-900 border-2 border-cyan-600/50 px-3 py-3 text-[11px] font-mono text-slate-100"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={busy || !payloadPaste.trim()}
+            onClick={() => {
+              setError('')
+              try {
+                const payload = parsePastedTransport(payloadPaste)
+                void onUnlockChallenge(payload)
+              } catch (e) {
+                setError(e instanceof Error ? e.message : 'Paste failed')
+              }
+            }}
+            className="w-full py-3.5 rounded-2xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white font-semibold"
+          >
+            Use pasted challenge
+          </button>
+          <button
+            type="button"
+            onClick={() => setStep('unlock-camera')}
+            className="w-full py-3 rounded-2xl bg-slate-800 text-slate-200 text-sm"
+          >
+            Scan QR instead
+          </button>
+        </main>
+      </div>
+    )
+  }
+
+  if (step === 'unlock-camera') {
     return (
       <MultiQrScan
         title="Scan unlock challenge from hot"
         expectedCt="vault-unlock-chal"
-        onCancel={() => setStep('actions')}
+        onCancel={() => setStep('unlock-scan-chal')}
         onComplete={(payload) => void onUnlockChallenge(payload)}
       />
     )
@@ -815,13 +899,18 @@ export default function App() {
     return (
       <div className="min-h-screen flex flex-col bg-slate-950">
         {header}
-        <main className="flex-1 flex flex-col items-center justify-center px-4 py-6">
-          <AnimatedQr encoded={respEnc} title="Show this to hot portal" />
+        <main className="flex-1 flex flex-col items-center justify-center px-4 py-6 gap-3">
+          <AnimatedQr encoded={respEnc} title="Copy this → paste on hot portal" />
+          <p className="text-xs text-slate-400 text-center max-w-sm">
+            Use <strong className="text-slate-200">Copy full payload</strong> above, then on hot
+            open the scan step and paste.
+          </p>
           <button
             type="button"
-            className="mt-6 px-4 py-2 rounded-xl bg-slate-800 text-sm"
+            className="mt-2 px-4 py-2 rounded-xl bg-slate-800 text-sm"
             onClick={() => {
               setRespEnc(null)
+              setPayloadPaste('')
               setStep('actions')
             }}
           >
@@ -832,12 +921,76 @@ export default function App() {
     )
   }
 
+  // Sign — paste first
   if (step === 'sign-scan') {
+    return (
+      <div className="min-h-screen flex flex-col bg-slate-950">
+        {header}
+        <main className="flex-1 max-w-md mx-auto w-full px-4 py-6 space-y-4">
+          <button
+            type="button"
+            className="text-xs text-slate-400"
+            onClick={() => {
+              setPayloadPaste('')
+              setStep('actions')
+            }}
+          >
+            ← Back
+          </button>
+          <h2 className="text-lg font-bold text-white">Sign transaction</h2>
+          <p className="text-xs text-slate-400">
+            On hot: prepare send → <strong className="text-slate-200">Copy full payload</strong>.
+            Paste the unsigned package below.
+          </p>
+          {error && (
+            <div className="text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-xl p-3">
+              {error}
+            </div>
+          )}
+          <label className="block text-sm font-semibold text-cyan-200">
+            Paste unsigned tx from hot
+            <textarea
+              rows={8}
+              value={payloadPaste}
+              onChange={(e) => setPayloadPaste(e.target.value)}
+              placeholder='{"type":"falcon-unsigned-tx","v":1,...}'
+              className="mt-2 w-full rounded-xl bg-slate-900 border-2 border-cyan-600/50 px-3 py-3 text-[11px] font-mono text-slate-100"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={!payloadPaste.trim()}
+            onClick={() => {
+              setError('')
+              try {
+                const payload = parsePastedTransport(payloadPaste)
+                onUnsignedPayload(payload)
+              } catch (e) {
+                setError(e instanceof Error ? e.message : 'Paste failed')
+              }
+            }}
+            className="w-full py-3.5 rounded-2xl bg-brand-500 hover:bg-brand-400 disabled:opacity-40 text-slate-950 font-semibold"
+          >
+            Use pasted transaction
+          </button>
+          <button
+            type="button"
+            onClick={() => setStep('sign-camera')}
+            className="w-full py-3 rounded-2xl bg-slate-800 text-slate-200 text-sm"
+          >
+            Scan QR instead
+          </button>
+        </main>
+      </div>
+    )
+  }
+
+  if (step === 'sign-camera') {
     return (
       <MultiQrScan
         title="Scan unsigned transaction"
         expectedCt="unsigned-tx"
-        onCancel={() => setStep('actions')}
+        onCancel={() => setStep('sign-scan')}
         onComplete={(payload) => onUnsignedPayload(payload)}
       />
     )
