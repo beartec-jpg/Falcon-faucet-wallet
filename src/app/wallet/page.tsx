@@ -2197,11 +2197,41 @@ export default function WalletPage() {
                           )}
                           {chain.id === 'bnb' && hasEvmKey && (
                             <div className="mt-2 rounded-lg bg-slate-900/60 px-2 py-1.5 text-xs">
-                              <div className="text-slate-500">BNB (testnet)</div>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-slate-500">BNB (BSC testnet)</div>
+                                <button
+                                  type="button"
+                                  className="text-[10px] text-brand-400 hover:text-brand-300 disabled:opacity-40"
+                                  disabled={nativeBalLoading || !wallet.evmAddress}
+                                  onClick={() => {
+                                    if (!wallet.evmAddress) return
+                                    setNativeBalLoading(true)
+                                    void fetchBnbTestnetBalance(wallet.evmAddress)
+                                      .then((b) => setBnbNativeBal(b))
+                                      .finally(() => setNativeBalLoading(false))
+                                  }}
+                                >
+                                  Refresh
+                                </button>
+                              </div>
                               <div className="font-mono text-slate-100">
-                                {nativeBalLoading ? '…' : bnbNativeBal != null
-                                  ? Number(bnbNativeBal).toLocaleString(undefined, { maximumFractionDigits: 6 })
-                                  : '—'}
+                                {nativeBalLoading
+                                  ? '…'
+                                  : bnbNativeBal != null
+                                    ? Number(bnbNativeBal).toLocaleString(undefined, {
+                                        maximumFractionDigits: 6,
+                                      })
+                                    : 'unavailable'}
+                              </div>
+                              {bnbNativeBal == null && !nativeBalLoading && (
+                                <div className="text-[10px] text-amber-400/80 mt-0.5">
+                                  Tap Refresh — BSC testnet RPC failed
+                                </div>
+                              )}
+                              <div className="text-[10px] text-slate-600 mt-0.5 font-mono">
+                                {wallet.evmAddress
+                                  ? `${wallet.evmAddress.slice(0, 10)}…${wallet.evmAddress.slice(-6)}`
+                                  : ''}
                               </div>
                             </div>
                           )}

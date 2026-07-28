@@ -10,12 +10,29 @@ export type { BtcBalance }
 const BSC_TESTNET_RPCS = [
   'https://bsc-testnet-rpc.publicnode.com',
   'https://data-seed-prebsc-1-s1.binance.org:8545',
-  'https://bsc-testnet.public.blastapi.io',
+  'https://bsc-testnet.drpc.org',
+  'https://rpc.ankr.com/bsc_testnet_chapel',
 ] as const
 
 const BSC_TESTNET_CHAIN_ID = 97
 
 export async function fetchBnbTestnetBalance(address: string): Promise<string | null> {
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return null
+
+  // Prefer same-origin proxy (CSP / browser RPC often blocks public BSC endpoints)
+  try {
+    const r = await fetch(
+      `/api/wallet/bnb-balance?address=${encodeURIComponent(address)}`,
+      { cache: 'no-store' },
+    )
+    if (r.ok) {
+      const j = (await r.json()) as { bnb?: string }
+      if (j.bnb != null && j.bnb !== '') return j.bnb
+    }
+  } catch {
+    /* fall through */
+  }
+
   const body = JSON.stringify({
     jsonrpc: '2.0',
     id: 1,
@@ -30,8 +47,8 @@ export async function fetchBnbTestnetBalance(address: string): Promise<string | 
         body,
       })
       if (!r.ok) continue
-      const j = (await r.json()) as { result?: string }
-      if (!j.result) continue
+      const j = (await r.json()) as { result?: string; error?: unknown }
+      if (j.error || !j.result) continue
       const wei = BigInt(j.result)
       return formatUnits(wei, 18)
     } catch {
