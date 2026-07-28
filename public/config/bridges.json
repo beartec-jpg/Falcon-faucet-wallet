@@ -1,5 +1,5 @@
 {
-  "note": "Multi-asset lock-mint routes. Only fusdc-sepolia is live; others scaffold for FETH/FBTC/FBNB.",
+  "note": "Multi-asset lock-mint routes. fusdc-sepolia is live; feth uses same FalconCollateralLock bytecode with WETH as the locked token once deployed.",
   "routes": [
     {
       "id": "fusdc-sepolia",
@@ -22,23 +22,38 @@
       }
     },
     {
-      "id": "feth-ethereum",
-      "status": "coming_soon",
+      "id": "feth-sepolia",
+      "status": "scaffold",
       "direction_labels": {
-        "in": "Ethereum · WETH → Falcon FETH",
-        "out": "Falcon FETH → Ethereum WETH"
+        "in": "Ethereum Sepolia · WETH → Falcon FETH",
+        "out": "Falcon FETH → Sepolia WETH"
       },
       "source": {
         "chain": "ethereum",
-        "network": "mainnet_or_sepolia",
+        "network": "sepolia",
+        "chain_id": 11155111,
         "native_symbol": "ETH",
         "token_symbol": "WETH",
-        "decimals": 18
+        "token_address": "0xfff9976782d46CC05630D1f6eBAb18b2324d6B14",
+        "decimals": 18,
+        "lock_contract": null
       },
       "falcon": {
         "symbol": "FETH",
-        "currency": "ETH"
-      }
+        "currency": "ETH",
+        "issuer": null
+      },
+      "relay": {
+        "script": "scripts/bridge-deposit-relay.py",
+        "args_example": "--currency ETH --decimals 18 --issuer-key FETH_issuer --lock-contract 0x… --relay-state /var/lib/qxrp-bridge/feth_relay_state.json",
+        "issue_script": "scripts/issue-bridge-iou.py --symbol FETH --currency ETH"
+      },
+      "deploy_notes": [
+        "Deploy FalconCollateralLock with USDC_TOKEN=WETH Sepolia address via deploy-falcon-lock.js",
+        "Create Falcon issuer: python3 scripts/issue-bridge-iou.py --symbol FETH --currency ETH",
+        "Run dedicated relay with --currency ETH --decimals 18 --issuer-key FETH_issuer",
+        "Set source.lock_contract + falcon.issuer, flip status to live, enable FETH in multi-chain-assets"
+      ]
     },
     {
       "id": "fbtc-wbtc",

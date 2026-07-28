@@ -75,14 +75,24 @@ import {
   multiChainAssetById,
   type MultiChainAssetId,
 } from '@/lib/multi-chain-assets'
-import { fetchSepoliaBalances } from '@/lib/evm-bridge-client'
-import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
+import { fetchSepoliaBalances, sendSepoliaEth } from '@/lib/evm-bridge-client'
+import {
+  fetchBnbTestnetBalance,
+  fetchBtcTestnetBalance,
+  sendBnbTestnet,
+} from '@/lib/native-chain-balances'
 import {
   createBtcWalletForPasskey,
   encryptBtcKeyForPasskey,
   hasBtcWallet,
   provisionBtcWalletForStoredWallet,
 } from '@/lib/create-btc-wallet'
+import {
+  isValidBtcP2pkh,
+  sendBtcP2pkh,
+  type BtcBalance,
+} from '@/lib/btc-client'
+import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
 
 
 const AddressQrScanner = dynamic(() => import('@/components/AddressQrScanner'), { ssr: false })
@@ -344,6 +354,7 @@ export default function WalletPage() {
   const [ethNativeBal, setEthNativeBal] = useState<string | null>(null)
   const [usdcNativeBal, setUsdcNativeBal] = useState<string | null>(null)
   const [bnbNativeBal, setBnbNativeBal] = useState<string | null>(null)
+  const [btcNativeBal, setBtcNativeBal] = useState<BtcBalance | null>(null)
   const [nativeBalLoading, setNativeBalLoading] = useState(false)
   const [bridgeMissing, setBridgeMissing] = useState(false)
   const bridgeAutoProvisioned = useRef(false)
@@ -358,12 +369,12 @@ export default function WalletPage() {
   // Create-wallet form
   const [createLabel, setCreateLabel] = useState('')
 
-  // Send form
-  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc'>('falcon')
+  // Send form (Falcon IOUs + native multi-chain)
+  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'btc' | 'bnb' | 'eth'>('falcon')
   const [sendTo,     setSendTo]     = useState('')
   const [sendAmount, setSendAmount] = useState('')
   const [sendResult, setSendResult] = useState<{
-    success: boolean; hash?: string; message: string
+    success: boolean; hash?: string; message: string; explorerUrl?: string
   } | null>(null)
   const [showSendScanner, setShowSendScanner] = useState(false)
 
@@ -499,36 +510,44 @@ export default function WalletPage() {
       .catch(() => {})
   }, [wallet, view])
 
-  // Native multi-chain balances (ETH/USDC Sepolia + BNB testnet)
+  // Native multi-chain balances (ETH/USDC Sepolia + BNB testnet + BTC testnet)
   useEffect(() => {
     if (walletSection !== 'multichain' && walletSection !== 'bridge') return
-    if (!wallet?.evmAddress) return
+    if (!wallet) return
     let cancelled = false
     setNativeBalLoading(true)
-    const ethP = bridgeCfg?.sepolia
-      ? fetchSepoliaBalances(bridgeCfg.sepolia, wallet.evmAddress)
+    const ethP =
+      wallet.evmAddress && bridgeCfg?.sepolia
+        ? fetchSepoliaBalances(bridgeCfg.sepolia, wallet.evmAddress)
+        : Promise.resolve(null)
+    const bnbP = wallet.evmAddress
+      ? fetchBnbTestnetBalance(wallet.evmAddress)
       : Promise.resolve(null)
-    const bnbP = fetchBnbTestnetBalance(wallet.evmAddress)
-    Promise.all([ethP, bnbP])
-      .then(([ethB, bnbB]) => {
+    const btcP = wallet.btcAddress
+      ? fetchBtcTestnetBalance(wallet.btcAddress)
+      : Promise.resolve(null)
+    Promise.all([ethP, bnbP, btcP])
+      .then(([ethB, bnbB, btcB]) => {
         if (cancelled) return
         if (ethB) {
           setEthNativeBal(ethB.eth)
           setUsdcNativeBal(ethB.usdc)
         }
         setBnbNativeBal(bnbB)
+        setBtcNativeBal(btcB)
       })
       .catch(() => {
         if (cancelled) return
         setEthNativeBal(null)
         setUsdcNativeBal(null)
         setBnbNativeBal(null)
+        setBtcNativeBal(null)
       })
       .finally(() => {
         if (!cancelled) setNativeBalLoading(false)
       })
     return () => { cancelled = true }
-  }, [walletSection, wallet?.evmAddress, bridgeCfg])
+  }, [walletSection, wallet?.evmAddress, wallet?.btcAddress, bridgeCfg, wallet])
 
   // Auto-provision missing BTC deposit key (same passkey vault)
   useEffect(() => {
@@ -1080,9 +1099,144 @@ export default function WalletPage() {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!wallet || !account) return
-    if (!network.live) {
+    if (!wallet) return
+
+    const isNative = sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth'
+    if (!isNative && !account) return
+    if (!isNative && !network.live) {
       setError(`${network.name} is not live yet.`)
+      return
+    }
+
+    // ── Native multi-chain send (BTC / BNB / ETH) ───────────────────────────
+    if (isNative) {
+      let to = sendTo.trim()
+      const amt = parseFloat(sendAmount)
+      if (isNaN(amt) || amt <= 0) {
+        setError('Invalid amount')
+        return
+      }
+
+      if (sendAsset === 'btc') {
+        if (!wallet.btcEncrypted || !wallet.btcAddress) {
+          setError('Bitcoin wallet not set up — open Multi-chain to provision keys')
+          return
+        }
+        if (!isValidBtcP2pkh(to, 'testnet')) {
+          setError('Invalid Bitcoin testnet address (expect m… or n… P2PKH)')
+          return
+        }
+        if (to === wallet.btcAddress) {
+          setError('Destination must be a different Bitcoin address')
+          return
+        }
+        if (btcNativeBal && amt > btcNativeBal.totalSats / 1e8) {
+          setError('Insufficient BTC balance')
+          return
+        }
+      } else {
+        const evmTo = parseEvmAddressFromScan(to) || to
+        to = evmTo
+        if (!/^0x[a-fA-F0-9]{40}$/.test(to)) {
+          setError('Invalid EVM address (0x…)')
+          return
+        }
+        if (!wallet.evmEncrypted || !wallet.evmAddress) {
+          setError('ETH/BNB wallet not set up — open Bridge to create one')
+          return
+        }
+        if (to.toLowerCase() === wallet.evmAddress.toLowerCase()) {
+          setError('Destination must be a different address')
+          return
+        }
+        if (sendAsset === 'bnb' && bnbNativeBal != null && amt > parseFloat(bnbNativeBal)) {
+          setError('Insufficient BNB balance')
+          return
+        }
+        if (sendAsset === 'eth' && ethNativeBal != null && amt > parseFloat(ethNativeBal)) {
+          setError('Insufficient ETH balance')
+          return
+        }
+        if (sendAsset === 'eth' && !bridgeCfg?.sepolia) {
+          setError('Bridge config not loaded')
+          return
+        }
+      }
+
+      setBusy(true)
+      setError(null)
+      setSendResult(null)
+      try {
+        const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+        if (sendAsset === 'btc') {
+          const btcPk = (await decryptSeed(wallet.btcEncrypted!, keyBytes)).replace(/^0x/i, '')
+          const result = await sendBtcP2pkh({
+            privateKeyHex: btcPk,
+            toAddress: to,
+            amountBtc: sendAmount.trim(),
+            network: 'testnet',
+          })
+          setSendResult({
+            success: true,
+            hash: result.txid,
+            message: `Broadcast ${sendAmount} BTC (fee ~${(result.feeSats / 1e8).toFixed(8)} BTC)`,
+            explorerUrl: result.explorerUrl,
+          })
+          setSendTo('')
+          setSendAmount('')
+          // refresh balance
+          if (wallet.btcAddress) {
+            void fetchBtcTestnetBalance(wallet.btcAddress).then(setBtcNativeBal)
+          }
+        } else {
+          const evmPk = await decryptSeed(wallet.evmEncrypted!, keyBytes)
+          const pk = evmPk.startsWith('0x') ? evmPk : `0x${evmPk}`
+          if (sendAsset === 'bnb') {
+            const hash = await sendBnbTestnet({
+              evmPrivateKey: pk,
+              to,
+              amountBnb: sendAmount.trim(),
+            })
+            setSendResult({
+              success: true,
+              hash,
+              message: `Sent ${sendAmount} BNB on BSC testnet`,
+              explorerUrl: `https://testnet.bscscan.com/tx/${hash}`,
+            })
+            if (wallet.evmAddress) {
+              void fetchBnbTestnetBalance(wallet.evmAddress).then(setBnbNativeBal)
+            }
+          } else {
+            const hash = await sendSepoliaEth({
+              cfg: bridgeCfg!.sepolia,
+              evmPrivateKey: pk,
+              to,
+              amountEth: sendAmount.trim(),
+            })
+            setSendResult({
+              success: true,
+              hash,
+              message: `Sent ${sendAmount} ETH on Sepolia`,
+              explorerUrl: `${bridgeCfg!.sepolia.explorer_url}/tx/${hash}`,
+            })
+            if (wallet.evmAddress && bridgeCfg?.sepolia) {
+              void fetchSepoliaBalances(bridgeCfg.sepolia, wallet.evmAddress).then((b) => {
+                setEthNativeBal(b.eth)
+                setUsdcNativeBal(b.usdc)
+              })
+            }
+          }
+          setSendTo('')
+          setSendAmount('')
+        }
+      } catch (err: unknown) {
+        setSendResult({
+          success: false,
+          message: err instanceof Error ? err.message : 'Send failed',
+        })
+      } finally {
+        setBusy(false)
+      }
       return
     }
 
@@ -1123,7 +1277,7 @@ export default function WalletPage() {
     }
 
     const amt = parseFloat(sendAmount)
-    const fusdc = account.assets?.fusdc
+    const fusdc = account!.assets?.fusdc
     const fusdcBal = fusdc?.balance ?? 0
 
     if (!isValidFalconAddress(to)) {
@@ -1138,7 +1292,7 @@ export default function WalletPage() {
       setError('Invalid amount'); return
     }
     if (sendAsset === 'falcon') {
-      if (amt > account.balance) {
+      if (amt > account!.balance) {
         setError('Insufficient FALCON balance'); return
       }
     } else {
@@ -1170,7 +1324,7 @@ export default function WalletPage() {
           return { sequence: a.sequence, currentLedger: a.currentLedger }
         } catch {
           // Fall back to the cached account snapshot if the node is briefly unreachable.
-          return { sequence: account.sequence, currentLedger: account.currentLedger }
+          return { sequence: account!.sequence, currentLedger: account!.currentLedger }
         }
       }
 
@@ -2007,8 +2161,22 @@ export default function WalletPage() {
                             </div>
                           )}
                           {chain.id === 'btc' && hasBtc && (
-                            <div className="mt-2 rounded-lg bg-slate-900/60 px-2 py-1.5 text-xs text-slate-500">
-                              Balance lookup not wired yet — use Receive for deposit address. Bridge → FBTC later.
+                            <div className="mt-2 rounded-lg bg-slate-900/60 px-2 py-1.5 text-xs">
+                              <div className="text-slate-500">BTC (testnet)</div>
+                              <div className="font-mono text-slate-100">
+                                {nativeBalLoading
+                                  ? '…'
+                                  : btcNativeBal != null
+                                    ? Number(btcNativeBal.btc).toLocaleString(undefined, {
+                                        maximumFractionDigits: 8,
+                                      })
+                                    : '—'}
+                              </div>
+                              {btcNativeBal && btcNativeBal.unconfirmedSats !== 0 && (
+                                <div className="text-[10px] text-amber-400/80 mt-0.5">
+                                  incl. unconfirmed {(btcNativeBal.unconfirmedSats / 1e8).toFixed(8)}
+                                </div>
+                              )}
                             </div>
                           )}
                           <div className="mt-2.5 flex flex-wrap gap-1.5">
@@ -2027,9 +2195,27 @@ export default function WalletPage() {
                               type="button"
                               disabled={!isLive || !chain.canSend || !hasKey}
                               onClick={() => {
-                                if (chain.id === 'eth' || chain.id === 'bnb') {
-                                  setBridgeInitialMode('send')
-                                  setWalletSection('bridge')
+                                if (chain.id === 'btc') {
+                                  setSendAsset('btc')
+                                  setSendTo('')
+                                  setSendAmount('')
+                                  setSendResult(null)
+                                  setError(null)
+                                  setView('send')
+                                } else if (chain.id === 'bnb') {
+                                  setSendAsset('bnb')
+                                  setSendTo('')
+                                  setSendAmount('')
+                                  setSendResult(null)
+                                  setError(null)
+                                  setView('send')
+                                } else if (chain.id === 'eth') {
+                                  setSendAsset('eth')
+                                  setSendTo('')
+                                  setSendAmount('')
+                                  setSendResult(null)
+                                  setError(null)
+                                  setView('send')
                                 }
                               }}
                               className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-brand-500/90 hover:bg-brand-400 text-slate-950 disabled:opacity-35"
@@ -2381,8 +2567,28 @@ export default function WalletPage() {
               {showSendScanner && (
                 <AddressQrScanner
                   onScan={(raw) => {
-                    const addr = parseFalconAddressFromScan(raw)
                     setShowSendScanner(false)
+                    if (sendAsset === 'btc') {
+                      const t = raw.trim()
+                      if (!isValidBtcP2pkh(t, 'testnet')) {
+                        setError('QR does not contain a valid Bitcoin testnet address (m…/n…)')
+                        return
+                      }
+                      setSendTo(t)
+                      setError(null)
+                      return
+                    }
+                    if (sendAsset === 'eth' || sendAsset === 'bnb') {
+                      const addr = parseEvmAddressFromScan(raw)
+                      if (!addr) {
+                        setError('QR does not contain a valid 0x address')
+                        return
+                      }
+                      setSendTo(addr)
+                      setError(null)
+                      return
+                    }
+                    const addr = parseFalconAddressFromScan(raw)
                     if (!addr) {
                       setError('QR code does not contain a valid Falcon r-address')
                       return
@@ -2399,16 +2605,32 @@ export default function WalletPage() {
                 <div className="card p-5 space-y-4">
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => { setView('dashboard'); setError(null); setSendResult(null) }}
+                      onClick={() => {
+                        setView('dashboard')
+                        setError(null)
+                        setSendResult(null)
+                        if (sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth') {
+                          setWalletSection('multichain')
+                        }
+                      }}
                       className="text-slate-500 hover:text-slate-300 transition-colors"
                     >
                       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
-                    <h3 className="font-semibold text-white text-sm">Send on Falcon</h3>
+                    <h3 className="font-semibold text-white text-sm">
+                      {sendAsset === 'btc'
+                        ? 'Send Bitcoin (testnet)'
+                        : sendAsset === 'bnb'
+                          ? 'Send BNB (BSC testnet)'
+                          : sendAsset === 'eth'
+                            ? 'Send ETH (Sepolia)'
+                            : 'Send on Falcon'}
+                    </h3>
                   </div>
 
+                  {(sendAsset === 'falcon' || sendAsset === 'fusdc') && (
                   <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
                     <button
                       type="button"
@@ -2425,6 +2647,17 @@ export default function WalletPage() {
                       F-USDC
                     </button>
                   </div>
+                  )}
+
+                  {(sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth') && (
+                    <p className="text-[11px] text-slate-500 leading-snug">
+                      {sendAsset === 'btc'
+                        ? 'Signed in-browser · broadcast via Blockstream/Mempool testnet API. Keys never leave this device.'
+                        : sendAsset === 'bnb'
+                          ? 'Same 0x key as ETH · BSC testnet. Keys stay encrypted under your passkey.'
+                          : 'Sepolia ETH · same deposit wallet used for Bridge In.'}
+                    </p>
+                  )}
 
                   {sendResult ? (
                     <div className={`rounded-xl px-4 py-4 space-y-2 ${
@@ -2447,9 +2680,25 @@ export default function WalletPage() {
                       {sendResult.hash && (
                         <div className="font-mono text-xs text-slate-400 break-all">{sendResult.hash}</div>
                       )}
+                      {sendResult.explorerUrl && sendResult.success && (
+                        <a
+                          href={sendResult.explorerUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-brand-400 hover:text-brand-300"
+                        >
+                          View on explorer →
+                        </a>
+                      )}
                       <div className="text-xs text-slate-500">{sendResult.message}</div>
                       <button
-                        onClick={() => { setSendResult(null); setView('dashboard') }}
+                        onClick={() => {
+                          setSendResult(null)
+                          setView('dashboard')
+                          if (sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth') {
+                            setWalletSection('multichain')
+                          }
+                        }}
                         className="text-sm text-brand-400 hover:text-brand-300 transition-colors"
                       >
                         ← Back to wallet
@@ -2458,13 +2707,25 @@ export default function WalletPage() {
                   ) : (
                     <form onSubmit={handleSend} className="space-y-4">
                       <div className="space-y-1.5">
-                        <label className="text-xs text-slate-400">Destination (r… or name)</label>
+                        <label className="text-xs text-slate-400">
+                          {sendAsset === 'btc'
+                            ? 'Destination (testnet m… / n…)'
+                            : sendAsset === 'eth' || sendAsset === 'bnb'
+                              ? 'Destination (0x…)'
+                              : 'Destination (r… or name)'}
+                        </label>
                         <div className="flex items-stretch gap-2">
                           <input
                             type="text"
                             value={sendTo}
                             onChange={e => { setSendTo(e.target.value); setError(null) }}
-                            placeholder="rXXX… or alice.bob"
+                            placeholder={
+                              sendAsset === 'btc'
+                                ? 'm… or n…'
+                                : sendAsset === 'eth' || sendAsset === 'bnb'
+                                  ? '0x…'
+                                  : 'rXXX… or alice.bob'
+                            }
                             className="input-field flex-1 min-w-0 w-0"
                             disabled={busy}
                             autoComplete="off"
@@ -2488,7 +2749,17 @@ export default function WalletPage() {
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-xs text-slate-400">
-                          Amount ({sendAsset === 'falcon' ? 'FALCON' : 'F-USDC'})
+                          Amount (
+                          {sendAsset === 'falcon'
+                            ? 'FALCON'
+                            : sendAsset === 'fusdc'
+                              ? 'F-USDC'
+                              : sendAsset === 'btc'
+                                ? 'BTC'
+                                : sendAsset === 'bnb'
+                                  ? 'BNB'
+                                  : 'ETH'}
+                          )
                         </label>
                         <input
                           type="number"
@@ -2521,6 +2792,75 @@ export default function WalletPage() {
                               <button
                                 type="button"
                                 onClick={() => setSendAmount(String(account.assets!.fusdc.balance))}
+                                className="text-brand-500 hover:text-brand-400 transition-colors"
+                              >
+                                Max
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {sendAsset === 'btc' && (
+                          <div className="flex justify-between text-xs text-slate-600">
+                            <span>
+                              Available:{' '}
+                              {btcNativeBal
+                                ? Number(btcNativeBal.btc).toLocaleString(undefined, { maximumFractionDigits: 8 })
+                                : '—'}{' '}
+                              BTC
+                            </span>
+                            {btcNativeBal && btcNativeBal.totalSats > 1000 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSendAmount(
+                                    // leave room for ~2 sat/vB fee on 1-in/1-out
+                                    ((btcNativeBal.totalSats - 400) / 1e8).toFixed(8),
+                                  )
+                                }
+                                className="text-brand-500 hover:text-brand-400 transition-colors"
+                              >
+                                Max
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {sendAsset === 'bnb' && (
+                          <div className="flex justify-between text-xs text-slate-600">
+                            <span>
+                              Available:{' '}
+                              {bnbNativeBal != null
+                                ? Number(bnbNativeBal).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                                : '—'}{' '}
+                              BNB
+                            </span>
+                            {bnbNativeBal != null && parseFloat(bnbNativeBal) > 0.001 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSendAmount(String(Math.max(0, parseFloat(bnbNativeBal) - 0.0005)))
+                                }
+                                className="text-brand-500 hover:text-brand-400 transition-colors"
+                              >
+                                Max
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {sendAsset === 'eth' && (
+                          <div className="flex justify-between text-xs text-slate-600">
+                            <span>
+                              Available:{' '}
+                              {ethNativeBal != null
+                                ? Number(ethNativeBal).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                                : '—'}{' '}
+                              ETH
+                            </span>
+                            {ethNativeBal != null && parseFloat(ethNativeBal) > 0.002 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSendAmount(String(Math.max(0, parseFloat(ethNativeBal) - 0.001)))
+                                }
                                 className="text-brand-500 hover:text-brand-400 transition-colors"
                               >
                                 Max

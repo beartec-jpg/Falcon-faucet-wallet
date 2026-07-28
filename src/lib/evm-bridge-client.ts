@@ -104,25 +104,43 @@ export async function fetchSepoliaBalances(
   })
 }
 
-export async function depositUsdcToBridge(opts: {
-  cfg: SepoliaBridgeConfig
+/**
+ * Generic ERC-20 lock deposit (USDC, WETH, …) into FalconCollateralLock.
+ * Same approve + deposit(amount, falconAccount) flow for any token address.
+ */
+export async function depositErc20ToBridge(opts: {
+  rpcUrl: string
+  tokenAddress: string
+  lockContract: string
+  tokenDecimals: number
+  tokenSymbol: string
   evmPrivateKey: string
-  amountUsdc: string
+  amount: string
   falconAccount: string
   onStep?: (step: string) => void
 }): Promise<BridgeDepositResult> {
-  const { cfg, evmPrivateKey, amountUsdc, falconAccount, onStep } = opts
+  const {
+    rpcUrl,
+    tokenAddress,
+    lockContract,
+    tokenDecimals,
+    tokenSymbol,
+    evmPrivateKey,
+    amount: amountStr,
+    falconAccount,
+    onStep,
+  } = opts
   if (!FALCON_ADDRESS_RE.test(falconAccount.trim())) {
     throw new Error('Invalid Falcon destination address — cannot bridge in')
   }
   onStep?.('Connecting to Sepolia…')
-  const p = await resolveProvider(cfg.rpc_url)
+  const p = await resolveProvider(rpcUrl)
   const signer = new Wallet(evmPrivateKey, p)
-  const usdc = new Contract(cfg.usdc_token, ERC20_ABI, signer)
-  const lock = new Contract(cfg.lock_contract, LOCK_ABI, signer)
+  const token = new Contract(tokenAddress, ERC20_ABI, signer)
+  const lock = new Contract(lockContract, LOCK_ABI, signer)
 
-  onStep?.('Checking Sepolia balances…')
-  const decimals: number = await usdc.decimals().catch(() => cfg.usdc_decimals)
+  onStep?.(`Checking Sepolia ${tokenSymbol} balances…`)
+  const decimals: number = await token.decimals().catch(() => tokenDecimals)
 
   const ethBal = await p.getBalance(signer.address)
   if (ethBal === 0n) {
@@ -131,27 +149,27 @@ export async function depositUsdcToBridge(opts: {
     )
   }
 
-  const usdcBal: bigint = await usdc.balanceOf(signer.address)
-  const amount = parseUnits(amountUsdc, decimals)
+  const tokenBal: bigint = await token.balanceOf(signer.address)
+  const amount = parseUnits(amountStr, decimals)
   if (amount <= 0n) throw new Error('Amount must be greater than zero')
-  if (amount > usdcBal) {
+  if (amount > tokenBal) {
     throw new Error(
-      `Amount exceeds Sepolia USDC balance (${formatUnits(usdcBal, decimals)} available)`,
+      `Amount exceeds Sepolia ${tokenSymbol} balance (${formatUnits(tokenBal, decimals)} available)`,
     )
   }
 
   let approveHash: string | undefined
-  const allowance: bigint = await usdc.allowance(signer.address, cfg.lock_contract)
+  const allowance: bigint = await token.allowance(signer.address, lockContract)
   if (allowance < amount) {
-    onStep?.('Signing USDC approve (no second passkey — uses Sepolia wallet)…')
+    onStep?.(`Signing ${tokenSymbol} approve…`)
     let approveTx
     try {
-      approveTx = await usdc.approve(cfg.lock_contract, amount)
+      approveTx = await token.approve(lockContract, amount)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
-      throw new Error(`USDC approve failed: ${msg}`)
+      throw new Error(`${tokenSymbol} approve failed: ${msg}`)
     }
-    const approveRc = await waitForTx(approveTx, 'USDC approve', onStep)
+    const approveRc = await waitForTx(approveTx, `${tokenSymbol} approve`, onStep)
     approveHash = approveRc.hash
   }
 
@@ -183,6 +201,54 @@ export async function depositUsdcToBridge(opts: {
     depositHash: depositRc.hash,
     depositId,
   }
+}
+
+export async function depositUsdcToBridge(opts: {
+  cfg: SepoliaBridgeConfig
+  evmPrivateKey: string
+  amountUsdc: string
+  falconAccount: string
+  onStep?: (step: string) => void
+}): Promise<BridgeDepositResult> {
+  const { cfg, evmPrivateKey, amountUsdc, falconAccount, onStep } = opts
+  return depositErc20ToBridge({
+    rpcUrl: cfg.rpc_url,
+    tokenAddress: cfg.usdc_token,
+    lockContract: cfg.lock_contract,
+    tokenDecimals: cfg.usdc_decimals,
+    tokenSymbol: 'USDC',
+    evmPrivateKey,
+    amount: amountUsdc,
+    falconAccount,
+    onStep,
+  })
+}
+
+/** WETH → FETH lock deposit (requires FETH lock contract + issuer online). */
+export async function depositWethToBridge(opts: {
+  cfg: SepoliaBridgeConfig & { weth_token?: string; weth_lock_contract?: string; weth_decimals?: number }
+  evmPrivateKey: string
+  amountWeth: string
+  falconAccount: string
+  onStep?: (step: string) => void
+}): Promise<BridgeDepositResult> {
+  const { cfg, evmPrivateKey, amountWeth, falconAccount, onStep } = opts
+  const weth = cfg.weth_token
+  const lock = cfg.weth_lock_contract
+  if (!weth?.match(/^0x[a-fA-F0-9]{40}$/) || !lock?.match(/^0x[a-fA-F0-9]{40}$/)) {
+    throw new Error('FETH bridge not deployed yet — WETH lock contract missing from config')
+  }
+  return depositErc20ToBridge({
+    rpcUrl: cfg.rpc_url,
+    tokenAddress: weth,
+    lockContract: lock,
+    tokenDecimals: cfg.weth_decimals ?? 18,
+    tokenSymbol: 'WETH',
+    evmPrivateKey,
+    amount: amountWeth,
+    falconAccount,
+    onStep,
+  })
 }
 
 export async function sendSepoliaEth(opts: {
