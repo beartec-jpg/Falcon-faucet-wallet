@@ -215,6 +215,121 @@ function Row({ k, v }: { k: string; v: string }) {
   )
 }
 
+// ─── Multi-pair order book (FALCON / F-asset) ─────────────────────────────────
+
+const SCAN_PAIR_ORDER = ['F-USDC', 'FETH', 'FBNB', 'FBTC'] as const
+
+interface ScanPair {
+  symbol: string
+  displaySymbol: string
+  currency: string
+  issuer: string
+}
+
+function mapScanPair(t: { symbol: string; currency: string; issuer: string }): ScanPair {
+  const sym = t.symbol
+  const displaySymbol =
+    sym.startsWith('F-') || /^F[A-Z]{2,}$/.test(sym) ? sym : `F-${sym}`
+  return { symbol: t.symbol, displaySymbol, currency: t.currency, issuer: t.issuer }
+}
+
+function ScanOrderBookSection() {
+  const [pairs, setPairs] = useState<ScanPair[]>([])
+  const [selectedSymbol, setSelectedSymbol] = useState('F-USDC')
+
+  useEffect(() => {
+    fetch('/config/testnet-stables.json')
+      .then((r) => r.json())
+      .then((m: { tokens?: Array<{ symbol: string; currency: string; issuer: string }> }) => {
+        const list = (m.tokens ?? [])
+          .filter((t) => t.issuer && t.currency)
+          .map(mapScanPair)
+        const ordered: ScanPair[] = []
+        for (const sym of SCAN_PAIR_ORDER) {
+          const hit = list.find(
+            (t) =>
+              t.symbol.toUpperCase() === sym ||
+              t.displaySymbol.toUpperCase() === sym,
+          )
+          if (hit) ordered.push(hit)
+        }
+        for (const t of list) {
+          if (!ordered.some((o) => o.currency === t.currency && o.issuer === t.issuer)) {
+            ordered.push(t)
+          }
+        }
+        setPairs(ordered)
+        if (ordered[0] && !ordered.some((p) => p.displaySymbol === selectedSymbol || p.symbol === selectedSymbol)) {
+          setSelectedSymbol(ordered[0].displaySymbol)
+        }
+      })
+      .catch(() => setPairs([]))
+  }, [selectedSymbol])
+
+  const selected =
+    pairs.find(
+      (p) =>
+        p.symbol.toUpperCase() === selectedSymbol.toUpperCase() ||
+        p.displaySymbol.toUpperCase() === selectedSymbol.toUpperCase(),
+    ) ?? pairs[0] ?? null
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+          Order Book
+        </h2>
+        <div className="flex gap-3 text-xs">
+          <Link href="/swap" className="text-brand-400 hover:text-brand-300">
+            Swap →
+          </Link>
+          <Link href="/pool" className="text-brand-400 hover:text-brand-300">
+            Add liquidity →
+          </Link>
+        </div>
+      </div>
+
+      {pairs.length > 0 && (
+        <div className="flex rounded-xl overflow-hidden border border-slate-700 bg-slate-900/60 mb-3">
+          {pairs.map((p) => {
+            const active =
+              selected?.currency === p.currency && selected?.issuer === p.issuer
+            return (
+              <button
+                key={`${p.currency}:${p.issuer}`}
+                type="button"
+                onClick={() => setSelectedSymbol(p.displaySymbol)}
+                className={`flex-1 py-2 px-1 text-xs sm:text-sm font-semibold transition-colors ${
+                  active
+                    ? 'bg-brand-500/20 text-brand-300 border-b-2 border-brand-400'
+                    : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {p.displaySymbol}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {selected && (
+        <p className="text-center text-xs text-slate-500 mb-3">
+          Pair: <span className="text-slate-300 font-medium">FALCON / {selected.displaySymbol}</span>
+        </p>
+      )}
+
+      <OrderBookPanel
+        compact
+        pollMs={12000}
+        symbol={selected?.displaySymbol}
+        currency={selected?.currency}
+        issuer={selected?.issuer}
+        key={selected ? `${selected.currency}:${selected.issuer}` : 'default'}
+      />
+    </section>
+  )
+}
+
 // ─── Main explorer page ───────────────────────────────────────────────────────
 
 export default function ScanPage() {
@@ -408,24 +523,9 @@ export default function ScanPage() {
           />
         )}
 
-        {/* ── DEX order book ─────────────────────────────────────────────── */}
+        {/* ── DEX order book (FALCON-paired F-assets) ─────────────────────── */}
         {d && (
-          <section>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-                FALCON / F-USDC Order Book
-              </h2>
-              <div className="flex gap-3 text-xs">
-                <Link href="/swap" className="text-brand-400 hover:text-brand-300">
-                  Swap →
-                </Link>
-                <Link href="/pool" className="text-brand-400 hover:text-brand-300">
-                  Add liquidity →
-                </Link>
-              </div>
-            </div>
-            <OrderBookPanel compact pollMs={12000} />
-          </section>
+          <ScanOrderBookSection />
         )}
 
         {/* ── Two-column: ledgers + validators ────────────────────────────── */}

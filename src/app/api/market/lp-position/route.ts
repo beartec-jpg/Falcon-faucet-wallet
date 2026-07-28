@@ -1,22 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
+import { resolveStableToken } from '@/lib/swap/token-config'
 
 const DROPS = 1_000_000
-
-async function tokenRef(networkKey: ReturnType<typeof resolveNetworkKey>) {
-  try {
-    const raw = await readFile(
-      path.join(process.cwd(), 'public', 'config', 'testnet-stables.json'),
-      'utf8',
-    )
-    const m = JSON.parse(raw) as { tokens?: Array<{ currency: string; issuer: string }> }
-    const t = m.tokens?.[0]
-    if (t) return t
-  } catch { /* ignore */ }
-  return { currency: 'QUC', issuer: '' }
-}
 
 export async function GET(req: NextRequest) {
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
@@ -25,9 +11,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'address required' }, { status: 400 })
   }
 
-  const token = await tokenRef(networkKey)
+  const token = await resolveStableToken({
+    symbol: req.nextUrl.searchParams.get('symbol'),
+    currency: req.nextUrl.searchParams.get('currency'),
+    issuer: req.nextUrl.searchParams.get('issuer'),
+  })
   if (!token.issuer) {
-    return NextResponse.json({ error: 'F-USDC issuer not configured' }, { status: 503 })
+    return NextResponse.json(
+      { error: `${token.displaySymbol} issuer not configured` },
+      { status: 503 },
+    )
   }
 
   const ammR = await serverRpcCall<{ amm?: Record<string, unknown> }>(networkKey, 'amm_info', {
@@ -38,14 +31,22 @@ export async function GET(req: NextRequest) {
 
   const amm = ammR.amm
   if (!amm) {
-    return NextResponse.json({ hasPosition: false, pool: null })
+    return NextResponse.json({
+      hasPosition: false,
+      pool: null,
+      token: {
+        symbol: token.displaySymbol,
+        currency: token.currency,
+        issuer: token.issuer,
+      },
+    })
   }
 
   const ammAccount = String(amm.account ?? '')
   const lpMeta = amm.lp_token as { currency?: string; issuer?: string; value?: string } | undefined
   const poolLpTotal = parseFloat(lpMeta?.value ?? '0')
   const poolXrp = typeof amm.amount === 'string' ? parseInt(amm.amount, 10) / DROPS : 0
-  const poolUsdc = parseFloat(String((amm.amount2 as { value?: string })?.value ?? '0'))
+  const poolToken = parseFloat(String((amm.amount2 as { value?: string })?.value ?? '0'))
 
   let lpBalance = 0
   if (lpMeta?.currency && ammAccount) {
@@ -66,10 +67,17 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     hasPosition: lpBalance > 0,
+    token: {
+      symbol: token.displaySymbol,
+      currency: token.currency,
+      issuer: token.issuer,
+    },
     pool: {
       account: ammAccount,
       xrp: poolXrp,
-      usdc: poolUsdc,
+      /** Token-side reserves (legacy field name `usdc` kept for clients). */
+      usdc: poolToken,
+      token: poolToken,
       lpTotal: poolLpTotal,
       tradingFeeBps: amm.trading_fee ?? 0,
     },
@@ -82,7 +90,8 @@ export async function GET(req: NextRequest) {
           },
           sharePct: share * 100,
           estXrpOut: poolXrp * share,
-          estUsdcOut: poolUsdc * share,
+          estUsdcOut: poolToken * share,
+          estTokenOut: poolToken * share,
         }
       : null,
     updatedAt: new Date().toISOString(),

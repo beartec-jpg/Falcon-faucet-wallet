@@ -141,26 +141,34 @@ export default function MarketLiquidityPanel({
     position: LpPosition | null
     pool: PoolSnapshot | null
   }> => {
+    const params = new URLSearchParams({ address: wallet.address })
+    if (token.symbol) params.set('symbol', token.symbol)
+    if (token.currency) params.set('currency', token.currency)
+    if (token.issuer) params.set('issuer', token.issuer)
     const r = await fetch(
-      withNetworkQuery(`/api/market/lp-position?address=${encodeURIComponent(wallet.address)}`, networkKey),
+      withNetworkQuery(`/api/market/lp-position?${params.toString()}`, networkKey),
     )
     const d = await r.json()
     if (d.error) return { position: null, pool: null }
+    const tokenSide = d.pool?.token ?? d.pool?.usdc
     return {
       position: d.position ?? null,
-      pool: d.pool ? { xrp: d.pool.xrp, usdc: d.pool.usdc } : null,
+      pool: d.pool ? { xrp: d.pool.xrp, usdc: tokenSide } : null,
     }
-  }, [wallet.address, networkKey])
+  }, [wallet.address, networkKey, token.symbol, token.currency, token.issuer])
 
   const loadLpPosition = useCallback(async () => {
     const { position, pool } = await fetchLpPosition()
     setLpPosition(position)
     if (pool) setPoolSnapshot(pool)
+    else setPoolSnapshot(null)
   }, [fetchLpPosition])
 
   useEffect(() => {
+    setLpPosition(null)
+    setPoolSnapshot(null)
     if (poolLive) loadLpPosition()
-  }, [loadLpPosition, poolLive])
+  }, [loadLpPosition, poolLive, token.currency, token.issuer])
 
   /** Sign + submit an AMM tx for this wallet with automatic sequence-race retry. */
   const submitSequenced = (
