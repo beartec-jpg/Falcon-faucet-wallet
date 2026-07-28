@@ -1,7 +1,8 @@
 /**
- * Multi-chain wallet catalog (Phase 1 shell).
- * Live assets use real Falcon balances; coming_soon rows are UI placeholders
- * until lock-mint configs (FETH/FBTC/FBNB) ship.
+ * Wallet asset catalogs.
+ * Falcon wallet = FALCON + Falcon IOUs (F-USDC).
+ * Multi-chain = FETH / FBTC / FBNB (and future wraps).
+ * Rows use Send + Receive + Bridge (Bridge opens unified bridge UI).
  */
 
 export type MultiChainAssetId = 'falcon' | 'fusdc' | 'feth' | 'fbtc' | 'fbnb'
@@ -10,27 +11,20 @@ export type MultiChainAssetStatus = 'live' | 'coming_soon'
 
 export interface MultiChainAssetDef {
   id: MultiChainAssetId
-  /** Falcon-side display symbol */
   symbol: string
-  /** Short subtitle under the row */
   subtitle: string
   status: MultiChainAssetStatus
-  /** Can send on Falcon ledger */
   canSendFalcon: boolean
-  /** Can receive on Falcon r… */
   canReceiveFalcon: boolean
-  /** Bridge in/out available */
+  /** Opens Bridge panel (lock-mint). Native FALCON has no bridge. */
   canBridge: boolean
-  /** Native Falcon (no bridge) */
   isNative?: boolean
-  /** Ledger IOU currency when live (empty for native) */
   currency?: string
-  /** Coming-soon source chain label */
   sourceChainLabel?: string
 }
 
-/** Order of rows on Multi-chain home */
-export const MULTI_CHAIN_ASSETS: MultiChainAssetDef[] = [
+/** Assets on the Falcon Ledger wallet (r…). */
+export const FALCON_WALLET_ASSETS: MultiChainAssetDef[] = [
   {
     id: 'falcon',
     symbol: 'FALCON',
@@ -44,7 +38,7 @@ export const MULTI_CHAIN_ASSETS: MultiChainAssetDef[] = [
   {
     id: 'fusdc',
     symbol: 'F-USDC',
-    subtitle: 'Bridged USDC · Sepolia lock → Falcon',
+    subtitle: 'USDC locked on Sepolia → F-USDC on Falcon',
     status: 'live',
     canSendFalcon: true,
     canReceiveFalcon: true,
@@ -52,6 +46,10 @@ export const MULTI_CHAIN_ASSETS: MultiChainAssetDef[] = [
     currency: 'QUC',
     sourceChainLabel: 'Ethereum Sepolia',
   },
+]
+
+/** Multi-chain / external wrapped assets. */
+export const MULTI_CHAIN_ASSETS: MultiChainAssetDef[] = [
   {
     id: 'feth',
     symbol: 'FETH',
@@ -84,6 +82,8 @@ export const MULTI_CHAIN_ASSETS: MultiChainAssetDef[] = [
   },
 ]
 
+export const ALL_WALLET_ASSETS = [...FALCON_WALLET_ASSETS, ...MULTI_CHAIN_ASSETS]
+
 export function multiChainAssetById(id: MultiChainAssetId): MultiChainAssetDef | undefined {
-  return MULTI_CHAIN_ASSETS.find((a) => a.id === id)
+  return ALL_WALLET_ASSETS.find((a) => a.id === id)
 }

@@ -69,7 +69,10 @@ import {
 import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
 import {
+  FALCON_WALLET_ASSETS,
   MULTI_CHAIN_ASSETS,
+  multiChainAssetById,
+  type MultiChainAssetDef,
   type MultiChainAssetId,
 } from '@/lib/multi-chain-assets'
 
@@ -323,7 +326,7 @@ export default function WalletPage() {
   const [nodeStatsLoading, setNodeStatsLoading] = useState(false)
   const [showNodeSetup, setShowNodeSetup] = useState(false)
   const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
-  const [walletSection, setWalletSection] = useState<'multichain' | 'bridge'>('multichain')
+  const [walletSection, setWalletSection] = useState<'falcon' | 'multichain' | 'bridge'>('falcon')
   const [bridgeInitialMode, setBridgeInitialMode] = useState<'deposit' | 'withdraw'>('deposit')
   const [receiveAssetId, setReceiveAssetId] = useState<MultiChainAssetId>('falcon')
   const [bridgeMissing, setBridgeMissing] = useState(false)
@@ -837,7 +840,7 @@ export default function WalletPage() {
       setRestoreSeed('')
       setRestorePassphrase('')
       setView('dashboard')
-      setWalletSection(hasBridgeWallet(stored) ? 'bridge' : 'multichain')
+      setWalletSection(hasBridgeWallet(stored) ? 'bridge' : 'falcon')
       refreshBalance(address)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Restore failed')
@@ -1476,33 +1479,42 @@ export default function WalletPage() {
                 </div>
               )}
 
-              {view === 'dashboard' && (
+              {view === 'dashboard' && walletSection !== 'bridge' && (
                 <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWalletSection('falcon')
+                      refreshBalance(wallet.address)
+                    }}
+                    className={`flex-1 py-2.5 font-medium ${walletSection === 'falcon' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
+                  >
+                    Falcon Wallet
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
                       setWalletSection('multichain')
                       refreshBalance(wallet.address)
                     }}
-                    className={`flex-1 py-2.5 font-medium ${walletSection === 'multichain' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
+                    className={`flex-1 py-2.5 font-medium ${walletSection === 'multichain' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
                   >
                     Multi-chain
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWalletSection('bridge')
-                      setBridgeInitialMode('deposit')
-                      refreshBalance(wallet.address)
-                    }}
-                    className={`flex-1 py-2.5 font-medium ${walletSection === 'bridge' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
-                  >
-                    Bridge
                   </button>
                 </div>
               )}
 
-              {view === 'dashboard' && walletSection === 'multichain' && (
+              {view === 'dashboard' && walletSection === 'bridge' && (
+                <button
+                  type="button"
+                  onClick={() => setWalletSection('multichain')}
+                  className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1"
+                >
+                  ← Back to Multi-chain
+                </button>
+              )}
+
+              {view === 'dashboard' && (walletSection === 'falcon' || walletSection === 'multichain') && (
               <div className="card p-5 space-y-4">
                 {/* Identity: name first (mobile + desktop), then r-address */}
                 <div className="space-y-2">
@@ -1684,15 +1696,21 @@ export default function WalletPage() {
 
                 <div className="space-y-2">
                   <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
-                    Multi-chain balances
+                    {walletSection === 'falcon' ? 'Falcon balances' : 'Multi-chain assets'}
                   </div>
-                  {!account?.exists && account !== null && (
+                  {walletSection === 'multichain' && (
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Wrapped assets from other chains (FETH, FBTC, FBNB). Use <strong className="text-slate-400">Bridge</strong> on a row
+                      (or Open Bridge) to lock source collateral and mint Falcon F-assets. Falcon-native FALCON and F-USDC live under Falcon Wallet.
+                    </p>
+                  )}
+                  {walletSection === 'falcon' && !account?.exists && account !== null && (
                     <p className="text-xs text-slate-600">
                       Account not activated — fund your Falcon address first (faucet).
                     </p>
                   )}
                   <div className="space-y-2">
-                    {MULTI_CHAIN_ASSETS.map((asset) => {
+                    {(walletSection === 'falcon' ? FALCON_WALLET_ASSETS : MULTI_CHAIN_ASSETS).map((asset: MultiChainAssetDef) => {
                       const isLive = asset.status === 'live'
                       let balanceLabel = '—'
                       let detail: ReactNode = asset.subtitle
@@ -1707,24 +1725,11 @@ export default function WalletPage() {
                         if (account?.assets?.fusdc?.hasTrustLine === false) {
                           detail = (
                             <span>
-                              Need trust line —{' '}
-                              <button
-                                type="button"
-                                className="text-brand-400"
-                                onClick={() => {
-                                  setBridgeInitialMode('deposit')
-                                  setWalletSection('bridge')
-                                }}
-                              >
-                                Bridge
-                              </button>
-                              {' / '}
+                              Need trust line — use Bridge on this row or{' '}
                               <Link href="/swap" className="text-brand-400">Swap</Link>
                             </span>
                           )
                         }
-                      } else {
-                        balanceLabel = '—'
                       }
                       return (
                         <div
@@ -1784,7 +1789,7 @@ export default function WalletPage() {
                                 setWalletSection('bridge')
                               }}
                               className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25 disabled:opacity-35"
-                              title={asset.isNative ? 'Native asset — no bridge' : undefined}
+                              title={asset.isNative ? 'Native FALCON — no bridge' : 'Open bridge for this asset'}
                             >
                               Bridge
                             </button>
@@ -1794,7 +1799,7 @@ export default function WalletPage() {
                     })}
                   </div>
 
-                  {account?.exists && (
+                  {walletSection === 'falcon' && account?.exists && (
                     <div className="grid grid-cols-2 gap-2 text-sm pt-1">
                       <div className="bg-slate-800/40 rounded-xl px-3 py-2.5 border border-slate-800">
                         <div className="text-xs text-slate-500">LP tokens</div>
@@ -1834,8 +1839,8 @@ export default function WalletPage() {
                   )}
                 </div>
 
-                {/* Account name claim — AccountNames amendment live on testnet */}
-                {account?.exists && network.live && !accountName && (
+                {/* Account name claim — Falcon wallet only */}
+                {walletSection === 'falcon' && account?.exists && network.live && !accountName && (
                   <div className="rounded-xl border border-violet-500/25 bg-violet-950/20 p-3 space-y-2">
                     <div className="text-sm font-medium text-violet-200">Create named address</div>
                     <p className="text-[11px] text-slate-500 leading-relaxed">
@@ -1958,37 +1963,43 @@ export default function WalletPage() {
                 )}
 
                 <div className="flex gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBridgeInitialMode('deposit')
-                      setWalletSection('bridge')
-                    }}
-                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25"
-                  >
-                    Open Bridge
-                  </button>
-                  <Link
-                    href="/vault"
-                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-cyan-950/50 hover:bg-cyan-900/40 text-cyan-300 border border-cyan-500/25 text-center"
-                    title="Air-gapped vault (cold signer)"
-                  >
-                    Vault
-                  </Link>
-                  <button
-                    onClick={() => {
-                      setShowNodeSetup(!savedNode)
-                      setView('node')
-                    }}
-                    className={`py-2.5 px-3 rounded-xl text-sm font-semibold ${
-                      savedNode
-                        ? 'bg-cyan-950/60 text-cyan-300 border border-cyan-500/30'
-                        : 'bg-slate-800 text-slate-400'
-                    }`}
-                    title="Validator node"
-                  >
-                    Node
-                  </button>
+                  {(walletSection === 'multichain' || walletSection === 'falcon') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBridgeInitialMode('deposit')
+                        setWalletSection('bridge')
+                      }}
+                      className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25"
+                    >
+                      Open Bridge
+                    </button>
+                  )}
+                  {walletSection === 'falcon' && (
+                    <>
+                      <Link
+                        href="/vault"
+                        className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-cyan-950/50 hover:bg-cyan-900/40 text-cyan-300 border border-cyan-500/25 text-center"
+                        title="Air-gapped vault (cold signer)"
+                      >
+                        Vault
+                      </Link>
+                      <button
+                        onClick={() => {
+                          setShowNodeSetup(!savedNode)
+                          setView('node')
+                        }}
+                        className={`py-2.5 px-3 rounded-xl text-sm font-semibold ${
+                          savedNode
+                            ? 'bg-cyan-950/60 text-cyan-300 border border-cyan-500/30'
+                            : 'bg-slate-800 text-slate-400'
+                        }`}
+                        title="Validator node"
+                      >
+                        Node
+                      </button>
+                    </>
+                  )}
                   <button
                     onClick={() => refreshBalance(wallet.address)}
                     className="p-2.5 rounded-xl bg-slate-800 text-slate-400"
@@ -2031,11 +2042,8 @@ export default function WalletPage() {
                     </button>
                     <h3 className="font-semibold text-white text-sm">
                       Receive{' '}
-                      {receiveAssetId === 'fusdc'
-                        ? 'F-USDC'
-                        : receiveAssetId === 'falcon'
-                          ? 'FALCON'
-                          : MULTI_CHAIN_ASSETS.find((a) => a.id === receiveAssetId)?.symbol ?? 'assets'}
+                      {multiChainAssetById(receiveAssetId)?.symbol
+                        ?? (receiveAssetId === 'fusdc' ? 'F-USDC' : receiveAssetId === 'falcon' ? 'FALCON' : 'assets')}
                     </h3>
                   </div>
                   <p className="text-xs text-slate-500 leading-relaxed">
