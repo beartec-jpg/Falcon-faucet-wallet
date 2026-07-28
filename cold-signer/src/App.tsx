@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { AnimatedQr, MultiQrScan } from './components/MultiQr'
 import {
   assertOfflineForVaultOps,
-  allowOnlineOverride,
   readOnlineState,
 } from './lib/offlineGate'
 import {
