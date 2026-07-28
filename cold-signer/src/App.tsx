@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import OfflineWall from './components/OfflineWall'
 import { AnimatedQr, MultiQrScan } from './components/MultiQr'
 import {
   assertOfflineForVaultOps,
   allowOnlineOverride,
-  isVaultOpsBlocked,
   readOnlineState,
 } from './lib/offlineGate'
 import {
@@ -25,6 +23,7 @@ import {
   saveColdVaultWithPasskey,
   unlockColdVaultWithPassword,
   unlockColdVaultWithPasskey,
+  updateLastAccount,
   wipeColdVault,
 } from './lib/coldVaultDb'
 import {
@@ -180,18 +179,21 @@ export default function App() {
     })
   }, [])
 
-  // If a vault exists and we come online mid-session, wipe keys from RAM.
+  // Going online mid-session: keep device unlock for read-only balance, but clear
+  // in-progress sign state. Signing still asserts offline.
   useEffect(() => {
     if (!meta) return
     if (online && !allowOnlineOverride()) {
-      if (session) setSession(null)
-      setStep('locked')
+      setPreview(null)
+      setSignedEnc(null)
+      setRespEnc(null)
+      if (step === 'sign-preview' || step === 'sign-show' || step === 'sign-scan' || step === 'unlock-scan-chal' || step === 'unlock-show-resp') {
+        setStep(session ? 'actions' : 'locked')
+      }
     }
-  }, [online, meta, session])
+  }, [online, meta, session, step])
 
   const hasVault = !!meta
-  /** Block secret ops only after a vault is on device AND online. */
-  const opsBlocked = isVaultOpsBlocked(hasVault, online)
 
   // ── Import vault file ───────────────────────────────────────────────────────
   // Only from the installed PWA (not a browser tab). Online OK until vault loads.
@@ -267,11 +269,13 @@ export default function App() {
   async function handleUnlockDevice() {
     setError('')
     try {
-      assertOfflineForVaultOps(true)
+      // Device unlock is read-only (balance view). Signing still requires offline.
       setBusy(true)
       const keys = await unlockColdVaultWithPassword(coldPass)
       setColdPass('')
       setSession(keys)
+      const m = await loadColdVaultMeta()
+      setMeta(m)
       setStep('actions')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unlock failed')
@@ -283,12 +287,13 @@ export default function App() {
   async function handleUnlockPasskey() {
     setError('')
     try {
-      assertOfflineForVaultOps(true)
       if (!meta?.credentialId) throw new Error('No passkey registered for this vault')
       setBusy(true)
       const auth = await authenticateColdPasskey(meta.credentialId, !!meta.hasPrf)
       const keys = await unlockColdVaultWithPasskey(auth.keyBytes)
       setSession(keys)
+      const m = await loadColdVaultMeta()
+      setMeta(m)
       setStep('actions')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Passkey unlock failed')
@@ -317,6 +322,18 @@ export default function App() {
         throw new Error('Challenge address does not match this vault')
       }
       if (Date.now() > chal.expiresAt) throw new Error('Challenge expired — regenerate on hot')
+      // Cache live balance from hot (updates every vault unlock)
+      if (chal.account) {
+        await updateLastAccount({
+          balance: chal.account.balance,
+          exists: chal.account.exists,
+          sequence: chal.account.sequence,
+          currentLedger: chal.account.currentLedger,
+          fetchedAt: chal.account.fetchedAt,
+          networkKey: chal.account.networkKey,
+        })
+        setMeta(await loadColdVaultMeta())
+      }
       const msg = buildUnlockMessage({
         address: chal.address,
         challenge: chal.challenge,
@@ -395,24 +412,6 @@ export default function App() {
     setStep('empty')
   }
 
-  // ── Online wall: only after a vault is loaded ────────────────────────────────
-
-  if (opsBlocked) {
-    return (
-      <OfflineWall
-        vaultLabel={meta?.label}
-        canInstall={canNativeInstall}
-        onInstall={() => void handleInstallClick()}
-        onRetry={() => {
-          refreshOnline()
-          if (!navigator.onLine) {
-            setStep('locked')
-          }
-        }}
-      />
-    )
-  }
-
   // ── UI shells ───────────────────────────────────────────────────────────────
 
   const header = (
@@ -428,9 +427,34 @@ export default function App() {
             : 'bg-emerald-900/40 text-emerald-300'
         }`}
       >
-        {online ? 'Online' : 'Offline'}
+        {online ? 'Online · read-only' : 'Offline'}
       </span>
     </header>
+  )
+
+  const onlineBanner = online && hasVault && (
+    <div className="mx-4 mt-3 text-[11px] text-amber-200/90 bg-amber-950/40 border border-amber-700/30 rounded-xl px-3 py-2">
+      Online: view last known balance only. Go offline (airplane mode) before Unlock vault / Sign.
+    </div>
+  )
+
+  const balanceCard = meta?.lastAccount && (
+    <div className="rounded-xl bg-slate-950/80 border border-slate-800 px-4 py-3">
+      <p className="text-[11px] text-slate-500">Last known balance</p>
+      <p className="text-2xl font-bold text-white">
+        {meta.lastAccount.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}{' '}
+        <span className="text-sm font-medium text-slate-400">FALCON</span>
+      </p>
+      <p className="text-[10px] text-slate-600 mt-1">
+        {meta.lastAccount.exists ? 'Funded' : 'Unfunded'} · seq {meta.lastAccount.sequence}
+        {meta.lastAccount.fetchedAt
+          ? ` · ${new Date(meta.lastAccount.fetchedAt).toLocaleString()}`
+          : ''}
+      </p>
+      <p className="text-[10px] text-slate-600">
+        Refreshes when you complete Unlock vault with hot (includes live chain data).
+      </p>
+    </div>
   )
 
   if (step === 'boot') {
@@ -569,8 +593,20 @@ export default function App() {
               }}
             />
           </label>
+          <label className="block text-xs text-slate-400">
+            Or paste vault JSON (one-device test)
+            <textarea
+              rows={4}
+              placeholder='{"type":"falcon-vault-export",...}'
+              className="mt-1 w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-[11px] font-mono text-slate-200"
+              onChange={(e) => {
+                const v = e.target.value.trim()
+                if (v) setFileText(v)
+              }}
+            />
+          </label>
           {fileText && (
-            <p className="text-[11px] text-emerald-400">File loaded ({fileText.length} bytes)</p>
+            <p className="text-[11px] text-emerald-400">Vault data loaded ({fileText.length} chars)</p>
           )}
           <label className="block text-xs text-slate-400">
             Vault file password (from hot create)
@@ -655,6 +691,7 @@ export default function App() {
     return (
       <div className="min-h-screen flex flex-col bg-slate-950">
         {header}
+        {onlineBanner}
         <main className="flex-1 max-w-md mx-auto w-full px-4 py-10 space-y-6">
           <div className="text-center">
             <div className="text-4xl mb-3">🔒</div>
@@ -663,6 +700,14 @@ export default function App() {
               {meta?.address}
             </p>
           </div>
+          {meta?.lastAccount && (
+            <div className="rounded-xl bg-slate-900/80 border border-slate-800 px-4 py-3 text-center">
+              <p className="text-[11px] text-slate-500">Last known (unlock device to view)</p>
+              <p className="text-lg font-semibold text-slate-300">
+                {meta.lastAccount.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} FALCON
+              </p>
+            </div>
+          )}
           {error && (
             <div className="text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-xl p-3">
               {error}
@@ -706,26 +751,31 @@ export default function App() {
     )
   }
 
-  // Action list
+  // Action list — device unlocked (password/passkey): read-only balance + sign actions
   if (step === 'actions' && session) {
     return (
       <div className="min-h-screen flex flex-col bg-slate-950">
         {header}
+        {onlineBanner}
         <main className="flex-1 max-w-md mx-auto w-full px-4 py-6 space-y-3">
-          <p className="text-xs text-slate-500 font-mono break-all mb-4">{session.address}</p>
+          <p className="text-xs text-slate-500 font-mono break-all">{session.address}</p>
+          {balanceCard}
           {error && (
             <div className="text-sm text-red-400 bg-red-950/40 border border-red-800/40 rounded-xl p-3">
               {error}
             </div>
           )}
+          <p className="text-[11px] text-slate-500 pt-2">
+            Read-only until you complete vault unlock with hot. Signing requires airplane mode.
+          </p>
           <button
             type="button"
             onClick={() => setStep('unlock-scan-chal')}
             className="w-full text-left px-4 py-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-cyan-600/50"
           >
-            <div className="font-semibold text-white">1. Unlock vault</div>
+            <div className="font-semibold text-white">1. Unlock vault (hot challenge)</div>
             <div className="text-xs text-slate-400 mt-1">
-              Scan challenge from hot portal → show response QR
+              Scan or paste challenge from hot → returns live balance + response for portal
             </div>
           </button>
           <button
@@ -735,7 +785,7 @@ export default function App() {
           >
             <div className="font-semibold text-white">2. Sign transaction</div>
             <div className="text-xs text-slate-400 mt-1">
-              Scan unsigned Payment QR → preview → sign → show result
+              Scan or paste unsigned Payment → preview → sign → show / copy result
             </div>
           </button>
           <button

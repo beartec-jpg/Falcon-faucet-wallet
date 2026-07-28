@@ -278,14 +278,53 @@ export default function VaultPage() {
 
   // ── Unlock ──────────────────────────────────────────────────────────────────
 
-  function startUnlock() {
+  async function startUnlock() {
     if (!vault) return
     setError(null)
-    const chal = createUnlockChallenge(vault.address)
-    setChallenge(chal)
-    const enc = encodeMultiQr(encodeUnlockChallenge(chal), 'vault-unlock-chal')
-    setChalEncoded(enc)
-    setView('unlock-chal')
+    setBusy(true)
+    try {
+      // Live on-chain snapshot travels with the challenge so cold can cache balance
+      let accountSnap:
+        | {
+            balance: number
+            exists: boolean
+            sequence: number
+            currentLedger: number
+            fetchedAt: number
+            networkKey: string
+          }
+        | undefined
+      try {
+        const res = await fetch(
+          withNetworkQuery(
+            `/api/wallet/account?address=${encodeURIComponent(vault.address)}`,
+            network.key,
+          ),
+        )
+        const data = await res.json()
+        if (res.ok) {
+          accountSnap = {
+            balance: data.balance ?? 0,
+            exists: !!data.exists,
+            sequence: data.sequence ?? 0,
+            currentLedger: data.currentLedger ?? 0,
+            fetchedAt: Date.now(),
+            networkKey: network.key,
+          }
+        }
+      } catch {
+        /* snapshot optional — unlock still works without it */
+      }
+      const chal = createUnlockChallenge(vault.address, 120_000, accountSnap)
+      setChallenge(chal)
+      const enc = encodeMultiQr(encodeUnlockChallenge(chal), 'vault-unlock-chal')
+      setChalEncoded(enc)
+      setView('unlock-chal')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to start unlock')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function onUnlockResponse(payload: string) {
@@ -576,10 +615,11 @@ export default function VaultPage() {
             <div className="flex gap-2 flex-wrap">
               <button
                 type="button"
-                onClick={startUnlock}
-                className="flex-1 min-w-[140px] py-3 rounded-xl font-semibold bg-cyan-600 hover:bg-cyan-500 text-white"
+                disabled={busy}
+                onClick={() => void startUnlock()}
+                className="flex-1 min-w-[140px] py-3 rounded-xl font-semibold bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white"
               >
-                Unlock vault
+                {busy ? 'Fetching balance…' : 'Unlock vault'}
               </button>
               <button
                 type="button"

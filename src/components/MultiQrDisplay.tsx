@@ -96,15 +96,35 @@ export default function MultiQrDisplay({
       <p className="text-[11px] text-slate-500 text-center max-w-xs">
         Keep the camera on this screen until the other device finishes scanning all frames.
       </p>
-      {onDone && (
+      <div className="flex flex-wrap gap-2 justify-center">
         <button
           type="button"
-          onClick={onDone}
-          className="mt-1 px-4 py-2 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(encoded.payload)
+            } catch {
+              const ta = document.createElement('textarea')
+              ta.value = encoded.payload
+              document.body.appendChild(ta)
+              ta.select()
+              document.execCommand('copy')
+              document.body.removeChild(ta)
+            }
+          }}
+          className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/20"
         >
-          {doneLabel}
+          Copy full payload (one-device paste)
         </button>
-      )}
+        {onDone && (
+          <button
+            type="button"
+            onClick={onDone}
+            className="px-4 py-2 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200"
+          >
+            {doneLabel}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import jsQR from 'jsqr'
 import { MultiQrAssembler, type MultiQrContentType } from '@/lib/multi-qr'
+import { parsePastedTransport } from '@/lib/vault-protocol'
 
 interface Props {
   onComplete: (payload: string, ct: MultiQrContentType) => void
@@ -15,6 +16,8 @@ interface Props {
   hint?: string
   /** If set, only accept this content type */
   expectedCt?: MultiQrContentType
+  /** Show paste box for one-device testing */
+  allowPaste?: boolean
 }
 
 export default function MultiQrScanner({
@@ -23,6 +26,7 @@ export default function MultiQrScanner({
   title = 'Scan multi-part QR',
   hint = 'Point at the animated QR on the other device',
   expectedCt,
+  allowPaste = true,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -33,6 +37,8 @@ export default function MultiQrScanner({
   const [progress, setProgress] = useState(0)
   const [received, setReceived] = useState(0)
   const [expected, setExpected] = useState(0)
+  const [paste, setPaste] = useState('')
+  const [showPaste, setShowPaste] = useState(false)
 
   const stopCamera = useCallback((stream: MediaStream | null) => {
     stream?.getTracks().forEach((t) => t.stop())
@@ -173,6 +179,54 @@ export default function MultiQrScanner({
             )}
             {error?.includes('CRC') && (
               <p className="text-amber-400 text-xs text-center">CRC error — rescan from the start</p>
+            )}
+            {allowPaste && (
+              <div className="w-full max-w-sm mt-2 space-y-2">
+                <button
+                  type="button"
+                  className="w-full text-xs text-cyan-400 py-2"
+                  onClick={() => setShowPaste((v) => !v)}
+                >
+                  {showPaste ? 'Hide paste' : 'Paste payload (one-device test)'}
+                </button>
+                {showPaste && (
+                  <>
+                    <textarea
+                      value={paste}
+                      onChange={(e) => setPaste(e.target.value)}
+                      rows={5}
+                      placeholder="Paste full JSON from Copy payload on the other screen"
+                      className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-[11px] font-mono text-slate-200"
+                    />
+                    <button
+                      type="button"
+                      className="w-full py-2.5 rounded-xl text-sm font-semibold bg-cyan-700 hover:bg-cyan-600 text-white"
+                      onClick={() => {
+                        try {
+                          const payload = parsePastedTransport(paste)
+                          // Infer content type from payload when possible
+                          let ct: MultiQrContentType = expectedCt ?? 'unsigned-tx'
+                          try {
+                            const t = (JSON.parse(payload) as { type?: string }).type
+                            if (t === 'vault-unlock-chal') ct = 'vault-unlock-chal'
+                            else if (t === 'vault-unlock-resp') ct = 'vault-unlock-resp'
+                            else if (t === 'falcon-unsigned-tx') ct = 'unsigned-tx'
+                            else if (t === 'falcon-signed-tx') ct = 'signed-tx'
+                          } catch { /* keep expected */ }
+                          if (expectedCt && ct !== expectedCt) {
+                            throw new Error(`Expected ${expectedCt}, got ${ct}`)
+                          }
+                          onComplete(payload, ct)
+                        } catch (e) {
+                          setError(e instanceof Error ? e.message : 'Paste failed')
+                        }
+                      }}
+                    >
+                      Use pasted payload
+                    </button>
+                  </>
+                )}
+              </div>
             )}
           </>
         )}

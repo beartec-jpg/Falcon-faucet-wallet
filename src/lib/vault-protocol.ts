@@ -1,15 +1,30 @@
 /**
  * Falcon vault QR protocol payloads (UTF-8 JSON inside multi-QR bodies).
  *
- * Unlock: hot → challenge multi-QR, cold → response multi-QR (Falcon-signed).
+ * Unlock: hot → challenge multi-QR (+ on-chain snapshot), cold → response multi-QR.
  * Send:   hot → unsigned Payment package, cold → signed tx_blob.
+ *
+ * For one-device testing, the same JSON can be copied/pasted instead of scanned.
  */
 
-import { b64uDecode, b64uEncode } from './multi-qr'
+import { b64uDecode, b64uEncode, MultiQrAssembler } from './multi-qr'
 
 export const VAULT_PROTOCOL_VERSION = 1 as const
 export const CODEC_VERSION = 'falcon-ledger-codec-v1'
 export const UNLOCK_DOMAIN = 'FALCON-VAULT-UNLOCK-V1'
+
+// ── On-chain snapshot (hot → cold via unlock challenge) ───────────────────────
+
+/** Read-only account view for the cold device (no secrets). */
+export interface VaultAccountSnapshot {
+  balance: number
+  exists: boolean
+  sequence: number
+  currentLedger: number
+  /** Unix ms when hot fetched this */
+  fetchedAt: number
+  networkKey?: string
+}
 
 // ── Unlock challenge / response ───────────────────────────────────────────────
 
@@ -21,6 +36,8 @@ export interface VaultUnlockChallenge {
   challenge: string
   /** Unix ms */
   expiresAt: number
+  /** Live on-chain details from hot (updates each unlock) */
+  account?: VaultAccountSnapshot
 }
 
 export interface VaultUnlockResponse {
@@ -38,11 +55,16 @@ export function buildUnlockMessage(params: {
   challenge: string
   expiresAt: number
 }): Uint8Array {
+  // Snapshot is NOT part of the signed message — display only
   const text = `${UNLOCK_DOMAIN}\n${params.address}\n${params.challenge}\n${params.expiresAt}`
   return new TextEncoder().encode(text)
 }
 
-export function createUnlockChallenge(address: string, ttlMs = 120_000): VaultUnlockChallenge {
+export function createUnlockChallenge(
+  address: string,
+  ttlMs = 120_000,
+  account?: VaultAccountSnapshot,
+): VaultUnlockChallenge {
   const challengeBytes = crypto.getRandomValues(new Uint8Array(32))
   return {
     type: 'vault-unlock-chal',
@@ -50,6 +72,7 @@ export function createUnlockChallenge(address: string, ttlMs = 120_000): VaultUn
     address,
     challenge: b64uEncode(challengeBytes),
     expiresAt: Date.now() + ttlMs,
+    ...(account ? { account } : {}),
   }
 }
 
@@ -145,4 +168,59 @@ export function encodeUnsignedPayment(p: VaultUnsignedPayment): string {
 
 export function encodeSignedTx(p: VaultSignedTx): string {
   return JSON.stringify(p)
+}
+
+/**
+ * Accept paste of either a full protocol JSON body, or multi-QR frame JSON lines.
+ * Returns the reassembled UTF-8 protocol payload string.
+ */
+export function parsePastedTransport(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) throw new Error('Nothing pasted')
+
+  // Full protocol object
+  try {
+    const obj = JSON.parse(trimmed) as { type?: string; mid?: string; n?: number }
+    if (obj.type && !obj.mid) return trimmed
+    // Single multi-QR frame alone is incomplete unless n===1
+    if (obj.mid && typeof obj.n === 'number') {
+      const asm = new MultiQrAssembler()
+      const done = asm.addFrame(trimmed)
+      if (done !== null) return done
+      throw new Error('Pasted a single multi-QR frame — paste all frames or the full JSON payload')
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('Pasted a single')) throw e
+    // fall through — maybe multi-line frames
+  }
+
+  // Multiple frames: one JSON object per line
+  const lines = trimmed.split(/\n+/).map((l) => l.trim()).filter(Boolean)
+  if (lines.length > 1) {
+    const asm = new MultiQrAssembler()
+    let result: string | null = null
+    for (const line of lines) {
+      result = asm.addFrame(line)
+    }
+    if (result !== null) return result
+    throw new Error(`Incomplete multi-QR paste (${asm.receivedCount}/${asm.expectedCount || '?'} frames)`)
+  }
+
+  // Pretty-printed multi-frame array
+  try {
+    const arr = JSON.parse(trimmed) as unknown
+    if (Array.isArray(arr) && arr.every((x) => typeof x === 'string' || typeof x === 'object')) {
+      const asm = new MultiQrAssembler()
+      let result: string | null = null
+      for (const item of arr) {
+        const frame = typeof item === 'string' ? item : JSON.stringify(item)
+        result = asm.addFrame(frame)
+      }
+      if (result !== null) return result
+    }
+  } catch {
+    /* ignore */
+  }
+
+  throw new Error('Paste the full JSON payload (or all multi-QR frame lines)')
 }

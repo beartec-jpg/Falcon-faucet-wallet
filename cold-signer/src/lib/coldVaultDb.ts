@@ -5,6 +5,16 @@
 
 export type ColdUnlockMethod = 'password' | 'passkey'
 
+/** Cached on-chain view from hot unlock challenges (read-only). */
+export interface ColdAccountSnapshot {
+  balance: number
+  exists: boolean
+  sequence: number
+  currentLedger: number
+  fetchedAt: number
+  networkKey?: string
+}
+
 export interface ColdVaultRecord {
   id: 'main'
   address: string
@@ -15,6 +25,8 @@ export interface ColdVaultRecord {
   /** Present when unlockMethod === 'passkey' */
   credentialId?: string
   hasPrf?: boolean
+  /** Last known ledger balances from hot unlock snapshot */
+  lastAccount?: ColdAccountSnapshot
   encrypted: {
     data: string
     iv: string
@@ -23,7 +35,7 @@ export interface ColdVaultRecord {
 }
 
 const DB_NAME = 'falcon-cold-signer'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const STORE = 'vault'
 
 function openDB(): Promise<IDBDatabase> {
@@ -118,6 +130,7 @@ export type ColdVaultMeta = {
   unlockMethod: ColdUnlockMethod
   credentialId?: string
   hasPrf?: boolean
+  lastAccount?: ColdAccountSnapshot
 }
 
 export async function loadColdVaultMeta(): Promise<ColdVaultMeta | null> {
@@ -140,10 +153,18 @@ export async function loadColdVaultMeta(): Promise<ColdVaultMeta | null> {
         unlockMethod: r.unlockMethod ?? 'password',
         credentialId: r.credentialId,
         hasPrf: r.hasPrf,
+        lastAccount: r.lastAccount,
       })
     }
     req.onerror = () => reject(req.error)
   })
+}
+
+/** Persist account snapshot from hot unlock challenge (no secret involved). */
+export async function updateLastAccount(snapshot: ColdAccountSnapshot): Promise<void> {
+  const record = await loadFullRecord()
+  record.lastAccount = snapshot
+  await putRecord(record)
 }
 
 async function putRecord(record: ColdVaultRecord): Promise<void> {
