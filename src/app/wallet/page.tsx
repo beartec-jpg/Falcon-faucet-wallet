@@ -1851,24 +1851,9 @@ export default function WalletPage() {
                     {NATIVE_CHAIN_WALLETS.map((chain) => {
                       const isLive = chain.status === 'live'
                       const hasKey = hasBridgeWallet(wallet)
-                      let balanceLabel = '—'
-                      let addrHint: ReactNode = chain.subtitle
-                      if (chain.id === 'eth' && hasKey) {
-                        balanceLabel = nativeBalLoading
-                          ? '…'
-                          : ethNativeBal != null
-                            ? `${Number(ethNativeBal).toLocaleString(undefined, { maximumFractionDigits: 6 })} ETH`
-                            : '—'
-                        const usdcHint = usdcNativeBal != null
-                          ? ` · ${Number(usdcNativeBal).toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC`
-                          : ''
-                        addrHint = (
-                          <span className="font-mono text-slate-400">
-                            {(wallet.evmAddress || '').slice(0, 10)}…{(wallet.evmAddress || '').slice(-6)}
-                            <span className="text-slate-600 font-sans">{usdcHint} · Sepolia testnet</span>
-                          </span>
-                        )
-                      }
+                      const shortEvm = wallet.evmAddress
+                        ? `${wallet.evmAddress.slice(0, 10)}…${wallet.evmAddress.slice(-6)}`
+                        : ''
                       return (
                         <div
                           key={chain.id}
@@ -1889,12 +1874,35 @@ export default function WalletPage() {
                                   </span>
                                 )}
                               </div>
-                              <div className="text-[10px] text-slate-500 mt-0.5 leading-snug">{addrHint}</div>
-                            </div>
-                            <div className="font-mono text-sm font-semibold text-slate-100 shrink-0 text-right">
-                              {balanceLabel}
+                              <div className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                                {chain.id === 'eth' && hasKey ? (
+                                  <span className="font-mono text-slate-400">{shortEvm} <span className="font-sans text-slate-600">· Sepolia</span></span>
+                                ) : (
+                                  chain.subtitle
+                                )}
+                              </div>
                             </div>
                           </div>
+                          {chain.id === 'eth' && hasKey && (
+                            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                              <div className="rounded-lg bg-slate-900/60 px-2 py-1.5">
+                                <div className="text-slate-500">ETH</div>
+                                <div className="font-mono text-slate-100">
+                                  {nativeBalLoading ? '…' : ethNativeBal != null
+                                    ? Number(ethNativeBal).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                                    : '—'}
+                                </div>
+                              </div>
+                              <div className="rounded-lg bg-slate-900/60 px-2 py-1.5">
+                                <div className="text-slate-500">USDC</div>
+                                <div className="font-mono text-slate-100">
+                                  {nativeBalLoading ? '…' : usdcNativeBal != null
+                                    ? Number(usdcNativeBal).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                                    : '—'}
+                                </div>
+                              </div>
+                            </div>
+                          )}
                           <div className="mt-2.5 flex flex-wrap gap-1.5">
                             <button
                               type="button"

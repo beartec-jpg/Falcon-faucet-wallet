@@ -1156,7 +1156,8 @@ export default function BridgeDepositPanel({
                   to your Sepolia wallet above (usually within a few minutes).
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">F-USDC to bridge out</label>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">3 · Amount</div>
+                  <label className="text-xs text-slate-400">F-USDC to burn (Falcon Wallet) → USDC to ETH wallet</label>
                   <input
                     type="number"
                     value={withdrawAmount}
@@ -1177,7 +1178,7 @@ export default function BridgeDepositPanel({
                   </div>
                 </div>
                 <p className="text-[10px] text-slate-500">
-                  Sepolia release target:{' '}
+                  Release target (multi-chain ETH wallet):{' '}
                   <span className="font-mono text-slate-400">{wallet.evmAddress}</span>
                 </p>
                 <button
@@ -1192,7 +1193,7 @@ export default function BridgeDepositPanel({
                   }
                   className="btn-primary flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-500"
                 >
-                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge Out F-USDC with Passkey'}
+                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge'}
                 </button>
                 <button
                   type="button"
@@ -1256,7 +1257,8 @@ export default function BridgeDepositPanel({
                   </p>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">Sepolia USDC to bridge in</label>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">3 · Amount</div>
+                  <label className="text-xs text-slate-400">USDC to lock (from multi-chain ETH wallet)</label>
                   <input
                     type="number"
                     value={amount}
@@ -1268,7 +1270,7 @@ export default function BridgeDepositPanel({
                     disabled={busy || !bridgeReady || !canBridgeIn}
                   />
                   <div className="flex justify-between text-xs text-slate-600">
-                    <span>{balances ? `Available: ${usdcAvailRaw} Sepolia USDC` : ''}</span>
+                    <span>{balances ? `Available: ${usdcAvailRaw} USDC · gas ${fmt(ethAvail, 5)} ETH` : ''}</span>
                     {usdcAvail > 0 && canBridgeIn && (
                       <button type="button" onClick={() => setAmount(usdcAvailRaw)} className="text-brand-500">
                         Max
@@ -1283,7 +1285,7 @@ export default function BridgeDepositPanel({
                   disabled={busy || !bridgeReady || !canBridgeIn || amtNum <= 0 || ethAvail < 0.0001}
                   className="btn-primary flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500"
                 >
-                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge In USDC with Passkey'}
+                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge'}
                 </button>
                 {!canBridgeIn && (
                   <p className="text-[10px] text-amber-400/90">Add the F-USDC trust line above to enable Bridge In.</p>
