@@ -217,8 +217,6 @@ BNB **send** and FBNB **bridge** use the BSC proxy path. BTC **send** still sign
 
 **Relay** (`qxrp-feth-relay`): mint currency `ETH` decimals 18.
 
-**Smoke (ops):** wrap + deposit → mint `5e-05` ETH to a funded Falcon account was verified during deploy.
-
 **Bridge Out:** not enabled in UI.
 
 ### 4.3 Bridge In — BNB → FBNB
@@ -234,7 +232,50 @@ BNB **send** and FBNB **bridge** use the BSC proxy path. BTC **send** still sign
 
 **Bridge Out:** not enabled.
 
-### 4.4 Native Multi-chain (no Falcon mint)
+### 4.4 Verified bridge mint ledger (relay state, 2026-07-28)
+
+These are **real lock-mint pairs** recorded by the deposit relays (not AMM swaps).  
+Falcon “Recent Transactions” shows only the **mint Payment** side (now labeled **FETH** / **FBNB** / **F-USDC** via currency mapping — fix `fde2fe8`). The **EVM lock tx** lives on Sepolia / BscScan.
+
+#### FETH (`qxrp-feth-relay` / `feth_relay_state.json`)
+
+| When (UTC) | Amount | Falcon destination | Sepolia lock tx | Falcon mint tx |
+|------------|--------|--------------------|-----------------|----------------|
+| 2026-07-28T13:13:36Z | **0.00005** ETH | `r44mzkfQTGAjdQ9WE3Jx9LnETm1Y4t8wRE` | [`0x840c79f8…6340b`](https://sepolia.etherscan.io/tx/0x840c79f8aa228bc2bc285af4b883e30582b5695bfa106cb71274c45c8976340b) | `D01327A523449A99C28FE41FE0EE71184FA3502B89C777DA5D38A45B5F7FC4B3` |
+| 2026-07-28T15:44:23Z | **0.1** ETH | `rKqqPLMJkCqZPXotoGQBjGdZiPYQvCAzcN` | [`0xb4c54c25…04393`](https://sepolia.etherscan.io/tx/0xb4c54c25e79eae62fe5107fd445ce1484880bbdc80720afcc6850c7cf5504393) | `468692B3B3B551EDEE83980147ADF252E6793E2B9E2196A0EAC353995A297B14` |
+
+Deposit ids: `0xed4786f5…dd7d70`, `0xca2f9bc6…9aa6c8`.
+
+#### FBNB (`qxrp-fbnb-relay` / `fbnb_relay_state.json`)
+
+| When (UTC) | Amount | Falcon destination | BSC testnet lock tx | Falcon mint tx |
+|------------|--------|--------------------|---------------------|----------------|
+| 2026-07-28T15:50:38Z | **0.15** BNB | `rKqqPLMJkCqZPXotoGQBjGdZiPYQvCAzcN` | [`0xcf7fe6e6…8d014`](https://testnet.bscscan.com/tx/0xcf7fe6e6f45f54891ff7de5a0f0a6c872aed29c6d5e8ed757054e7c9dc08d014) | `10E550D8D45DE2C7F457A83A539FF457B84F8F15D8109BB57A7F158E755EB195` |
+
+Deposit id: `0x5adc4f39…a95011`.
+
+#### F-USDC (`qxrp-bridge-relay` / `relay_state.json`)
+
+Dozens of production testnet mints (sample of recent):
+
+| When (UTC) | Amount USDC | Falcon destination | Sepolia lock tx (prefix) | Falcon mint (prefix) |
+|------------|-------------|--------------------|--------------------------|----------------------|
+| 2026-07-28T09:23:09Z | 30 | `rMpmiVGj…HSxGZ` | `0xd6a7eb74…bc1242` | `10107FAF…919BBF` |
+| 2026-07-27T17:17:28Z | 5 | `rMpmiVGj…HSxGZ` | `0x55bca076…425e30` | `49E097FE…7F37DE` |
+| 2026-07-27T17:12:50Z | 5 | `rMpmiVGj…HSxGZ` | `0x3692f2a0…b8aa6` | `B05DCC4A…F7EC54` |
+
+Full history: `/var/lib/qxrp-bridge/relay_state.json` (`mints[]`).
+
+#### Supporting multi-chain txs (not mint, but build path)
+
+| Purpose | Network | Tx / id |
+|---------|---------|---------|
+| BTC testnet faucet → user P2PKH | BTC testnet3 | `bc0c8e4db4af032998353214ff571e931bfd01364cadfe7a105a6f6ed700ba01` → `mnviuZwNhDB4LcPrsNKrn14dLnCPZDpDR5` (0.00136498 tBTC) |
+| Fund ops deployer for FBNB lock | BSC testnet | `0x1c797c0da89da7ffce6d4fff00de27cc9a270ef9f631af00c0718fd4d7c7e27d` (0.005 tBNB → `0x64BA…Db107`) |
+| FBNB lock deploy | BSC testnet | Contract `0x682D60Bbf8dE13065C71cbF35c1dAdAa23E79938` |
+| FETH lock deploy | Sepolia | Contract `0x11808B5Cda14d4144dbD2279f92f447e0f8F8F1d` |
+
+### 4.5 Native Multi-chain (no Falcon mint)
 
 | Action | Network | Notes |
 |--------|---------|--------|
@@ -244,23 +285,52 @@ BNB **send** and FBNB **bridge** use the BSC proxy path. BTC **send** still sign
 | BTC receive | BTC testnet3 | P2PKH only (`m`/`n`) |
 | BTC send | BTC testnet3 | Browser P2PKH build/sign; broadcast Blockstream/Mempool |
 
-**BTC faucet example (user):**  
-- Address: `mnviuZwNhDB4LcPrsNKrn14dLnCPZDpDR5`  
-- Amount: `0.00136498` tBTC (136498 sats)  
-- Tx: `bc0c8e4db4af032998353214ff571e931bfd01364cadfe7a105a6f6ed700ba01`  
-- Network: Bitcoin **testnet3** (coinfaucet.eu) — not testnet4, not mainnet.
+### 4.6 Falcon IOU “swaps” vs bridge
 
-**BNB gas for FBNB lock deploy (user → ops):**  
-- Tx: `0x1c797c0da89da7ffce6d4fff00de27cc9a270ef9f631af00c0718fd4d7c7e27d`  
-- 0.005 tBNB → deployer `0x64BA…` (enough for lock deploy).
-
-### 4.5 Falcon IOU “swaps” vs bridge
-
-- **Bridge** = lock-mint / burn-release across chains (this doc).  
-- **Swap / Pool / AMM** on Falcon = separate DEX surfaces (`/swap`, `/pool`); they trade Falcon-side assets (e.g. FALCON ↔ F-USDC) after IOUs exist.  
-- Bridged FETH/FBNB appear as trust-line balances once catalogued in `testnet-stables.json` and can be used in DEX once liquidity exists (no automatic AMM seed for bridge-only tokens).
+- **Bridge** = lock-mint / burn-release across chains (section 4.4 txs).  
+- **Swap / Pool / AMM** on Falcon = separate DEX (`/swap`, `/pool`); trades Falcon-side assets after IOUs exist.  
+- Bridged FETH/FBNB are trust-line balances; no automatic AMM seed for bridge-only tokens.
 
 ---
+
+## 4.7 What’s left on BTC (clear answer)
+
+### Done (native BTC wallet)
+
+| Item | Status |
+|------|--------|
+| Passkey-encrypted BTC key in vault | Done |
+| Testnet + mainnet P2PKH addresses | Done |
+| Backup v3 includes BTC | Done |
+| Balance lookup (API proxy + explorers) | Done |
+| Receive (QR / copy testnet `m`/`n`) | Done |
+| Send P2PKH testnet | Done |
+| Proven faucet receive | Yes — see 4.4 supporting txs |
+
+### Not done (FBTC bridge)
+
+| Item | Status | New deploy / script? |
+|------|--------|----------------------|
+| Falcon **FBTC** issuer (`currency: BTC`) | Not created | `issue-bridge-iou.py --symbol FBTC --currency BTC` |
+| Mint path from **native BTC** | Not built | **Yes — new script** e.g. `bridge-btc-deposit-relay.py` (UTXO watcher → mint) |
+| Mint path from **WBTC on EVM** | Not built | **No new relay binary** — deploy another `FalconCollateralLock` with WBTC + reuse `bridge-deposit-relay.py` + new systemd unit |
+| Wallet Bridge **BTC → FBTC** UI | Not live | Wallet config + route after mint path exists |
+| FBTC Bridge Out | Not live | Same class of work as FETH/FBNB out |
+| Bech32 / Taproot send/receive | Not live | Optional UX (today P2PKH only) |
+| Multi-chain BTC txs in Falcon “Recent Transactions” | N/A | Falcon list is **ledger-only**; BTC chain history is separate (explorer) |
+
+### Do we need a new deployed script for BTC?
+
+| Goal | Answer |
+|------|--------|
+| Keep using native BTC send/receive only | **No** new Falcon/ops script |
+| **FBTC via WBTC** (same rails as FETH) | New **lock deploy** + issuer + **same** `bridge-deposit-relay.py` (new unit args only) |
+| **FBTC via native BTC deposits** | **Yes — new deposit watcher script** + custody BTC address + confirmations policy |
+
+**Recommended next for FBTC:** WBTC lock-mint first (fastest, reuses relay). Native BTC lock-mint second if product requires “true BTC in” without wrapping.
+
+---
+
 
 ## 5. Key code map (wallet)
 
