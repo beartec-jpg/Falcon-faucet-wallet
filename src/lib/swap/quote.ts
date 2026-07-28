@@ -173,7 +173,7 @@ export async function quoteSwap(
 
 export async function getUsdcMarket(
   networkKey: NetworkKey,
-  token: UsdcTokenRef,
+  token: UsdcTokenRef & { symbol?: string; displaySymbol?: string },
   address?: string,
 ) {
   const cfg = serverNetworkConfig(networkKey)
@@ -181,11 +181,23 @@ export async function getUsdcMarket(
   const dex = amm ? null : await dexQuote(networkKey, token.currency, token.issuer)
   const market = amm ?? dex
 
+  const display =
+    token.displaySymbol ||
+    token.symbol ||
+    (token.currency === 'QUC' ? 'F-USDC' : token.currency)
+
   let userBalance: { balance: number; limit: number } | null = null
   if (address && token.issuer) {
     const assets = await fetchWalletAssets(networkKey, address).catch(() => null)
-    if (assets?.fusdc.hasTrustLine) {
-      userBalance = { balance: assets.fusdc.balance, limit: 10_000_000 }
+    const row =
+      assets?.tokens?.find(
+        (t) => t.currency === token.currency && t.issuer === token.issuer,
+      ) ??
+      (assets?.fusdc.currency === token.currency && assets.fusdc.issuer === token.issuer
+        ? assets.fusdc
+        : null)
+    if (row?.hasTrustLine) {
+      userBalance = { balance: row.balance, limit: 10_000_000 }
     }
   }
 
@@ -193,7 +205,7 @@ export async function getUsdcMarket(
     network: networkKey,
     networkId: cfg.networkId,
     token: {
-      symbol: 'F-USDC',
+      symbol: display,
       currency: token.currency,
       issuer: token.issuer,
       configured: !!token.issuer,

@@ -6,10 +6,12 @@ import { withNetworkQuery } from '@/lib/network-query'
 
 interface PoolStats {
   live: boolean
+  token?: { symbol?: string; currency?: string; issuer?: string }
   pool?: {
     account: string
     falcon: number
     usdc: number
+    token?: number
     price: number
     tradingFeeBps: number
     tradingFeePct: number
@@ -54,9 +56,19 @@ function shortAddr(a: string): string {
 interface Props {
   viewerAddress?: string
   pollMs?: number
+  /** Pair selector — symbol preferred (FETH), or currency+issuer */
+  symbol?: string
+  currency?: string
+  issuer?: string
 }
 
-export default function PoolStatsPanel({ viewerAddress, pollMs = 12000 }: Props) {
+export default function PoolStatsPanel({
+  viewerAddress,
+  pollMs = 12000,
+  symbol,
+  currency,
+  issuer,
+}: Props) {
   const { networkKey } = useNetwork()
   const [data, setData] = useState<PoolStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -64,11 +76,15 @@ export default function PoolStatsPanel({ viewerAddress, pollMs = 12000 }: Props)
 
   const refresh = useCallback(async () => {
     try {
-      const q = viewerAddress
-        ? `/api/market/pool-stats?address=${encodeURIComponent(viewerAddress)}`
-        : '/api/market/pool-stats'
+      const params = new URLSearchParams()
+      if (viewerAddress) params.set('address', viewerAddress)
+      if (symbol) params.set('symbol', symbol)
+      if (currency) params.set('currency', currency)
+      if (issuer) params.set('issuer', issuer)
+      const qs = params.toString()
+      const q = `/api/market/pool-stats${qs ? `?${qs}` : ''}`
       const r = await fetch(withNetworkQuery(q, networkKey))
-      const d = (await r.json()) as PoolStats
+      const d = (await r.json()) as PoolStats & { token?: { symbol?: string } }
       if ('error' in d && typeof (d as { error?: string }).error === 'string') {
         throw new Error((d as { error: string }).error)
       }
@@ -79,13 +95,19 @@ export default function PoolStatsPanel({ viewerAddress, pollMs = 12000 }: Props)
     } finally {
       setLoading(false)
     }
-  }, [networkKey, viewerAddress])
+  }, [networkKey, viewerAddress, symbol, currency, issuer])
 
   useEffect(() => {
+    setLoading(true)
     refresh()
     const t = setInterval(refresh, pollMs)
     return () => clearInterval(t)
   }, [refresh, pollMs])
+
+  const tokenSym =
+    symbol ||
+    (data as { token?: { symbol?: string } } | null)?.token?.symbol ||
+    'F-USDC'
 
   if (loading && !data) {
     return (
@@ -100,13 +122,15 @@ export default function PoolStatsPanel({ viewerAddress, pollMs = 12000 }: Props)
       <div className="card p-6 border border-amber-500/20 bg-amber-500/5">
         <div className="text-sm font-semibold text-amber-200">No AMM pool yet</div>
         <p className="text-xs text-slate-400 mt-2">
-          Bridge Sepolia USDC in for F-USDC, then create the pool below. Stats will appear once the pool is live on-ledger.
+          Bridge {tokenSym} onto Falcon, then create the FALCON / {tokenSym} pool below. Stats appear
+          once the pool is live on-ledger.
         </p>
       </div>
     )
   }
 
   const p = data.pool
+  const tokenPool = p.token ?? p.usdc
 
   return (
     <div className="space-y-4">
@@ -115,7 +139,7 @@ export default function PoolStatsPanel({ viewerAddress, pollMs = 12000 }: Props)
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-500/15 text-purple-300">AMM</span>
-              <span className="text-xs text-slate-500">FALCON / F-USDC</span>
+              <span className="text-xs text-slate-500">FALCON / {tokenSym}</span>
             </div>
             <h2 className="text-lg font-bold text-white mt-2">Pool overview</h2>
           </div>
@@ -132,12 +156,12 @@ export default function PoolStatsPanel({ viewerAddress, pollMs = 12000 }: Props)
           <div className="col-span-2 sm:col-span-1 rounded-xl bg-slate-800/70 p-4">
             <div className="text-xs text-slate-500 mb-1">Total value (FALCON terms)</div>
             <div className="text-3xl font-bold text-white">{fmt(p.tvlFalcon, 0)}</div>
-            <div className="text-[10px] text-slate-500 mt-1">FALCON + F-USDC at pool price</div>
+            <div className="text-[10px] text-slate-500 mt-1">FALCON + {tokenSym} at pool price</div>
           </div>
           <div className="col-span-2 sm:col-span-1 rounded-xl bg-slate-800/70 p-4">
             <div className="text-xs text-slate-500 mb-1">Pool price</div>
             <div className="text-3xl font-bold text-white">{fmt(p.price, 4)}</div>
-            <div className="text-[10px] text-slate-500 mt-1">FALCON per F-USDC</div>
+            <div className="text-[10px] text-slate-500 mt-1">FALCON per {tokenSym}</div>
           </div>
         </div>
 
@@ -147,8 +171,8 @@ export default function PoolStatsPanel({ viewerAddress, pollMs = 12000 }: Props)
             <div className="text-lg font-bold text-white mt-1">{fmt(p.falcon, 0)}</div>
           </div>
           <div className="rounded-xl bg-slate-800/50 px-3 py-3">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500">F-USDC</div>
-            <div className="text-lg font-bold text-white mt-1">{fmt(p.usdc, 2)}</div>
+            <div className="text-[10px] uppercase tracking-wide text-slate-500">{tokenSym}</div>
+            <div className="text-lg font-bold text-white mt-1">{fmt(tokenPool, 2)}</div>
           </div>
           <div className="rounded-xl bg-slate-800/50 px-3 py-3">
             <div className="text-[10px] uppercase tracking-wide text-slate-500">LP providers</div>
@@ -163,7 +187,7 @@ export default function PoolStatsPanel({ viewerAddress, pollMs = 12000 }: Props)
         <div className="space-y-1.5">
           <div className="flex justify-between text-xs text-slate-500">
             <span>Asset mix (by value)</span>
-            <span>{fmt(p.falconSharePct, 1)}% FALCON · {fmt(p.usdcSharePct, 1)}% F-USDC</span>
+            <span>{fmt(p.falconSharePct, 1)}% FALCON · {fmt(p.usdcSharePct, 1)}% {tokenSym}</span>
           </div>
           <div className="h-2 rounded-full bg-slate-800 overflow-hidden flex">
             <div className="bg-brand-500/80 h-full" style={{ width: `${p.falconSharePct}%` }} />
@@ -197,7 +221,7 @@ export default function PoolStatsPanel({ viewerAddress, pollMs = 12000 }: Props)
               <div className="font-mono text-slate-200">{fmt(data.viewer.estFalconOut, 4)}</div>
             </div>
             <div>
-              <div className="text-slate-500">Withdrawable F-USDC</div>
+              <div className="text-slate-500">Withdrawable {tokenSym}</div>
               <div className="font-mono text-slate-200">{fmt(data.viewer.estUsdcOut, 4)}</div>
             </div>
           </div>

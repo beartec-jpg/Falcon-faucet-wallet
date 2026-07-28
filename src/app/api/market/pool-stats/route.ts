@@ -1,22 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
+import { resolveStableToken } from '@/lib/swap/token-config'
 
 const DROPS = 1_000_000
-
-async function tokenRef(networkKey: ReturnType<typeof resolveNetworkKey>) {
-  try {
-    const raw = await readFile(
-      path.join(process.cwd(), 'public', 'config', 'testnet-stables.json'),
-      'utf8',
-    )
-    const m = JSON.parse(raw) as { tokens?: Array<{ currency: string; issuer: string }> }
-    const t = m.tokens?.[0]
-    if (t) return t
-  } catch { /* ignore */ }
-  return { currency: 'QUC', issuer: '' }
-}
 
 interface RippleStateObj {
   LedgerEntryType?: string
@@ -81,10 +67,20 @@ async function listLpHolders(
 export async function GET(req: NextRequest) {
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
   const viewerAddress = req.nextUrl.searchParams.get('address')?.trim() ?? ''
-  const token = await tokenRef(networkKey)
+  const token = await resolveStableToken({
+    symbol: req.nextUrl.searchParams.get('symbol'),
+    currency: req.nextUrl.searchParams.get('currency'),
+    issuer: req.nextUrl.searchParams.get('issuer'),
+  })
 
   if (!token.issuer) {
-    return NextResponse.json({ error: 'F-USDC issuer not configured' }, { status: 503 })
+    return NextResponse.json({ error: `${token.displaySymbol} issuer not configured` }, { status: 503 })
+  }
+
+  const tokenOut = {
+    currency: token.currency,
+    issuer: token.issuer,
+    symbol: token.displaySymbol,
   }
 
   let ammR: { amm?: Record<string, unknown> }
@@ -97,7 +93,7 @@ export async function GET(req: NextRequest) {
   } catch {
     return NextResponse.json({
       live: false,
-      token: { ...token, symbol: 'F-USDC' },
+      token: tokenOut,
       updatedAt: new Date().toISOString(),
     })
   }
@@ -106,7 +102,7 @@ export async function GET(req: NextRequest) {
   if (!amm) {
     return NextResponse.json({
       live: false,
-      token: { ...token, symbol: 'F-USDC' },
+      token: tokenOut,
       updatedAt: new Date().toISOString(),
     })
   }
@@ -116,12 +112,12 @@ export async function GET(req: NextRequest) {
   const lpCurrency = lpMeta?.currency ?? ''
   const lpTotal = parseFloat(lpMeta?.value ?? '0')
   const falconPool = typeof amm.amount === 'string' ? parseInt(amm.amount, 10) / DROPS : 0
-  const usdcPool = parseFloat(String((amm.amount2 as { value?: string })?.value ?? '0'))
+  const tokenPool = parseFloat(String((amm.amount2 as { value?: string })?.value ?? '0'))
   const tradingFeeBps = typeof amm.trading_fee === 'number' ? amm.trading_fee : 0
-  const price = usdcPool > 0 ? falconPool / usdcPool : 0
+  const price = tokenPool > 0 ? falconPool / tokenPool : 0
 
-  const usdcValueInFalcon = usdcPool * price
-  const tvlFalcon = falconPool + usdcValueInFalcon
+  const tokenValueInFalcon = tokenPool * price
+  const tvlFalcon = falconPool + tokenValueInFalcon
   const falconSharePct = tvlFalcon > 0 ? (falconPool / tvlFalcon) * 100 : 50
 
   const contributors = lpCurrency && ammAccount
@@ -139,11 +135,12 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     live: true,
-    token: { ...token, symbol: 'F-USDC' },
+    token: tokenOut,
     pool: {
       account: ammAccount,
       falcon: falconPool,
-      usdc: usdcPool,
+      usdc: tokenPool, // legacy field name (token leg of AMM)
+      token: tokenPool,
       price,
       tradingFeeBps,
       tradingFeePct: tradingFeeBps / 1000,
@@ -151,6 +148,7 @@ export async function GET(req: NextRequest) {
       tvlFalcon,
       falconSharePct,
       usdcSharePct: 100 - falconSharePct,
+      tokenSharePct: 100 - falconSharePct,
       contributorCount,
       voteSlots,
       auctionHolder: auction?.account ?? null,
@@ -168,7 +166,8 @@ export async function GET(req: NextRequest) {
           lpBalance: viewer?.lpBalance ?? 0,
           sharePct: viewerSharePct,
           estFalconOut: viewerSharePct != null ? falconPool * (viewerSharePct / 100) : 0,
-          estUsdcOut: viewerSharePct != null ? usdcPool * (viewerSharePct / 100) : 0,
+          estUsdcOut: viewerSharePct != null ? tokenPool * (viewerSharePct / 100) : 0,
+          estTokenOut: viewerSharePct != null ? tokenPool * (viewerSharePct / 100) : 0,
         }
       : null,
     updatedAt: new Date().toISOString(),

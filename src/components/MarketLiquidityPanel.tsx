@@ -54,7 +54,7 @@ interface Props {
   usdcBalance: number | null
   /** True when an AMM pool exists on-ledger (not the same as DEX order book). */
   poolLive: boolean
-  /** FALCON per F-USDC from parent market data; used until lp-position pool loads. */
+  /** FALCON per token from parent market data; used until lp-position pool loads. */
   poolPrice?: number | null
   onRefresh: () => void
 }
@@ -72,7 +72,7 @@ function fmt(n: number, d = 4): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: d })
 }
 
-/** FALCON per F-USDC — same units as pool price display. */
+/** FALCON per token — same units as pool price display. */
 function poolRatioFromPools(falconPool: number, usdcPool: number): number {
   if (usdcPool <= 0) return 0
   return falconPool / usdcPool
@@ -185,7 +185,7 @@ export default function MarketLiquidityPanel({
     const x = parseFloat(xrpAmt)
     const u = parseFloat(usdcAmt)
     if (!Number.isFinite(x) || x <= 0 || !Number.isFinite(u) || u <= 0) {
-      setError('Enter FALCON and bridged F-USDC amounts to create the pool')
+      setError(`Enter FALCON and ${token.symbol} amounts to create the pool`)
       return
     }
 
@@ -204,7 +204,7 @@ export default function MarketLiquidityPanel({
         )
       }
       if (usdcBalance != null && usdcBalance < u) {
-        throw new Error(`Need ${fmt(u, 4)} bridged F-USDC — bridge Sepolia USDC in first`)
+        throw new Error(`Need ${fmt(u, 4)} ${token.symbol} — bridge in first if needed`)
       }
 
       const data = await submitSequenced(falcon_secret, ({ sequence, lastLedgerSequence }, secret) =>
@@ -239,7 +239,7 @@ export default function MarketLiquidityPanel({
     const x = parseFloat(xrpAmt)
     const u = parseFloat(usdcAmt)
     if (!Number.isFinite(x) || x <= 0 || !Number.isFinite(u) || u <= 0) {
-      setError('Enter FALCON and F-USDC amounts for AMM deposit')
+      setError(`Enter FALCON and ${token.symbol} amounts for AMM deposit`)
       return
     }
 
@@ -247,8 +247,8 @@ export default function MarketLiquidityPanel({
       const { matchedFalcon, matchedUsdc, imbalancePct } = matchedDepositAmounts(x, u, activePoolRatio)
       if (imbalancePct > DEPOSIT_IMBALANCE_BLOCK_PCT) {
         setError(
-          `Deposit sides don't match the pool ratio (${fmt(activePoolRatio, 4)} FALCON per F-USDC). ` +
-            `Only ~${fmt(matchedFalcon, 4)} FALCON + ~${fmt(matchedUsdc, 4)} F-USDC would become LP; ` +
+          `Deposit sides don't match the pool ratio (${fmt(activePoolRatio, 4)} FALCON per ${token.symbol}). ` +
+            `Only ~${fmt(matchedFalcon, 4)} FALCON + ~${fmt(matchedUsdc, 4)} ${token.symbol} would become LP; ` +
             `excess stays in your wallet or may be swapped at pool price. Click "Match pool ratio" first.`,
         )
         return
@@ -274,7 +274,7 @@ export default function MarketLiquidityPanel({
           const drift = Math.abs(freshRatio - referenceRatio) / referenceRatio
           if (freshRatio > 0 && drift > slippageBps / 10_000) {
             throw new Error(
-              `Pool ratio moved ${fmt(drift * 100, 2)}% (now ${fmt(freshRatio, 4)} FALCON per F-USDC, ` +
+              `Pool ratio moved ${fmt(drift * 100, 2)}% (now ${fmt(freshRatio, 4)} FALCON per ${token.symbol}, ` +
                 `was ${fmt(referenceRatio, 4)}), beyond your ${fmt(slippageBps / 100, 2)}% tolerance. ` +
                 `Refresh and re-check the amounts.`,
             )
@@ -352,8 +352,8 @@ export default function MarketLiquidityPanel({
         const freshUsdc = freshPosition.estUsdcOut * freshFraction
         if (freshXrp + FP_COMPARE_EPSILON < minXrp || freshUsdc + FP_COMPARE_EPSILON < minUsdc) {
           throw new Error(
-            `Pool moved: withdrawing now returns ~${fmt(freshXrp, 4)} FALCON + ~${fmt(freshUsdc, 4)} F-USDC, ` +
-              `below your minimum of ${fmt(minXrp, 4)} FALCON + ${fmt(minUsdc, 4)} F-USDC ` +
+            `Pool moved: withdrawing now returns ~${fmt(freshXrp, 4)} FALCON + ~${fmt(freshUsdc, 4)} ${token.symbol}, ` +
+              `below your minimum of ${fmt(minXrp, 4)} FALCON + ${fmt(minUsdc, 4)} ${token.symbol} ` +
               `(${fmt(slippageBps / 100, 2)}% tolerance). Refresh and try again.`,
           )
         }
@@ -377,7 +377,7 @@ export default function MarketLiquidityPanel({
         ),
       )
       setResult(
-        `Withdrawn from pool: ${data.result ?? 'ok'} — FALCON and F-USDC returned to your wallet`,
+        `Withdrawn from pool: ${data.result ?? 'ok'} — FALCON and ${token.symbol} returned to your wallet`,
       )
       setTimeout(() => { onRefresh(); loadLpPosition() }, 4000)
     } catch (e: unknown) {
@@ -452,7 +452,7 @@ export default function MarketLiquidityPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">AMM Pool</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Deposit bridged F-USDC and FALCON into the shared pool, or withdraw your LP share.
+            Deposit {token.symbol} and FALCON into the shared pool, or withdraw your LP share.
             Limit orders are on the Swap tab — they are a separate DEX book, not part of this pool.
           </p>
         </div>
@@ -489,7 +489,7 @@ export default function MarketLiquidityPanel({
         {!poolLive && (
           <div className="space-y-4">
             <p className="text-xs text-amber-200 bg-amber-500/10 rounded-xl px-3 py-2">
-              No AMM pool exists yet. Bridge Sepolia USDC in for F-USDC, then create the pool with F-USDC + FALCON.
+              No AMM pool exists yet. Bridge {token.symbol} onto Falcon, then create the pool with {token.symbol} + FALCON.
               You set the initial price (ratio of the two amounts). Creating the pool costs a one-time{' '}
               ~{fmt(parseInt(AMM_CREATE_FEE_DROPS, 10) / DROPS_PER_XRP, 0)} FALCON ledger fee on top of your deposit.
             </p>
@@ -505,7 +505,7 @@ export default function MarketLiquidityPanel({
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-slate-400">F-USDC (bridged)</label>
+                <label className="text-xs text-slate-400">{token.symbol}</label>
                 <input
                   type="number"
                   value={usdcAmt}
@@ -517,7 +517,7 @@ export default function MarketLiquidityPanel({
             </div>
             {parseFloat(xrpAmt) > 0 && parseFloat(usdcAmt) > 0 && (
               <p className="text-xs text-slate-500">
-                Initial price: {fmt(parseFloat(xrpAmt) / parseFloat(usdcAmt), 6)} FALCON per F-USDC
+                Initial price: {fmt(parseFloat(xrpAmt) / parseFloat(usdcAmt), 6)} FALCON per {token.symbol}
               </p>
             )}
             <button
@@ -558,7 +558,7 @@ export default function MarketLiquidityPanel({
                     <div className="font-mono text-slate-200">{fmt(lpPosition.estXrpOut, 4)}</div>
                   </div>
                   <div>
-                    <div className="text-slate-500">Withdrawable F-USDC</div>
+                    <div className="text-slate-500">Withdrawable {token.symbol}</div>
                     <div className="font-mono text-slate-200">{fmt(lpPosition.estUsdcOut, 4)}</div>
                   </div>
                 </div>
@@ -595,9 +595,9 @@ export default function MarketLiquidityPanel({
 
             <p className="text-xs text-slate-500">
               Deposit both assets at the current pool ratio
-              ({activePoolRatio > 0 ? `${fmt(activePoolRatio, 4)} FALCON per F-USDC` : 'loading…'}).
+              ({activePoolRatio > 0 ? `${fmt(activePoolRatio, 4)} FALCON per ${token.symbol}` : 'loading…'}).
               This is monetary value at the live price, not equal token counts — if FALCON trades at $2, you deposit
-              about twice as much F-USDC as FALCON per dollar of liquidity.
+              about twice as much {token.symbol} as FALCON per dollar of liquidity (when that applies).
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -616,7 +616,7 @@ export default function MarketLiquidityPanel({
                 )}
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-slate-400">F-USDC</label>
+                <label className="text-xs text-slate-400">{token.symbol}</label>
                 <input
                   type="number"
                   value={usdcAmt}
@@ -636,7 +636,7 @@ export default function MarketLiquidityPanel({
               <div className="text-xs rounded-xl px-3 py-2 space-y-2 bg-amber-500/10 border border-amber-500/25 text-amber-200">
                 <p>
                   Imbalanced deposit. Only ~{fmt(depositMatch.matchedFalcon, 4)}{' '}
-                  FALCON + ~{fmt(depositMatch.matchedUsdc, 4)} F-USDC would become LP ({fmt(depositMatch.imbalancePct, 2)}%
+                  FALCON + ~{fmt(depositMatch.matchedUsdc, 4)} {token.symbol} would become LP ({fmt(depositMatch.imbalancePct, 2)}%
                   off pool ratio). Excess stays in your wallet or may be swapped at pool price.
                 </p>
                 <button
@@ -656,7 +656,7 @@ export default function MarketLiquidityPanel({
               depositUsdc > 0 && (
                 <p className="text-xs text-emerald-400/90 bg-emerald-500/10 rounded-xl px-3 py-2">
                   Balanced at pool ratio — ~{fmt(depositMatch.matchedFalcon, 4)} FALCON + ~{fmt(depositMatch.matchedUsdc, 4)}{' '}
-                  F-USDC will become LP.
+                  {token.symbol} will become LP.
                 </p>
               )}
 

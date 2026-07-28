@@ -1,31 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveNetworkKey, serverNetworkConfig } from '@/lib/network-server'
+import { resolveNetworkKey } from '@/lib/network-server'
 import { quoteSwap, getUsdcMarket } from '@/lib/swap/quote'
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
-
-async function resolveUsdcToken(networkKey: ReturnType<typeof resolveNetworkKey>) {
-  const cfg = serverNetworkConfig(networkKey)
-  let currency = cfg.tokens[0]?.currency ?? ''
-  let issuer = cfg.tokens[0]?.issuer ?? ''
-
-  if (!issuer && networkKey === 'testnet') {
-    try {
-      const manifestPath = path.join(process.cwd(), 'public', 'config', 'testnet-stables.json')
-      const raw = await readFile(manifestPath, 'utf8')
-      const manifest = JSON.parse(raw) as {
-        tokens?: Array<{ currency: string; issuer: string }>
-      }
-      const t = manifest.tokens?.[0]
-      if (t) {
-        currency = t.currency
-        issuer = t.issuer
-      }
-    } catch { /* ignore */ }
-  }
-
-  return { currency, issuer }
-}
+import { resolveStableToken } from '@/lib/swap/token-config'
 
 export async function GET(req: NextRequest) {
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
@@ -38,7 +14,11 @@ export async function GET(req: NextRequest) {
     | null
   const amountStr = req.nextUrl.searchParams.get('amount')
 
-  const token = await resolveUsdcToken(networkKey)
+  const token = await resolveStableToken({
+    symbol: req.nextUrl.searchParams.get('symbol'),
+    currency: req.nextUrl.searchParams.get('currency'),
+    issuer: req.nextUrl.searchParams.get('issuer'),
+  })
 
   if (direction && amountStr) {
     const amount = parseFloat(amountStr)
