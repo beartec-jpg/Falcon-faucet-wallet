@@ -1,5 +1,5 @@
 {
-  "note": "Multi-asset lock-mint routes. fusdc/feth live; fbnb pending BSC lock deploy (auto when deployer funded).",
+  "note": "Multi-asset lock-mint routes. fusdc/feth/fbnb live on testnet (bridge-in). See docs/MULTI-CHAIN-IMPLEMENTATION.md.",
   "routes": [
     {
       "id": "fusdc-sepolia",
