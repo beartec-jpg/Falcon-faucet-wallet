@@ -67,11 +67,12 @@ export const FALCON_WALLET_ASSETS: FalconAssetDef[] = [
   {
     id: 'fbnb',
     symbol: 'FBNB',
-    subtitle: 'Coming soon · wrapped BNB on Falcon',
-    status: 'coming_soon',
-    canSend: false,
-    canReceive: false,
-    canBridge: false,
+    subtitle: 'Bridged BNB on Falcon (via Bridge ← wrap BNB → lock WBNB on BSC testnet)',
+    status: 'live',
+    canSend: true,
+    canReceive: true,
+    canBridge: true,
+    currency: 'BNB',
   },
 ]
 
@@ -117,12 +118,12 @@ export const NATIVE_CHAIN_WALLETS: NativeChainWalletDef[] = [
     id: 'bnb',
     symbol: 'BNB',
     chainLabel: 'BNB Smart Chain',
-    subtitle: 'Same 0x as ETH · BSC balances (bridge to FBNB later)',
+    subtitle: 'Same 0x as ETH · BSC testnet · Bridge → FBNB (wrap WBNB)',
     status: 'live',
     sharesEthKey: true,
     canSend: true,
     canReceive: true,
-    canBridge: false,
+    canBridge: true,
   },
 ]
 

@@ -48,12 +48,13 @@ async function waitForTx(
   tx: { hash: string; wait: (conf?: number, timeout?: number) => Promise<{ status?: number | null; hash: string; logs?: unknown[] } | null> },
   label: string,
   onStep?: (step: string) => void,
+  chainLabel = 'chain',
 ): Promise<{ status?: number | null; hash: string; logs?: unknown[] }> {
-  onStep?.(`${label} submitted — waiting for Sepolia confirmation…`)
-  onStep?.(`Tx ${tx.hash.slice(0, 10)}… (track on Etherscan if slow)`)
+  onStep?.(`${label} submitted — waiting for ${chainLabel} confirmation…`)
+  onStep?.(`Tx ${tx.hash.slice(0, 10)}…`)
   const rc = await tx.wait(1, TX_CONFIRM_TIMEOUT_MS)
   if (!rc) {
-    throw new Error(`${label} timed out after 3 minutes. Check Etherscan for ${tx.hash}`)
+    throw new Error(`${label} timed out after 3 minutes (${tx.hash})`)
   }
   if (rc.status !== 1) throw new Error(`${label} failed on-chain (${tx.hash})`)
   return rc
@@ -66,24 +67,41 @@ export const SEPOLIA_RPC_FALLBACKS = [
   'https://sepolia.drpc.org',
 ] as const
 
-function provider(rpcUrl: string): JsonRpcProvider {
-  return new JsonRpcProvider(rpcUrl, 11155111, { staticNetwork: true })
+export const BSC_TESTNET_RPC_FALLBACKS = [
+  'https://bsc-testnet-rpc.publicnode.com',
+  'https://data-seed-prebsc-1-s1.binance.org:8545',
+  'https://bsc-testnet.drpc.org',
+  'https://rpc.ankr.com/bsc_testnet_chapel',
+] as const
+
+function provider(rpcUrl: string, chainId = 11155111): JsonRpcProvider {
+  return new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true })
+}
+
+async function withEvmProvider<T>(
+  primaryUrl: string,
+  chainId: number,
+  fallbacks: readonly string[],
+  fn: (p: JsonRpcProvider) => Promise<T>,
+  label = 'EVM',
+): Promise<T> {
+  const urls = [primaryUrl, ...fallbacks.filter((u) => u !== primaryUrl)]
+  let lastErr: unknown
+  for (const url of urls) {
+    try {
+      return await fn(provider(url, chainId))
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(`${label} RPC unavailable`)
 }
 
 async function withSepoliaProvider<T>(
   primaryUrl: string,
   fn: (p: JsonRpcProvider) => Promise<T>,
 ): Promise<T> {
-  const urls = [primaryUrl, ...SEPOLIA_RPC_FALLBACKS.filter((u) => u !== primaryUrl)]
-  let lastErr: unknown
-  for (const url of urls) {
-    try {
-      return await fn(provider(url))
-    } catch (e) {
-      lastErr = e
-    }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error('Sepolia RPC unavailable')
+  return withEvmProvider(primaryUrl, 11155111, SEPOLIA_RPC_FALLBACKS, fn, 'Sepolia')
 }
 
 export async function fetchSepoliaBalances(
@@ -105,11 +123,14 @@ export async function fetchSepoliaBalances(
 }
 
 /**
- * Generic ERC-20 lock deposit (USDC, WETH, …) into FalconCollateralLock.
+ * Generic ERC-20 lock deposit (USDC, WETH, WBNB, …) into FalconCollateralLock.
  * Same approve + deposit(amount, falconAccount) flow for any token address.
  */
 export async function depositErc20ToBridge(opts: {
   rpcUrl: string
+  chainId?: number
+  rpcFallbacks?: readonly string[]
+  chainLabel?: string
   tokenAddress: string
   lockContract: string
   tokenDecimals: number
@@ -117,10 +138,14 @@ export async function depositErc20ToBridge(opts: {
   evmPrivateKey: string
   amount: string
   falconAccount: string
+  gasTokenSymbol?: string
   onStep?: (step: string) => void
 }): Promise<BridgeDepositResult> {
   const {
     rpcUrl,
+    chainId = 11155111,
+    rpcFallbacks = SEPOLIA_RPC_FALLBACKS,
+    chainLabel = 'Sepolia',
     tokenAddress,
     lockContract,
     tokenDecimals,
@@ -128,24 +153,25 @@ export async function depositErc20ToBridge(opts: {
     evmPrivateKey,
     amount: amountStr,
     falconAccount,
+    gasTokenSymbol = 'ETH',
     onStep,
   } = opts
   if (!FALCON_ADDRESS_RE.test(falconAccount.trim())) {
     throw new Error('Invalid Falcon destination address — cannot bridge in')
   }
-  onStep?.('Connecting to Sepolia…')
-  const p = await resolveProvider(rpcUrl)
+  onStep?.(`Connecting to ${chainLabel}…`)
+  const p = await resolveEvmProvider(rpcUrl, chainId, rpcFallbacks, chainLabel)
   const signer = new Wallet(evmPrivateKey, p)
   const token = new Contract(tokenAddress, ERC20_ABI, signer)
   const lock = new Contract(lockContract, LOCK_ABI, signer)
 
-  onStep?.(`Checking Sepolia ${tokenSymbol} balances…`)
+  onStep?.(`Checking ${chainLabel} ${tokenSymbol} balances…`)
   const decimals: number = await token.decimals().catch(() => tokenDecimals)
 
-  const ethBal = await p.getBalance(signer.address)
-  if (ethBal === 0n) {
+  const gasBal = await p.getBalance(signer.address)
+  if (gasBal === 0n) {
     throw new Error(
-      'No Sepolia ETH for gas. Get test ETH from a Sepolia faucet, then try again.',
+      `No ${gasTokenSymbol} for gas on ${chainLabel}. Fund the Multi-chain address, then try again.`,
     )
   }
 
@@ -154,7 +180,7 @@ export async function depositErc20ToBridge(opts: {
   if (amount <= 0n) throw new Error('Amount must be greater than zero')
   if (amount > tokenBal) {
     throw new Error(
-      `Amount exceeds Sepolia ${tokenSymbol} balance (${formatUnits(tokenBal, decimals)} available)`,
+      `Amount exceeds ${tokenSymbol} balance (${formatUnits(tokenBal, decimals)} available)`,
     )
   }
 
@@ -169,7 +195,7 @@ export async function depositErc20ToBridge(opts: {
       const msg = e instanceof Error ? e.message : String(e)
       throw new Error(`${tokenSymbol} approve failed: ${msg}`)
     }
-    const approveRc = await waitForTx(approveTx, `${tokenSymbol} approve`, onStep)
+    const approveRc = await waitForTx(approveTx, `${tokenSymbol} approve`, onStep, chainLabel)
     approveHash = approveRc.hash
   }
 
@@ -181,7 +207,7 @@ export async function depositErc20ToBridge(opts: {
     const msg = e instanceof Error ? e.message : String(e)
     throw new Error(`Bridge deposit failed to submit: ${msg}`)
   }
-  const depositRc = await waitForTx(depositTx, 'Bridge deposit', onStep)
+  const depositRc = await waitForTx(depositTx, 'Bridge deposit', onStep, chainLabel)
 
   let depositId: string | undefined
   for (const log of depositRc.logs ?? []) {
@@ -232,6 +258,44 @@ const WETH_ABI = [
   'function allowance(address owner, address spender) view returns (uint256)',
 ] as const
 
+/** Wrap native gas token into WETH/WBNB-style ERC-20. */
+export async function wrapNativeToWrapped(opts: {
+  rpcUrl: string
+  chainId?: number
+  rpcFallbacks?: readonly string[]
+  chainLabel?: string
+  wrappedToken: string
+  wrappedSymbol?: string
+  nativeSymbol?: string
+  evmPrivateKey: string
+  amount: string
+  gasReserve?: string
+  onStep?: (step: string) => void
+}): Promise<string> {
+  const chainId = opts.chainId ?? 11155111
+  const fallbacks = opts.rpcFallbacks ?? SEPOLIA_RPC_FALLBACKS
+  const chainLabel = opts.chainLabel ?? 'Sepolia'
+  const wrappedSymbol = opts.wrappedSymbol ?? 'WETH'
+  const nativeSymbol = opts.nativeSymbol ?? 'ETH'
+  const gasReserveAmt = opts.gasReserve ?? '0.001'
+  const p = await resolveEvmProvider(opts.rpcUrl, chainId, fallbacks, chainLabel)
+  const signer = new Wallet(opts.evmPrivateKey, p)
+  const wrapped = new Contract(opts.wrappedToken, WETH_ABI, signer)
+  const value = parseUnits(opts.amount, 18)
+  if (value <= 0n) throw new Error('Amount must be greater than zero')
+  const nativeBal = await p.getBalance(signer.address)
+  const gasReserve = parseUnits(gasReserveAmt, 18)
+  if (nativeBal < value + gasReserve) {
+    throw new Error(
+      `Need ${opts.amount} ${nativeSymbol} + ~${gasReserveAmt} for gas (have ${formatUnits(nativeBal, 18)} ${nativeSymbol})`,
+    )
+  }
+  opts.onStep?.(`Wrapping ${opts.amount} ${nativeSymbol} → ${wrappedSymbol}…`)
+  const tx = await wrapped.deposit({ value })
+  const rc = await waitForTx(tx, `${wrappedSymbol} wrap`, opts.onStep, chainLabel)
+  return rc.hash
+}
+
 /** Wrap native ETH into WETH on Sepolia. */
 export async function wrapEthToWeth(opts: {
   rpcUrl: string
@@ -240,23 +304,13 @@ export async function wrapEthToWeth(opts: {
   amountEth: string
   onStep?: (step: string) => void
 }): Promise<string> {
-  const p = await resolveProvider(opts.rpcUrl)
-  const signer = new Wallet(opts.evmPrivateKey, p)
-  const weth = new Contract(opts.wethToken, WETH_ABI, signer)
-  const value = parseUnits(opts.amountEth, 18)
-  if (value <= 0n) throw new Error('Amount must be greater than zero')
-  const ethBal = await p.getBalance(signer.address)
-  // leave ~0.001 ETH for gas headroom
-  const gasReserve = parseUnits('0.001', 18)
-  if (ethBal < value + gasReserve) {
-    throw new Error(
-      `Need ${opts.amountEth} ETH + ~0.001 for gas (have ${formatUnits(ethBal, 18)} ETH)`,
-    )
-  }
-  opts.onStep?.(`Wrapping ${opts.amountEth} ETH → WETH…`)
-  const tx = await weth.deposit({ value })
-  const rc = await waitForTx(tx, 'WETH wrap', opts.onStep)
-  return rc.hash
+  return wrapNativeToWrapped({
+    rpcUrl: opts.rpcUrl,
+    wrappedToken: opts.wethToken,
+    evmPrivateKey: opts.evmPrivateKey,
+    amount: opts.amountEth,
+    onStep: opts.onStep,
+  })
 }
 
 /**
@@ -302,12 +356,87 @@ export async function depositEthToFethBridge(opts: {
 
   const result = await depositErc20ToBridge({
     rpcUrl: cfg.rpc_url,
+    chainId: cfg.chain_id ?? 11155111,
     tokenAddress: weth,
     lockContract: lock,
     tokenDecimals: cfg.weth_decimals ?? 18,
     tokenSymbol: 'WETH',
     evmPrivateKey,
     amount: amountEth,
+    falconAccount,
+    onStep,
+  })
+  return { ...result, wrapHash }
+}
+
+/**
+ * Bridge In FBNB: wrap BNB→WBNB if needed, approve, lock on BSC testnet.
+ */
+export async function depositBnbToFbnbBridge(opts: {
+  rpcUrl: string
+  wbnbToken: string
+  lockContract: string
+  wbnbDecimals?: number
+  evmPrivateKey: string
+  amountBnb: string
+  falconAccount: string
+  onStep?: (step: string) => void
+}): Promise<BridgeDepositResult & { wrapHash?: string }> {
+  const {
+    rpcUrl,
+    wbnbToken,
+    lockContract,
+    wbnbDecimals = 18,
+    evmPrivateKey,
+    amountBnb,
+    falconAccount,
+    onStep,
+  } = opts
+  if (!wbnbToken?.match(/^0x[a-fA-F0-9]{40}$/) || !lockContract?.match(/^0x[a-fA-F0-9]{40}$/)) {
+    throw new Error('FBNB bridge not deployed yet — WBNB lock contract missing from config')
+  }
+  if (!FALCON_ADDRESS_RE.test(falconAccount.trim())) {
+    throw new Error('Invalid Falcon destination address — cannot bridge in')
+  }
+
+  onStep?.('Connecting to BSC testnet…')
+  const p = await resolveEvmProvider(rpcUrl, 97, BSC_TESTNET_RPC_FALLBACKS, 'BSC testnet')
+  const signer = new Wallet(evmPrivateKey, p)
+  const wbnbC = new Contract(wbnbToken, WETH_ABI, signer)
+  const amount = parseUnits(amountBnb, wbnbDecimals)
+  if (amount <= 0n) throw new Error('Amount must be greater than zero')
+
+  let wrapHash: string | undefined
+  const wbnbBal: bigint = await wbnbC.balanceOf(signer.address)
+  if (wbnbBal < amount) {
+    const need = amount - wbnbBal
+    wrapHash = await wrapNativeToWrapped({
+      rpcUrl,
+      chainId: 97,
+      rpcFallbacks: BSC_TESTNET_RPC_FALLBACKS,
+      chainLabel: 'BSC testnet',
+      wrappedToken: wbnbToken,
+      wrappedSymbol: 'WBNB',
+      nativeSymbol: 'BNB',
+      gasReserve: '0.002',
+      evmPrivateKey,
+      amount: formatUnits(need, 18),
+      onStep,
+    })
+  }
+
+  const result = await depositErc20ToBridge({
+    rpcUrl,
+    chainId: 97,
+    rpcFallbacks: BSC_TESTNET_RPC_FALLBACKS,
+    chainLabel: 'BSC testnet',
+    tokenAddress: wbnbToken,
+    lockContract,
+    tokenDecimals: wbnbDecimals,
+    tokenSymbol: 'WBNB',
+    gasTokenSymbol: 'BNB',
+    evmPrivateKey,
+    amount: amountBnb,
     falconAccount,
     onStep,
   })
@@ -375,18 +504,27 @@ export async function sendSepoliaUsdc(opts: {
   return rc.hash
 }
 
-async function resolveProvider(primaryUrl: string): Promise<JsonRpcProvider> {
-  const urls = [primaryUrl, ...SEPOLIA_RPC_FALLBACKS.filter((u) => u !== primaryUrl)]
+async function resolveEvmProvider(
+  primaryUrl: string,
+  chainId = 11155111,
+  fallbacks: readonly string[] = SEPOLIA_RPC_FALLBACKS,
+  label = 'EVM',
+): Promise<JsonRpcProvider> {
+  const urls = [primaryUrl, ...fallbacks.filter((u) => u !== primaryUrl)]
   for (const url of urls) {
     try {
-      const prov = provider(url)
+      const prov = provider(url, chainId)
       await prov.getBlockNumber()
       return prov
     } catch {
       /* try next */
     }
   }
-  throw new Error('Cannot reach Sepolia RPC')
+  throw new Error(`Cannot reach ${label} RPC`)
+}
+
+async function resolveProvider(primaryUrl: string): Promise<JsonRpcProvider> {
+  return resolveEvmProvider(primaryUrl, 11155111, SEPOLIA_RPC_FALLBACKS, 'Sepolia')
 }
 
 export interface WithdrawalReleaseStatus {

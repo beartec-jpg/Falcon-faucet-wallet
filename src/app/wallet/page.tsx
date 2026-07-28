@@ -350,7 +350,7 @@ export default function WalletPage() {
   const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
   const [walletSection, setWalletSection] = useState<'falcon' | 'multichain' | 'bridge'>('falcon')
   const [bridgeInitialMode, setBridgeInitialMode] = useState<'deposit' | 'withdraw' | 'send' | 'receive'>('deposit')
-  const [bridgeInitialRoute, setBridgeInitialRoute] = useState<'fusdc-sepolia' | 'feth-sepolia'>('fusdc-sepolia')
+  const [bridgeInitialRoute, setBridgeInitialRoute] = useState<'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc'>('fusdc-sepolia')
   const [receiveAssetId, setReceiveAssetId] = useState<MultiChainAssetId>('falcon')
   const [ethNativeBal, setEthNativeBal] = useState<string | null>(null)
   const [usdcNativeBal, setUsdcNativeBal] = useState<string | null>(null)
@@ -371,7 +371,7 @@ export default function WalletPage() {
   const [createLabel, setCreateLabel] = useState('')
 
   // Send form (Falcon IOUs + native multi-chain)
-  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'feth' | 'btc' | 'bnb' | 'eth'>('falcon')
+  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'feth' | 'fbnb' | 'btc' | 'bnb' | 'eth'>('falcon')
   const [sendTo,     setSendTo]     = useState('')
   const [sendAmount, setSendAmount] = useState('')
   const [sendResult, setSendResult] = useState<{
@@ -1280,6 +1280,10 @@ export default function WalletPage() {
       (t) => t.currency === 'ETH' || t.symbol === 'FETH',
     )
     const fethBal = fethTok?.balance ?? 0
+    const fbnbTok = account!.assets?.tokens?.find(
+      (t) => t.currency === 'BNB' || t.symbol === 'FBNB',
+    )
+    const fbnbBal = fbnbTok?.balance ?? 0
 
     if (!isValidFalconAddress(to)) {
       setError('Invalid destination — use an r… address or a claimed name (e.g. alice.bob)')
@@ -1302,6 +1306,13 @@ export default function WalletPage() {
       }
       if (amt > fethBal) {
         setError('Insufficient FETH balance'); return
+      }
+    } else if (sendAsset === 'fbnb') {
+      if (!fbnbTok?.issuer || fbnbTok.hasTrustLine === false) {
+        setError('Add a FBNB trust line on Bridge before sending'); return
+      }
+      if (amt > fbnbBal) {
+        setError('Insufficient FBNB balance'); return
       }
     } else {
       if (!fusdc?.issuer || fusdc.hasTrustLine === false) {
@@ -1356,7 +1367,9 @@ export default function WalletPage() {
           const iou =
             sendAsset === 'feth'
               ? { issuer: fethTok!.issuer, currency: fethTok!.currency }
-              : { issuer: fusdc!.issuer, currency: fusdc!.currency }
+              : sendAsset === 'fbnb'
+                ? { issuer: fbnbTok!.issuer, currency: fbnbTok!.currency }
+                : { issuer: fusdc!.issuer, currency: fusdc!.currency }
           return signFusdcPayment(
             {
               account:            wallet.address,
@@ -2035,6 +2048,22 @@ export default function WalletPage() {
                         } else if (!fethTok) {
                           detail = asset.subtitle
                         }
+                      } else if (asset.id === 'fbnb') {
+                        const fbnbTok = account?.assets?.tokens?.find(
+                          (t) => t.currency === 'BNB' || t.symbol === 'FBNB',
+                        )
+                        balanceLabel = (fbnbTok?.balance ?? 0).toLocaleString(undefined, {
+                          maximumFractionDigits: 6,
+                        })
+                        if (fbnbTok && !fbnbTok.hasTrustLine) {
+                          detail = (
+                            <span>
+                              Need trust line — open Bridge · FBNB
+                            </span>
+                          )
+                        } else if (!fbnbTok) {
+                          detail = asset.subtitle
+                        }
                       }
                       return (
                         <div
@@ -2082,7 +2111,9 @@ export default function WalletPage() {
                                     ? 'fusdc'
                                     : asset.id === 'feth'
                                       ? 'feth'
-                                      : 'falcon',
+                                      : asset.id === 'fbnb'
+                                        ? 'fbnb'
+                                        : 'falcon',
                                 )
                                 setView('send')
                                 setError(null)
@@ -2098,6 +2129,9 @@ export default function WalletPage() {
                               onClick={() => {
                                 if (asset.id === 'feth') {
                                   setBridgeInitialRoute('feth-sepolia')
+                                  setBridgeInitialMode('deposit')
+                                } else if (asset.id === 'fbnb') {
+                                  setBridgeInitialRoute('fbnb-bsc')
                                   setBridgeInitialMode('deposit')
                                 } else if (asset.id === 'fusdc') {
                                   setBridgeInitialRoute('fusdc-sepolia')
@@ -2329,9 +2363,12 @@ export default function WalletPage() {
                               disabled={!isLive || !chain.canBridge || !hasKey}
                               onClick={() => {
                                 setBridgeInitialMode('deposit')
-                                // ETH multi-chain → FETH route; USDC path remains default for Bridge tab
                                 setBridgeInitialRoute(
-                                  chain.id === 'eth' ? 'feth-sepolia' : 'fusdc-sepolia',
+                                  chain.id === 'eth'
+                                    ? 'feth-sepolia'
+                                    : chain.id === 'bnb'
+                                      ? 'fbnb-bsc'
+                                      : 'fusdc-sepolia',
                                 )
                                 setWalletSection('bridge')
                               }}
@@ -2737,7 +2774,7 @@ export default function WalletPage() {
                     </h3>
                   </div>
 
-                  {(sendAsset === 'falcon' || sendAsset === 'fusdc' || sendAsset === 'feth') && (
+                  {(sendAsset === 'falcon' || sendAsset === 'fusdc' || sendAsset === 'feth' || sendAsset === 'fbnb') && (
                   <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
                     <button
                       type="button"
@@ -2759,6 +2796,13 @@ export default function WalletPage() {
                       className={`flex-1 py-2 ${sendAsset === 'feth' ? 'bg-sky-500/10 text-sky-400' : 'text-slate-500'}`}
                     >
                       FETH
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSendAsset('fbnb'); setSendAmount(''); setError(null) }}
+                      className={`flex-1 py-2 ${sendAsset === 'fbnb' ? 'bg-yellow-500/10 text-yellow-400' : 'text-slate-500'}`}
+                    >
+                      FBNB
                     </button>
                   </div>
                   )}
@@ -2870,11 +2914,13 @@ export default function WalletPage() {
                               ? 'F-USDC'
                               : sendAsset === 'feth'
                                 ? 'FETH'
-                                : sendAsset === 'btc'
-                                  ? 'BTC'
-                                  : sendAsset === 'bnb'
-                                    ? 'BNB'
-                                    : 'ETH'}
+                                : sendAsset === 'fbnb'
+                                  ? 'FBNB'
+                                  : sendAsset === 'btc'
+                                    ? 'BTC'
+                                    : sendAsset === 'bnb'
+                                      ? 'BNB'
+                                      : 'ETH'}
                           )
                         </label>
                         <input
@@ -2938,6 +2984,40 @@ export default function WalletPage() {
                                     String(
                                       account.assets!.tokens!.find(
                                         (t) => t.currency === 'ETH' || t.symbol === 'FETH',
+                                      )!.balance,
+                                    ),
+                                  )
+                                }
+                                className="text-brand-500 hover:text-brand-400 transition-colors"
+                              >
+                                Max
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {account?.exists && sendAsset === 'fbnb' && (
+                          <div className="flex justify-between text-xs text-slate-600">
+                            <span>
+                              Available:{' '}
+                              {(
+                                account.assets?.tokens?.find(
+                                  (t) => t.currency === 'BNB' || t.symbol === 'FBNB',
+                                )?.balance ?? 0
+                              ).toLocaleString(undefined, { maximumFractionDigits: 6 })}{' '}
+                              FBNB
+                            </span>
+                            {(
+                              account.assets?.tokens?.find(
+                                (t) => t.currency === 'BNB' || t.symbol === 'FBNB',
+                              )?.balance ?? 0
+                            ) > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSendAmount(
+                                    String(
+                                      account.assets!.tokens!.find(
+                                        (t) => t.currency === 'BNB' || t.symbol === 'FBNB',
                                       )!.balance,
                                     ),
                                   )

@@ -27,6 +27,21 @@
     "token_issuer": "rNn8xd3hbeTEAcEmRQae8xVaKshAj7HrED",
     "status": "live"
   },
+  "bsc_testnet": {
+    "chain_id": 97,
+    "chain_name": "BSC Testnet",
+    "rpc_url": "https://bsc-testnet-rpc.publicnode.com",
+    "explorer_url": "https://testnet.bscscan.com",
+    "wbnb_token": "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd",
+    "lock_contract": null,
+    "wbnb_decimals": 18
+  },
+  "fbnb": {
+    "token_symbol": "FBNB",
+    "token_currency": "BNB",
+    "token_issuer": "rf8NZLdcwxrXAnPppttTeenQcAJW75uj7E",
+    "status": "pending_lock_deploy"
+  },
   "deposit_flow": {
     "type": "passkey_evm_wallet",
     "steps": [

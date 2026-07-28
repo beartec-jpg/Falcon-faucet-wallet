@@ -39,13 +39,32 @@ export interface FethBridgeMeta {
   status?: string
 }
 
+export interface BscBridgeConfig {
+  chain_id: number
+  chain_name: string
+  rpc_url: string
+  explorer_url: string
+  wbnb_token: string
+  lock_contract: string | null
+  wbnb_decimals: number
+}
+
+export interface FbnbBridgeMeta {
+  token_symbol: string
+  token_currency: string
+  token_issuer: string
+  status?: string
+}
+
 export interface UsdcBridgeManifest {
   version: number
   status: string
   description: string
   sepolia: SepoliaBridgeConfig
+  bsc_testnet?: BscBridgeConfig
   falcon: FalconBridgeToken
   feth?: FethBridgeMeta
+  fbnb?: FbnbBridgeMeta
   deposit_flow: {
     type: string
     steps: string[]
@@ -63,6 +82,14 @@ export function fethLockReady(cfg: UsdcBridgeManifest | null): boolean {
     cfg?.sepolia?.weth_lock_contract?.match(/^0x[a-fA-F0-9]{40}$/) &&
     cfg?.sepolia?.weth_token?.match(/^0x[a-fA-F0-9]{40}$/) &&
     cfg?.feth?.token_issuer?.match(/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/)
+  )
+}
+
+export function fbnbLockReady(cfg: UsdcBridgeManifest | null): boolean {
+  return !!(
+    cfg?.bsc_testnet?.lock_contract?.match(/^0x[a-fA-F0-9]{40}$/) &&
+    cfg?.bsc_testnet?.wbnb_token?.match(/^0x[a-fA-F0-9]{40}$/) &&
+    cfg?.fbnb?.token_issuer?.match(/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/)
   )
 }
 

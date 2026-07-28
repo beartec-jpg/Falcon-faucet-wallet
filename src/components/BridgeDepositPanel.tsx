@@ -13,6 +13,7 @@ import { saveWallet, type StoredWallet } from '@/lib/wallet-store'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
 import {
+  depositBnbToFbnbBridge,
   depositEthToFethBridge,
   depositUsdcToBridge,
   fetchSepoliaBalances,
@@ -21,6 +22,7 @@ import {
   waitForWithdrawalRelease,
   type BridgeDepositResult,
 } from '@/lib/evm-bridge-client'
+import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
 import { signBridgeWithdraw, signFusdcPayment, signTrustSet } from '@/lib/wallet-sign-client'
 
@@ -29,6 +31,7 @@ import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@
 import {
   etherscanAddressUrl,
   etherscanTokenUrl,
+  fbnbLockReady,
   fethLockReady,
   lockContractReady,
   type UsdcBridgeManifest,
@@ -91,8 +94,8 @@ interface Props {
   onFalconRefresh?: () => void
   /** Open on Bridge In (deposit) or Bridge Out (withdraw). Default deposit. */
   initialMode?: 'deposit' | 'withdraw' | 'send' | 'receive'
-  /** Which bridge route to open (e.g. FETH from Falcon tab). */
-  initialRoute?: 'fusdc-sepolia' | 'feth-sepolia'
+  /** Which bridge route to open (e.g. FETH / FBNB from Falcon tab). */
+  initialRoute?: 'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc'
 }
 
 type BridgeMode = 'bridge' | 'send' | 'receive'
@@ -158,25 +161,37 @@ export default function BridgeDepositPanel({
   const [hasFusdcTrustLine, setHasFusdcTrustLine] = useState(false)
   const [fethLive, setFethLive] = useState<number | null>(null)
   const [hasFethTrustLine, setHasFethTrustLine] = useState(false)
+  const [fbnbLive, setFbnbLive] = useState<number | null>(null)
+  const [hasFbnbTrustLine, setHasFbnbTrustLine] = useState(false)
+  const [bnbBal, setBnbBal] = useState<string | null>(null)
   const [trustLineResult, setTrustLineResult] = useState<{ ok: boolean; msg: string } | null>(null)
-  /** Live bridge routes — honour initialRoute from Falcon FETH / F-USDC buttons */
-  const [bridgeRoute, setBridgeRoute] = useState<'fusdc-sepolia' | 'feth-sepolia'>(() =>
-    initialRoute === 'feth-sepolia' ? 'feth-sepolia' : 'fusdc-sepolia',
-  )
+  type BridgeRouteId = 'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc'
+  /** Live bridge routes — honour initialRoute from Falcon / Multi-chain buttons */
+  const [bridgeRoute, setBridgeRoute] = useState<BridgeRouteId>(() => {
+    if (initialRoute === 'feth-sepolia') return 'feth-sepolia'
+    if (initialRoute === 'fbnb-bsc') return 'fbnb-bsc'
+    return 'fusdc-sepolia'
+  })
 
   const bridgeReady = lockContractReady(bridgeCfg)
   const fethReady = fethLockReady(bridgeCfg)
+  const fbnbReady = fbnbLockReady(bridgeCfg)
   const hasEvm = !!(wallet.evmAddress && wallet.evmEncrypted)
   const falconIssuer = bridgeCfg.falcon?.token_issuer?.trim() ?? ''
   const falconCurrency = bridgeCfg.falcon?.token_currency?.trim() ?? 'QUC'
   const fethIssuer = bridgeCfg.feth?.token_issuer?.trim() ?? ''
   const fethCurrency = bridgeCfg.feth?.token_currency?.trim() ?? 'ETH'
+  const fbnbIssuer = bridgeCfg.fbnb?.token_issuer?.trim() ?? ''
+  const fbnbCurrency = bridgeCfg.fbnb?.token_currency?.trim() ?? 'BNB'
   const isFethRoute = bridgeRoute === 'feth-sepolia'
-  const activeIssuer = isFethRoute ? fethIssuer : falconIssuer
-  const activeCurrency = isFethRoute ? fethCurrency : falconCurrency
-  const activeTrust = isFethRoute ? hasFethTrustLine : hasFusdcTrustLine
-  const activeLockReady = isFethRoute ? fethReady : bridgeReady
+  const isFbnbRoute = bridgeRoute === 'fbnb-bsc'
+  const isWrapRoute = isFethRoute || isFbnbRoute
+  const activeIssuer = isFbnbRoute ? fbnbIssuer : isFethRoute ? fethIssuer : falconIssuer
+  const activeCurrency = isFbnbRoute ? fbnbCurrency : isFethRoute ? fethCurrency : falconCurrency
+  const activeTrust = isFbnbRoute ? hasFbnbTrustLine : isFethRoute ? hasFethTrustLine : hasFusdcTrustLine
+  const activeLockReady = isFbnbRoute ? fbnbReady : isFethRoute ? fethReady : bridgeReady
   const canBridgeIn = activeTrust && !!activeIssuer && activeLockReady
+  const assetLabel = isFbnbRoute ? 'FBNB' : isFethRoute ? 'FETH' : 'F-USDC'
 
   const refreshFusdcBalance = useCallback(async () => {
     setFusdcLoading(true)
@@ -195,7 +210,7 @@ export default function BridgeDepositPanel({
       } else {
         setHasFusdcTrustLine(false)
       }
-      // FETH lives in multi-token catalog (currency ETH)
+      // FETH / FBNB live in multi-token catalog
       const tokens = (data.assets?.tokens ?? []) as Array<{
         currency?: string
         issuer?: string
@@ -216,13 +231,33 @@ export default function BridgeDepositPanel({
         setHasFethTrustLine(false)
         setFethLive(0)
       }
+      const fbnbTok =
+        tokens.find(
+          (t) =>
+            t.currency === (bridgeCfg.fbnb?.token_currency ?? 'BNB') &&
+            t.issuer === (bridgeCfg.fbnb?.token_issuer ?? ''),
+        ) || tokens.find((t) => t.symbol === 'FBNB' || t.currency === 'BNB')
+      if (fbnbTok) {
+        setHasFbnbTrustLine(!!fbnbTok.hasTrustLine)
+        setFbnbLive(fbnbTok.hasTrustLine ? (fbnbTok.balance ?? 0) : 0)
+      } else if (bridgeCfg.fbnb?.token_issuer) {
+        setHasFbnbTrustLine(false)
+        setFbnbLive(0)
+      }
       onFalconRefresh?.()
     } catch (e: unknown) {
       setFusdcError(e instanceof Error ? e.message : 'Could not load Falcon balances')
     } finally {
       setFusdcLoading(false)
     }
-  }, [networkKey, wallet.address, bridgeCfg.feth?.token_currency, bridgeCfg.feth?.token_issuer])
+  }, [
+    networkKey,
+    wallet.address,
+    bridgeCfg.feth?.token_currency,
+    bridgeCfg.feth?.token_issuer,
+    bridgeCfg.fbnb?.token_currency,
+    bridgeCfg.fbnb?.token_issuer,
+  ])
 
   useEffect(() => {
     if (fusdcBalance != null && fusdcBalance > 0) setFusdcLive(fusdcBalance)
@@ -256,6 +291,16 @@ export default function BridgeDepositPanel({
   useEffect(() => {
     if (hasEvm) refreshBalances()
   }, [hasEvm, refreshBalances])
+
+  useEffect(() => {
+    if (!hasEvm || !wallet.evmAddress) return
+    if (bridgeRoute !== 'fbnb-bsc') return
+    let cancelled = false
+    void fetchBnbTestnetBalance(wallet.evmAddress).then((b) => {
+      if (!cancelled) setBnbBal(b)
+    })
+    return () => { cancelled = true }
+  }, [hasEvm, wallet.evmAddress, bridgeRoute])
 
   const attachEvmWallet = async (
     privateKey: string,
@@ -620,7 +665,6 @@ export default function BridgeDepositPanel({
 
   const handleTrustLine = async () => {
     if (!activeIssuer || !network.live) return
-    const assetLabel = isFethRoute ? 'FETH' : 'F-USDC'
     setBusy(true)
     setError(null)
     setTrustLineResult(null)
@@ -640,7 +684,7 @@ export default function BridgeDepositPanel({
               account: wallet.address,
               currency: activeCurrency,
               issuer: activeIssuer,
-              limit: isFethRoute ? '1000000000' : '10000000',
+              limit: isWrapRoute ? '1000000000' : '10000000',
               sequence,
               lastLedgerSequence,
               networkId: network.networkId,
@@ -667,7 +711,8 @@ export default function BridgeDepositPanel({
         msg,
       })
       if (ok) {
-        if (isFethRoute) setHasFethTrustLine(true)
+        if (isFbnbRoute) setHasFbnbTrustLine(true)
+        else if (isFethRoute) setHasFethTrustLine(true)
         else setHasFusdcTrustLine(true)
         setTimeout(() => {
           refreshFusdcBalance()
@@ -685,19 +730,30 @@ export default function BridgeDepositPanel({
     if (!wallet.evmEncrypted || !wallet.evmAddress || !activeLockReady) return
     if (!canBridgeIn) {
       setError(
-        `Add a ${isFethRoute ? 'FETH' : 'F-USDC'} trust line on this page before bridging in — otherwise minted tokens cannot be delivered.`,
+        `Add a ${assetLabel} trust line on this page before bridging in — otherwise minted tokens cannot be delivered.`,
       )
       return
     }
     const amt = parseFloat(amount)
     if (!Number.isFinite(amt) || amt <= 0) {
-      setError(isFethRoute ? 'Enter a valid ETH amount' : 'Enter a valid USDC amount')
+      setError(
+        isFbnbRoute
+          ? 'Enter a valid BNB amount'
+          : isFethRoute
+            ? 'Enter a valid ETH amount'
+            : 'Enter a valid USDC amount',
+      )
       return
     }
 
-    if (isFethRoute) {
+    if (isFbnbRoute) {
+      const b = parseFloat(bnbBal ?? '0')
+      if (Number.isFinite(b) && amt + 0.002 > b) {
+        setError(`Need ${amount} BNB + ~0.002 gas (have ${fmt(b, 6)} BNB)`)
+        return
+      }
+    } else if (isFethRoute) {
       const ethBal = parseFloat(balances?.eth ?? '0')
-      // leave headroom for gas + wrap
       if (Number.isFinite(ethBal) && amt + 0.001 > ethBal) {
         setError(`Need ${amount} ETH + ~0.001 gas (have ${fmt(ethBal, 6)} ETH)`)
         return
@@ -716,34 +772,57 @@ export default function BridgeDepositPanel({
     setStep(null)
 
     try {
-      setStep('Confirm passkey to unlock Sepolia wallet…')
+      setStep('Confirm passkey to unlock multi-chain EVM wallet…')
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       setStep(
-        isFethRoute
-          ? 'Passkey OK — wrap ETH → WETH + lock (may take ~1–2 min)…'
-          : 'Passkey OK — submitting Sepolia txs (approve + lock, may take ~1 min)…',
+        isFbnbRoute
+          ? 'Passkey OK — wrap BNB → WBNB + lock on BSC (may take ~1–2 min)…'
+          : isFethRoute
+            ? 'Passkey OK — wrap ETH → WETH + lock (may take ~1–2 min)…'
+            : 'Passkey OK — submitting Sepolia txs (approve + lock, may take ~1 min)…',
       )
       const evmPrivateKey = await decryptSeed(wallet.evmEncrypted, keyBytes)
 
-      const res = isFethRoute
-        ? await depositEthToFethBridge({
-            cfg: bridgeCfg.sepolia,
-            evmPrivateKey,
-            amountEth: amount,
-            falconAccount: wallet.address,
-            onStep: setStep,
-          })
-        : await depositUsdcToBridge({
-            cfg: bridgeCfg.sepolia,
-            evmPrivateKey,
-            amountUsdc: amount,
-            falconAccount: wallet.address,
-            onStep: setStep,
-          })
+      let res: BridgeDepositResult
+      if (isFbnbRoute) {
+        const bsc = bridgeCfg.bsc_testnet
+        if (!bsc?.lock_contract || !bsc.wbnb_token) {
+          throw new Error('FBNB lock not deployed yet — try again shortly')
+        }
+        res = await depositBnbToFbnbBridge({
+          rpcUrl: bsc.rpc_url,
+          wbnbToken: bsc.wbnb_token,
+          lockContract: bsc.lock_contract,
+          wbnbDecimals: bsc.wbnb_decimals ?? 18,
+          evmPrivateKey,
+          amountBnb: amount,
+          falconAccount: wallet.address,
+          onStep: setStep,
+        })
+      } else if (isFethRoute) {
+        res = await depositEthToFethBridge({
+          cfg: bridgeCfg.sepolia,
+          evmPrivateKey,
+          amountEth: amount,
+          falconAccount: wallet.address,
+          onStep: setStep,
+        })
+      } else {
+        res = await depositUsdcToBridge({
+          cfg: bridgeCfg.sepolia,
+          evmPrivateKey,
+          amountUsdc: amount,
+          falconAccount: wallet.address,
+          onStep: setStep,
+        })
+      }
 
       setResult(res)
       setAmount('')
       await refreshBalances()
+      if (wallet.evmAddress) {
+        void fetchBnbTestnetBalance(wallet.evmAddress).then(setBnbBal)
+      }
       setTimeout(() => {
         refreshFusdcBalance()
         onFalconRefresh?.()
@@ -764,14 +843,25 @@ export default function BridgeDepositPanel({
   const usdcAvail = parseFloat(usdcAvailRaw) || 0
   const ethAvail = balances ? parseFloat(balances.eth) : 0
 
-  const routeTitleIn = isFethRoute ? 'Bridge In — ETH → FETH' : 'Bridge In — USDC → F-USDC'
-  const routeTitleOut = isFethRoute ? 'Bridge Out — FETH (soon)' : 'Bridge Out — F-USDC → USDC'
-  const sourceAvailLabel = isFethRoute
-    ? `${balanceLoading ? '…' : balances ? fmt(balances.eth, 6) : '—'} ETH`
-    : `${balanceLoading ? '…' : balances ? fmtFloor(usdcAvailRaw, 2) : '—'} USDC`
-  const falconAvailLabel = isFethRoute
-    ? `${fusdcLoading ? '…' : fmt(fethLive ?? 0, 6)} FETH`
-    : `${fusdcLoading ? '…' : fmt(fusdcAvail, 2)} F-USDC`
+  const routeTitleIn = isFbnbRoute
+    ? 'Bridge In — BNB → FBNB'
+    : isFethRoute
+      ? 'Bridge In — ETH → FETH'
+      : 'Bridge In — USDC → F-USDC'
+  const routeTitleOut = isWrapRoute
+    ? `Bridge Out — ${assetLabel} (soon)`
+    : 'Bridge Out — F-USDC → USDC'
+  const sourceAvailLabel = isFbnbRoute
+    ? `${bnbBal != null ? fmt(bnbBal, 6) : '—'} BNB`
+    : isFethRoute
+      ? `${balanceLoading ? '…' : balances ? fmt(balances.eth, 6) : '—'} ETH`
+      : `${balanceLoading ? '…' : balances ? fmtFloor(usdcAvailRaw, 2) : '—'} USDC`
+  const falconAvailLabel = isFbnbRoute
+    ? `${fusdcLoading ? '…' : fmt(fbnbLive ?? 0, 6)} FBNB`
+    : isFethRoute
+      ? `${fusdcLoading ? '…' : fmt(fethLive ?? 0, 6)} FETH`
+      : `${fusdcLoading ? '…' : fmt(fusdcAvail, 2)} F-USDC`
+  const bnbAvail = bnbBal != null ? parseFloat(bnbBal) : 0
 
   return (
     <div className="space-y-4">
@@ -804,8 +894,8 @@ export default function BridgeDepositPanel({
               <button
                 type="button"
                 onClick={() => {
-                  if (bridgeRoute === 'feth-sepolia') {
-                    setError('FETH Bridge Out (→ WETH) is not enabled yet — deposit mint is live')
+                  if (isWrapRoute) {
+                    setError(`${assetLabel} Bridge Out is not enabled yet — deposit mint is live`)
                     return
                   }
                   setMode('bridge')
@@ -829,14 +919,14 @@ export default function BridgeDepositPanel({
               className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-sm text-slate-100"
               value={bridgeRoute}
               onChange={(e) => {
-                const v = e.target.value as 'fusdc-sepolia' | 'feth-sepolia'
+                const v = e.target.value as BridgeRouteId
                 setBridgeRoute(v)
                 setError(null)
                 setResult(null)
                 setAmount('')
                 setWithdrawAmount('')
                 setTrustLineResult(null)
-                if (v === 'feth-sepolia' && direction === 'withdraw') {
+                if ((v === 'feth-sepolia' || v === 'fbnb-bsc') && direction === 'withdraw') {
                   setDirection('deposit')
                 }
               }}
@@ -847,11 +937,11 @@ export default function BridgeDepositPanel({
               <option value="feth-sepolia" disabled={!fethReady}>
                 {fethReady ? 'ETH → FETH' : 'ETH → FETH (config missing)'}
               </option>
+              <option value="fbnb-bsc" disabled={!fbnbReady}>
+                {fbnbReady ? 'BNB → FBNB' : 'BNB → FBNB (deploying lock…)'}
+              </option>
               <option value="fbtc" disabled>
                 BTC → FBTC (soon)
-              </option>
-              <option value="fbnb" disabled>
-                BNB → FBNB (soon)
               </option>
             </select>
           </div>
@@ -859,9 +949,11 @@ export default function BridgeDepositPanel({
 
         {hasEvm && !activeLockReady && (
           <div className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2.5">
-            {isFethRoute
-              ? 'FETH lock contract not configured.'
-              : 'USDC lock contract not configured. Set SEPOLIA_LOCK_CONTRACT in deployment env.'}
+            {isFbnbRoute
+              ? 'FBNB lock is deploying on BSC testnet — fund deployer gas if prompted, then hard-refresh.'
+              : isFethRoute
+                ? 'FETH lock contract not configured.'
+                : 'USDC lock contract not configured. Set SEPOLIA_LOCK_CONTRACT in deployment env.'}
           </div>
         )}
 
@@ -1066,11 +1158,18 @@ export default function BridgeDepositPanel({
                 </div>
                 <div className="text-2xl font-bold text-white font-mono">{sourceAvailLabel}</div>
                 <p className="text-[11px] text-slate-500 leading-snug">
-                  {isFethRoute
-                    ? 'Available ETH on Multi-chain (wrap + lock → mint FETH). Keep ~0.001 ETH for gas.'
-                    : 'Available USDC on Multi-chain (lock → mint F-USDC). Needs a little ETH for gas.'}
+                  {isFbnbRoute
+                    ? 'Available BNB on Multi-chain (wrap + lock on BSC testnet → mint FBNB). Keep ~0.002 BNB for gas.'
+                    : isFethRoute
+                      ? 'Available ETH on Multi-chain (wrap + lock → mint FETH). Keep ~0.001 ETH for gas.'
+                      : 'Available USDC on Multi-chain (lock → mint F-USDC). Needs a little ETH for gas.'}
                 </p>
-                {ethAvail < 0.001 && (
+                {isFbnbRoute && bnbAvail < 0.002 && (
+                  <p className="text-xs text-amber-400">
+                    Low BSC testnet BNB — fund Multi-chain BNB (Receive) from a testnet faucet.
+                  </p>
+                )}
+                {!isFbnbRoute && ethAvail < 0.001 && (
                   <p className="text-xs text-amber-400">
                     Low gas ETH — fund on Multi-chain or a{' '}
                     <a href="https://sepoliafaucet.com" target="_blank" rel="noopener noreferrer" className="underline text-brand-400">
@@ -1180,10 +1279,10 @@ export default function BridgeDepositPanel({
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
                     <div>
                       <p className="text-sm font-medium text-amber-200">
-                        Step 1 — {isFethRoute ? 'FETH' : 'F-USDC'} trust line required
+                        Step 1 — {assetLabel} trust line required
                       </p>
                       <p className="text-xs text-amber-100/80 mt-1">
-                        Bridge In mints {isFethRoute ? 'FETH' : 'F-USDC'} to your Falcon wallet (
+                        Bridge In mints {assetLabel} to your Falcon wallet (
                         {shortFalconAddr(wallet.address)}). Without a trust line to issuer{' '}
                         <span className="font-mono text-amber-100/90">
                           {activeIssuer ? `${activeIssuer.slice(0, 8)}…` : '—'}
@@ -1200,7 +1299,7 @@ export default function BridgeDepositPanel({
                       {busy ? (
                         <><Spinner /> Adding trust line…</>
                       ) : (
-                        `Add ${isFethRoute ? 'FETH' : 'F-USDC'} trust line (passkey)`
+                        `Add ${assetLabel} trust line (passkey)`
                       )}
                     </button>
                     {trustLineResult && (
@@ -1211,42 +1310,45 @@ export default function BridgeDepositPanel({
                   </div>
                 ) : (
                   <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">
-                    {isFethRoute ? 'FETH' : 'F-USDC'} trust line active — you can bridge in. Balance:{' '}
+                    {assetLabel} trust line active — you can bridge in. Balance:{' '}
                     <span className="font-mono">
                       {fusdcLoading
                         ? '…'
-                        : isFethRoute
-                          ? fmt(fethLive ?? 0, 6)
-                          : fmt(fusdcAvail, 2)}
+                        : isFbnbRoute
+                          ? fmt(fbnbLive ?? 0, 6)
+                          : isFethRoute
+                            ? fmt(fethLive ?? 0, 6)
+                            : fmt(fusdcAvail, 2)}
                     </span>
                   </div>
                 )}
 
                 <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-xs text-slate-400 space-y-1">
-                  {isFethRoute ? (
+                  {isFbnbRoute ? (
                     <>
-                      <p>Wrap Sepolia ETH → WETH, lock → relay mints FETH 1:1 to your Falcon wallet.</p>
-                      <p className="text-slate-500">
-                        One passkey unlocks your Sepolia wallet. Wrap + approve + lock can take 1–2 minutes.
-                        FETH mint usually follows within ~30s.
-                      </p>
+                      <p>Wrap BSC testnet BNB → WBNB, lock → relay mints FBNB 1:1.</p>
+                      <p className="text-slate-500">Wrap + approve + lock ~1–2 min; mint usually ~30s after.</p>
+                    </>
+                  ) : isFethRoute ? (
+                    <>
+                      <p>Wrap Sepolia ETH → WETH, lock → relay mints FETH 1:1.</p>
+                      <p className="text-slate-500">Wrap + approve + lock ~1–2 min; mint usually ~30s after.</p>
                     </>
                   ) : (
                     <>
-                      <p>Lock Sepolia USDC below → relay mints F-USDC to your Falcon wallet.</p>
-                      <p className="text-slate-500">
-                        One passkey unlocks your Sepolia wallet. Approve + lock happen on Sepolia automatically
-                        (no second passkey) — can take up to a minute. F-USDC mint usually follows within ~30s.
-                      </p>
+                      <p>Lock Sepolia USDC → relay mints F-USDC 1:1.</p>
+                      <p className="text-slate-500">Approve + lock on Sepolia; mint usually ~30s after.</p>
                     </>
                   )}
                 </div>
                 <div className="space-y-1.5">
                   <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">3 · Amount</div>
                   <label className="text-xs text-slate-400">
-                    {isFethRoute
-                      ? 'ETH to wrap + lock (from multi-chain ETH wallet)'
-                      : 'USDC to lock (from multi-chain ETH wallet)'}
+                    {isFbnbRoute
+                      ? 'BNB to wrap + lock (Multi-chain BNB wallet)'
+                      : isFethRoute
+                        ? 'ETH to wrap + lock (Multi-chain ETH wallet)'
+                        : 'USDC to lock (Multi-chain ETH wallet)'}
                   </label>
                   <input
                     type="number"
@@ -1260,28 +1362,40 @@ export default function BridgeDepositPanel({
                   />
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>
-                      {balances
-                        ? isFethRoute
-                          ? `Available: ${fmt(ethAvail, 6)} ETH (keep ~0.001 for gas)`
-                          : `Available: ${usdcAvailRaw} USDC · gas ${fmt(ethAvail, 5)} ETH`
-                        : ''}
+                      {isFbnbRoute
+                        ? `Available: ${bnbBal != null ? fmt(bnbBal, 6) : '—'} BNB (keep ~0.002 gas)`
+                        : balances
+                          ? isFethRoute
+                            ? `Available: ${fmt(ethAvail, 6)} ETH (keep ~0.001 for gas)`
+                            : `Available: ${usdcAvailRaw} USDC · gas ${fmt(ethAvail, 5)} ETH`
+                          : ''}
                     </span>
                     {canBridgeIn && (
-                      isFethRoute
-                        ? ethAvail > 0.002 && (
+                      isFbnbRoute
+                        ? bnbAvail > 0.003 && (
                             <button
                               type="button"
-                              onClick={() => setAmount(String(Math.max(0, ethAvail - 0.0015)))}
+                              onClick={() => setAmount(String(Math.max(0, bnbAvail - 0.0025)))}
                               className="text-brand-500"
                             >
                               Max
                             </button>
                           )
-                        : usdcAvail > 0 && (
-                            <button type="button" onClick={() => setAmount(usdcAvailRaw)} className="text-brand-500">
-                              Max
-                            </button>
-                          )
+                        : isFethRoute
+                          ? ethAvail > 0.002 && (
+                              <button
+                                type="button"
+                                onClick={() => setAmount(String(Math.max(0, ethAvail - 0.0015)))}
+                                className="text-brand-500"
+                              >
+                                Max
+                              </button>
+                            )
+                          : usdcAvail > 0 && (
+                              <button type="button" onClick={() => setAmount(usdcAvailRaw)} className="text-brand-500">
+                                Max
+                              </button>
+                            )
                     )}
                   </div>
                 </div>
@@ -1294,7 +1408,9 @@ export default function BridgeDepositPanel({
                     !activeLockReady ||
                     !canBridgeIn ||
                     amtNum <= 0 ||
-                    ethAvail < (isFethRoute ? 0.0015 : 0.0001)
+                    (isFbnbRoute
+                      ? bnbAvail < 0.0025
+                      : ethAvail < (isFethRoute ? 0.0015 : 0.0001))
                   }
                   className="btn-primary flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500"
                 >
@@ -1302,7 +1418,7 @@ export default function BridgeDepositPanel({
                 </button>
                 {!canBridgeIn && (
                   <p className="text-[10px] text-amber-400/90">
-                    Add the {isFethRoute ? 'FETH' : 'F-USDC'} trust line above to enable Bridge In.
+                    Add the {assetLabel} trust line above to enable Bridge In.
                   </p>
                 )}
 
@@ -1311,18 +1427,24 @@ export default function BridgeDepositPanel({
                     Lock contract:{' '}
                     <a
                       href={etherscanAddressUrl(
-                        bridgeCfg.sepolia.explorer_url,
-                        isFethRoute
-                          ? (bridgeCfg.sepolia.weth_lock_contract || '')
-                          : bridgeCfg.sepolia.lock_contract,
+                        isFbnbRoute
+                          ? (bridgeCfg.bsc_testnet?.explorer_url || 'https://testnet.bscscan.com')
+                          : bridgeCfg.sepolia.explorer_url,
+                        isFbnbRoute
+                          ? (bridgeCfg.bsc_testnet?.lock_contract || '')
+                          : isFethRoute
+                            ? (bridgeCfg.sepolia.weth_lock_contract || '')
+                            : bridgeCfg.sepolia.lock_contract,
                       )}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-brand-400 hover:text-brand-300 font-mono"
                     >
-                      {(isFethRoute
-                        ? bridgeCfg.sepolia.weth_lock_contract
-                        : bridgeCfg.sepolia.lock_contract
+                      {(isFbnbRoute
+                        ? bridgeCfg.bsc_testnet?.lock_contract
+                        : isFethRoute
+                          ? bridgeCfg.sepolia.weth_lock_contract
+                          : bridgeCfg.sepolia.lock_contract
                       )?.slice(0, 10)}
                       …
                     </a>
@@ -1367,7 +1489,7 @@ export default function BridgeDepositPanel({
       {result && (
         <div className="card p-4 space-y-2 border border-emerald-500/20">
           <div className="text-sm font-medium text-emerald-400">
-            {isFethRoute ? 'FETH deposit submitted' : 'F-USDC deposit submitted'}
+            {assetLabel} deposit submitted
           </div>
           {result.approveHash && (
             <div className="text-xs text-slate-400 break-all">Approve: {result.approveHash}</div>
@@ -1377,17 +1499,19 @@ export default function BridgeDepositPanel({
             <div className="text-xs text-slate-400 break-all">Deposit ID: {result.depositId}</div>
           )}
           <p className="text-xs text-slate-500">
-            {isFethRoute
-              ? 'Lock confirmed. Relay mints FETH to your Falcon wallet in ~30s — refresh the Falcon tab.'
-              : 'Lock confirmed. Relay mints F-USDC to your Falcon wallet in ~30s — refresh the Falcon tab.'}
+            Lock confirmed. Relay mints {assetLabel} to your Falcon wallet in ~30s — refresh the Falcon tab.
           </p>
           <a
-            href={`${bridgeCfg.sepolia.explorer_url}/tx/${result.depositHash}`}
+            href={`${
+              isFbnbRoute
+                ? (bridgeCfg.bsc_testnet?.explorer_url || 'https://testnet.bscscan.com')
+                : bridgeCfg.sepolia.explorer_url
+            }/tx/${result.depositHash}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-brand-400 hover:text-brand-300 inline-block"
           >
-            View on Etherscan →
+            View on explorer →
           </a>
           <button type="button" onClick={() => setResult(null)} className="text-xs text-brand-400">
             Dismiss
@@ -1408,7 +1532,7 @@ export default function BridgeDepositPanel({
         <div className="text-slate-400 font-medium">How it works</div>
         <ul className="list-disc list-inside space-y-1">
           <li>Pick <strong className="text-slate-400">In</strong> or <strong className="text-slate-400">Out</strong>, then the asset</li>
-          <li><strong className="text-slate-400">USDC → F-USDC</strong> and <strong className="text-slate-400">ETH → FETH</strong> are live on testnet</li>
+          <li><strong className="text-slate-400">USDC → F-USDC</strong>, <strong className="text-slate-400">ETH → FETH</strong>, <strong className="text-slate-400">BNB → FBNB</strong> (BSC testnet)</li>
           <li>Fund / send / receive on the <strong className="text-slate-400">Multi-chain</strong> tab</li>
         </ul>
       </div>
