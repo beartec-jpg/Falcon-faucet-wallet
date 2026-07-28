@@ -1,9 +1,9 @@
 # Falcon Vault + Cold Signer — Implementation Report
 
-**Date:** 2026-07-28  
+**Date:** 2026-07-28 (updated after two-device offline field test)  
 **Repo:** `Falcon-faucet-wallet` (`main`)  
 **Scope:** Air-gapped vault custody on Falcon Ledger (hot portal + cold PWA)  
-**Status:** Single-device (copy/paste payload) path **tested and working**. Live two-device barcode path **pending field test**.
+**Status:** Single-device (copy/paste) **and** two-device live barcode / offline cold path **tested and working**.
 
 ---
 
