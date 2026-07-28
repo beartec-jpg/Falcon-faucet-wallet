@@ -69,7 +69,7 @@
     },
     {
       "id": "fbnb-bsc",
-      "status": "pending_lock_deploy",
+      "status": "live",
       "direction_labels": {
         "in": "BSC Testnet · BNB/WBNB → Falcon FBNB",
         "out": "Falcon FBNB → BSC WBNB (soon)"
@@ -82,7 +82,7 @@
         "token_symbol": "WBNB",
         "token_address": "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd",
         "decimals": 18,
-        "lock_contract": null
+        "lock_contract": "0x682D60Bbf8dE13065C71cbF35c1dAdAa23E79938"
       },
       "falcon": {
         "symbol": "FBNB",
@@ -93,11 +93,6 @@
         "service": "qxrp-fbnb-relay.service",
         "script": "scripts/bridge-deposit-relay.py",
         "args": "--currency BNB --decimals 18 --issuer-key FBNB_issuer"
-      },
-      "deploy": {
-        "deployer": "0x64BA18002B6E72fE443f3F8a146cE529250Db107",
-        "min_tbnb_gas": 0.015,
-        "note": "Send ~0.05 tBNB to deployer on BSC testnet; wait-deploy-fbnb.sh auto-deploys lock + starts relay"
       }
     }
   ]

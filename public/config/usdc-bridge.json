@@ -33,14 +33,14 @@
     "rpc_url": "https://bsc-testnet-rpc.publicnode.com",
     "explorer_url": "https://testnet.bscscan.com",
     "wbnb_token": "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd",
-    "lock_contract": null,
+    "lock_contract": "0x682D60Bbf8dE13065C71cbF35c1dAdAa23E79938",
     "wbnb_decimals": 18
   },
   "fbnb": {
     "token_symbol": "FBNB",
     "token_currency": "BNB",
     "token_issuer": "rf8NZLdcwxrXAnPppttTeenQcAJW75uj7E",
-    "status": "pending_lock_deploy"
+    "status": "live"
   },
   "deposit_flow": {
     "type": "passkey_evm_wallet",
