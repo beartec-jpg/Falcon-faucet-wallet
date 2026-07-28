@@ -707,70 +707,87 @@ export default function BridgeDepositPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">Bridge</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Lock Sepolia <span className="text-emerald-400">USDC</span> → mint{' '}
-            <span className="text-amber-400">F-USDC</span> on Falcon, or reverse. Asset selector expands as
-            FETH / FBTC / FBNB go live.
+            Choose <strong className="text-slate-300">In</strong> or <strong className="text-slate-300">Out</strong>, pick the
+            chain/asset, enter amount, then bridge.
           </p>
         </div>
 
         <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2.5">
-          <span className="font-semibold">Testnet · custodial bridge.</span> Mint and release are
-          performed by an off-chain relay operator, not by a trustless on-chain contract. If a
-          transfer does not complete, funds are recovered manually by the operator — do not bridge
-          amounts you cannot afford to wait on.
+          <span className="font-semibold">Testnet · custodial bridge.</span> Mint and release use an off-chain
+          relay + multi-sig lock — not fully trustless.
         </div>
 
+        {/* 1) Direction */}
         {hasEvm && (
-          <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
-            <button
-              type="button"
-              onClick={() => { setMode('bridge'); setError(null) }}
-              className={`flex-1 py-2 font-medium ${mode === 'bridge' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
+          <div className="space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">1 · Direction</div>
+            <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
+              <button
+                type="button"
+                onClick={() => { setMode('bridge'); setDirection('deposit'); setError(null) }}
+                className={`flex-1 py-2.5 font-semibold ${direction === 'deposit' && mode === 'bridge' ? 'bg-emerald-500/15 text-emerald-400' : 'text-slate-500'}`}
+              >
+                In
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('bridge'); setDirection('withdraw'); setError(null); refreshFusdcBalance() }}
+                className={`flex-1 py-2.5 font-semibold ${direction === 'withdraw' && mode === 'bridge' ? 'bg-amber-500/15 text-amber-400' : 'text-slate-500'}`}
+              >
+                Out
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-600">
+              {direction === 'deposit'
+                ? 'Lock source-chain asset → mint F-asset on Falcon'
+                : 'Burn F-asset on Falcon → release source-chain asset'}
+            </p>
+          </div>
+        )}
+
+        {/* 2) Chain / asset selector */}
+        {hasEvm && mode === 'bridge' && (
+          <div className="space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">2 · Chain / asset</div>
+            <select
+              className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-sm text-slate-100"
+              value="fusdc-sepolia"
+              onChange={() => { /* single live route for now */ }}
             >
-              Bridge
-            </button>
+              <option value="fusdc-sepolia">
+                {direction === 'deposit'
+                  ? 'Ethereum Sepolia · USDC → F-USDC'
+                  : 'Falcon · F-USDC → Sepolia USDC'}
+              </option>
+              <option value="feth" disabled>
+                Ethereum · ETH → FETH (soon)
+              </option>
+              <option value="fbtc" disabled>
+                Ethereum · WBTC → FBTC (soon)
+              </option>
+              <option value="fbnb" disabled>
+                BNB Chain · BNB → FBNB (soon)
+              </option>
+            </select>
+          </div>
+        )}
+
+        {hasEvm && (
+          <div className="flex gap-2 text-xs">
             <button
               type="button"
               onClick={() => { setMode('send'); setError(null) }}
-              className={`flex-1 py-2 font-medium ${mode === 'send' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
+              className={`px-2.5 py-1 rounded-lg border ${mode === 'send' ? 'border-brand-500/40 text-brand-400 bg-brand-500/10' : 'border-slate-700 text-slate-500'}`}
             >
               Send Sepolia
             </button>
             <button
               type="button"
               onClick={() => { setMode('receive'); setError(null) }}
-              className={`flex-1 py-2 font-medium ${mode === 'receive' ? 'bg-slate-700/50 text-slate-200' : 'text-slate-500'}`}
+              className={`px-2.5 py-1 rounded-lg border ${mode === 'receive' ? 'border-slate-500 text-slate-200 bg-slate-800' : 'border-slate-700 text-slate-500'}`}
             >
               Receive Sepolia
             </button>
-          </div>
-        )}
-
-        {hasEvm && mode === 'bridge' && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span className="uppercase tracking-wide">Asset</span>
-              <span className="px-2 py-1 rounded-lg bg-slate-800 text-amber-300 font-medium border border-slate-700">
-                F-USDC ↔ USDC
-              </span>
-              <span className="text-slate-600">more assets soon</span>
-            </div>
-            <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
-              <button
-                type="button"
-                onClick={() => { setDirection('deposit'); setError(null) }}
-                className={`flex-1 py-2 font-medium ${direction === 'deposit' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
-              >
-                In (lock → mint)
-              </button>
-              <button
-                type="button"
-                onClick={() => { setDirection('withdraw'); setError(null); refreshFusdcBalance() }}
-                className={`flex-1 py-2 font-medium ${direction === 'withdraw' ? 'bg-amber-500/10 text-amber-400' : 'text-slate-500'}`}
-              >
-                Out (burn → release)
-              </button>
-            </div>
           </div>
         )}
 
