@@ -70,11 +70,11 @@ import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
 import {
   FALCON_WALLET_ASSETS,
-  MULTI_CHAIN_ASSETS,
+  NATIVE_CHAIN_WALLETS,
   multiChainAssetById,
-  type MultiChainAssetDef,
   type MultiChainAssetId,
 } from '@/lib/multi-chain-assets'
+import { fetchSepoliaBalances } from '@/lib/evm-bridge-client'
 
 
 const AddressQrScanner = dynamic(() => import('@/components/AddressQrScanner'), { ssr: false })
@@ -327,8 +327,11 @@ export default function WalletPage() {
   const [showNodeSetup, setShowNodeSetup] = useState(false)
   const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
   const [walletSection, setWalletSection] = useState<'falcon' | 'multichain' | 'bridge'>('falcon')
-  const [bridgeInitialMode, setBridgeInitialMode] = useState<'deposit' | 'withdraw'>('deposit')
+  const [bridgeInitialMode, setBridgeInitialMode] = useState<'deposit' | 'withdraw' | 'send' | 'receive'>('deposit')
   const [receiveAssetId, setReceiveAssetId] = useState<MultiChainAssetId>('falcon')
+  const [ethNativeBal, setEthNativeBal] = useState<string | null>(null)
+  const [usdcNativeBal, setUsdcNativeBal] = useState<string | null>(null)
+  const [nativeBalLoading, setNativeBalLoading] = useState(false)
   const [bridgeMissing, setBridgeMissing] = useState(false)
   const bridgeAutoProvisioned = useRef(false)
 
@@ -482,6 +485,29 @@ export default function WalletPage() {
       .then((j) => { if (!j.error) setBridgeCfg(j) })
       .catch(() => {})
   }, [wallet, view])
+
+  // Native multi-chain balances (ETH / USDC on Sepolia deposit wallet)
+  useEffect(() => {
+    if (walletSection !== 'multichain' && walletSection !== 'bridge') return
+    if (!wallet?.evmAddress || !bridgeCfg?.sepolia) return
+    let cancelled = false
+    setNativeBalLoading(true)
+    fetchSepoliaBalances(bridgeCfg.sepolia, wallet.evmAddress)
+      .then((b) => {
+        if (cancelled) return
+        setEthNativeBal(b.eth)
+        setUsdcNativeBal(b.usdc)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setEthNativeBal(null)
+        setUsdcNativeBal(null)
+      })
+      .finally(() => {
+        if (!cancelled) setNativeBalLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [walletSection, wallet?.evmAddress, bridgeCfg])
 
   // ── On mount: load wallet from IndexedDB ──────────────────────────────────
 
@@ -1699,12 +1725,13 @@ export default function WalletPage() {
 
                 <div className="space-y-2">
                   <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
-                    {walletSection === 'falcon' ? 'Falcon balances' : 'Multi-chain assets'}
+                    {walletSection === 'falcon' ? 'Falcon balances' : 'Native chain wallets'}
                   </div>
                   {walletSection === 'multichain' && (
                     <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Wrapped assets from other chains (FETH, FBTC, FBNB). Use <strong className="text-slate-400">Bridge</strong> on a row
-                      (or Open Bridge) to lock source collateral and mint Falcon F-assets. Falcon-native FALCON and F-USDC live under Falcon Wallet.
+                      <strong className="text-slate-400">Native</strong> ETH / BTC / BNB wallets. Bridge
+                      <em> from</em> these addresses into Falcon (mint F-USDC today; FETH / FBTC / FBNB later).
+                      Wrapped F-assets appear under <strong className="text-slate-400">Falcon Wallet</strong>.
                     </p>
                   )}
                   {walletSection === 'falcon' && !account?.exists && account !== null && (
@@ -1712,8 +1739,11 @@ export default function WalletPage() {
                       Account not activated — fund your Falcon address first (faucet).
                     </p>
                   )}
+
+                  {/* ── Falcon Ledger rows ── */}
+                  {walletSection === 'falcon' && (
                   <div className="space-y-2">
-                    {(walletSection === 'falcon' ? FALCON_WALLET_ASSETS : MULTI_CHAIN_ASSETS).map((asset: MultiChainAssetDef) => {
+                    {FALCON_WALLET_ASSETS.map((asset) => {
                       const isLive = asset.status === 'live'
                       let balanceLabel = '—'
                       let detail: ReactNode = asset.subtitle
@@ -1728,7 +1758,7 @@ export default function WalletPage() {
                         if (account?.assets?.fusdc?.hasTrustLine === false) {
                           detail = (
                             <span>
-                              Need trust line — use Bridge on this row or{' '}
+                              Need trust line — open Bridge or{' '}
                               <Link href="/swap" className="text-brand-400">Swap</Link>
                             </span>
                           )
@@ -1762,7 +1792,7 @@ export default function WalletPage() {
                           <div className="mt-2.5 flex flex-wrap gap-1.5">
                             <button
                               type="button"
-                              disabled={!isLive || !asset.canReceiveFalcon}
+                              disabled={!isLive || !asset.canReceive}
                               onClick={() => {
                                 setReceiveAssetId(asset.id)
                                 setView('receive')
@@ -1773,7 +1803,7 @@ export default function WalletPage() {
                             </button>
                             <button
                               type="button"
-                              disabled={!isLive || !asset.canSendFalcon || !account?.exists || !network.live}
+                              disabled={!isLive || !asset.canSend || !account?.exists || !network.live}
                               onClick={() => {
                                 setSendAsset(asset.id === 'fusdc' ? 'fusdc' : 'falcon')
                                 setView('send')
@@ -1788,11 +1818,10 @@ export default function WalletPage() {
                               type="button"
                               disabled={!isLive || !asset.canBridge}
                               onClick={() => {
-                                setBridgeInitialMode('deposit')
+                                setBridgeInitialMode(asset.id === 'fusdc' ? 'withdraw' : 'deposit')
                                 setWalletSection('bridge')
                               }}
                               className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25 disabled:opacity-35"
-                              title={asset.isNative ? 'Native FALCON — no bridge' : 'Open bridge for this asset'}
                             >
                               Bridge
                             </button>
@@ -1801,6 +1830,111 @@ export default function WalletPage() {
                       )
                     })}
                   </div>
+                  )}
+
+                  {/* ── Native multi-chain wallets (ETH / BTC / BNB) ── */}
+                  {walletSection === 'multichain' && (
+                  <div className="space-y-2">
+                    {!hasBridgeWallet(wallet) && (
+                      <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 px-3 py-2 text-xs text-amber-100/90">
+                        No ETH deposit wallet yet.{' '}
+                        <button
+                          type="button"
+                          className="text-emerald-400 underline"
+                          onClick={() => setWalletSection('bridge')}
+                        >
+                          Open Bridge
+                        </button>{' '}
+                        to create one with your passkey (used for ETH + future BNB).
+                      </div>
+                    )}
+                    {NATIVE_CHAIN_WALLETS.map((chain) => {
+                      const isLive = chain.status === 'live'
+                      const hasKey = hasBridgeWallet(wallet)
+                      let balanceLabel = '—'
+                      let addrHint: ReactNode = chain.subtitle
+                      if (chain.id === 'eth' && hasKey) {
+                        balanceLabel = nativeBalLoading
+                          ? '…'
+                          : ethNativeBal != null
+                            ? `${Number(ethNativeBal).toLocaleString(undefined, { maximumFractionDigits: 6 })} ETH`
+                            : '—'
+                        const usdcHint = usdcNativeBal != null
+                          ? ` · ${Number(usdcNativeBal).toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC`
+                          : ''
+                        addrHint = (
+                          <span className="font-mono text-slate-400">
+                            {(wallet.evmAddress || '').slice(0, 10)}…{(wallet.evmAddress || '').slice(-6)}
+                            <span className="text-slate-600 font-sans">{usdcHint} · Sepolia testnet</span>
+                          </span>
+                        )
+                      }
+                      return (
+                        <div
+                          key={chain.id}
+                          className={`rounded-xl border px-3 py-3 ${
+                            isLive && hasKey
+                              ? 'bg-slate-800/50 border-slate-700/80'
+                              : 'bg-slate-900/40 border-slate-800 opacity-90'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-white">{chain.symbol}</span>
+                                <span className="text-[10px] text-slate-500">{chain.chainLabel}</span>
+                                {!isLive && (
+                                  <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">
+                                    Soon
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-500 mt-0.5 leading-snug">{addrHint}</div>
+                            </div>
+                            <div className="font-mono text-sm font-semibold text-slate-100 shrink-0 text-right">
+                              {balanceLabel}
+                            </div>
+                          </div>
+                          <div className="mt-2.5 flex flex-wrap gap-1.5">
+                            <button
+                              type="button"
+                              disabled={!isLive || !chain.canReceive || !hasKey}
+                              onClick={() => {
+                                setReceiveAssetId(chain.id)
+                                setView('receive')
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-35"
+                            >
+                              Receive
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!isLive || !chain.canSend || !hasKey}
+                              onClick={() => {
+                                setBridgeInitialMode('send')
+                                setWalletSection('bridge')
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-brand-500/90 hover:bg-brand-400 text-slate-950 disabled:opacity-35"
+                            >
+                              Send
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!isLive || !chain.canBridge || !hasKey}
+                              onClick={() => {
+                                setBridgeInitialMode('deposit')
+                                setWalletSection('bridge')
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25 disabled:opacity-35"
+                            >
+                              Bridge
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  )}
 
                   {walletSection === 'falcon' && account?.exists && (
                     <div className="grid grid-cols-2 gap-2 text-sm pt-1">
@@ -2029,7 +2163,12 @@ export default function WalletPage() {
               )}
 
               {/* ── Receive panel ── */}
-              {view === 'receive' && (
+              {view === 'receive' && (() => {
+                const isNativeEvm = receiveAssetId === 'eth' || receiveAssetId === 'bnb'
+                const recvAddr = isNativeEvm ? (wallet.evmAddress || '') : wallet.address
+                const recvSymbol = multiChainAssetById(receiveAssetId)?.symbol
+                  ?? (receiveAssetId === 'eth' ? 'ETH' : receiveAssetId === 'btc' ? 'BTC' : receiveAssetId === 'bnb' ? 'BNB' : 'assets')
+                return (
                 <div className="card p-5 space-y-4">
                   <div className="flex items-center gap-2">
                     <button
@@ -2042,35 +2181,49 @@ export default function WalletPage() {
                       </svg>
                     </button>
                     <h3 className="font-semibold text-white text-sm">
-                      Receive{' '}
-                      {multiChainAssetById(receiveAssetId)?.symbol
-                        ?? (receiveAssetId === 'fusdc' ? 'F-USDC' : receiveAssetId === 'falcon' ? 'FALCON' : 'assets')}
+                      Receive {recvSymbol}
                     </h3>
                   </div>
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    {receiveAssetId === 'fusdc'
-                      ? 'F-USDC is an IOU on Falcon. Share your Falcon r… address. To mint from Sepolia USDC use Bridge → In.'
-                      : receiveAssetId === 'falcon'
-                        ? 'Only send FALCON / Falcon-network assets to this address.'
-                        : 'This asset is not live yet. When enabled, Falcon-wrapped balances use this same r… address after bridge-in.'}
+                    {receiveAssetId === 'eth'
+                      ? 'Native Ethereum address (Sepolia testnet). Fund ETH for gas and USDC to bridge into F-USDC on Falcon.'
+                      : receiveAssetId === 'fusdc'
+                        ? 'F-USDC lives on Falcon. Share your r… address, or Bridge In from the ETH wallet USDC balance.'
+                        : receiveAssetId === 'falcon'
+                          ? 'Only send FALCON / Falcon-network assets to this r… address.'
+                          : receiveAssetId === 'btc' || receiveAssetId === 'bnb'
+                            ? 'This native chain wallet is not live yet.'
+                            : 'Falcon-wrapped asset — use Falcon r… after minting via Bridge.'}
                   </p>
-                  <div className="bg-white rounded-xl p-3 mx-auto w-fit">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(wallet.address)}&size=180x180&margin=0`}
-                      alt="Address QR code"
-                      width={180}
-                      height={180}
-                      className="rounded"
-                    />
-                  </div>
-                  <div className="bg-slate-800 rounded-xl px-3 py-2.5 font-mono text-xs text-slate-300 break-all text-center leading-relaxed">
-                    {wallet.address}
-                  </div>
+                  {recvAddr ? (
+                    <>
+                      <div className="bg-white rounded-xl p-3 mx-auto w-fit">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(recvAddr)}&size=180x180&margin=0`}
+                          alt="Address QR code"
+                          width={180}
+                          height={180}
+                          className="rounded"
+                        />
+                      </div>
+                      <div className="bg-slate-800 rounded-xl px-3 py-2.5 font-mono text-xs text-slate-300 break-all text-center leading-relaxed">
+                        {recvAddr}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-amber-300">No deposit address yet — open Bridge to create the ETH wallet.</p>
+                  )}
                   <div className="flex gap-2">
                     <button
-                      onClick={copyAddress}
-                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+                      onClick={async () => {
+                        if (!recvAddr) return
+                        await navigator.clipboard.writeText(recvAddr)
+                        setCopied(true)
+                        setTimeout(() => setCopied(false), 2000)
+                      }}
+                      disabled={!recvAddr}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors disabled:opacity-40"
                     >
                       {copied ? '✓ Copied!' : 'Copy Address'}
                     </button>
@@ -2082,7 +2235,7 @@ export default function WalletPage() {
                         Get from Faucet →
                       </Link>
                     )}
-                    {receiveAssetId === 'fusdc' && (
+                    {(receiveAssetId === 'fusdc' || receiveAssetId === 'eth') && (
                       <button
                         type="button"
                         onClick={() => {
@@ -2092,12 +2245,13 @@ export default function WalletPage() {
                         }}
                         className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-emerald-950/50 text-emerald-300 border border-emerald-500/25"
                       >
-                        Bridge In →
+                        Bridge →
                       </button>
                     )}
                   </div>
                 </div>
-              )}
+                )
+              })()}
 
               {showSendScanner && (
                 <AddressQrScanner

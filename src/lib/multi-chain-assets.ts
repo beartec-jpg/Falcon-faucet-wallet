@@ -1,89 +1,146 @@
 /**
- * Wallet asset catalogs.
- * Falcon wallet = FALCON + Falcon IOUs (F-USDC).
- * Multi-chain = FETH / FBTC / FBNB (and future wraps).
- * Rows use Send + Receive + Bridge (Bridge opens unified bridge UI).
+ * Wallet catalogs:
+ * - Falcon Wallet = native FALCON + Falcon IOUs (F-USDC, later FETH/FBTC/FBNB)
+ * - Multi-chain = native deposit wallets (ETH, BTC, BNB) that feed Bridge
  */
 
-export type MultiChainAssetId = 'falcon' | 'fusdc' | 'feth' | 'fbtc' | 'fbnb'
+export type FalconAssetId = 'falcon' | 'fusdc' | 'feth' | 'fbtc' | 'fbnb'
+export type NativeChainId = 'eth' | 'btc' | 'bnb'
+
+export type MultiChainAssetId = FalconAssetId | NativeChainId
 
 export type MultiChainAssetStatus = 'live' | 'coming_soon'
 
-export interface MultiChainAssetDef {
-  id: MultiChainAssetId
+export interface FalconAssetDef {
+  id: FalconAssetId
   symbol: string
   subtitle: string
   status: MultiChainAssetStatus
-  canSendFalcon: boolean
-  canReceiveFalcon: boolean
-  /** Opens Bridge panel (lock-mint). Native FALCON has no bridge. */
+  canSend: boolean
+  canReceive: boolean
   canBridge: boolean
   isNative?: boolean
   currency?: string
-  sourceChainLabel?: string
 }
 
-/** Assets on the Falcon Ledger wallet (r…). */
-export const FALCON_WALLET_ASSETS: MultiChainAssetDef[] = [
+/** Falcon Ledger balances (r…). */
+export const FALCON_WALLET_ASSETS: FalconAssetDef[] = [
   {
     id: 'falcon',
     symbol: 'FALCON',
     subtitle: 'Native · Falcon Ledger',
     status: 'live',
-    canSendFalcon: true,
-    canReceiveFalcon: true,
+    canSend: true,
+    canReceive: true,
     canBridge: false,
     isNative: true,
   },
   {
     id: 'fusdc',
     symbol: 'F-USDC',
-    subtitle: 'USDC locked on Sepolia → F-USDC on Falcon',
+    subtitle: 'Bridged USDC on Falcon (via Bridge ← ETH wallet)',
     status: 'live',
-    canSendFalcon: true,
-    canReceiveFalcon: true,
+    canSend: true,
+    canReceive: true,
     canBridge: true,
     currency: 'QUC',
-    sourceChainLabel: 'Ethereum Sepolia',
   },
-]
-
-/** Multi-chain / external wrapped assets. */
-export const MULTI_CHAIN_ASSETS: MultiChainAssetDef[] = [
   {
     id: 'feth',
     symbol: 'FETH',
-    subtitle: 'Coming soon · lock WETH → Falcon',
+    subtitle: 'Coming soon · wrapped ETH on Falcon',
     status: 'coming_soon',
-    canSendFalcon: false,
-    canReceiveFalcon: false,
+    canSend: false,
+    canReceive: false,
     canBridge: false,
-    sourceChainLabel: 'Ethereum',
   },
   {
     id: 'fbtc',
     symbol: 'FBTC',
-    subtitle: 'Coming soon · lock WBTC → Falcon (v1)',
+    subtitle: 'Coming soon · wrapped BTC on Falcon',
     status: 'coming_soon',
-    canSendFalcon: false,
-    canReceiveFalcon: false,
+    canSend: false,
+    canReceive: false,
     canBridge: false,
-    sourceChainLabel: 'Ethereum (WBTC)',
   },
   {
     id: 'fbnb',
     symbol: 'FBNB',
-    subtitle: 'Coming soon · lock BNB on BSC → Falcon',
+    subtitle: 'Coming soon · wrapped BNB on Falcon',
     status: 'coming_soon',
-    canSendFalcon: false,
-    canReceiveFalcon: false,
+    canSend: false,
+    canReceive: false,
     canBridge: false,
-    sourceChainLabel: 'BNB Smart Chain',
   },
 ]
 
-export const ALL_WALLET_ASSETS = [...FALCON_WALLET_ASSETS, ...MULTI_CHAIN_ASSETS]
+export interface NativeChainWalletDef {
+  id: NativeChainId
+  symbol: string
+  chainLabel: string
+  subtitle: string
+  status: MultiChainAssetStatus
+  /** Same secp256k1 key as ETH for BNB (BIP-44 coin 60). */
+  sharesEthKey?: boolean
+  canSend: boolean
+  canReceive: boolean
+  canBridge: boolean
+}
+
+/**
+ * Multi-chain tab = native wallets. Bridge locks from these addresses
+ * and mints F-assets onto Falcon Wallet.
+ */
+export const NATIVE_CHAIN_WALLETS: NativeChainWalletDef[] = [
+  {
+    id: 'eth',
+    symbol: 'ETH',
+    chainLabel: 'Ethereum',
+    subtitle: 'Native ETH · deposit / gas · Bridge uses this wallet for USDC/ETH locks',
+    status: 'live',
+    canSend: true,
+    canReceive: true,
+    canBridge: true,
+  },
+  {
+    id: 'btc',
+    symbol: 'BTC',
+    chainLabel: 'Bitcoin',
+    subtitle: 'Coming soon · native BTC address (locks feed FBTC on Falcon)',
+    status: 'coming_soon',
+    canSend: false,
+    canReceive: false,
+    canBridge: false,
+  },
+  {
+    id: 'bnb',
+    symbol: 'BNB',
+    chainLabel: 'BNB Smart Chain',
+    subtitle: 'Coming soon · native BNB (same 0x as ETH when enabled)',
+    status: 'coming_soon',
+    sharesEthKey: true,
+    canSend: false,
+    canReceive: false,
+    canBridge: false,
+  },
+]
+
+/** @deprecated — multi-chain is native chains, not F-tokens */
+export const MULTI_CHAIN_ASSETS = NATIVE_CHAIN_WALLETS
+
+export type MultiChainAssetDef = FalconAssetDef | NativeChainWalletDef
+
+export function falconAssetById(id: FalconAssetId): FalconAssetDef | undefined {
+  return FALCON_WALLET_ASSETS.find((a) => a.id === id)
+}
+
+export function nativeChainById(id: NativeChainId): NativeChainWalletDef | undefined {
+  return NATIVE_CHAIN_WALLETS.find((a) => a.id === id)
+}
 
 export function multiChainAssetById(id: MultiChainAssetId): MultiChainAssetDef | undefined {
-  return ALL_WALLET_ASSETS.find((a) => a.id === id)
+  return (
+    FALCON_WALLET_ASSETS.find((a) => a.id === id) ||
+    NATIVE_CHAIN_WALLETS.find((a) => a.id === id)
+  )
 }
