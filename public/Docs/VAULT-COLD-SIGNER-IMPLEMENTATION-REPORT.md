@@ -1,280 +1,236 @@
 # Falcon Vault + Cold Signer — Implementation Report
 
-**Date:** 2026-07-28 (updated after two-device offline field test)  
-**Repo:** `Falcon-faucet-wallet` (`main`)  
-**Scope:** Air-gapped vault custody on Falcon Ledger (hot portal + cold PWA)  
-**Status:** Single-device (copy/paste) **and** two-device live barcode / offline cold path **tested and working**.
+**Date:** 2026-07-28  
+**Repository:** `Falcon-faucet-wallet`  
+**Branch:** `main`  
+**Scope:** Air-gapped vault custody on Falcon Ledger (portal vault UI + cold signer PWA)
 
 ---
 
 ## 1. Summary
 
-A separate **Vault** surface was added to the Falcon portal so user keys can live on an offline cold device while the online browser only holds **public** vault metadata. Signing uses multi-part QR (or copy/paste of the same protocol JSON for one-device testing). Hot wallet create/send/restore was left unchanged.
+Falcon Ledger vault custody separates online portal access from offline key material. The portal **Vault** (`/vault`) stores only public metadata and builds/submits transactions. The **Cold Signer** PWA (`/cold-signer/`) holds the Falcon-512 secret, signs offline, and exchanges packages with the portal via multi-part QR codes or copy/paste of the same protocol JSON.
 
-| Component | Path / URL |
-|-----------|------------|
-| Hot vault UI | `/vault` (entry from Wallet → **Vault**) |
-| Cold signer PWA | `/cold-signer/` (static build under `public/cold-signer/`) |
-| Source cold app | `cold-signer/` (Vite + PWA) |
+| Component | Location |
+|-----------|----------|
+| Portal vault UI | `/vault` (Wallet → **Vault**) |
+| Cold signer PWA | `/cold-signer/` (`public/cold-signer/` production assets) |
+| Cold signer source | `cold-signer/` (Vite PWA) |
 
 ---
 
-## 2. Goals and non-goals
+## 2. Objectives
 
-### Goals (met)
-
-- Keep existing hot wallet infrastructure as-is  
-- Vault secret never stored on hot after create (encrypted export file only)  
-- Cold device: password (default) or passkey local unlock  
-- Multi-part QR transport for large Falcon payloads  
-- One-device testing via **Copy full payload** / **Paste payload**  
-- Payment (FALCON + F-USDC), named destinations, F-USDC TrustSet via cold sign  
-- Last-known FALCON + F-USDC balances on cold after vault unlock with hot  
-
-### Non-goals (this phase)
-
-- Shamir secret sharing  
-- Cold-sign for swap / AMM / lend / bridge / names / rewards  
-- Replacing hot wallet with vault-only  
-- Crypto/qBTC cold-signer port (reference only)  
+- Vault secret never remains on the hot browser after create (encrypted export file only)
+- Cold device unlock via password (recommended) or passkey
+- Multi-part QR transport for Falcon-sized payloads
+- One-device workflow via **Copy full payload** / **Paste payload**
+- Cold-signed **Payment** (FALCON and F-USDC), named destinations, and F-USDC **TrustSet**
+- Last-known FALCON and F-USDC balances on cold after unlock with the portal
 
 ---
 
 ## 3. Architecture
 
 ```
-┌──────────────────────────── Hot portal (online) ────────────────────────────┐
-│  Hot wallet (unchanged)     │  /vault                                         │
-│                             │  • public VaultPublicRecord (IndexedDB)         │
-│                             │  • create → download falcon-vault-export JSON   │
-│                             │  • unlock session (challenge → cold response)   │
-│                             │  • build unsigned Payment / TrustSet            │
-│                             │  • submit tx_blob only                          │
-└─────────────────────────────┬───────────────────────────────────────────────┘
+┌──────────────────────── Hot portal (online) ────────────────────────────────┐
+│  /vault                                                                      │
+│  • public VaultPublicRecord (IndexedDB)                                      │
+│  • create → download falcon-vault-export JSON                                │
+│  • unlock session (challenge → cold response)                                │
+│  • build unsigned Payment / TrustSet                                         │
+│  • submit tx_blob only                                                       │
+└─────────────────────────────┬────────────────────────────────────────────────┘
                               │ multi-QR or copy/paste protocol JSON
-┌─────────────────────────────▼───────────────────────────────────────────────┐
+┌─────────────────────────────▼────────────────────────────────────────────────┐
 │  Cold signer PWA (/cold-signer/)                                             │
 │  • install required before vault import                                      │
 │  • secret under password or passkey (device unlock)                          │
-│  • last-known balances (from hot unlock snapshot)                            │
-│  • sign Payment / TrustSet offline (airplane recommended for spend)            │
+│  • last-known balances (from portal unlock snapshot)                         │
+│  • sign Payment / TrustSet (airplane mode for spend)                         │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Custody model
+### 3.1 Custody
 
 | Layer | Holds secrets? | Role |
 |-------|----------------|------|
-| Hot `/vault` | **No** (after create) | Public address, build/submit, session unlock |
+| Portal `/vault` | No (after create) | Public address, build/submit, session unlock |
 | Encrypted vault file | Yes (passphrase) | Offline backup / cold import (`falcon-vault-export`) |
-| Cold device | Yes (re-encrypted under cold password/passkey) | Sign; never talks to chain for secrets |
+| Cold device | Yes (re-encrypted under cold password/passkey) | Sign; secret never sent to servers |
 
-### Protocol (v1)
+### 3.2 Protocol (v1)
 
-Shared types in `src/lib/vault-protocol.ts` + multi-part framing in `src/lib/multi-qr.ts`.
+Types: `src/lib/vault-protocol.ts`. Framing: `src/lib/multi-qr.ts`.
 
 | Direction | Content type | Payload |
 |-----------|--------------|---------|
-| Hot → cold | `vault-unlock-chal` | Challenge + optional on-chain snapshot (FALCON + F-USDC) |
-| Cold → hot | `vault-unlock-resp` | Falcon-signed challenge proof |
-| Hot → cold | `unsigned-tx` | Payment or TrustSet `tx_json` + human display |
-| Cold → hot | `signed-tx` | `tx_blob` |
+| Portal → cold | `vault-unlock-chal` | Challenge + on-chain snapshot (FALCON + F-USDC) |
+| Cold → portal | `vault-unlock-resp` | Falcon-signed challenge proof |
+| Portal → cold | `unsigned-tx` | Payment or TrustSet `tx_json` + display fields |
+| Cold → portal | `signed-tx` | `tx_blob` |
 
-One-device testing uses the same JSON bodies via **Copy full payload** / **Paste payload** (no barcode required).
+Copy/paste uses the same JSON bodies as multi-QR (**Copy full payload** / **Paste payload**).
 
 ---
 
-## 4. Feature checklist (implemented)
+## 4. Features
 
-### 4.1 Hot portal (`/vault`)
+### 4.1 Portal vault (`/vault`)
 
-- [x] Separate vault page + Wallet **Vault** entry  
-- [x] Create vault → generate Falcon-512 keys → passphrase-encrypted export download  
-- [x] Hot keeps public record only (`vault-store`)  
-- [x] Import public metadata from existing vault file  
-- [x] Locked: Receive + Unlock vault  
-- [x] Unlock: live account fetch → multi-QR challenge (includes FALCON + F-USDC snapshot)  
-- [x] Unlock response verify (`vault-unlock-verify` + Falcon WASM verify)  
-- [x] Time-boxed session (`vault-session`, ~10 min)  
-- [x] Send FALCON / F-USDC with cold sign  
-- [x] Named destinations (`alice.bob` via `/api/wallet/name`)  
-- [x] **Add F-USDC trust line (cold sign)** when no trust line  
-- [x] Multi-QR display with **Copy full payload**  
-- [x] Multi-QR scanner with **Paste payload**  
+- Vault page and Wallet **Vault** entry
+- Create vault: Falcon-512 keygen → passphrase-encrypted export download
+- Public-only storage after create (`vault-store`)
+- Import public metadata from an existing vault export file
+- Locked state: Receive + Unlock vault
+- Unlock: account fetch → multi-QR challenge (FALCON + F-USDC snapshot)
+- Unlock response verification (Falcon-512 verify)
+- Time-boxed session (~10 minutes)
+- Send FALCON / F-USDC via cold sign
+- Named destinations (`alice.bob` via `/api/wallet/name`)
+- Add F-USDC trust line via cold-signed TrustSet
+- Multi-QR display with **Copy full payload**
+- Multi-QR scanner with **Paste payload**
 
 ### 4.2 Cold signer (`/cold-signer/`)
 
-- [x] PWA install first (real PNG icons; SW ready before install prompt)  
-- [x] Online allowed until vault imported; ops banners for online after load  
-- [x] Vault import via **file upload only** (password recommended; passkey optional/hardened)  
-- [x] Device unlock (password / passkey) → read-only last-known balances  
-- [x] Unlock vault (hot challenge): camera + **Paste payload** button on same screen  
-- [x] Sign transaction: camera + **Paste payload**; preview Payment or TrustSet  
-- [x] Copy signed / unlock-response payloads for one-device handoff  
-- [x] Cache last-known FALCON + F-USDC from unlock challenge snapshot  
+- PWA install before vault import (valid icons, service worker)
+- Online permitted for install and import; airplane mode for signing spend
+- Vault import by file upload; password recommended for device unlock
+- Device unlock (password / passkey) → read-only last-known balances
+- Unlock vault: camera with **Paste payload** on the same screen
+- Sign transaction: camera with **Paste payload**; preview Payment or TrustSet
+- Copy unlock-response and signed-tx payloads
+- Cache last-known FALCON + F-USDC from unlock challenge
 
-### 4.3 Infra / CI fixes along the way
+### 4.3 Supporting work
 
-- [x] `pnpm-lock.yaml` synced for `qrcode` (Vercel frozen lockfile)  
-- [x] Exclude `cold-signer/` from Next.js `tsconfig` (`import.meta.env`)  
-- [x] Fixed invalid base64-as-PNG icons that blocked install  
-- [x] Fixed camera flash-and-close (online handler unmounting scan UI)  
+- `qrcode` dependency and `pnpm-lock.yaml` for production install
+- Cold app excluded from Next.js TypeScript project
+- Valid PNG app icons for installability
+- Stable camera UI (scan screen not torn down by online/offline transitions)
 
 ---
 
 ## 5. User flows
 
-### 5.1 Create + load cold (first time)
+### 5.1 Create vault and load cold device
 
-1. Hot: `/vault` → Create vault → set export password → download JSON → ack → public record saved  
-2. Cold phone: open `/cold-signer/` online → **Install app** → open from home screen  
-3. Cold: import vault **file** → set **Password (recommended)** cold unlock  
-4. Move export file to offline media (SD) as recovery; do not re-import secret to hot  
+1. Portal: `/vault` → Create vault → set export password → download JSON → confirm → public record saved  
+2. Cold: open `/cold-signer/` → **Install app** → open from home screen  
+3. Cold: import vault file → set cold unlock password  
+4. Keep the export file offline (e.g. SD card) for recovery; do not store the secret on the portal again  
 
-### 5.2 Unlock portal session (hot needs cold)
+### 5.2 Unlock portal session
 
-1. Hot: Unlock vault (fetches live balances into challenge)  
-2. Cold: device unlock → **1. Unlock vault** → scan **or Paste payload**  
-3. Cold: **Copy full payload** response  
-4. Hot: paste/scan response → session open (Send / live balances)  
+1. Portal: Unlock vault (live balances included in challenge)  
+2. Cold: device unlock → **Unlock vault** → scan or paste challenge  
+3. Cold: **Copy full payload** (or show QR) for the response  
+4. Portal: scan or paste response → session open  
 
 ### 5.3 Send FALCON or F-USDC
 
-1. Hot vault unlocked → Send → asset toggle → dest (r… or name) → amount  
-2. Prepare → cold **2. Sign** → preview → approve  
-3. Hot paste/scan signed blob → submit  
+1. Portal vault unlocked → Send → asset → destination (r… or name) → amount  
+2. Prepare unsigned package → cold **Sign** → review → approve  
+3. Portal scan or paste signed blob → submit  
 
 ### 5.4 Add F-USDC trust line
 
-1. Hot vault unlocked, funded, **No trust line** on F-USDC  
+1. Portal vault unlocked and funded; F-USDC shows no trust line  
 2. **Add F-USDC trust line (cold sign)**  
-3. Cold sign TrustSet (issuer + limit shown on preview)  
-4. Hot submit → refresh → F-USDC ready  
+3. Cold: review TrustSet (issuer, limit) → approve  
+4. Portal: submit signed blob → refresh balances  
 
 ---
 
-## 6. Testing status
+## 6. Testing
 
-### 6.1 Single-device (copy/paste) — **PASS**
-
-Tested end-to-end on one device using **Copy full payload** / **Paste payload** (and file import for vault). Confirmed working:
+### 6.1 Single-device (copy/paste) — pass
 
 | Area | Result |
 |------|--------|
 | Vault create + encrypted file download | Pass |
 | Cold PWA install + file import + password unlock | Pass |
 | Unlock challenge / response payloads | Pass |
-| Hot session after cold unlock | Pass |
+| Portal session after cold unlock | Pass |
 | Send FALCON (cold sign + submit) | Pass |
-| Send F-USDC (when trust line present) | Pass |
+| Send F-USDC (with trust line) | Pass |
 | Named destination resolution | Pass |
 | Receive (address QR / copy) | Pass |
-| TrustSet for F-USDC trust line | Pass |
-| Last-known FALCON + F-USDC on cold after unlock | Pass |
-| Multi-part payload reassembly via paste | Pass |
+| TrustSet for F-USDC | Pass |
+| Last-known FALCON + F-USDC on cold | Pass |
+| Multi-part payload via paste | Pass |
 
-**Note:** Passkey import may still fail on some Android Credential Manager builds; password path is the recommended cold unlock method.
+Password is the recommended cold unlock method. Passkey may fail on some Android Credential Manager configurations.
 
-### 6.2 Two-device live barcodes + offline cold — **PASS**
+### 6.2 Two-device live barcodes and offline cold — pass
 
-**Field test (2026-07-28):** Second physical device used as cold signer.
+**Field test:** second physical device as cold signer.
 
 | Step | Result |
 |------|--------|
-| Download / open cold signer from URL on second device | Pass |
+| Open cold signer from deploy URL on second device | Pass |
 | Install / load vault | Pass |
-| **Airplane mode** enabled on cold device | Pass |
-| Device login (password/passkey unlock) | Pass |
-| Unlock vault + **live multi-QR** handoff with hot | Pass |
-| **Send transaction** (cold sign via barcodes, hot submit) | Pass |
+| Airplane mode on cold device | Pass |
+| Device login | Pass |
+| Unlock vault via live multi-QR with portal | Pass |
+| Send transaction (barcode cold sign, portal submit) | Pass |
 
-#### Devices (field)
+| Scenario | Result |
+|----------|--------|
+| Unlock multi-QR (portal ↔ cold cameras) | Pass |
+| Payment send multi-QR + submit | Pass |
+| Real-world two-device camera use | Pass |
 
-- **Hot:** online portal `/vault` (primary device)  
-- **Cold:** second device; cold signer loaded from deploy URL, then **airplane mode** for unlock/sign  
-
-#### Barcode / offline checklist
-
-| # | Scenario | Result |
-|---|----------|--------|
-| B1 | Unlock multi-QR (hot ↔ cold cameras) | **Pass** |
-| B2 | Payment send multi-QR + submit | **Pass** |
-| B3 | Payment F-USDC multi-QR | Covered in broader send testing / optional re-confirm |
-| B4 | TrustSet multi-QR | Covered in prior single-device path; dual-device OK if same QR stack |
-| B5 | Frame loss / CRC edge cases | Not specially stress-tested |
-| B6 | Real-world camera (two devices) | **Pass** (live field use) |
-| B7 | Sequence expiry under slow scan | Not specially stress-tested |
-
-#### Field notes
-
-- Cold device operated **offline (airplane mode)** after install/load from URL.  
-- Login and send tx completed successfully end-to-end.  
-- Primary validation goal for dual-device barcodes: **met**.  
-
-Optional follow-ups (not blocking): deliberate CRC/frame-loss soak, LastLedgerSequence timeout UX under very slow scans, F-USDC-only dual-device re-run if not already included in the send that passed.
+Cold device ran offline (airplane mode) after load from URL. Login and send completed end-to-end.
 
 ---
 
-## 7. Security notes
+## 7. Security
 
 | Control | Behavior |
 |---------|----------|
-| Hot secret after create | Not stored; only public vault record |
-| Cold import | Installed PWA only (standalone); file upload |
-| Device unlock | Password or passkey; shows last-known balances only |
-| Spend / TrustSet sign | Prefer offline; payment sign still asserts airplane mode where enforced |
-| Unlock challenge | Snapshot is display-only (not in signed challenge bytes) |
-| User review | Cold always shows human fields before approve |
+| Portal after create | Public vault record only; no secret |
+| Cold import | Installed PWA; file upload |
+| Device unlock | Password or passkey; last-known balances only |
+| Spend / TrustSet | Cold signs; airplane mode for spend |
+| Unlock snapshot | Display-only; not part of signed challenge bytes |
+| Approval | User reviews destination, amount, or trust issuer on cold before sign |
 
-**Still user-dependent:** verifying dest/amount/issuer on cold; physical security of cold device + password; recovery file on offline media.
+Operators remain responsible for verifying transaction details on cold, physical security of the cold device and password, and safekeeping of the offline export file.
 
 ---
 
-## 8. Key files
+## 8. Code map
 
 | Area | Path |
 |------|------|
 | Vault UI | `src/app/vault/page.tsx` |
 | Multi-QR | `src/lib/multi-qr.ts`, `src/components/MultiQrDisplay.tsx`, `MultiQrScanner.tsx` |
 | Protocol | `src/lib/vault-protocol.ts` |
-| Vault export / store / session | `src/lib/vault-export.ts`, `vault-store.ts`, `vault-session.ts` |
+| Export / store / session | `src/lib/vault-export.ts`, `vault-store.ts`, `vault-session.ts` |
 | Unlock verify | `src/lib/vault-unlock-verify.ts` |
-| Build unsigned txs | `src/lib/falcon-tx-sign.ts` (`buildPaymentTxJson`, `buildFusdcPaymentTxJson`, `buildTrustSetTxJson`, `signTxJson`) |
+| Unsigned builders | `src/lib/falcon-tx-sign.ts` (`buildPaymentTxJson`, `buildFusdcPaymentTxJson`, `buildTrustSetTxJson`, `signTxJson`) |
 | Cold app | `cold-signer/src/App.tsx`, `cold-signer/src/components/MultiQr.tsx` |
 | Cold storage | `cold-signer/src/lib/coldVaultDb.ts` |
-| Shipped PWA | `public/cold-signer/` |
-
-### Scripts
+| Production PWA assets | `public/cold-signer/` |
 
 ```bash
-npm run dev:cold       # cold PWA dev server
-npm run build:cold     # build + copy to public/cold-signer
+npm run dev:cold
+npm run build:cold
 npm run verify:multi-qr
 ```
 
 ---
 
-## 9. Remaining work (optional)
+## 9. Optional follow-ups
 
-1. Optional soak: CRC / partial frame loss, slow multi-QR under tight `LastLedgerSequence`  
-2. Optional: passkey reliability on more Android devices  
-3. Optional: cold-sign for more tx types (other IOUs, OfferCreate, etc.)  
-4. Optional: automatic install package zip (vault file + cold dist) for USB path  
+- Stress tests for multi-QR frame loss and slow scans near `LastLedgerSequence` expiry  
+- Broader passkey testing on additional Android devices  
+- Additional cold-signed transaction types as needed  
 
 ---
 
 ## 10. Conclusion
 
-The vault + cold-signer system is **feature-complete for the Payment / TrustSet MVP** and **validated** for:
-
-1. **Single-device** copy/paste payloads  
-2. **Two-device live barcodes** with cold device in **airplane mode** (download from URL → offline login → send tx)  
-
-Camera/QR path is **field-ready** for the tested flows (unlock + send offline).
-
-**Related commits (selection):**  
-`3b04f07` … vault/cold feature stack through TrustSet and docs.
-
----
-
-*Report maintained in-repo. §6.2 updated after two-device offline field test (2026-07-28).*
+Vault and cold signer support create, receive, unlock, Payment (FALCON and F-USDC), named destinations, and F-USDC TrustSet. Testing covers single-device copy/paste and two-device live multi-QR with the cold device in airplane mode (URL load → offline login → send).
