@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
- * Same-origin JSON-RPC proxy for BSC testnet.
- * Used when the browser cannot reach public RPCs (CSP / CORS / flaky endpoints).
- * Only allowlisted methods — never accepts private keys.
+ * Same-origin JSON-RPC proxy for BSC testnet (ethers-compatible response shape).
+ * Never accepts private keys — only allowlisted methods + raw signed txs.
  */
 
 const BSC_TESTNET_RPCS = [
@@ -14,48 +13,54 @@ const BSC_TESTNET_RPCS = [
 
 const ALLOWED = new Set([
   'eth_chainId',
+  'net_version',
   'eth_blockNumber',
   'eth_getBalance',
+  'eth_getCode',
+  'eth_getStorageAt',
   'eth_getTransactionCount',
   'eth_gasPrice',
   'eth_maxPriorityFeePerGas',
   'eth_feeHistory',
   'eth_estimateGas',
   'eth_call',
+  'eth_getLogs',
+  'eth_getBlockByNumber',
+  'eth_getBlockByHash',
   'eth_getTransactionByHash',
   'eth_getTransactionReceipt',
   'eth_sendRawTransaction',
 ])
 
-export async function POST(req: NextRequest) {
-  let body: { method?: string; params?: unknown[]; id?: number | string }
-  try {
-    body = (await req.json()) as typeof body
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-  }
+type RpcReq = { method?: string; params?: unknown[]; id?: number | string; jsonrpc?: string }
 
-  const method = body.method?.trim()
+async function forwardOne(req: RpcReq): Promise<Record<string, unknown>> {
+  const id = req.id ?? 1
+  const method = req.method?.trim()
   if (!method || !ALLOWED.has(method)) {
-    return NextResponse.json(
-      { error: `Method not allowed: ${method ?? '(missing)'}` },
-      { status: 400 },
-    )
+    return {
+      jsonrpc: '2.0',
+      id,
+      error: { code: -32601, message: `Method not allowed: ${method ?? '(missing)'}` },
+    }
   }
 
-  // Basic raw-tx shape check (no key material)
   if (method === 'eth_sendRawTransaction') {
-    const raw = Array.isArray(body.params) ? body.params[0] : null
+    const raw = Array.isArray(req.params) ? req.params[0] : null
     if (typeof raw !== 'string' || !/^0x[0-9a-fA-F]+$/.test(raw) || raw.length < 20) {
-      return NextResponse.json({ error: 'Invalid raw transaction' }, { status: 400 })
+      return {
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32602, message: 'Invalid raw transaction' },
+      }
     }
   }
 
   const payload = JSON.stringify({
     jsonrpc: '2.0',
-    id: body.id ?? 1,
+    id,
     method,
-    params: body.params ?? [],
+    params: req.params ?? [],
   })
 
   let lastErr = 'BSC testnet RPC unavailable'
@@ -65,7 +70,7 @@ export async function POST(req: NextRequest) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'User-Agent': 'falcon-wallet-bnb-rpc/1.0',
+          'User-Agent': 'falcon-wallet-bnb-rpc/1.1',
         },
         body: payload,
         cache: 'no-store',
@@ -75,24 +80,49 @@ export async function POST(req: NextRequest) {
         lastErr = `${url}: HTTP ${r.status}`
         continue
       }
-      let j: { result?: unknown; error?: { message?: string; code?: number } }
-      try {
-        j = JSON.parse(text) as typeof j
-      } catch {
-        lastErr = 'invalid JSON from RPC'
-        continue
+      const j = JSON.parse(text) as {
+        result?: unknown
+        error?: { message?: string; code?: number }
+        id?: unknown
       }
       if (j.error) {
-        return NextResponse.json(
-          { error: j.error.message || 'RPC error', code: j.error.code },
-          { status: 502 },
-        )
+        return {
+          jsonrpc: '2.0',
+          id,
+          error: { code: j.error.code ?? -32000, message: j.error.message || 'RPC error' },
+        }
       }
-      return NextResponse.json({ result: j.result })
+      return { jsonrpc: '2.0', id, result: j.result }
     } catch (e: unknown) {
       lastErr = e instanceof Error ? e.message : String(e)
     }
   }
 
-  return NextResponse.json({ error: lastErr }, { status: 502 })
+  return {
+    jsonrpc: '2.0',
+    id,
+    error: { code: -32000, message: lastErr },
+  }
+}
+
+export async function POST(req: NextRequest) {
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json(
+      { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Invalid JSON body' } },
+      { status: 400 },
+    )
+  }
+
+  // ethers may send a batch array
+  if (Array.isArray(body)) {
+    const out = await Promise.all(body.map((item) => forwardOne(item as RpcReq)))
+    return NextResponse.json(out)
+  }
+
+  const single = await forwardOne(body as RpcReq)
+  // HTTP 200 even for RPC-level errors (ethers expects that)
+  return NextResponse.json(single)
 }

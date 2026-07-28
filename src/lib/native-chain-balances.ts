@@ -23,14 +23,14 @@ const BSC_TESTNET_RPCS = [
 
 const BSC_TESTNET_CHAIN_ID = 97
 
-/** JSON-RPC via Next API proxy (browser-safe). */
+/** JSON-RPC via Next API proxy (browser-safe). Accepts ethers-style JSON-RPC envelope. */
 async function bnbRpcProxy<T = string>(method: string, params: unknown[] = []): Promise<T> {
   let r: Response
   try {
     r = await fetch('/api/wallet/bnb-rpc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method, params, id: 1 }),
+      body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
       cache: 'no-store',
     })
   } catch {
@@ -38,12 +38,20 @@ async function bnbRpcProxy<T = string>(method: string, params: unknown[] = []): 
       'Could not reach wallet API (network offline?). Check connection and try again.',
     )
   }
-  const j = (await r.json()) as { result?: T; error?: string }
-  if (!r.ok) {
-    throw new Error(j.error || `BSC RPC proxy failed (${r.status})`)
+  const j = (await r.json()) as {
+    result?: T
+    error?: string | { message?: string }
+  }
+  const errMsg =
+    typeof j.error === 'string' ? j.error : j.error?.message
+  if (!r.ok && errMsg) {
+    throw new Error(errMsg)
+  }
+  if (j.error && typeof j.error === 'object' && j.error.message) {
+    throw new Error(j.error.message)
   }
   if (j.result === undefined || j.result === null) {
-    throw new Error(j.error || `BSC RPC empty result for ${method}`)
+    throw new Error(errMsg || `BSC RPC empty result for ${method}`)
   }
   return j.result
 }

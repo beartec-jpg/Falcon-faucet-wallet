@@ -78,6 +78,14 @@ function provider(rpcUrl: string, chainId = 11155111): JsonRpcProvider {
   return new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true })
 }
 
+/** Same-origin BSC proxy — works under Vercel CSP where public RPCs fail with "Failed to fetch". */
+function bscTestnetProxyUrl(): string {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}/api/wallet/bnb-rpc`
+  }
+  return '/api/wallet/bnb-rpc'
+}
+
 async function withEvmProvider<T>(
   primaryUrl: string,
   chainId: number,
@@ -85,7 +93,13 @@ async function withEvmProvider<T>(
   fn: (p: JsonRpcProvider) => Promise<T>,
   label = 'EVM',
 ): Promise<T> {
-  const urls = [primaryUrl, ...fallbacks.filter((u) => u !== primaryUrl)]
+  const urls: string[] = []
+  // Prefer same-origin proxy for BSC testnet first
+  if (chainId === 97) {
+    urls.push(bscTestnetProxyUrl())
+  }
+  urls.push(primaryUrl, ...fallbacks.filter((u) => u !== primaryUrl && !urls.includes(u)))
+
   let lastErr: unknown
   for (const url of urls) {
     try {
@@ -510,17 +524,27 @@ async function resolveEvmProvider(
   fallbacks: readonly string[] = SEPOLIA_RPC_FALLBACKS,
   label = 'EVM',
 ): Promise<JsonRpcProvider> {
-  const urls = [primaryUrl, ...fallbacks.filter((u) => u !== primaryUrl)]
+  const urls: string[] = []
+  if (chainId === 97) {
+    urls.push(bscTestnetProxyUrl())
+  }
+  urls.push(primaryUrl, ...fallbacks.filter((u) => u !== primaryUrl && !urls.includes(u)))
+
+  let lastErr: unknown
   for (const url of urls) {
     try {
       const prov = provider(url, chainId)
       await prov.getBlockNumber()
       return prov
-    } catch {
-      /* try next */
+    } catch (e) {
+      lastErr = e
     }
   }
-  throw new Error(`Cannot reach ${label} RPC`)
+  const hint =
+    chainId === 97
+      ? 'Cannot reach BSC testnet (proxy + public RPCs failed). Hard-refresh and try again.'
+      : `Cannot reach ${label} RPC`
+  throw lastErr instanceof Error ? new Error(`${hint}: ${lastErr.message}`) : new Error(hint)
 }
 
 async function resolveProvider(primaryUrl: string): Promise<JsonRpcProvider> {
