@@ -218,6 +218,26 @@ export async function fetchBtcBalance(
   } catch {
     return null
   }
+
+  // Prefer same-origin API proxy (avoids CSP / flaky browser CORS).
+  try {
+    const q = new URLSearchParams({ address, network })
+    const r = await fetch(`/api/wallet/btc-balance?${q}`, { cache: 'no-store' })
+    if (r.ok) {
+      const j = (await r.json()) as BtcBalance & { error?: string }
+      if (typeof j.totalSats === 'number' && j.btc) {
+        return {
+          confirmedSats: j.confirmedSats,
+          unconfirmedSats: j.unconfirmedSats,
+          totalSats: j.totalSats,
+          btc: j.btc,
+        }
+      }
+    }
+  } catch {
+    /* fall through to direct explorers */
+  }
+
   try {
     const r = await explorerGet(`/address/${encodeURIComponent(address)}`, network)
     if (!r.ok) return null

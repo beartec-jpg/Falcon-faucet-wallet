@@ -511,42 +511,38 @@ export default function WalletPage() {
       .catch(() => {})
   }, [wallet, view])
 
-  // Native multi-chain balances (ETH/USDC Sepolia + BNB testnet + BTC testnet)
+  // Native multi-chain balances — each chain independent so one RPC failure
+  // does not wipe the others (previously Promise.all + catch cleared BTC too).
   useEffect(() => {
     if (walletSection !== 'multichain' && walletSection !== 'bridge') return
     if (!wallet) return
     let cancelled = false
     setNativeBalLoading(true)
+
     const ethP =
       wallet.evmAddress && bridgeCfg?.sepolia
-        ? fetchSepoliaBalances(bridgeCfg.sepolia, wallet.evmAddress)
+        ? fetchSepoliaBalances(bridgeCfg.sepolia, wallet.evmAddress).catch(() => null)
         : Promise.resolve(null)
     const bnbP = wallet.evmAddress
-      ? fetchBnbTestnetBalance(wallet.evmAddress)
+      ? fetchBnbTestnetBalance(wallet.evmAddress).catch(() => null)
       : Promise.resolve(null)
     const btcP = wallet.btcAddress
-      ? fetchBtcTestnetBalance(wallet.btcAddress)
+      ? fetchBtcTestnetBalance(wallet.btcAddress).catch(() => null)
       : Promise.resolve(null)
-    Promise.all([ethP, bnbP, btcP])
-      .then(([ethB, bnbB, btcB]) => {
-        if (cancelled) return
-        if (ethB) {
-          setEthNativeBal(ethB.eth)
-          setUsdcNativeBal(ethB.usdc)
-        }
-        setBnbNativeBal(bnbB)
-        setBtcNativeBal(btcB)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setEthNativeBal(null)
-        setUsdcNativeBal(null)
-        setBnbNativeBal(null)
-        setBtcNativeBal(null)
-      })
-      .finally(() => {
-        if (!cancelled) setNativeBalLoading(false)
-      })
+
+    void Promise.all([ethP, bnbP, btcP]).then(([ethB, bnbB, btcB]) => {
+      if (cancelled) return
+      if (ethB) {
+        setEthNativeBal(ethB.eth)
+        setUsdcNativeBal(ethB.usdc)
+      } else if (wallet.evmAddress) {
+        // keep previous eth/usdc on transient fail; only clear if never loaded
+      }
+      setBnbNativeBal(bnbB)
+      setBtcNativeBal(btcB)
+      setNativeBalLoading(false)
+    })
+
     return () => { cancelled = true }
   }, [walletSection, wallet?.evmAddress, wallet?.btcAddress, bridgeCfg, wallet])
 
@@ -2211,19 +2207,46 @@ export default function WalletPage() {
                           )}
                           {chain.id === 'btc' && hasBtc && (
                             <div className="mt-2 rounded-lg bg-slate-900/60 px-2 py-1.5 text-xs">
-                              <div className="text-slate-500">BTC (testnet)</div>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-slate-500">BTC (testnet)</div>
+                                <button
+                                  type="button"
+                                  className="text-[10px] text-brand-400 hover:text-brand-300 disabled:opacity-40"
+                                  disabled={nativeBalLoading || !wallet.btcAddress}
+                                  onClick={() => {
+                                    if (!wallet.btcAddress) return
+                                    setNativeBalLoading(true)
+                                    void fetchBtcTestnetBalance(wallet.btcAddress)
+                                      .then((b) => setBtcNativeBal(b))
+                                      .finally(() => setNativeBalLoading(false))
+                                  }}
+                                >
+                                  Refresh
+                                </button>
+                              </div>
                               <div className="font-mono text-slate-100">
                                 {nativeBalLoading
                                   ? '…'
                                   : btcNativeBal != null
                                     ? Number(btcNativeBal.btc).toLocaleString(undefined, {
                                         maximumFractionDigits: 8,
+                                        minimumFractionDigits: 0,
                                       })
-                                    : '—'}
+                                    : 'unavailable'}
                               </div>
+                              {btcNativeBal && btcNativeBal.totalSats > 0 && (
+                                <div className="text-[10px] text-slate-600 mt-0.5">
+                                  {btcNativeBal.totalSats.toLocaleString()} sats
+                                </div>
+                              )}
                               {btcNativeBal && btcNativeBal.unconfirmedSats !== 0 && (
                                 <div className="text-[10px] text-amber-400/80 mt-0.5">
                                   incl. unconfirmed {(btcNativeBal.unconfirmedSats / 1e8).toFixed(8)}
+                                </div>
+                              )}
+                              {btcNativeBal == null && !nativeBalLoading && (
+                                <div className="text-[10px] text-amber-400/80 mt-0.5">
+                                  Tap Refresh — explorer lookup failed
                                 </div>
                               )}
                             </div>
