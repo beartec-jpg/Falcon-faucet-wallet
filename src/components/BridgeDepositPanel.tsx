@@ -87,9 +87,12 @@ interface Props {
   fusdcBalance?: number | null
   onWalletUpdate: (w: StoredWallet) => void
   onFalconRefresh?: () => void
+  /** Open on Bridge In (deposit) or Bridge Out (withdraw). Default deposit. */
+  initialMode?: 'deposit' | 'withdraw' | 'send' | 'receive'
 }
 
-type BridgeMode = 'deposit' | 'withdraw' | 'send' | 'receive'
+type BridgeMode = 'bridge' | 'send' | 'receive'
+type BridgeDirection = 'deposit' | 'withdraw'
 type EvmPanel = 'bridge' | 'backup' | 'restore'
 
 function shortEvmAddr(addr: string): string {
@@ -114,12 +117,18 @@ export default function BridgeDepositPanel({
   fusdcBalance,
   onWalletUpdate,
   onFalconRefresh,
+  initialMode = 'deposit',
 }: Props) {
   const { networkKey, network } = useNetwork()
   const [balances, setBalances] = useState<{ eth: string; usdc: string } | null>(null)
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
-  const [mode, setMode] = useState<BridgeMode>('deposit')
+  const [mode, setMode] = useState<BridgeMode>(() =>
+    initialMode === 'send' || initialMode === 'receive' ? initialMode : 'bridge',
+  )
+  const [direction, setDirection] = useState<BridgeDirection>(() =>
+    initialMode === 'withdraw' ? 'withdraw' : 'deposit',
+  )
   const [sendAsset, setSendAsset] = useState<'eth' | 'usdc'>('usdc')
   const [sendTo, setSendTo] = useState('')
   const [sendAmount, setSendAmount] = useState('')
@@ -185,8 +194,8 @@ export default function BridgeDepositPanel({
   }, [refreshFusdcBalance])
 
   useEffect(() => {
-    if (mode === 'withdraw') refreshFusdcBalance()
-  }, [mode, refreshFusdcBalance])
+    if (mode === 'bridge' && direction === 'withdraw') refreshFusdcBalance()
+  }, [mode, direction, refreshFusdcBalance])
 
   const refreshBalances = useCallback(async () => {
     if (!wallet.evmAddress) return
@@ -696,11 +705,11 @@ export default function BridgeDepositPanel({
     <div className="space-y-4">
       <div className="card p-5 space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-white">My Bridge Wallet</h2>
+          <h2 className="text-sm font-semibold text-white">Bridge</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Sepolia <span className="text-emerald-400">ETH</span> and{' '}
-            <span className="text-emerald-400">USDC</span> for bridging. Bridge In mints{' '}
-            <span className="text-amber-400">F-USDC</span> on Falcon; Bridge Out releases Sepolia USDC here.
+            Lock Sepolia <span className="text-emerald-400">USDC</span> → mint{' '}
+            <span className="text-amber-400">F-USDC</span> on Falcon, or reverse. Asset selector expands as
+            FETH / FBTC / FBNB go live.
           </p>
         </div>
 
@@ -715,32 +724,53 @@ export default function BridgeDepositPanel({
           <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
             <button
               type="button"
-              onClick={() => { setMode('deposit'); setError(null) }}
-              className={`flex-1 py-2 font-medium ${mode === 'deposit' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
+              onClick={() => { setMode('bridge'); setError(null) }}
+              className={`flex-1 py-2 font-medium ${mode === 'bridge' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
             >
-              Bridge In
-            </button>
-            <button
-              type="button"
-              onClick={() => { setMode('withdraw'); setError(null); refreshFusdcBalance() }}
-              className={`flex-1 py-2 font-medium ${mode === 'withdraw' ? 'bg-amber-500/10 text-amber-400' : 'text-slate-500'}`}
-            >
-              Bridge Out
+              Bridge
             </button>
             <button
               type="button"
               onClick={() => { setMode('send'); setError(null) }}
               className={`flex-1 py-2 font-medium ${mode === 'send' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
             >
-              Send
+              Send Sepolia
             </button>
             <button
               type="button"
-              onClick={() => { setMode('receive' as BridgeMode); setError(null) }}
+              onClick={() => { setMode('receive'); setError(null) }}
               className={`flex-1 py-2 font-medium ${mode === 'receive' ? 'bg-slate-700/50 text-slate-200' : 'text-slate-500'}`}
             >
-              Receive
+              Receive Sepolia
             </button>
+          </div>
+        )}
+
+        {hasEvm && mode === 'bridge' && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="uppercase tracking-wide">Asset</span>
+              <span className="px-2 py-1 rounded-lg bg-slate-800 text-amber-300 font-medium border border-slate-700">
+                F-USDC ↔ USDC
+              </span>
+              <span className="text-slate-600">more assets soon</span>
+            </div>
+            <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
+              <button
+                type="button"
+                onClick={() => { setDirection('deposit'); setError(null) }}
+                className={`flex-1 py-2 font-medium ${direction === 'deposit' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
+              >
+                In (lock → mint)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setDirection('withdraw'); setError(null); refreshFusdcBalance() }}
+                className={`flex-1 py-2 font-medium ${direction === 'withdraw' ? 'bg-amber-500/10 text-amber-400' : 'text-slate-500'}`}
+              >
+                Out (burn → release)
+              </button>
+            </div>
           </div>
         )}
 
@@ -935,7 +965,7 @@ export default function BridgeDepositPanel({
           </div>
         ) : (
           <div className="space-y-4">
-            {mode === 'deposit' && (
+            {mode === 'bridge' && direction === 'deposit' && (
               <div className="card p-5 space-y-3 bg-emerald-500/5 border-emerald-500/25">
                 <div className="flex items-center justify-between gap-2">
                   <div>
@@ -965,7 +995,7 @@ export default function BridgeDepositPanel({
               </div>
             )}
 
-            {mode === 'withdraw' && (
+            {mode === 'bridge' && direction === 'withdraw' && (
               <div className="card p-5 space-y-3 bg-amber-500/5 border-amber-500/25">
                 <div className="flex items-center justify-between gap-2">
                   <div>
@@ -1014,7 +1044,7 @@ export default function BridgeDepositPanel({
                     type="button"
                     onClick={() => {
                       refreshBalances()
-                      if (mode === 'withdraw') refreshFusdcBalance()
+                      if (mode === 'bridge' && direction === 'withdraw') refreshFusdcBalance()
                     }}
                     disabled={balanceLoading || fusdcLoading}
                     className="p-1.5 text-slate-500 hover:text-slate-300 disabled:opacity-40"
@@ -1028,16 +1058,16 @@ export default function BridgeDepositPanel({
                 </div>
               </div>
 
-              {mode !== 'deposit' && (
+              {(mode !== 'bridge' || direction === 'withdraw') && (
                 <div>
                   <div className="text-xs text-slate-500 mb-1">
-                    {mode === 'withdraw' ? 'Sepolia USDC (receive)' : 'Sepolia USDC'}
+                    {mode === 'bridge' && direction === 'withdraw' ? 'Sepolia USDC (receive)' : 'Sepolia USDC'}
                   </div>
-                  <div className={`font-bold text-white ${mode === 'withdraw' ? 'text-xl' : 'text-3xl'}`}>
+                  <div className={`font-bold text-white ${mode === 'bridge' && direction === 'withdraw' ? 'text-xl' : 'text-3xl'}`}>
                     {balanceLoading ? '…' : balances ? fmt(balances.usdc, 2) : '—'}
                   </div>
                   <div className="text-[10px] text-slate-600 mt-1">
-                    {mode === 'withdraw'
+                    {mode === 'bridge' && direction === 'withdraw'
                       ? 'Released here after you bridge F-USDC out'
                       : 'Sepolia testnet USDC'}
                   </div>
@@ -1067,7 +1097,7 @@ export default function BridgeDepositPanel({
                   </a>
               </>
 
-              {ethAvail < 0.001 && mode === 'deposit' && (
+              {ethAvail < 0.001 && mode === 'bridge' && direction === 'deposit' && (
                 <p className="text-xs text-amber-400">
                   Need Sepolia ETH for gas.{' '}
                   <a href="https://sepoliafaucet.com" target="_blank" rel="noopener noreferrer" className="underline text-brand-400">
@@ -1102,7 +1132,7 @@ export default function BridgeDepositPanel({
               </button>
             </div>
 
-            {mode === 'withdraw' && (
+            {mode === 'bridge' && direction === 'withdraw' && (
               <>
                 <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-slate-400">
                   Return F-USDC on Falcon to the bridge issuer. Validators release matching Sepolia USDC
@@ -1167,7 +1197,7 @@ export default function BridgeDepositPanel({
               </>
             )}
 
-            {mode === 'deposit' && (
+            {mode === 'bridge' && direction === 'deposit' && (
               <>
                 {!hasFusdcTrustLine ? (
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-3">

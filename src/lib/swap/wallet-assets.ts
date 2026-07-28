@@ -1,10 +1,21 @@
 import type { NetworkKey } from '@/lib/networks'
 import { serverRpcCall } from '@/lib/network-server'
-import { loadStableToken } from '@/lib/swap/token-config'
+import { loadStableToken, loadStableTokens } from '@/lib/swap/token-config'
 
 const DROPS = 1_000_000
 
+/** One Falcon IOU / stable row (multi-asset ready). */
+export interface WalletIouBalance {
+  id: string
+  symbol: string
+  balance: number
+  currency: string
+  issuer: string
+  hasTrustLine: boolean
+}
+
 export interface WalletAssetBalances {
+  /** @deprecated prefer `tokens` — kept for F-USDC call sites */
   fusdc: {
     symbol: string
     balance: number
@@ -12,6 +23,8 @@ export interface WalletAssetBalances {
     issuer: string
     hasTrustLine: boolean
   }
+  /** All configured stable / bridged IOUs on Falcon */
+  tokens: WalletIouBalance[]
   lp: {
     symbol: string
     balance: number
@@ -27,7 +40,8 @@ export async function fetchWalletAssets(
   networkKey: NetworkKey,
   address: string,
 ): Promise<WalletAssetBalances> {
-  const token = await loadStableToken()
+  const catalog = await loadStableTokens()
+  const token = catalog[0] ?? (await loadStableToken())
   const emptyFusdc: WalletAssetBalances['fusdc'] = {
     symbol: 'F-USDC',
     balance: 0,
@@ -45,7 +59,9 @@ export async function fetchWalletAssets(
     estUsdcOut: 0,
   }
 
-  if (!token.issuer) return { fusdc: emptyFusdc, lp: emptyLp }
+  if (!token.issuer && catalog.length === 0) {
+    return { fusdc: emptyFusdc, tokens: [], lp: emptyLp }
+  }
 
   const linesR = await serverRpcCall<{
     lines?: Array<{ currency: string; account: string; balance: string }>
@@ -54,16 +70,29 @@ export async function fetchWalletAssets(
     ledger_index: 'validated',
   }).catch(() => ({ lines: [] }))
 
-  const usdcLine = (linesR.lines ?? []).find(
-    (l) => l.currency === token.currency && l.account === token.issuer,
-  )
-  const fusdc: WalletAssetBalances['fusdc'] = {
-    symbol: token.displaySymbol,
-    balance: usdcLine ? parseFloat(usdcLine.balance) : 0,
-    currency: token.currency,
-    issuer: token.issuer,
-    hasTrustLine: !!usdcLine,
-  }
+  const lines = linesR.lines ?? []
+  const tokens: WalletIouBalance[] = catalog.map((t, i) => {
+    const line = lines.find((l) => l.currency === t.currency && l.account === t.issuer)
+    return {
+      id: t.symbol.toLowerCase().replace(/[^a-z0-9]+/g, '_') || `token_${i}`,
+      symbol: t.displaySymbol || t.symbol,
+      balance: line ? parseFloat(line.balance) : 0,
+      currency: t.currency,
+      issuer: t.issuer,
+      hasTrustLine: !!line,
+    }
+  })
+
+  const usdcTok = tokens.find((t) => t.currency === token.currency && t.issuer === token.issuer)
+  const fusdc: WalletAssetBalances['fusdc'] = usdcTok
+    ? {
+        symbol: usdcTok.symbol,
+        balance: usdcTok.balance,
+        currency: usdcTok.currency,
+        issuer: usdcTok.issuer,
+        hasTrustLine: usdcTok.hasTrustLine,
+      }
+    : emptyFusdc
 
   let lp: WalletAssetBalances['lp'] | undefined
 
@@ -81,7 +110,7 @@ export async function fetchWalletAssets(
     const poolXrp = typeof amm.amount === 'string' ? parseInt(amm.amount, 10) / DROPS : 0
     const poolUsdc = parseFloat(String((amm.amount2 as { value?: string })?.value ?? '0'))
 
-    const lpLine = (linesR.lines ?? []).find(
+    const lpLine = lines.find(
       (l) => l.account === ammAccount && lpMeta?.currency && l.currency === lpMeta.currency,
     )
     if (lpLine && lpMeta?.currency) {
@@ -101,5 +130,5 @@ export async function fetchWalletAssets(
     }
   }
 
-  return { fusdc, lp: lp ?? emptyLp }
+  return { fusdc, tokens, lp: lp ?? emptyLp }
 }

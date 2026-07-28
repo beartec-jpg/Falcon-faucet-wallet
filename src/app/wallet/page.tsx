@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 
@@ -68,6 +68,10 @@ import {
 } from '@/lib/create-evm-wallet'
 import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
+import {
+  MULTI_CHAIN_ASSETS,
+  type MultiChainAssetId,
+} from '@/lib/multi-chain-assets'
 
 
 const AddressQrScanner = dynamic(() => import('@/components/AddressQrScanner'), { ssr: false })
@@ -95,6 +99,14 @@ interface WalletAssets {
     issuer: string
     hasTrustLine?: boolean
   }
+  tokens?: Array<{
+    id: string
+    symbol: string
+    balance: number
+    currency: string
+    issuer: string
+    hasTrustLine: boolean
+  }>
   lp: {
     symbol: string
     balance: number
@@ -311,7 +323,9 @@ export default function WalletPage() {
   const [nodeStatsLoading, setNodeStatsLoading] = useState(false)
   const [showNodeSetup, setShowNodeSetup] = useState(false)
   const [bridgeCfg, setBridgeCfg] = useState<(UsdcBridgeManifest & { lock_contract_ready?: boolean }) | null>(null)
-  const [walletSection, setWalletSection] = useState<'falcon' | 'bridge'>('falcon')
+  const [walletSection, setWalletSection] = useState<'multichain' | 'bridge'>('multichain')
+  const [bridgeInitialMode, setBridgeInitialMode] = useState<'deposit' | 'withdraw'>('deposit')
+  const [receiveAssetId, setReceiveAssetId] = useState<MultiChainAssetId>('falcon')
   const [bridgeMissing, setBridgeMissing] = useState(false)
   const bridgeAutoProvisioned = useRef(false)
 
@@ -620,7 +634,7 @@ export default function WalletPage() {
         setError(
           e instanceof Error
             ? e.message
-            : 'Bridge wallet setup failed — use the button below or My Bridge Wallet',
+            : 'Bridge wallet setup failed — use the button below or open Bridge',
         )
       } finally {
         setBusy(false)
@@ -823,7 +837,7 @@ export default function WalletPage() {
       setRestoreSeed('')
       setRestorePassphrase('')
       setView('dashboard')
-      setWalletSection(hasBridgeWallet(stored) ? 'bridge' : 'falcon')
+      setWalletSection(hasBridgeWallet(stored) ? 'bridge' : 'multichain')
       refreshBalance(address)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Restore failed')
@@ -897,7 +911,7 @@ export default function WalletPage() {
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
       if (!wallet.evmEncrypted || !wallet.evmAddress) {
-        throw new Error('Sepolia bridge wallet is missing — add it from My Bridge Wallet before exporting backup')
+        throw new Error('Sepolia bridge wallet is missing — add it from Bridge before exporting backup')
       }
       const evm_private_key = (await decryptSeed(wallet.evmEncrypted, keyBytes)).replace(/^0x/i, '')
       const file = await createEncryptedBackup({
@@ -1467,27 +1481,28 @@ export default function WalletPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      setWalletSection('falcon')
+                      setWalletSection('multichain')
                       refreshBalance(wallet.address)
                     }}
-                    className={`flex-1 py-2.5 font-medium ${walletSection === 'falcon' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
+                    className={`flex-1 py-2.5 font-medium ${walletSection === 'multichain' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
                   >
-                    My Falcon Wallet
+                    Multi-chain
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       setWalletSection('bridge')
+                      setBridgeInitialMode('deposit')
                       refreshBalance(wallet.address)
                     }}
                     className={`flex-1 py-2.5 font-medium ${walletSection === 'bridge' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
                   >
-                    My Bridge Wallet
+                    Bridge
                   </button>
                 </div>
               )}
 
-              {view === 'dashboard' && walletSection === 'falcon' && (
+              {view === 'dashboard' && walletSection === 'multichain' && (
               <div className="card p-5 space-y-4">
                 {/* Identity: name first (mobile + desktop), then r-address */}
                 <div className="space-y-2">
@@ -1667,44 +1682,121 @@ export default function WalletPage() {
                   </div>
                 )}
 
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-xs text-slate-500 mb-1">FALCON</div>
-                    {account === null ? (
-                      <div className="text-2xl font-bold text-slate-600">—</div>
-                    ) : !account.exists ? (
-                      <div>
-                        <div className="text-2xl font-bold text-slate-600">0</div>
-                        <div className="text-xs text-slate-600 mt-1">Account not yet activated — fund it first</div>
-                      </div>
-                    ) : (
-                      <div className="text-3xl font-bold text-white">
-                        {account.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}
-                      </div>
-                    )}
+                <div className="space-y-2">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+                    Multi-chain balances
+                  </div>
+                  {!account?.exists && account !== null && (
+                    <p className="text-xs text-slate-600">
+                      Account not activated — fund your Falcon address first (faucet).
+                    </p>
+                  )}
+                  <div className="space-y-2">
+                    {MULTI_CHAIN_ASSETS.map((asset) => {
+                      const isLive = asset.status === 'live'
+                      let balanceLabel = '—'
+                      let detail: ReactNode = asset.subtitle
+                      if (asset.id === 'falcon') {
+                        balanceLabel = account == null
+                          ? '—'
+                          : account.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })
+                      } else if (asset.id === 'fusdc') {
+                        balanceLabel = (account?.assets?.fusdc?.balance ?? 0).toLocaleString(undefined, {
+                          maximumFractionDigits: 4,
+                        })
+                        if (account?.assets?.fusdc?.hasTrustLine === false) {
+                          detail = (
+                            <span>
+                              Need trust line —{' '}
+                              <button
+                                type="button"
+                                className="text-brand-400"
+                                onClick={() => {
+                                  setBridgeInitialMode('deposit')
+                                  setWalletSection('bridge')
+                                }}
+                              >
+                                Bridge
+                              </button>
+                              {' / '}
+                              <Link href="/swap" className="text-brand-400">Swap</Link>
+                            </span>
+                          )
+                        }
+                      } else {
+                        balanceLabel = '—'
+                      }
+                      return (
+                        <div
+                          key={asset.id}
+                          className={`rounded-xl border px-3 py-3 ${
+                            isLive
+                              ? 'bg-slate-800/50 border-slate-700/80'
+                              : 'bg-slate-900/40 border-slate-800 opacity-80'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-white">{asset.symbol}</span>
+                                {!isLive && (
+                                  <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">
+                                    Soon
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-500 mt-0.5 leading-snug">{detail}</div>
+                            </div>
+                            <div className="font-mono text-base font-semibold text-slate-100 shrink-0">
+                              {balanceLabel}
+                            </div>
+                          </div>
+                          <div className="mt-2.5 flex flex-wrap gap-1.5">
+                            <button
+                              type="button"
+                              disabled={!isLive || !asset.canReceiveFalcon}
+                              onClick={() => {
+                                setReceiveAssetId(asset.id)
+                                setView('receive')
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-35"
+                            >
+                              Receive
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!isLive || !asset.canSendFalcon || !account?.exists || !network.live}
+                              onClick={() => {
+                                setSendAsset(asset.id === 'fusdc' ? 'fusdc' : 'falcon')
+                                setView('send')
+                                setError(null)
+                                setSendResult(null)
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-brand-500/90 hover:bg-brand-400 text-slate-950 disabled:opacity-35"
+                            >
+                              Send
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!isLive || !asset.canBridge}
+                              onClick={() => {
+                                setBridgeInitialMode('deposit')
+                                setWalletSection('bridge')
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25 disabled:opacity-35"
+                              title={asset.isNative ? 'Native asset — no bridge' : undefined}
+                            >
+                              Bridge
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
 
                   {account?.exists && (
-                    <div className="grid grid-cols-3 gap-2 text-sm">
-                      <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
-                        <div className="text-xs text-slate-500">F-USDC</div>
-                        <div className="font-mono text-slate-100 mt-0.5">
-                          {(account.assets?.fusdc?.balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                        </div>
-                        <div className="text-[10px] text-slate-600 mt-0.5">
-                          {account.assets?.fusdc?.hasTrustLine === false
-                            ? (
-                              <span>
-                                <Link href="/wallet?bridge=1" className="text-brand-400">Bridge</Link>
-                                {' or '}
-                                <Link href="/swap" className="text-brand-400">Swap</Link>
-                                {' → trust line'}
-                              </span>
-                            )
-                            : 'Bridged F-USDC'}
-                        </div>
-                      </div>
-                      <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
+                    <div className="grid grid-cols-2 gap-2 text-sm pt-1">
+                      <div className="bg-slate-800/40 rounded-xl px-3 py-2.5 border border-slate-800">
                         <div className="text-xs text-slate-500">LP tokens</div>
                         <div className="font-mono text-slate-100 mt-0.5">
                           {(account.assets?.lp?.balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -1721,7 +1813,7 @@ export default function WalletPage() {
                           )}
                         </div>
                       </div>
-                      <div className="bg-slate-800/60 rounded-xl px-3 py-2.5">
+                      <div className="bg-slate-800/40 rounded-xl px-3 py-2.5 border border-slate-800">
                         <div className="text-xs text-slate-500">Lend share</div>
                         <div className="font-mono text-slate-100 mt-0.5">
                           {(lendSupply?.shares ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -1867,17 +1959,14 @@ export default function WalletPage() {
 
                 <div className="flex gap-2 flex-wrap">
                   <button
-                    onClick={() => { setView('send'); setSendAsset('falcon'); setError(null); setSendResult(null) }}
-                    disabled={!account?.exists || !network.live}
-                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-brand-500 hover:bg-brand-400 disabled:opacity-40 text-slate-950"
+                    type="button"
+                    onClick={() => {
+                      setBridgeInitialMode('deposit')
+                      setWalletSection('bridge')
+                    }}
+                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25"
                   >
-                    Send
-                  </button>
-                  <button
-                    onClick={() => setView('receive')}
-                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200"
-                  >
-                    Receive
+                    Open Bridge
                   </button>
                   <Link
                     href="/vault"
@@ -1886,13 +1975,6 @@ export default function WalletPage() {
                   >
                     Vault
                   </Link>
-                  <button
-                    type="button"
-                    onClick={() => setWalletSection('bridge')}
-                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-sm font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25"
-                  >
-                    Bridge →
-                  </button>
                   <button
                     onClick={() => {
                       setShowNodeSetup(!savedNode)
@@ -1920,11 +2002,13 @@ export default function WalletPage() {
 
               {view === 'dashboard' && walletSection === 'bridge' && bridgeCfg && (
                 <BridgeDepositPanel
+                  key={`bridge-${bridgeInitialMode}`}
                   wallet={wallet}
                   bridgeCfg={bridgeCfg}
                   fusdcBalance={account?.assets?.fusdc?.balance ?? null}
                   onWalletUpdate={setWallet}
                   onFalconRefresh={() => refreshBalance(wallet.address)}
+                  initialMode={bridgeInitialMode}
                 />
               )}
 
@@ -1935,7 +2019,32 @@ export default function WalletPage() {
               {/* ── Receive panel ── */}
               {view === 'receive' && (
                 <div className="card p-5 space-y-4">
-                  <h3 className="font-semibold text-white text-sm">Receive FALCON</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setView('dashboard')}
+                      className="text-slate-500 hover:text-slate-300"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <h3 className="font-semibold text-white text-sm">
+                      Receive{' '}
+                      {receiveAssetId === 'fusdc'
+                        ? 'F-USDC'
+                        : receiveAssetId === 'falcon'
+                          ? 'FALCON'
+                          : MULTI_CHAIN_ASSETS.find((a) => a.id === receiveAssetId)?.symbol ?? 'assets'}
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    {receiveAssetId === 'fusdc'
+                      ? 'F-USDC is an IOU on Falcon. Share your Falcon r… address. To mint from Sepolia USDC use Bridge → In.'
+                      : receiveAssetId === 'falcon'
+                        ? 'Only send FALCON / Falcon-network assets to this address.'
+                        : 'This asset is not live yet. When enabled, Falcon-wrapped balances use this same r… address after bridge-in.'}
+                  </p>
                   <div className="bg-white rounded-xl p-3 mx-auto w-fit">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -1956,12 +2065,27 @@ export default function WalletPage() {
                     >
                       {copied ? '✓ Copied!' : 'Copy Address'}
                     </button>
-                    <Link
-                      href={`/?address=${encodeURIComponent(wallet.address)}`}
-                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors text-center"
-                    >
-                      Get from Faucet →
-                    </Link>
+                    {receiveAssetId === 'falcon' && (
+                      <Link
+                        href={`/?address=${encodeURIComponent(wallet.address)}`}
+                        className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors text-center"
+                      >
+                        Get from Faucet →
+                      </Link>
+                    )}
+                    {receiveAssetId === 'fusdc' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBridgeInitialMode('deposit')
+                          setWalletSection('bridge')
+                          setView('dashboard')
+                        }}
+                        className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-emerald-950/50 text-emerald-300 border border-emerald-500/25"
+                      >
+                        Bridge In →
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
