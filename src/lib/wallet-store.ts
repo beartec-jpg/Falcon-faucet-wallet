@@ -17,10 +17,16 @@ export interface StoredWallet {
   encrypted:    EncryptedSeed
   hasPrf:       boolean  // true if PRF extension was available at creation
   createdAt:    number   // Date.now()
-  /** Passkey-encrypted Sepolia EVM private key (hex, no 0x) for bridge deposits */
+  /** Passkey-encrypted Sepolia/EVM private key (hex, no 0x) for multi-chain ETH/BNB */
   evmEncrypted?: EncryptedSeed
-  /** Checksummed 0x… address on Sepolia */
+  /** Checksummed 0x… address (ETH + future BNB) */
   evmAddress?: string
+  /** Passkey-encrypted Bitcoin private key (hex, no 0x) */
+  btcEncrypted?: EncryptedSeed
+  /** Bitcoin P2PKH testnet address (m… / n…) — default display on testnet */
+  btcAddress?: string
+  /** Bitcoin P2PKH mainnet address (1…) */
+  btcAddressMainnet?: string
 }
 
 // ─── DB init ──────────────────────────────────────────────────────────────────

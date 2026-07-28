@@ -1,0 +1,78 @@
+{
+  "note": "Multi-asset lock-mint routes. Only fusdc-sepolia is live; others scaffold for FETH/FBTC/FBNB.",
+  "routes": [
+    {
+      "id": "fusdc-sepolia",
+      "status": "live",
+      "direction_labels": {
+        "in": "Ethereum Sepolia · USDC → Falcon F-USDC",
+        "out": "Falcon F-USDC → Sepolia USDC"
+      },
+      "source": {
+        "chain": "ethereum",
+        "network": "sepolia",
+        "chain_id": 11155111,
+        "native_symbol": "ETH",
+        "token_symbol": "USDC",
+        "decimals": 6
+      },
+      "falcon": {
+        "symbol": "F-USDC",
+        "currency": "QUC"
+      }
+    },
+    {
+      "id": "feth-ethereum",
+      "status": "coming_soon",
+      "direction_labels": {
+        "in": "Ethereum · WETH → Falcon FETH",
+        "out": "Falcon FETH → Ethereum WETH"
+      },
+      "source": {
+        "chain": "ethereum",
+        "network": "mainnet_or_sepolia",
+        "native_symbol": "ETH",
+        "token_symbol": "WETH",
+        "decimals": 18
+      },
+      "falcon": {
+        "symbol": "FETH",
+        "currency": "ETH"
+      }
+    },
+    {
+      "id": "fbtc-wbtc",
+      "status": "coming_soon",
+      "direction_labels": {
+        "in": "Ethereum · WBTC → Falcon FBTC",
+        "out": "Falcon FBTC → Ethereum WBTC"
+      },
+      "source": {
+        "chain": "ethereum",
+        "token_symbol": "WBTC",
+        "decimals": 8
+      },
+      "falcon": {
+        "symbol": "FBTC",
+        "currency": "BTC"
+      }
+    },
+    {
+      "id": "fbnb-bsc",
+      "status": "coming_soon",
+      "direction_labels": {
+        "in": "BNB Smart Chain · BNB → Falcon FBNB",
+        "out": "Falcon FBNB → BNB Smart Chain"
+      },
+      "source": {
+        "chain": "bsc",
+        "native_symbol": "BNB",
+        "decimals": 18
+      },
+      "falcon": {
+        "symbol": "FBNB",
+        "currency": "BNB"
+      }
+    }
+  ]
+}

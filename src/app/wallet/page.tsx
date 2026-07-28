@@ -18,6 +18,7 @@ import {
   loadPrimaryWallet,
   removeWalletFromDevice,
   replacePrimaryWallet,
+  saveWallet,
   type StoredWallet,
 } from '@/lib/wallet-store'
 import {
@@ -75,6 +76,13 @@ import {
   type MultiChainAssetId,
 } from '@/lib/multi-chain-assets'
 import { fetchSepoliaBalances } from '@/lib/evm-bridge-client'
+import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
+import {
+  createBtcWalletForPasskey,
+  encryptBtcKeyForPasskey,
+  hasBtcWallet,
+  provisionBtcWalletForStoredWallet,
+} from '@/lib/create-btc-wallet'
 
 
 const AddressQrScanner = dynamic(() => import('@/components/AddressQrScanner'), { ssr: false })
@@ -151,6 +159,10 @@ interface PendingWalletSave {
   evmAddress: string
   evmPrivateKeyHex: string
   evmEncrypted: StoredWallet['evmEncrypted']
+  btcAddress: string
+  btcAddressMainnet: string
+  btcPrivateKeyHex: string
+  btcEncrypted: StoredWallet['btcEncrypted']
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -331,6 +343,7 @@ export default function WalletPage() {
   const [receiveAssetId, setReceiveAssetId] = useState<MultiChainAssetId>('falcon')
   const [ethNativeBal, setEthNativeBal] = useState<string | null>(null)
   const [usdcNativeBal, setUsdcNativeBal] = useState<string | null>(null)
+  const [bnbNativeBal, setBnbNativeBal] = useState<string | null>(null)
   const [nativeBalLoading, setNativeBalLoading] = useState(false)
   const [bridgeMissing, setBridgeMissing] = useState(false)
   const bridgeAutoProvisioned = useRef(false)
@@ -486,28 +499,45 @@ export default function WalletPage() {
       .catch(() => {})
   }, [wallet, view])
 
-  // Native multi-chain balances (ETH / USDC on Sepolia deposit wallet)
+  // Native multi-chain balances (ETH/USDC Sepolia + BNB testnet)
   useEffect(() => {
     if (walletSection !== 'multichain' && walletSection !== 'bridge') return
-    if (!wallet?.evmAddress || !bridgeCfg?.sepolia) return
+    if (!wallet?.evmAddress) return
     let cancelled = false
     setNativeBalLoading(true)
-    fetchSepoliaBalances(bridgeCfg.sepolia, wallet.evmAddress)
-      .then((b) => {
+    const ethP = bridgeCfg?.sepolia
+      ? fetchSepoliaBalances(bridgeCfg.sepolia, wallet.evmAddress)
+      : Promise.resolve(null)
+    const bnbP = fetchBnbTestnetBalance(wallet.evmAddress)
+    Promise.all([ethP, bnbP])
+      .then(([ethB, bnbB]) => {
         if (cancelled) return
-        setEthNativeBal(b.eth)
-        setUsdcNativeBal(b.usdc)
+        if (ethB) {
+          setEthNativeBal(ethB.eth)
+          setUsdcNativeBal(ethB.usdc)
+        }
+        setBnbNativeBal(bnbB)
       })
       .catch(() => {
         if (cancelled) return
         setEthNativeBal(null)
         setUsdcNativeBal(null)
+        setBnbNativeBal(null)
       })
       .finally(() => {
         if (!cancelled) setNativeBalLoading(false)
       })
     return () => { cancelled = true }
   }, [walletSection, wallet?.evmAddress, bridgeCfg])
+
+  // Auto-provision missing BTC deposit key (same passkey vault)
+  useEffect(() => {
+    if (!wallet || hasBtcWallet(wallet) || busy || view !== 'dashboard') return
+    if (walletSection !== 'multichain' && walletSection !== 'bridge') return
+    void provisionBtcWalletForStoredWallet(wallet)
+      .then((w) => setWallet(w))
+      .catch(() => { /* user can retry via Open Bridge */ })
+  }, [wallet, walletSection, view, busy])
 
   // ── On mount: load wallet from IndexedDB ──────────────────────────────────
 
@@ -695,6 +725,7 @@ export default function WalletPage() {
       const encrypted = await encryptSeed(falcon_secret, keyBytes, hasPrf)
       const { address: evmAddress, privateKeyHex: evmPrivateKeyHex } = createRandomEvmWallet()
       const evmEncrypted = await encryptSeed(evmPrivateKeyHex, keyBytes, hasPrf)
+      const btc = await createBtcWalletForPasskey(keyBytes, hasPrf)
 
       setPendingSave({
         credentialId,
@@ -707,6 +738,10 @@ export default function WalletPage() {
         evmAddress,
         evmPrivateKeyHex,
         evmEncrypted,
+        btcAddress: btc.address,
+        btcAddressMainnet: btc.addressMainnet,
+        btcPrivateKeyHex: btc.privateKeyHex,
+        btcEncrypted: btc.btcEncrypted,
       })
       setView('backup')
     } catch (e: unknown) {
@@ -728,12 +763,20 @@ export default function WalletPage() {
         throw new Error('Sepolia bridge wallet was not created — please create the wallet again')
       }
 
-      const { falcon_secret: _secret, evmPrivateKeyHex: _evmPk, ...rest } = pendingSave
+      const {
+        falcon_secret: _secret,
+        evmPrivateKeyHex: _evmPk,
+        btcPrivateKeyHex: _btcPk,
+        ...rest
+      } = pendingSave
       const stored: StoredWallet = {
         ...rest,
         createdAt: Date.now(),
         evmAddress: pendingSave.evmAddress,
         evmEncrypted: pendingSave.evmEncrypted,
+        btcAddress: pendingSave.btcAddress,
+        btcAddressMainnet: pendingSave.btcAddressMainnet,
+        btcEncrypted: pendingSave.btcEncrypted,
       }
       await replacePrimaryWallet(stored)
       const verified = await loadPrimaryWallet()
@@ -790,6 +833,9 @@ export default function WalletPage() {
         createdAt: Date.now(),
         evm_private_key: pendingSave.evmPrivateKeyHex,
         evm_address: pendingSave.evmAddress,
+        btc_private_key: pendingSave.btcPrivateKeyHex,
+        btc_address: pendingSave.btcAddress,
+        btc_address_mainnet: pendingSave.btcAddressMainnet,
       }, backupPassphrase)
       downloadBackup(file)
       setBackupDownloaded(true)
@@ -820,7 +866,10 @@ export default function WalletPage() {
   const finishRestore = async (
     falconSecret: string,
     label: string,
-    bridgeFromBackup?: Pick<BackupPayload, 'evm_private_key' | 'evm_address'>,
+    bridgeFromBackup?: Pick<
+      BackupPayload,
+      'evm_private_key' | 'evm_address' | 'btc_private_key' | 'btc_address' | 'btc_address_mainnet'
+    >,
   ) => {
     if (!isPasskeySupported()) {
       setError('Passkeys need a secure context (HTTPS or localhost).')
@@ -845,7 +894,18 @@ export default function WalletPage() {
         bridgeFromBackup?.evm_address &&
         evm.address.toLowerCase() !== bridgeFromBackup.evm_address.toLowerCase()
       ) {
-        throw new Error('Sepolia key in backup does not match the stored address')
+        throw new Error('EVM key in backup does not match the stored address')
+      }
+
+      const btc = bridgeFromBackup?.btc_private_key
+        ? await encryptBtcKeyForPasskey(bridgeFromBackup.btc_private_key, keyBytes, hasPrf)
+        : await createBtcWalletForPasskey(keyBytes, hasPrf)
+      if (
+        bridgeFromBackup?.btc_address &&
+        btc.address !== bridgeFromBackup.btc_address &&
+        bridgeFromBackup.btc_address_mainnet !== btc.addressMainnet
+      ) {
+        // Prefer restoring the key; recompute addresses from key (already done in encryptBtcKey)
       }
 
       const stored: StoredWallet = {
@@ -858,6 +918,9 @@ export default function WalletPage() {
         createdAt: Date.now(),
         evmAddress: evm.address,
         evmEncrypted: evm.evmEncrypted,
+        btcAddress: btc.address,
+        btcAddressMainnet: btc.addressMainnet,
+        btcEncrypted: btc.btcEncrypted,
       }
       await replacePrimaryWallet(stored)
 
@@ -866,7 +929,7 @@ export default function WalletPage() {
       setRestoreSeed('')
       setRestorePassphrase('')
       setView('dashboard')
-      setWalletSection(hasBridgeWallet(stored) ? 'bridge' : 'falcon')
+      setWalletSection(hasBridgeWallet(stored) ? 'multichain' : 'falcon')
       refreshBalance(address)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Restore failed')
@@ -916,6 +979,9 @@ export default function WalletPage() {
       await finishRestore(payload.falcon_secret, payload.label || restoreLabel, {
         evm_private_key: payload.evm_private_key,
         evm_address: payload.evm_address,
+        btc_private_key: payload.btc_private_key,
+        btc_address: payload.btc_address,
+        btc_address_mainnet: payload.btc_address_mainnet,
       })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not read backup file')
@@ -943,6 +1009,25 @@ export default function WalletPage() {
         throw new Error('Sepolia bridge wallet is missing — add it from Bridge before exporting backup')
       }
       const evm_private_key = (await decryptSeed(wallet.evmEncrypted, keyBytes)).replace(/^0x/i, '')
+      let btc_private_key: string | undefined
+      let btc_address = wallet.btcAddress
+      let btc_address_mainnet = wallet.btcAddressMainnet
+      if (wallet.btcEncrypted) {
+        btc_private_key = (await decryptSeed(wallet.btcEncrypted, keyBytes)).replace(/^0x/i, '')
+      } else {
+        const btc = await createBtcWalletForPasskey(keyBytes, wallet.hasPrf)
+        btc_private_key = btc.privateKeyHex
+        btc_address = btc.address
+        btc_address_mainnet = btc.addressMainnet
+        const withBtc = {
+          ...wallet,
+          btcAddress: btc.address,
+          btcAddressMainnet: btc.addressMainnet,
+          btcEncrypted: btc.btcEncrypted,
+        }
+        await saveWallet(withBtc)
+        setWallet(withBtc)
+      }
       const file = await createEncryptedBackup({
         falcon_secret,
         address: wallet.address,
@@ -951,6 +1036,9 @@ export default function WalletPage() {
         createdAt: wallet.createdAt,
         evm_private_key,
         evm_address: wallet.evmAddress,
+        btc_private_key,
+        btc_address,
+        btc_address_mainnet,
       }, exportPassphrase)
       downloadBackup(file)
       setShowExportBackup(false)
@@ -1850,9 +1938,14 @@ export default function WalletPage() {
                     )}
                     {NATIVE_CHAIN_WALLETS.map((chain) => {
                       const isLive = chain.status === 'live'
-                      const hasKey = hasBridgeWallet(wallet)
+                      const hasEvmKey = hasBridgeWallet(wallet)
+                      const hasBtc = hasBtcWallet(wallet)
+                      const hasKey = chain.id === 'btc' ? hasBtc : hasEvmKey
                       const shortEvm = wallet.evmAddress
                         ? `${wallet.evmAddress.slice(0, 10)}…${wallet.evmAddress.slice(-6)}`
+                        : ''
+                      const shortBtc = wallet.btcAddress
+                        ? `${wallet.btcAddress.slice(0, 10)}…${wallet.btcAddress.slice(-6)}`
                         : ''
                       return (
                         <div
@@ -1868,22 +1961,22 @@ export default function WalletPage() {
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-semibold text-white">{chain.symbol}</span>
                                 <span className="text-[10px] text-slate-500">{chain.chainLabel}</span>
-                                {!isLive && (
-                                  <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">
-                                    Soon
-                                  </span>
-                                )}
                               </div>
-                              <div className="text-[10px] text-slate-500 mt-0.5 leading-snug">
-                                {chain.id === 'eth' && hasKey ? (
-                                  <span className="font-mono text-slate-400">{shortEvm} <span className="font-sans text-slate-600">· Sepolia</span></span>
-                                ) : (
-                                  chain.subtitle
+                              <div className="text-[10px] text-slate-500 mt-0.5 leading-snug font-mono">
+                                {chain.id === 'eth' && hasEvmKey && (
+                                  <span className="text-slate-400">{shortEvm} <span className="font-sans text-slate-600">· Sepolia</span></span>
                                 )}
+                                {chain.id === 'bnb' && hasEvmKey && (
+                                  <span className="text-slate-400">{shortEvm} <span className="font-sans text-slate-600">· same key · BSC testnet</span></span>
+                                )}
+                                {chain.id === 'btc' && hasBtc && (
+                                  <span className="text-slate-400">{shortBtc} <span className="font-sans text-slate-600">· BTC testnet</span></span>
+                                )}
+                                {!hasKey && <span className="font-sans">{chain.subtitle}</span>}
                               </div>
                             </div>
                           </div>
-                          {chain.id === 'eth' && hasKey && (
+                          {chain.id === 'eth' && hasEvmKey && (
                             <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                               <div className="rounded-lg bg-slate-900/60 px-2 py-1.5">
                                 <div className="text-slate-500">ETH</div>
@@ -1903,6 +1996,21 @@ export default function WalletPage() {
                               </div>
                             </div>
                           )}
+                          {chain.id === 'bnb' && hasEvmKey && (
+                            <div className="mt-2 rounded-lg bg-slate-900/60 px-2 py-1.5 text-xs">
+                              <div className="text-slate-500">BNB (testnet)</div>
+                              <div className="font-mono text-slate-100">
+                                {nativeBalLoading ? '…' : bnbNativeBal != null
+                                  ? Number(bnbNativeBal).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                                  : '—'}
+                              </div>
+                            </div>
+                          )}
+                          {chain.id === 'btc' && hasBtc && (
+                            <div className="mt-2 rounded-lg bg-slate-900/60 px-2 py-1.5 text-xs text-slate-500">
+                              Balance lookup not wired yet — use Receive for deposit address. Bridge → FBTC later.
+                            </div>
+                          )}
                           <div className="mt-2.5 flex flex-wrap gap-1.5">
                             <button
                               type="button"
@@ -1919,8 +2027,10 @@ export default function WalletPage() {
                               type="button"
                               disabled={!isLive || !chain.canSend || !hasKey}
                               onClick={() => {
-                                setBridgeInitialMode('send')
-                                setWalletSection('bridge')
+                                if (chain.id === 'eth' || chain.id === 'bnb') {
+                                  setBridgeInitialMode('send')
+                                  setWalletSection('bridge')
+                                }
                               }}
                               className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-brand-500/90 hover:bg-brand-400 text-slate-950 disabled:opacity-35"
                             >
@@ -2173,7 +2283,12 @@ export default function WalletPage() {
               {/* ── Receive panel ── */}
               {view === 'receive' && (() => {
                 const isNativeEvm = receiveAssetId === 'eth' || receiveAssetId === 'bnb'
-                const recvAddr = isNativeEvm ? (wallet.evmAddress || '') : wallet.address
+                const isBtc = receiveAssetId === 'btc'
+                const recvAddr = isNativeEvm
+                  ? (wallet.evmAddress || '')
+                  : isBtc
+                    ? (wallet.btcAddress || '')
+                    : wallet.address
                 const recvSymbol = multiChainAssetById(receiveAssetId)?.symbol
                   ?? (receiveAssetId === 'eth' ? 'ETH' : receiveAssetId === 'btc' ? 'BTC' : receiveAssetId === 'bnb' ? 'BNB' : 'assets')
                 return (
@@ -2195,12 +2310,14 @@ export default function WalletPage() {
                   <p className="text-xs text-slate-500 leading-relaxed">
                     {receiveAssetId === 'eth'
                       ? 'Native Ethereum address (Sepolia testnet). Fund ETH for gas and USDC to bridge into F-USDC on Falcon.'
+                      : receiveAssetId === 'bnb'
+                        ? 'Same 0x as ETH. On BSC testnet this receives BNB. Bridge → FBNB coming later.'
+                      : receiveAssetId === 'btc'
+                        ? 'Native Bitcoin testnet P2PKH address. Only send testnet BTC. Mainnet address is in backup; Bridge → FBTC later.'
                       : receiveAssetId === 'fusdc'
                         ? 'F-USDC lives on Falcon. Share your r… address, or Bridge In from the ETH wallet USDC balance.'
                         : receiveAssetId === 'falcon'
                           ? 'Only send FALCON / Falcon-network assets to this r… address.'
-                          : receiveAssetId === 'btc' || receiveAssetId === 'bnb'
-                            ? 'This native chain wallet is not live yet.'
                             : 'Falcon-wrapped asset — use Falcon r… after minting via Bridge.'}
                   </p>
                   {recvAddr ? (

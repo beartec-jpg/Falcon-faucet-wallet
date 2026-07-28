@@ -1,10 +1,12 @@
 /**
  * Encrypted wallet backup files for client-side restore.
- * v2 bundles Falcon + Sepolia bridge keys in one passphrase-encrypted file.
+ * One file = Falcon + multi-chain deposit keys (EVM + BTC).
+ * v1 Falcon only · v2 + EVM · v3 + BTC (optional fields; restore accepts 1–3).
  */
 
 export const BACKUP_TYPE = 'qxrp-falcon-wallet-backup'
-export const BACKUP_VERSION = 2
+export const BACKUP_VERSION = 3
+export const BACKUP_VERSION_V2 = 2
 export const BACKUP_VERSION_LEGACY = 1
 
 export interface BackupPayload {
@@ -13,19 +15,27 @@ export interface BackupPayload {
   publicKey: string
   label: string
   createdAt: number
-  /** Sepolia EVM private key (64-char hex, no 0x) — present in v2 backups */
+  /** EVM private key (64-char hex, no 0x) — ETH + BNB deposit wallet */
   evm_private_key?: string
-  /** Checksummed 0x… Sepolia address — present in v2 backups */
+  /** Checksummed 0x… address */
   evm_address?: string
+  /** Bitcoin private key (64-char hex, no 0x) */
+  btc_private_key?: string
+  /** Bitcoin testnet P2PKH (m…/n…) */
+  btc_address?: string
+  /** Bitcoin mainnet P2PKH (1…) */
+  btc_address_mainnet?: string
 }
 
 export interface EncryptedBackupFile {
-  version: typeof BACKUP_VERSION | typeof BACKUP_VERSION_LEGACY
+  version: number
   type: typeof BACKUP_TYPE
   encrypted: true
   address: string
-  /** Sepolia bridge address (v2 outer metadata) */
+  /** EVM deposit address (outer metadata) */
   evm_address?: string
+  /** BTC testnet address (outer metadata) */
+  btc_address?: string
   label: string
   createdAt: number
   payload: {
@@ -87,8 +97,10 @@ export function validateBackupPassphrase(passphrase: string): string | null {
   return null
 }
 
-function backupVersionForPayload(payload: BackupPayload): typeof BACKUP_VERSION | typeof BACKUP_VERSION_LEGACY {
-  return payload.evm_private_key && payload.evm_address ? BACKUP_VERSION : BACKUP_VERSION_LEGACY
+function backupVersionForPayload(payload: BackupPayload): number {
+  if (payload.btc_private_key && payload.btc_address) return BACKUP_VERSION // 3
+  if (payload.evm_private_key && payload.evm_address) return BACKUP_VERSION_V2
+  return BACKUP_VERSION_LEGACY
 }
 
 export async function createEncryptedBackup(
@@ -99,8 +111,8 @@ export async function createEncryptedBackup(
   if (err) throw new Error(err)
 
   const version = backupVersionForPayload(payload)
-  if (version === BACKUP_VERSION && (!payload.evm_private_key || !payload.evm_address)) {
-    throw new Error('Sepolia bridge keys are required for wallet backup')
+  if (version >= BACKUP_VERSION_V2 && (!payload.evm_private_key || !payload.evm_address)) {
+    throw new Error('Multi-chain EVM keys are required for wallet backup')
   }
 
   const salt = crypto.getRandomValues(new Uint8Array(32))
@@ -118,6 +130,7 @@ export async function createEncryptedBackup(
     encrypted: true,
     address: payload.address,
     evm_address: payload.evm_address,
+    btc_address: payload.btc_address,
     label: payload.label,
     createdAt: payload.createdAt,
     payload: {
@@ -164,7 +177,8 @@ export function parseBackupFile(raw: unknown): WalletBackupFile {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid backup file')
   const file = raw as Record<string, unknown>
   if (file.type !== BACKUP_TYPE) throw new Error('Not a Falcon Ledger wallet backup file')
-  if (file.version !== BACKUP_VERSION && file.version !== BACKUP_VERSION_LEGACY) {
+  const ver = Number(file.version)
+  if (ver !== BACKUP_VERSION && ver !== BACKUP_VERSION_V2 && ver !== BACKUP_VERSION_LEGACY) {
     throw new Error('Unsupported backup version')
   }
 
@@ -181,6 +195,10 @@ export function parseBackupFile(raw: unknown): WalletBackupFile {
 
 export function backupHasBridgeKeys(payload: BackupPayload): boolean {
   return !!(payload.evm_private_key && payload.evm_address)
+}
+
+export function backupHasBtcKeys(payload: BackupPayload): boolean {
+  return !!(payload.btc_private_key && payload.btc_address)
 }
 
 export function backupFilename(address: string): string {
@@ -205,7 +223,7 @@ export async function shareBackup(file: WalletBackupFile): Promise<boolean> {
   await navigator.share({
     files: [shareFile],
     title: 'Falcon Ledger wallet backup',
-    text: `Backup for ${file.address}${file.evm_address ? ` + Sepolia ${file.evm_address}` : ''}`,
+    text: `Backup for ${file.address}${file.evm_address ? ` + EVM ${file.evm_address}` : ''}${file.btc_address ? ` + BTC ${file.btc_address}` : ''}`,
   })
   return true
 }
