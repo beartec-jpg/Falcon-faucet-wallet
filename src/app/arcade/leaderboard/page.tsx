@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 
@@ -53,7 +54,7 @@ export default function ArcadeLeaderboardPage() {
   }, [load])
 
   return (
-    <div className="flex-1 flex flex-col">
+    <ProductShell intensity={0.35} className="flex-1">
       <Header current="arcade" subtitle="Arcade · Leaderboard" />
       <NetworkBanner />
 
@@ -122,6 +123,6 @@ export default function ArcadeLeaderboardPage() {
           )}
         </div>
       </main>
-    </div>
+    </ProductShell>
   )
 }

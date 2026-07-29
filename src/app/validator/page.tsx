@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import ProductShell from '@/components/ProductShell'
 
 const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
 const DRIP_AMOUNT  = parseInt(process.env.NEXT_PUBLIC_DRIP_AMOUNT_QXRP ?? '2000', 10)
@@ -58,7 +59,7 @@ export default function ValidatorGuidePage() {
   --node-name my-falcon-node`
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <ProductShell intensity={0.4}>
       <Header current="wallet" subtitle="Validator guide" />
 
       <main className="flex-1 px-4 py-8 max-w-3xl mx-auto w-full space-y-6">
@@ -158,6 +159,6 @@ export default function ValidatorGuidePage() {
           <Link href="/wallet" className="hover:text-slate-400">← Back to Wallet</Link>
         </p>
       </main>
-    </div>
+    </ProductShell>
   )
 }

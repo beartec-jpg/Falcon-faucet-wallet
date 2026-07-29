@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
@@ -641,7 +642,7 @@ export default function VaultPage() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950">
+    <ProductShell intensity={0.4} className="bg-slate-950">
       <Header current="wallet" subtitle="Vault (cold)" />
       <NetworkBanner />
 
@@ -1128,6 +1129,6 @@ export default function VaultPage() {
           <p>Never re-import the vault secret into this browser after create.</p>
         </div>
       </main>
-    </div>
+    </ProductShell>
   )
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { loadPrimaryWallet } from '@/lib/wallet-store'
@@ -258,7 +259,7 @@ export default function ArcadePage() {
      * iframe. The old “Falcon Arcade / play mini-games / Leaderboard” strip is
      * gone so it cannot pin over the game.
      */
-    <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden">
+    <ProductShell intensity={0.22} className="h-[100dvh] max-h-[100dvh] overflow-hidden">
       <Header current="arcade" subtitle="Arcade · Game Faucet" sticky={false}>
         <div className="flex items-center gap-2">
           <Link
@@ -318,6 +319,6 @@ export default function ArcadePage() {
           referrerPolicy="origin"
         />
       </div>
-    </div>
+    </ProductShell>
   )
 }

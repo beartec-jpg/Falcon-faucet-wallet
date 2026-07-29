@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Header from '@/components/Header'
+import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
@@ -95,7 +96,7 @@ export default function AirdropPage() {
   }, [loadOverview, loadMe])
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <ProductShell intensity={0.4} className="bg-slate-950 text-slate-100">
       <Header current="airdrop" />
       <NetworkBanner />
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
@@ -232,6 +233,6 @@ export default function AirdropPage() {
           )}
         </section>
       </main>
-    </div>
+    </ProductShell>
   )
 }
