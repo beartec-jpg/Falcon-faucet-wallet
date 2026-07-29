@@ -3,6 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import ProductShell from '@/components/ProductShell'
 import {
   WHITEPAPER_DATE,
   WHITEPAPER_DOWNLOADS,
@@ -103,13 +104,52 @@ function renderMarkdownish(text: string) {
   })
 }
 
+function DocsDownloadList() {
+  return (
+    <ul className="space-y-3">
+      {WHITEPAPER_DOWNLOADS.map((doc) => (
+        <li key={doc.href}>
+          <a
+            href={doc.href}
+            download={doc.filename}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-start gap-4 p-3 rounded-xl border border-slate-800 bg-slate-900/50 hover:border-brand-500/40 hover:bg-slate-800/60 transition-colors group"
+          >
+            <span className="flex-shrink-0 w-10 h-10 rounded-lg bg-brand-500/10 text-brand-400 flex items-center justify-center mt-0.5">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.75}
+                  d="M12 10v6m0 0l-3-3m3 3l3-3M6 18h12a2 2 0 002-2V8a2 2 0 00-2-2H9.5a2 2 0 00-1.7.95l-1.3 2.17A2 2 0 004.5 11v5a2 2 0 002 2z"
+                />
+              </svg>
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-white group-hover:text-brand-400 transition-colors">
+                {doc.title}
+              </span>
+              <span className="block text-xs text-slate-500 mt-1 leading-relaxed">{doc.description}</span>
+              <span className="block text-xs font-mono text-slate-600 mt-2">{doc.filename}</span>
+            </span>
+            <span className="flex-shrink-0 text-xs font-medium text-brand-500 group-hover:text-brand-400 pt-1">
+              {doc.filename.endsWith('.pdf') ? 'PDF ↓' : 'Download ↓'}
+            </span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export default function WhitepaperPage() {
   return (
-    <div className="min-h-screen flex flex-col">
+    <ProductShell intensity={0.38}>
       <Header current="whitepaper" subtitle="Falcon Ledger white paper" />
 
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-10">
-        <div className="text-center mb-12">
+        <div className="text-center mb-10">
           <Image
             src="/falcon-logo.png"
             alt="Falcon Ledger"
@@ -125,49 +165,27 @@ export default function WhitepaperPage() {
           <p className="text-brand-500 mt-3 text-sm font-medium">
             Quantum-Resistant · Validator-Rewarding · 98% Protocol Treasury · Honest Bootstrap
           </p>
+
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <a
+              href="#docs"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-brand-500 text-slate-950 hover:bg-brand-400 transition-colors shadow-[0_0_24px_rgba(192,120,56,0.25)]"
+            >
+              Skip to docs
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              </svg>
+            </a>
+            <a
+              href="#contents"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-slate-300 border border-slate-700 hover:border-brand-500/40 hover:text-brand-400 transition-colors"
+            >
+              Contents
+            </a>
+          </div>
         </div>
 
-        <section className="card p-5 mb-10" aria-labelledby="downloads-heading">
-          <div className="text-xs uppercase tracking-wider text-slate-500 mb-3" id="downloads-heading">
-            Downloads
-          </div>
-          <ul className="space-y-3">
-            {WHITEPAPER_DOWNLOADS.map((doc) => (
-              <li key={doc.href}>
-                <a
-                  href={doc.href}
-                  download={doc.filename}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-start gap-4 p-3 rounded-xl border border-slate-800 bg-slate-900/50 hover:border-brand-500/40 hover:bg-slate-800/60 transition-colors group"
-                >
-                  <span className="flex-shrink-0 w-10 h-10 rounded-lg bg-brand-500/10 text-brand-400 flex items-center justify-center mt-0.5">
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={1.75}
-                        d="M12 10v6m0 0l-3-3m3 3l3-3M6 18h12a2 2 0 002-2V8a2 2 0 00-2-2H9.5a2 2 0 00-1.7.95l-1.3 2.17A2 2 0 004.5 11v5a2 2 0 002 2z"
-                      />
-                    </svg>
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-white group-hover:text-brand-400 transition-colors">
-                      {doc.title}
-                    </span>
-                    <span className="block text-xs text-slate-500 mt-1 leading-relaxed">{doc.description}</span>
-                    <span className="block text-xs font-mono text-slate-600 mt-2">{doc.filename}</span>
-                  </span>
-                  <span className="flex-shrink-0 text-xs font-medium text-brand-500 group-hover:text-brand-400 pt-1">
-                    {doc.filename.endsWith('.pdf') ? 'PDF ↓' : 'Download ↓'}
-                  </span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <nav className="card p-4 mb-10">
+        <nav id="contents" className="card p-4 mb-10 scroll-mt-24 border-brand-500/15 bg-slate-900/70 backdrop-blur-sm">
           <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">Contents</div>
           <ul className="grid sm:grid-cols-2 gap-1 text-sm">
             {WHITEPAPER_SECTIONS.map((s) => (
@@ -177,6 +195,11 @@ export default function WhitepaperPage() {
                 </a>
               </li>
             ))}
+            <li>
+              <a href="#docs" className="text-brand-400 hover:text-brand-300 transition-colors font-medium">
+                Documents &amp; downloads ↓
+              </a>
+            </li>
           </ul>
         </nav>
 
@@ -189,15 +212,41 @@ export default function WhitepaperPage() {
           </section>
         ))}
 
+        {/* Docs / downloads at the bottom */}
+        <section
+          id="docs"
+          className="card p-5 mb-10 scroll-mt-24 border-brand-500/25 bg-slate-900/75 backdrop-blur-md shadow-[0_0_40px_rgba(192,120,56,0.08)]"
+          aria-labelledby="docs-heading"
+        >
+          <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-brand-400/90 mb-1" id="docs-heading">
+                Documents
+              </div>
+              <h2 className="text-xl font-bold text-white">Docs &amp; downloads</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Reports and PDFs for testnet, security, lending, vault, and multi-chain.
+              </p>
+            </div>
+            <a href="#contents" className="text-xs text-slate-500 hover:text-brand-400 transition-colors">
+              Back to top
+            </a>
+          </div>
+          <DocsDownloadList />
+        </section>
+
         <footer className="border-t border-slate-800 pt-8 pb-12 text-center text-sm text-slate-600">
           <p>Copyright © 2026 Falcon Ledger Team · AGPL-3.0 / MIT</p>
-          <p className="mt-2">
+          <p className="mt-2 space-x-3">
             <Link href="/" className="text-brand-500 hover:text-brand-400">
-              ← Back to faucet
+              ← Home
+            </Link>
+            <Link href="/faucet" className="text-slate-500 hover:text-brand-400">
+              Faucet
             </Link>
           </p>
         </footer>
       </main>
-    </div>
+    </ProductShell>
   )
 }

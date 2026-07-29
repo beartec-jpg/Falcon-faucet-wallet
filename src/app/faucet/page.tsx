@@ -6,7 +6,7 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import Logo from '@/components/Logo'
 import NetworkBanner from '@/components/NetworkBanner'
-import BrandAtmosphere from '@/components/BrandAtmosphere'
+import ProductShell from '@/components/ProductShell'
 import { useNetwork } from '@/components/NetworkProvider'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -168,10 +168,7 @@ function FaucetPageInner() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="relative flex-1 flex flex-col min-h-0">
-      <BrandAtmosphere intensity={0.5} />
-
-      <div className="relative z-10 flex flex-1 flex-col">
+    <ProductShell intensity={0.5} className="flex-1 min-h-0">
       <Header current="faucet">
         <StatusDot online={status.online} state={status.state} />
       </Header>
@@ -319,8 +316,7 @@ function FaucetPageInner() {
           </p>
         </div>
       </main>
-      </div>
-    </div>
+    </ProductShell>
   )
 }
 

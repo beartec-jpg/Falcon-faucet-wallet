@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 
 import Header from '@/components/Header'
+import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
@@ -1447,7 +1448,7 @@ export default function WalletPage() {
     (!!pendingSave?.hasPrf || weakEncryptionAck)
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <ProductShell intensity={0.4}>
 
       <Header current="wallet" />
       <NetworkBanner />
@@ -3887,6 +3888,6 @@ export default function WalletPage() {
           </p>
         </div>
       </main>
-    </div>
+    </ProductShell>
   )
 }

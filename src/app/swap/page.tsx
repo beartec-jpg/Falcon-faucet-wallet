@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
@@ -440,7 +441,7 @@ export default function SwapPage() {
       : null
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <ProductShell intensity={0.4}>
       <Header current="swap" />
       <NetworkBanner />
 
@@ -804,6 +805,6 @@ export default function SwapPage() {
           </>
         )}
       </main>
-    </div>
+    </ProductShell>
   )
 }

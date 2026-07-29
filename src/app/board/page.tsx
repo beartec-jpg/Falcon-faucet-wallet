@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
 import {
   isPasskeySupported,
@@ -175,7 +176,7 @@ export default function BoardPage() {
   const charCount = compose.length
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <ProductShell intensity={0.4}>
       <Header current="board" />
       <NetworkBanner />
 
@@ -323,6 +324,6 @@ export default function BoardPage() {
           Max 10 posts per hour per wallet · Plain text only · Testnet community board
         </p>
       </main>
-    </div>
+    </ProductShell>
   )
 }

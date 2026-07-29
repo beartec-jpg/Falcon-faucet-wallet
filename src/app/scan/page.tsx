@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import ProductShell from '@/components/ProductShell'
 import Logo from '@/components/Logo'
 import type { ScanData, LedgerSummary, TxSummary } from '@/app/api/scan/route'
 import OrderBookPanel from '@/components/OrderBookPanel'
@@ -387,7 +388,7 @@ export default function ScanPage() {
   const d = data
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
+    <ProductShell intensity={0.4} className="bg-slate-950 text-slate-100">
 
       {/* ── Ticker ───────────────────────────────────────────────────────── */}
       {d && (
@@ -681,6 +682,6 @@ export default function ScanPage() {
         <a href="https://github.com/beartec-jpg/qXRP" target="_blank" rel="noopener noreferrer"
           className="hover:text-slate-400 underline underline-offset-2">Falcon Ledger on GitHub</a>
       </footer>
-    </div>
+    </ProductShell>
   )
 }

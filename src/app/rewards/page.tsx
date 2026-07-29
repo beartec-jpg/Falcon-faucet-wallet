@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
@@ -599,7 +600,7 @@ export default function RewardsPage() {
   const epoch = lpOverview?.epoch
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <ProductShell intensity={0.4}>
       <Header current="wallet" subtitle="Claim rewards · Validator · Vault LP · AMM LP" />
       <NetworkBanner />
 
@@ -1000,6 +1001,6 @@ export default function RewardsPage() {
           <Link href="/pool" className="text-brand-400 hover:underline">Pool</Link>
         </p>
       </main>
-    </div>
+    </ProductShell>
   )
 }
