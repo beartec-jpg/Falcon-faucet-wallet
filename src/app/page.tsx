@@ -42,7 +42,7 @@ export default function MarketingHomePage() {
           <Link href="/" className="nav-brand">
             <Image
               className="nav-logo"
-              src="/falcon-logo.png"
+              src="/assets/images/brand/logo.jpg"
               alt="Falcon Ledger"
               width={160}
               height={36}
@@ -128,27 +128,27 @@ export default function MarketingHomePage() {
             <div className="feature-grid">
               {[
                 {
-                  src: '/assets/images/icons/icon-quantum.svg',
+                  src: '/assets/images/icons/icon-quantum.jpg',
                   title: 'Post-Quantum Secure',
                   text: 'Protected by Falcon-512 signatures from the very first block.',
                 },
                 {
-                  src: '/assets/images/icons/icon-treasury.svg',
+                  src: '/assets/images/icons/icon-treasury.jpg',
                   title: 'Protocol-Controlled Treasury',
                   text: '98% of the supply sits in a keyless treasury — no company escrow.',
                 },
                 {
-                  src: '/assets/images/icons/icon-popl.svg',
+                  src: '/assets/images/icons/icon-popl.jpg',
                   title: 'Proof of Participation & Liquidity (PoPL)',
                   text: 'A new model that rewards real contribution to the network.',
                 },
                 {
-                  src: '/assets/images/icons/icon-validators.svg',
+                  src: '/assets/images/icons/icon-validators.jpg',
                   title: 'Validators Get Paid',
                   text: 'Those who secure the network earn directly from the protocol.',
                 },
                 {
-                  src: '/assets/images/icons/icon-liquidity.svg',
+                  src: '/assets/images/icons/icon-liquidity.jpg',
                   title: 'Liquidity Providers Get Paid',
                   text: 'Providing liquidity is recognised and rewarded by the protocol itself.',
                 },
@@ -179,11 +179,11 @@ export default function MarketingHomePage() {
             </div>
             <div className="roof-grid">
               {[
-                { src: '/assets/images/platform/platform-wallet.svg', title: 'Multichain Wallet', href: '/wallet' },
-                { src: '/assets/images/platform/platform-bridge.svg', title: 'Permissionless Bridge', href: '/swap' },
-                { src: '/assets/images/platform/platform-pools.svg', title: 'Liquidity Pools', href: '/pool' },
-                { src: '/assets/images/platform/platform-lending.svg', title: 'Collateralized Lending', href: '/lend' },
-                { src: '/assets/images/platform/platform-rewards.svg', title: 'Participation & Arcade Rewards', href: '/arcade' },
+                { src: '/assets/images/platform/platform-wallet.jpg', title: 'Multichain Wallet', href: '/wallet' },
+                { src: '/assets/images/platform/platform-bridge.jpg', title: 'Permissionless Bridge', href: '/swap' },
+                { src: '/assets/images/platform/platform-pools.jpg', title: 'Liquidity Pools', href: '/pool' },
+                { src: '/assets/images/platform/platform-lending.jpg', title: 'Collateralized Lending', href: '/lend' },
+                { src: '/assets/images/platform/platform-rewards.jpg', title: 'Participation & Arcade Rewards', href: '/arcade' },
               ].map((item, i) => (
                 <Link
                   key={item.title}
@@ -351,7 +351,7 @@ export default function MarketingHomePage() {
           <div className="footer-brand">
             <Image
               className="footer-logo"
-              src="/falcon-logo.png"
+              src="/assets/images/brand/logo.jpg"
               alt="Falcon Ledger"
               width={140}
               height={32}
