@@ -13,12 +13,12 @@ export const metadata: Metadata = {
   title: `${NETWORK} — Quantum-Safe Ledger for Real Participation`,
   description:
     'Falcon Ledger is the quantum-safe ledger built for real participation. Post-quantum security, protocol-controlled treasury, and rewards for those who secure and use the network.',
-  icons: { icon: '/falcon-logo.png', apple: '/falcon-logo.png' },
+  icons: { icon: '/assets/images/brand/logo-mark.jpg', apple: '/assets/images/brand/apple-touch-icon.jpg' },
   manifest: '/manifest.json',
   openGraph: {
     title: `${NETWORK}`,
     description: 'The quantum-safe ledger built for real participation.',
-    images: ['/falcon-logo.png'],
+    images: ['/assets/images/brand/og-image.jpg'],
   },
   appleWebApp: {
     capable: true,
@@ -39,7 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         {/* iOS PWA meta */}
         <meta name="mobile-web-app-capable" content="yes" />
-        <link rel="apple-touch-icon" href="/falcon-logo.png" />
+        <link rel="apple-touch-icon" href="/assets/images/brand/apple-touch-icon.jpg" />
       </head>
       <body className="min-h-screen flex flex-col">
         <Providers>{children}</Providers>
