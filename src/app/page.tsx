@@ -1,324 +1,378 @@
 'use client'
 
-import { useState, useEffect, useCallback, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useEffect } from 'react'
 import Link from 'next/link'
-import Header from '@/components/Header'
-import Logo from '@/components/Logo'
-import NetworkBanner from '@/components/NetworkBanner'
-import { useNetwork } from '@/components/NetworkProvider'
+import Image from 'next/image'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface NetworkStatus {
-  online: boolean
-  state?: string
-  ledger?: number
-  peers?: number
-  loadFactor?: number
-}
-
-interface DripResult {
-  txHash: string
-  amount: number
-  account: string
-  reset: string
-}
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-
-
-// ─── Subcomponents ───────────────────────────────────────────────────────────
-
-function StatusDot({ online, state }: { online: boolean; state?: string }) {
-  const active = online && (state === 'proposing' || state === 'full')
-  return (
-    <div className="flex items-center gap-2 text-sm">
-      <span className={`w-2 h-2 rounded-full ${active ? 'bg-emerald-400 animate-pulse-slow' : online ? 'bg-amber-400 animate-pulse-slow' : 'bg-slate-600'}`} />
-      <span className={active ? 'text-emerald-400' : online ? 'text-amber-400' : 'text-slate-500'}>
-        {!online ? 'Offline' : state ?? 'Connecting…'}
-      </span>
-    </div>
-  )
-}
-
-function TxHashDisplay({ hash, explorerUrl }: { hash: string; explorerUrl: string }) {
-  const [copied, setCopied] = useState(false)
-  const copy = () => {
-    navigator.clipboard.writeText(hash)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-  const short = `${hash.slice(0, 8)}…${hash.slice(-8)}`
-  const explorerHref = explorerUrl ? `${explorerUrl}/tx/${hash}` : null
-
-  return (
-    <div className="flex items-center gap-2 font-mono text-sm">
-      {explorerHref ? (
-        <a href={explorerHref} target="_blank" rel="noopener noreferrer"
-           className="text-brand-400 hover:text-brand-300 underline underline-offset-2">
-          {short}
-        </a>
-      ) : (
-        <span className="text-slate-300">{short}</span>
-      )}
-      <button onClick={copy} className="text-slate-500 hover:text-slate-300 transition-colors" title="Copy full hash">
-        {copied ? (
-          <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-        ) : (
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-          </svg>
-        )}
-      </button>
-    </div>
-  )
-}
-
-// ─── Main page ────────────────────────────────────────────────────────────────
-
-function FaucetPageInner() {
-  const { networkKey, network } = useNetwork()
-  const searchParams = useSearchParams()
-  const [address, setAddress]   = useState(() => searchParams?.get('address') ?? '')
-  const [status, setStatus]     = useState<NetworkStatus>({ online: false })
-  const [loading, setLoading]   = useState(false)
-  const [result, setResult]     = useState<DripResult | null>(null)
-  const [error, setError]           = useState<string | null>(null)
-  const [resetIso, setResetIso]     = useState<string | null>(null)
-  const [cooldownDisplay, setCooldownDisplay] = useState<string | null>(null)
-
-  // ── Poll network status every 10s ─────────────────────────────────────────
-  const refreshStatus = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/status?network=${networkKey}`)
-      const data = await r.json()
-      setStatus(data)
-    } catch {
-      setStatus({ online: false })
-    }
-  }, [networkKey])
-
+/**
+ * Marketing homepage for Falcon Ledger (.com root).
+ * Faucet lives at /faucet; wallet at /wallet.
+ */
+export default function MarketingHomePage() {
   useEffect(() => {
-    refreshStatus()
-    const id = setInterval(refreshStatus, 10_000)
-    return () => clearInterval(id)
-  }, [refreshStatus])
+    // Dynamic load marketing CSS (scoped helpers live in the file)
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = '/marketing/styles.css'
+    link.id = 'marketing-styles'
+    document.head.appendChild(link)
 
-  // ── Cooldown countdown ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!resetIso) {
-      setCooldownDisplay(null)
-      return
+    // Load hero canvas + scroll reveals
+    const script = document.createElement('script')
+    script.src = '/marketing/main.js'
+    script.async = true
+    script.id = 'marketing-main'
+    document.body.appendChild(script)
+
+    return () => {
+      document.getElementById('marketing-styles')?.remove()
+      document.getElementById('marketing-main')?.remove()
+      document.body.style.overflow = ''
     }
+  }, [])
 
-    const update = () => {
-      const secs = Math.max(0, Math.floor((new Date(resetIso).getTime() - Date.now()) / 1000))
-      if (secs <= 0) {
-        setResetIso(null)
-        setCooldownDisplay(null)
-        return
-      }
-      const h = Math.floor(secs / 3600)
-      const m = Math.floor((secs % 3600) / 60)
-      const s = secs % 60
-      setCooldownDisplay(
-        h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`
-      )
-    }
-
-    update()
-    const id = setInterval(update, 1000)
-    return () => clearInterval(id)
-  }, [resetIso])
-
-  // ── Submit ────────────────────────────────────────────────────────────────
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-    setResult(null)
-
-    try {
-      const res = await fetch('/api/faucet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account: address.trim(), network: networkKey }),
-      })
-      const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.error ?? 'Request failed')
-        if (data.reset) setResetIso(data.reset)
-      } else {
-        setResult(data)
-        setAddress('')
-      }
-    } catch {
-      setError('Network error. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="marketing-root">
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
 
-      <Header current="faucet">
-        <StatusDot online={status.online} state={status.state} />
-      </Header>
-      <NetworkBanner />
+      <header className="site-header" id="top">
+        <nav className="nav container" aria-label="Primary">
+          <Link href="/" className="nav-brand">
+            <Image
+              className="nav-logo"
+              src="/falcon-logo.png"
+              alt="Falcon Ledger"
+              width={160}
+              height={36}
+              priority
+              style={{ height: 36, width: 'auto' }}
+            />
+          </Link>
+          <button
+            className="nav-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="nav-menu"
+            aria-label="Open menu"
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+          <ul className="nav-menu" id="nav-menu">
+            <li>
+              <a href="#what-is-falcon">About</a>
+            </li>
+            <li>
+              <a href="#platform">Platform</a>
+            </li>
+            <li>
+              <a href="#features">Features</a>
+            </li>
+            <li>
+              <a href="#built-differently">Why Falcon</a>
+            </li>
+            <li>
+              <Link href="/wallet" className="nav-cta">
+                Launch Wallet
+              </Link>
+            </li>
+          </ul>
+        </nav>
+      </header>
 
-      {/* Main */}
-      <main className="flex-1 flex items-center justify-center px-4 py-12">
-        <div className="w-full max-w-lg space-y-6">
-
-          {/* Logo */}
-          <Logo />
-
-          {/* Hero */}
-          <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold text-white">
-              Get {network.badge === 'testnet' ? 'testnet' : ''}{' '}
-              <span className="text-brand-500">FALCON</span>
+      <main id="main">
+        {/* Hero */}
+        <section className="hero" id="hero">
+          <canvas className="hero-canvas" id="hero-canvas" aria-hidden="true" />
+          <div className="hero-glow" aria-hidden="true" />
+          <div className="hero-content container">
+            <h1 className="hero-title reveal-load" data-delay="0">
+              Falcon Ledger
             </h1>
-            <p className="text-slate-400 text-sm">
-              {network.dripAmountQxrp.toLocaleString()} FALCON per successful drip · failed attempts don&apos;t count
+            <p className="hero-subtitle reveal-load" data-delay="200">
+              The quantum-safe ledger built for real participation
             </p>
-            {!network.live && (
-              <p className="text-amber-400/90 text-xs">{network.comingSoonMessage}</p>
-            )}
+            <p className="hero-support reveal-load" data-delay="400">
+              Post-quantum security. Protocol-controlled treasury. Rewards for those who secure and
+              use the network.
+            </p>
+            <div className="hero-actions reveal-load" data-delay="600">
+              <a href="#platform" className="btn btn-primary">
+                Explore the Platform
+              </a>
+              <Link href="/faucet" className="btn btn-secondary">
+                Join the Testnet
+              </Link>
+            </div>
           </div>
+          <div className="hero-scroll" aria-hidden="true">
+            <span>Scroll</span>
+            <div className="hero-scroll-line" />
+          </div>
+        </section>
 
-          {/* Faucet card */}
-          <div className="card p-6 space-y-4">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-1.5">
-                <label htmlFor="address" className="block text-sm font-medium text-slate-300">
-                  Your Falcon address
-                </label>
-                <input
-                  id="address"
-                  type="text"
-                  value={address}
-                  onChange={e => { setAddress(e.target.value); setError(null) }}
-                  placeholder="r…"
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="input-field"
-                  disabled={loading}
-                />
-              </div>
+        {/* What is Falcon */}
+        <section className="section section-what" id="what-is-falcon">
+          <div className="container">
+            <div className="section-header reveal">
+              <p className="section-eyebrow">Introduction</p>
+              <h2 className="section-title">What is Falcon?</h2>
+              <p className="section-intro">
+                Falcon Ledger is a next-generation blockchain designed from the ground up for
+                long-term security and fair participation.
+              </p>
+            </div>
+            <div className="feature-grid">
+              {[
+                {
+                  src: '/assets/images/icons/icon-quantum.svg',
+                  title: 'Post-Quantum Secure',
+                  text: 'Protected by Falcon-512 signatures from the very first block.',
+                },
+                {
+                  src: '/assets/images/icons/icon-treasury.svg',
+                  title: 'Protocol-Controlled Treasury',
+                  text: '98% of the supply sits in a keyless treasury — no company escrow.',
+                },
+                {
+                  src: '/assets/images/icons/icon-popl.svg',
+                  title: 'Proof of Participation & Liquidity (PoPL)',
+                  text: 'A new model that rewards real contribution to the network.',
+                },
+                {
+                  src: '/assets/images/icons/icon-validators.svg',
+                  title: 'Validators Get Paid',
+                  text: 'Those who secure the network earn directly from the protocol.',
+                },
+                {
+                  src: '/assets/images/icons/icon-liquidity.svg',
+                  title: 'Liquidity Providers Get Paid',
+                  text: 'Providing liquidity is recognised and rewarded by the protocol itself.',
+                },
+              ].map((card, i) => (
+                <article key={card.title} className="feature-card reveal" data-stagger={i}>
+                  <div className="feature-card-icon">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={card.src} alt="" width={48} height={48} loading="lazy" />
+                  </div>
+                  <h3>{card.title}</h3>
+                  <p>{card.text}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
 
-              <button
-                type="submit"
-                disabled={loading || !address.trim() || !status.online || !network.live}
-                className="btn-primary"
-              >
-                {loading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <svg className="w-4 h-4 animate-spin-slow" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Sending…
-                  </span>
-                ) : (
-                  `Request ${network.dripAmountQxrp} FALCON`
-                )}
-              </button>
-            </form>
-
-            {/* Error */}
-            {error && (
-              <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400 space-y-1">
-                <div className="font-medium">{error}</div>
-                {cooldownDisplay && (
-                  <div className="text-red-400/70">Try again in {cooldownDisplay}</div>
-                )}
-              </div>
-            )}
-
-            {/* Success */}
-            {result && (
-              <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-4 py-4 space-y-3">
-                <div className="flex items-center gap-2 text-emerald-400 font-medium text-sm">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  {result.amount} FALCON sent!
-                </div>
-                <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
-                  <span className="text-slate-500">To</span>
-                  <span className="font-mono text-slate-300 text-xs break-all">{result.account}</span>
-                  <span className="text-slate-500">Tx</span>
-                  <TxHashDisplay hash={result.txHash} explorerUrl={network.explorerUrl} />
-                </div>
+        {/* One Roof */}
+        <section className="section section-roof" id="platform">
+          <div className="container">
+            <div className="section-header reveal">
+              <p className="section-eyebrow">Platform</p>
+              <h2 className="section-title">One Roof for Everything Crypto</h2>
+              <p className="section-intro">
+                A single platform where you can hold, bridge, trade, lend, and earn — without jumping
+                between different apps and chains.
+              </p>
+            </div>
+            <div className="roof-grid">
+              {[
+                { src: '/assets/images/platform/platform-wallet.svg', title: 'Multichain Wallet', href: '/wallet' },
+                { src: '/assets/images/platform/platform-bridge.svg', title: 'Permissionless Bridge', href: '/swap' },
+                { src: '/assets/images/platform/platform-pools.svg', title: 'Liquidity Pools', href: '/pool' },
+                { src: '/assets/images/platform/platform-lending.svg', title: 'Collateralized Lending', href: '/lend' },
+                { src: '/assets/images/platform/platform-rewards.svg', title: 'Participation & Arcade Rewards', href: '/arcade' },
+              ].map((item, i) => (
                 <Link
-                  href={`/wallet?address=${encodeURIComponent(result.account)}`}
-                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-colors"
+                  key={item.title}
+                  href={item.href}
+                  className="roof-card reveal"
+                  data-stagger={i}
                 >
-                  Open in Wallet →
+                  <div className="roof-card-visual">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={item.src} alt="" width={96} height={96} loading="lazy" />
+                  </div>
+                  <h3>{item.title}</h3>
                 </Link>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
+        </section>
 
-          {/* Network info grid */}
-          <div className="grid grid-cols-2 gap-3">
+        {/* Platform Features */}
+        <section className="section section-features" id="features">
+          <div className="container">
+            <div className="section-header reveal">
+              <p className="section-eyebrow">Capabilities</p>
+              <h2 className="section-title">Platform Features</h2>
+            </div>
+
             {[
-              { label: 'Ledger', value: status.ledger?.toLocaleString() ?? '—' },
-              { label: 'Peers',  value: status.peers?.toString() ?? '—' },
-              { label: 'State',  value: status.state ?? '—' },
-              { label: 'Load factor', value: status.loadFactor?.toFixed(2) ?? '—' },
-            ].map(({ label, value }) => (
-              <div key={label} className="card px-4 py-3">
-                <div className="text-xs text-slate-500 mb-0.5">{label}</div>
-                <div className="font-mono text-sm text-slate-200">{value}</div>
+              {
+                n: '01',
+                title: 'Multichain Wallet',
+                p1: 'Hold FALCON, Bitcoin, Ethereum, BNB and more in one place.',
+                p2: 'One wallet. Multiple chains. Simple and secure.',
+                img: '/assets/images/features/feature-wallet.svg',
+                replace: 'feature-wallet.png',
+                reverse: false,
+              },
+              {
+                n: '02',
+                title: 'Permissionless Bridge',
+                p1: 'Move assets onto Falcon with a clean, permissionless bridge.',
+                p2: 'No complicated steps. No unnecessary middlemen.',
+                img: '/assets/images/features/feature-bridge.svg',
+                replace: 'feature-bridge.png',
+                reverse: true,
+              },
+              {
+                n: '03',
+                title: 'Liquidity Pools',
+                p1: 'Provide liquidity and earn.',
+                p2: 'The protocol recognises and rewards those who make markets possible.',
+                img: '/assets/images/features/feature-pools.svg',
+                replace: 'feature-pools.png',
+                reverse: false,
+              },
+              {
+                n: '04',
+                title: 'Collateralized Lending & Borrowing',
+                p1: 'Lend and borrow using on-chain collateral.',
+                p2: 'Protocol-controlled, transparent, and designed for real use.',
+                img: '/assets/images/features/feature-lending.svg',
+                replace: 'feature-lending.png',
+                reverse: true,
+              },
+              {
+                n: '05',
+                title: 'Earn by Participating',
+                p1: 'Validators, liquidity providers, and active users are all rewarded by the protocol.',
+                p2: 'No empty promises — real participation, real rewards.',
+                img: '/assets/images/features/feature-earn.svg',
+                replace: 'feature-earn.png',
+                reverse: false,
+              },
+            ].map((f) => (
+              <div
+                key={f.n}
+                className={`feature-block reveal${f.reverse ? ' feature-block-reverse' : ''}`}
+              >
+                <div className="feature-block-copy">
+                  <p className="feature-block-label">Feature {f.n}</p>
+                  <h3>{f.title}</h3>
+                  <p>{f.p1}</p>
+                  <p>{f.p2}</p>
+                </div>
+                <div className="feature-block-visual">
+                  <figure className="media-frame">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={f.img} alt={`${f.title} preview`} width={720} height={520} loading="lazy" />
+                    <figcaption className="media-slot-label">Replace: {f.replace}</figcaption>
+                  </figure>
+                </div>
               </div>
             ))}
           </div>
+        </section>
 
-          {/* Wallet shortcut */}
-          <Link
-            href="/wallet"
-            className="card px-4 py-3 flex items-center justify-between text-sm hover:border-brand-500/40 transition-all"
-          >
-            <div className="flex items-center gap-2 text-slate-400">
-              <svg className="w-4 h-4 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-              </svg>
-              Open Falcon Wallet
+        {/* Built Differently */}
+        <section className="section section-why" id="built-differently">
+          <div className="container">
+            <div className="section-header reveal">
+              <p className="section-eyebrow">Principles</p>
+              <h2 className="section-title">Built Differently</h2>
             </div>
-            <svg className="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </Link>
+            <div className="why-grid">
+              {[
+                {
+                  n: '01',
+                  title: 'Quantum-resistant from day one',
+                  text: 'Security designed for the long term, with post-quantum cryptography at the foundation — not bolted on later.',
+                },
+                {
+                  n: '02',
+                  title: 'No single company controlling the majority of the supply',
+                  text: '98% of tokens sit in a keyless, protocol-controlled treasury. Fair structure by design.',
+                },
+                {
+                  n: '03',
+                  title: 'Real rewards for the people who secure and use the network',
+                  text: 'Validators, liquidity providers, and participants earn from the protocol itself — not empty incentives.',
+                },
+                {
+                  n: '04',
+                  title: 'Designed for the long term, not short-term hype',
+                  text: 'Calm, durable architecture focused on lasting utility and fair participation over cycles of noise.',
+                },
+              ].map((w, i) => (
+                <article key={w.n} className="why-card reveal" data-stagger={i}>
+                  <div className="why-number">{w.n}</div>
+                  <h3>{w.title}</h3>
+                  <p>{w.text}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
 
-          {/* Help text */}
-          <p className="text-center text-xs text-slate-600">
-            Tokens have no real value · For testing only ·{' '}
-            <a href="https://github.com/beartec-jpg/qXRP" target="_blank" rel="noopener noreferrer"
-               className="text-slate-500 hover:text-slate-400 underline underline-offset-2">
-              Falcon Ledger on GitHub
+        {/* CTA */}
+        <section className="section section-cta" id="cta">
+          <div className="cta-glow" aria-hidden="true" />
+          <div className="container">
+            <div className="cta-content reveal">
+              <h2 className="section-title">Ready to explore?</h2>
+              <p className="cta-text">
+                Falcon Ledger is live on testnet.
+                <br />
+                Start using the wallet, bridge assets, provide liquidity, or just look around.
+              </p>
+              <div className="cta-actions">
+                <Link href="/wallet" className="btn btn-primary">
+                  Launch Wallet
+                </Link>
+                <Link href="/whitepaper" className="btn btn-secondary">
+                  Read the Docs
+                </Link>
+                <Link href="/faucet" className="btn btn-ghost">
+                  Join the Community
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="site-footer">
+        <div className="container footer-inner">
+          <div className="footer-brand">
+            <Image
+              className="footer-logo"
+              src="/falcon-logo.png"
+              alt="Falcon Ledger"
+              width={140}
+              height={32}
+              style={{ height: 32, width: 'auto' }}
+            />
+          </div>
+          <nav className="footer-links" aria-label="Footer">
+            <Link href="/wallet">Wallet</Link>
+            <Link href="/swap">Bridge</Link>
+            <Link href="/whitepaper">Docs</Link>
+            <Link href="/whitepaper">Whitepaper</Link>
+            <Link href="/faucet">Faucet</Link>
+            <a href="https://github.com/beartec-jpg/Falcon-faucet-wallet" target="_blank" rel="noopener noreferrer">
+              GitHub
             </a>
+          </nav>
+          <p className="footer-copy">
+            &copy; <span id="year"></span> Falcon Ledger. All rights reserved.
           </p>
         </div>
-      </main>
+      </footer>
     </div>
-  )
-}
-
-export default function FaucetPage() {
-  return (
-    <Suspense>
-      <FaucetPageInner />
-    </Suspense>
   )
 }

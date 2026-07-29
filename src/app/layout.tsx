@@ -10,10 +10,16 @@ const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mon
 const NETWORK = process.env.NEXT_PUBLIC_TESTNET_NAME ?? 'Falcon Ledger'
 
 export const metadata: Metadata = {
-  title: `${NETWORK}`,
-  description: `${NETWORK} faucet and passkey wallet for development and testing.`,
+  title: `${NETWORK} — Quantum-Safe Ledger for Real Participation`,
+  description:
+    'Falcon Ledger is the quantum-safe ledger built for real participation. Post-quantum security, protocol-controlled treasury, and rewards for those who secure and use the network.',
   icons: { icon: '/falcon-logo.png', apple: '/falcon-logo.png' },
   manifest: '/manifest.json',
+  openGraph: {
+    title: `${NETWORK}`,
+    description: 'The quantum-safe ledger built for real participation.',
+    images: ['/falcon-logo.png'],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -22,7 +28,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#c07838',
+  themeColor: '#05080f',
   width: 'device-width',
   initialScale: 1,
 }
