@@ -1271,3 +1271,38 @@ body.assets-final .media-slot-label { display: none; }
   .roof-card:hover,
   .why-card:hover { transform: none; }
 }
+
+
+.hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.hero-canvas {
+  z-index: 1;
+  opacity: 0.55;
+}
+
+.hero-glow {
+  z-index: 1;
+}
+
+/* Feature frames already use cover; hide replace badges when final */
+.marketing-root.assets-final .media-slot-label { display: none; }
+
+/* Optional why-pattern subtle bg for principles section */
+.section-why {
+  background-image: linear-gradient(180deg, rgba(7,6,10,0.92), rgba(7,6,10,0.96)), url('/assets/images/why-pattern.jpg');
+  background-size: cover;
+  background-position: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-video { display: none !important; }
+}

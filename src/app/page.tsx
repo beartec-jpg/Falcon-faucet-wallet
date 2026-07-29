@@ -32,7 +32,7 @@ export default function MarketingHomePage() {
   }, [])
 
   return (
-    <div className="marketing-root">
+    <div className="marketing-root assets-final">
       <a className="skip-link" href="#main">
         Skip to content
       </a>
@@ -86,6 +86,18 @@ export default function MarketingHomePage() {
       <main id="main">
         {/* Hero */}
         <section className="hero" id="hero">
+          <video
+            className="hero-video"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            aria-hidden="true"
+            poster="/assets/images/hero-visual.jpg"
+          >
+            <source src="/assets/animations/hero-loop.mp4" type="video/mp4" />
+          </video>
           <canvas className="hero-canvas" id="hero-canvas" aria-hidden="true" />
           <div className="hero-glow" aria-hidden="true" />
           <div className="hero-content container">
@@ -216,7 +228,7 @@ export default function MarketingHomePage() {
                 title: 'Multichain Wallet',
                 p1: 'Hold FALCON, Bitcoin, Ethereum, BNB and more in one place.',
                 p2: 'One wallet. Multiple chains. Simple and secure.',
-                img: '/assets/images/features/feature-wallet.svg',
+                img: '/assets/images/features/feature-wallet.jpg',
                 replace: 'feature-wallet.png',
                 reverse: false,
               },
@@ -225,7 +237,7 @@ export default function MarketingHomePage() {
                 title: 'Permissionless Bridge',
                 p1: 'Move assets onto Falcon with a clean, permissionless bridge.',
                 p2: 'No complicated steps. No unnecessary middlemen.',
-                img: '/assets/images/features/feature-bridge.svg',
+                img: '/assets/images/features/feature-bridge.jpg',
                 replace: 'feature-bridge.png',
                 reverse: true,
               },
@@ -234,7 +246,7 @@ export default function MarketingHomePage() {
                 title: 'Liquidity Pools',
                 p1: 'Provide liquidity and earn.',
                 p2: 'The protocol recognises and rewards those who make markets possible.',
-                img: '/assets/images/features/feature-pools.svg',
+                img: '/assets/images/features/feature-pools.jpg',
                 replace: 'feature-pools.png',
                 reverse: false,
               },
@@ -243,7 +255,7 @@ export default function MarketingHomePage() {
                 title: 'Collateralized Lending & Borrowing',
                 p1: 'Lend and borrow using on-chain collateral.',
                 p2: 'Protocol-controlled, transparent, and designed for real use.',
-                img: '/assets/images/features/feature-lending.svg',
+                img: '/assets/images/features/feature-lending.jpg',
                 replace: 'feature-lending.png',
                 reverse: true,
               },
@@ -252,7 +264,7 @@ export default function MarketingHomePage() {
                 title: 'Earn by Participating',
                 p1: 'Validators, liquidity providers, and active users are all rewarded by the protocol.',
                 p2: 'No empty promises — real participation, real rewards.',
-                img: '/assets/images/features/feature-earn.svg',
+                img: '/assets/images/features/feature-earn.jpg',
                 replace: 'feature-earn.png',
                 reverse: false,
               },
