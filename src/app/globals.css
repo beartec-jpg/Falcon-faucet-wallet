@@ -58,3 +58,17 @@
 .arcade-claim-toast {
   animation: arcade-claim-fade 4.5s ease-in forwards;
 }
+
+
+/* Product pages — warmer slate + brand glass */
+@layer components {
+  .card {
+    @apply border-slate-800/90;
+  }
+  .btn-primary {
+    @apply shadow-[0_0_24px_rgba(192,120,56,0.2)];
+  }
+  .btn-primary:hover:not(:disabled) {
+    @apply shadow-[0_0_32px_rgba(224,168,74,0.28)];
+  }
+}

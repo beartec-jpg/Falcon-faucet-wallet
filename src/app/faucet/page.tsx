@@ -6,6 +6,7 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import Logo from '@/components/Logo'
 import NetworkBanner from '@/components/NetworkBanner'
+import BrandAtmosphere from '@/components/BrandAtmosphere'
 import { useNetwork } from '@/components/NetworkProvider'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -167,8 +168,10 @@ function FaucetPageInner() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="relative flex-1 flex flex-col min-h-0">
+      <BrandAtmosphere intensity={0.5} />
 
+      <div className="relative z-10 flex flex-1 flex-col">
       <Header current="faucet">
         <StatusDot online={status.online} state={status.state} />
       </Header>
@@ -183,9 +186,14 @@ function FaucetPageInner() {
 
           {/* Hero */}
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold text-white">
+            <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-brand-400/90">
+              Testnet Faucet
+            </p>
+            <h1 className="text-3xl font-bold text-white tracking-tight">
               Get {network.badge === 'testnet' ? 'testnet' : ''}{' '}
-              <span className="text-brand-500">FALCON</span>
+              <span className="bg-gradient-to-r from-brand-400 to-brand-500 bg-clip-text text-transparent">
+                FALCON
+              </span>
             </h1>
             <p className="text-slate-400 text-sm">
               {network.dripAmountQxrp.toLocaleString()} FALCON per successful drip · failed attempts don&apos;t count
@@ -196,7 +204,7 @@ function FaucetPageInner() {
           </div>
 
           {/* Faucet card */}
-          <div className="card p-6 space-y-4">
+          <div className="card p-6 space-y-4 border-brand-500/20 bg-slate-900/70 backdrop-blur-md shadow-[0_0_40px_rgba(192,120,56,0.08)]">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <label htmlFor="address" className="block text-sm font-medium text-slate-300">
@@ -277,7 +285,7 @@ function FaucetPageInner() {
               { label: 'State',  value: status.state ?? '—' },
               { label: 'Load factor', value: status.loadFactor?.toFixed(2) ?? '—' },
             ].map(({ label, value }) => (
-              <div key={label} className="card px-4 py-3">
+              <div key={label} className="card px-4 py-3 border-slate-800/80 bg-slate-900/60 backdrop-blur-sm">
                 <div className="text-xs text-slate-500 mb-0.5">{label}</div>
                 <div className="font-mono text-sm text-slate-200">{value}</div>
               </div>
@@ -287,7 +295,7 @@ function FaucetPageInner() {
           {/* Wallet shortcut */}
           <Link
             href="/wallet"
-            className="card px-4 py-3 flex items-center justify-between text-sm hover:border-brand-500/40 transition-all"
+            className="card px-4 py-3 flex items-center justify-between text-sm border-slate-800/80 bg-slate-900/60 backdrop-blur-sm hover:border-brand-500/40 hover:bg-slate-900/80 transition-all"
           >
             <div className="flex items-center gap-2 text-slate-400">
               <svg className="w-4 h-4 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -302,15 +310,16 @@ function FaucetPageInner() {
           </Link>
 
           {/* Help text */}
-          <p className="text-center text-xs text-slate-600">
-            Tokens have no real value · For testing only ·{' '}
-            <a href="https://github.com/beartec-jpg/qXRP" target="_blank" rel="noopener noreferrer"
-               className="text-slate-500 hover:text-slate-400 underline underline-offset-2">
-              Falcon Ledger on GitHub
-            </a>
+          <p className="text-center text-xs text-slate-500">
+            <Link href="/" className="text-brand-400/90 hover:text-brand-300 underline underline-offset-2">
+              ← Falcon Ledger home
+            </Link>
+            {' · '}
+            Tokens have no real value · For testing only
           </p>
         </div>
       </main>
+      </div>
     </div>
   )
 }
