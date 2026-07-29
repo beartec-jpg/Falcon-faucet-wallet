@@ -19,3 +19,16 @@
 | 15 | newest | platform/platform-rewards.jpg |
 
 Items 16–20 (feature-*.png) still placeholders.
+
+## Second batch (oldest → newest after first 15)
+
+| # | Path |
+|---|------|
+| 16 | features/feature-wallet.jpg |
+| 17 | features/feature-bridge.jpg |
+| 18 | features/feature-pools.jpg |
+| 19 | features/feature-lending.jpg |
+| 20 | features/feature-earn.jpg |
+| 21 | hero-visual.jpg (poster) |
+| 22 | why-pattern.jpg |
+| vid | animations/hero-loop.mp4 |
