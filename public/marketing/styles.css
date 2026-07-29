@@ -1,26 +1,29 @@
 /* ==========================================================================
    Falcon Ledger — Marketing Homepage
-   Premium dark crypto aesthetic · Electric cyan accents
+   Premium dark crypto aesthetic · Brand gold / amber accents (matches falcon logo)
    ========================================================================== */
 
 :root {
-  --bg-deep: #05080f;
-  --bg-navy: #0a0f1a;
-  --bg-elevated: #0e1524;
-  --bg-card: rgba(14, 22, 38, 0.72);
-  --bg-card-hover: rgba(18, 30, 50, 0.9);
-  --border: rgba(94, 234, 212, 0.1);
-  --border-strong: rgba(94, 234, 212, 0.22);
-  --text: #e8eef7;
-  --text-muted: #8b9bb4;
-  --text-dim: #5c6b82;
-  --accent: #2ee6c5;
-  --accent-bright: #5ef0d4;
-  --accent-dim: rgba(46, 230, 197, 0.15);
-  --accent-glow: rgba(46, 230, 197, 0.35);
-  --gradient-hero: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(46, 230, 197, 0.12) 0%, transparent 55%),
-                    radial-gradient(ellipse 50% 40% at 80% 20%, rgba(56, 120, 255, 0.08) 0%, transparent 50%),
-                    radial-gradient(ellipse 40% 50% at 15% 60%, rgba(46, 230, 197, 0.06) 0%, transparent 45%);
+  /* Aligned with site brand: brown / orange / gold (logo + tailwind brand-*) */
+  --bg-deep: #07060a;
+  --bg-navy: #0c0a0f;
+  --bg-elevated: #141018;
+  --bg-card: rgba(22, 16, 12, 0.78);
+  --bg-card-hover: rgba(32, 22, 14, 0.92);
+  --border: rgba(212, 146, 42, 0.12);
+  --border-strong: rgba(212, 146, 42, 0.28);
+  --text: #f5efe6;
+  --text-muted: #a89a88;
+  --text-dim: #6e6358;
+  --accent: #c07838;
+  --accent-bright: #e0a84a;
+  --accent-warm: #d4922a;
+  --accent-deep: #a06030;
+  --accent-dim: rgba(192, 120, 56, 0.16);
+  --accent-glow: rgba(224, 168, 74, 0.38);
+  --gradient-hero: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(224, 168, 74, 0.14) 0%, transparent 55%),
+                    radial-gradient(ellipse 50% 40% at 80% 20%, rgba(192, 120, 56, 0.10) 0%, transparent 50%),
+                    radial-gradient(ellipse 40% 50% at 15% 60%, rgba(125, 74, 36, 0.12) 0%, transparent 45%);
   --font: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --radius: 16px;
   --radius-sm: 10px;
@@ -125,7 +128,7 @@ button { font: inherit; border: none; background: none; cursor: pointer; color: 
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent) 0%, #1a9e8a 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
   box-shadow: 0 0 20px var(--accent-glow);
   position: relative;
   flex-shrink: 0;
@@ -167,7 +170,7 @@ button { font: inherit; border: none; background: none; cursor: pointer; color: 
 }
 
 .nav-cta:hover {
-  background: rgba(46, 230, 197, 0.22) !important;
+  background: rgba(192, 120, 56, 0.22) !important;
   box-shadow: 0 0 24px var(--accent-glow);
   color: var(--accent-bright) !important;
 }
@@ -218,14 +221,14 @@ button { font: inherit; border: none; background: none; cursor: pointer; color: 
 .btn:active { transform: translateY(0); }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent) 0%, #1fc4a8 100%);
+  background: linear-gradient(135deg, var(--accent-bright) 0%, var(--accent) 45%, var(--accent-deep) 100%);
   color: var(--bg-deep);
-  box-shadow: 0 0 0 0 transparent, 0 4px 24px rgba(46, 230, 197, 0.25);
+  box-shadow: 0 0 0 0 transparent, 0 4px 24px rgba(192, 120, 56, 0.28);
 }
 
 .btn-primary:hover {
-  box-shadow: 0 0 32px var(--accent-glow), 0 8px 32px rgba(46, 230, 197, 0.3);
-  background: linear-gradient(135deg, var(--accent-bright) 0%, var(--accent) 100%);
+  box-shadow: 0 0 32px var(--accent-glow), 0 8px 32px rgba(224, 168, 74, 0.32);
+  background: linear-gradient(135deg, #f0c06a 0%, var(--accent-bright) 40%, var(--accent) 100%);
 }
 
 .btn-secondary {
@@ -237,7 +240,7 @@ button { font: inherit; border: none; background: none; cursor: pointer; color: 
 .btn-secondary:hover {
   border-color: var(--accent);
   color: var(--accent-bright);
-  box-shadow: 0 0 24px rgba(46, 230, 197, 0.12);
+  box-shadow: 0 0 24px rgba(192, 120, 56, 0.18);
 }
 
 .btn-ghost {
@@ -457,7 +460,7 @@ button { font: inherit; border: none; background: none; cursor: pointer; color: 
   border-color: var(--border-strong);
   background: var(--bg-card-hover);
   transform: translateY(-4px);
-  box-shadow: var(--shadow-card), 0 0 40px rgba(46, 230, 197, 0.06);
+  box-shadow: var(--shadow-card), 0 0 40px rgba(192, 120, 56, 0.10);
 }
 
 .feature-card:nth-child(4),
@@ -549,7 +552,7 @@ button { font: inherit; border: none; background: none; cursor: pointer; color: 
   border-color: var(--border-strong);
   background: var(--bg-card-hover);
   transform: translateY(-4px);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 30px rgba(46, 230, 197, 0.08);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 30px rgba(192, 120, 56, 0.12);
 }
 
 .roof-card-visual {
@@ -643,9 +646,9 @@ button { font: inherit; border: none; background: none; cursor: pointer; color: 
   border-radius: var(--radius-lg);
   overflow: hidden;
   border: 1px solid var(--border-strong);
-  background: linear-gradient(160deg, rgba(18, 28, 48, 0.95) 0%, rgba(10, 16, 28, 0.98) 100%);
+  background: linear-gradient(160deg, rgba(28, 20, 14, 0.96) 0%, rgba(12, 10, 8, 0.98) 100%);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45),
-              0 0 0 1px rgba(46, 230, 197, 0.05),
+              0 0 0 1px rgba(192, 120, 56, 0.06),
               inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
@@ -681,12 +684,12 @@ body.assets-final .media-slot-label { display: none; }
 .mock-card {
   width: 100%;
   max-width: 380px;
-  background: linear-gradient(160deg, rgba(18, 28, 48, 0.95) 0%, rgba(10, 16, 28, 0.98) 100%);
+  background: linear-gradient(160deg, rgba(28, 20, 14, 0.96) 0%, rgba(12, 10, 8, 0.98) 100%);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45),
-              0 0 0 1px rgba(46, 230, 197, 0.05),
+              0 0 0 1px rgba(192, 120, 56, 0.06),
               inset 0 1px 0 rgba(255, 255, 255, 0.04);
   position: relative;
   overflow: hidden;
@@ -773,7 +776,7 @@ body.assets-final .media-slot-label { display: none; }
 }
 
 .asset-falcon {
-  background: linear-gradient(135deg, var(--accent), #1a9e8a);
+  background: linear-gradient(135deg, var(--accent-bright), var(--accent-deep));
   box-shadow: 0 0 12px var(--accent-glow);
 }
 
@@ -814,7 +817,7 @@ body.assets-final .media-slot-label { display: none; }
 }
 
 .chain-to {
-  background: radial-gradient(circle at 35% 35%, var(--accent-bright), #1a9e8a);
+  background: radial-gradient(circle at 35% 35%, var(--accent-bright), var(--accent-deep));
   box-shadow: 0 0 20px var(--accent-glow);
 }
 
@@ -844,9 +847,9 @@ body.assets-final .media-slot-label { display: none; }
 }
 
 @keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgba(46, 230, 197, 0.5); }
-  70% { box-shadow: 0 0 0 8px rgba(46, 230, 197, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(46, 230, 197, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(224, 168, 74, 0.5); }
+  70% { box-shadow: 0 0 0 8px rgba(224, 168, 74, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(224, 168, 74, 0); }
 }
 
 /* Pool mock */
@@ -902,7 +905,7 @@ body.assets-final .media-slot-label { display: none; }
   display: block;
   height: 100%;
   width: var(--w, 50%);
-  background: linear-gradient(90deg, var(--accent), #1a9e8a);
+  background: linear-gradient(90deg, var(--accent-bright), var(--accent-deep));
   border-radius: 4px;
 }
 
@@ -1077,8 +1080,8 @@ body.assets-final .media-slot-label { display: none; }
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 60% 50% at 50% 50%, rgba(46, 230, 197, 0.1) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 40% at 30% 70%, rgba(56, 100, 255, 0.06) 0%, transparent 50%);
+    radial-gradient(ellipse 60% 50% at 50% 50%, rgba(192, 120, 56, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 40% at 30% 70%, rgba(125, 74, 36, 0.12) 0%, transparent 50%);
   pointer-events: none;
 }
 
