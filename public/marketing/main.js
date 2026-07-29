@@ -89,7 +89,7 @@
   let mouse = { x: null, y: null };
   let running = true;
 
-  const ACCENT = { r: 46, g: 230, b: 197 };
+  const ACCENT = { r: 224, g: 168, b: 74 }; // brand gold neon
   const CONNECT_DIST = 140;
   const MOUSE_DIST = 160;
 
