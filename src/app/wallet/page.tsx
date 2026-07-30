@@ -406,7 +406,7 @@ export default function WalletPage() {
   const [spotPrices, setSpotPrices] = useState<SpotPrices>({ eth: 0, btc: 0, bnb: 0, usdc: 1, xrp: 0 })
   const [bridgeInitialMode, setBridgeInitialMode] = useState<'deposit' | 'withdraw' | 'send' | 'receive'>('deposit')
   const [bridgeInitialRoute, setBridgeInitialRoute] = useState<
-    'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc' | 'fbtc-btc'
+    'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc' | 'fbtc-btc' | 'fxrp-xrpl'
   >('fusdc-sepolia')
   const [receiveAssetId, setReceiveAssetId] = useState<MultiChainAssetId>('falcon')
   const [ethNativeBal, setEthNativeBal] = useState<string | null>(null)
@@ -2160,14 +2160,19 @@ export default function WalletPage() {
 
                   const openSendPicker = () => setTransferPicker('send')
                   const openReceivePicker = () => setTransferPicker('receive')
-                  const openBridge = () => {
+                  const openBridge = (route?: typeof bridgeInitialRoute) => {
                     // Falcon tab = bridge out (withdraw); Multi-chain = bridge in (deposit)
                     if (walletSection === 'falcon') {
                       setBridgeInitialMode('withdraw')
-                      setBridgeInitialRoute('fusdc-sepolia')
+                      // Prefer a corridor that supports Out
+                      setBridgeInitialRoute(
+                        route && ['fusdc-sepolia', 'fbtc-btc'].includes(route)
+                          ? route
+                          : 'fusdc-sepolia',
+                      )
                     } else {
                       setBridgeInitialMode('deposit')
-                      setBridgeInitialRoute('fusdc-sepolia')
+                      setBridgeInitialRoute(route ?? 'fusdc-sepolia')
                     }
                     setWalletSection('bridge')
                   }
@@ -2244,7 +2249,7 @@ export default function WalletPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={openBridge}
+                          onClick={() => openBridge()}
                           className="wallet-action-btn bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25"
                           title={walletSection === 'falcon' ? 'Bridge out from Falcon' : 'Bridge in to Falcon'}
                         >

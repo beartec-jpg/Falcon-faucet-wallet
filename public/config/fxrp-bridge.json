@@ -1,0 +1,13 @@
+{
+  "status": "pending",
+  "description": "Classic XRPL testnet XRP → Falcon FXRP (custodial). Set falcon.token_issuer + classic.custody after ops deploys FXRP corridor.",
+  "classic": {
+    "network": "testnet",
+    "custody": ""
+  },
+  "falcon": {
+    "token_symbol": "FXRP",
+    "token_currency": "XRP",
+    "token_issuer": ""
+  }
+}

@@ -101,13 +101,74 @@ interface Props {
   onFalconRefresh?: () => void
   /** Open on Bridge In (deposit) or Bridge Out (withdraw). Default deposit. */
   initialMode?: 'deposit' | 'withdraw' | 'send' | 'receive'
-  /** Which bridge route to open (e.g. FETH / FBNB / FBTC from Falcon tab). */
-  initialRoute?: 'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc' | 'fbtc-btc'
+  /** Which bridge route to open (e.g. FETH / FBNB / FBTC / FXRP from Falcon tab). */
+  initialRoute?: BridgeRouteId
 }
+
+/** All bridge corridors — labels flip with In/Out. */
+export type BridgeRouteId =
+  | 'fusdc-sepolia'
+  | 'feth-sepolia'
+  | 'fbnb-bsc'
+  | 'fbtc-btc'
+  | 'fxrp-xrpl'
 
 type BridgeMode = 'bridge' | 'send' | 'receive'
 type BridgeDirection = 'deposit' | 'withdraw'
 type EvmPanel = 'bridge' | 'backup' | 'restore'
+
+/** Which routes support Bridge Out (custodial unlock) today. */
+const ROUTE_SUPPORTS_OUT: Record<BridgeRouteId, boolean> = {
+  'fusdc-sepolia': true,
+  'feth-sepolia': false,
+  'fbnb-bsc': false,
+  'fbtc-btc': true,
+  'fxrp-xrpl': false,
+}
+
+function routeInLabel(id: BridgeRouteId): string {
+  switch (id) {
+    case 'fusdc-sepolia':
+      return 'USDC → F-USDC'
+    case 'feth-sepolia':
+      return 'ETH → FETH'
+    case 'fbnb-bsc':
+      return 'BNB → FBNB'
+    case 'fbtc-btc':
+      return 'BTC → FBTC'
+    case 'fxrp-xrpl':
+      return 'XRP → FXRP'
+  }
+}
+
+function routeOutLabel(id: BridgeRouteId): string {
+  switch (id) {
+    case 'fusdc-sepolia':
+      return 'F-USDC → USDC'
+    case 'feth-sepolia':
+      return 'FETH → ETH'
+    case 'fbnb-bsc':
+      return 'FBNB → BNB'
+    case 'fbtc-btc':
+      return 'FBTC → BTC'
+    case 'fxrp-xrpl':
+      return 'FXRP → XRP'
+  }
+}
+
+function routeOptionLabel(
+  id: BridgeRouteId,
+  direction: BridgeDirection,
+  opts: { ready: boolean; walletReady: boolean; walletHint: string },
+): string {
+  const base = direction === 'deposit' ? routeInLabel(id) : routeOutLabel(id)
+  if (direction === 'withdraw' && !ROUTE_SUPPORTS_OUT[id]) {
+    return `${base} (out soon)`
+  }
+  if (!opts.walletReady) return `${base} (${opts.walletHint})`
+  if (!opts.ready) return `${base} (config missing)`
+  return base
+}
 
 function shortEvmAddr(addr: string): string {
   return addr.length > 12 ? `${addr.slice(0, 8)}…${addr.slice(-4)}` : addr
@@ -176,15 +237,25 @@ export default function BridgeDepositPanel({
   const [hasFbtcTrustLine, setHasFbtcTrustLine] = useState(false)
   const [fbtcCustody, setFbtcCustody] = useState('mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik')
   const [fbtcIssuer, setFbtcIssuer] = useState('rnvzCKcBU7G8Kb9JXHwEKTHiK9aTrZAqWT')
+  const [fxrpIssuer, setFxrpIssuer] = useState('')
+  const [fxrpCustody, setFxrpCustody] = useState('') // classic XRPL custody r…
+  const [hasFxrpTrustLine, setHasFxrpTrustLine] = useState(false)
+  const [fxrpLive, setFxrpLive] = useState<number | null>(null)
+  const [xrplBal, setXrplBal] = useState<string | null>(null)
   const [spvStatus, setSpvStatus] = useState<SpvStatus | null>(null)
   const [trustLineResult, setTrustLineResult] = useState<{ ok: boolean; msg: string } | null>(null)
-  type BridgeRouteId = 'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc' | 'fbtc-btc'
   /** Live bridge routes — honour initialRoute from Falcon / Multi-chain buttons */
   const [bridgeRoute, setBridgeRoute] = useState<BridgeRouteId>(() => {
-    if (initialRoute === 'feth-sepolia') return 'feth-sepolia'
-    if (initialRoute === 'fbnb-bsc') return 'fbnb-bsc'
-    if (initialRoute === 'fbtc-btc') return 'fbtc-btc'
-    return 'fusdc-sepolia'
+    const allowed: BridgeRouteId[] = [
+      'fusdc-sepolia',
+      'feth-sepolia',
+      'fbnb-bsc',
+      'fbtc-btc',
+      'fxrp-xrpl',
+    ]
+    return allowed.includes(initialRoute as BridgeRouteId)
+      ? (initialRoute as BridgeRouteId)
+      : 'fusdc-sepolia'
   })
 
   const bridgeReady = lockContractReady(bridgeCfg)
@@ -193,8 +264,10 @@ export default function BridgeDepositPanel({
   const spvLive = !!(spvStatus?.ready && spvStatus.watchAddress)
   /** SPV light client preferred; fall back to custody relay when SPV not ready. */
   const fbtcReady = spvLive || !!(fbtcCustody && fbtcIssuer)
+  const fxrpReady = !!(fxrpIssuer && fxrpCustody)
   const hasEvm = !!(wallet.evmAddress && wallet.evmEncrypted)
   const hasBtc = !!(wallet.btcAddress && wallet.btcEncrypted)
+  const hasXrpl = !!(wallet.xrplClassicAddress && wallet.xrplClassicEncrypted)
   const falconIssuer = bridgeCfg.falcon?.token_issuer?.trim() ?? ''
   const falconCurrency = bridgeCfg.falcon?.token_currency?.trim() ?? 'QUC'
   const fethIssuer = bridgeCfg.feth?.token_issuer?.trim() ?? ''
@@ -204,45 +277,58 @@ export default function BridgeDepositPanel({
   const isFethRoute = bridgeRoute === 'feth-sepolia'
   const isFbnbRoute = bridgeRoute === 'fbnb-bsc'
   const isFbtcRoute = bridgeRoute === 'fbtc-btc'
+  const isFxrpRoute = bridgeRoute === 'fxrp-xrpl'
   const isWrapRoute = isFethRoute || isFbnbRoute
   const activeIssuer = isFbtcRoute
     ? fbtcIssuer
-    : isFbnbRoute
-      ? fbnbIssuer
-      : isFethRoute
-        ? fethIssuer
-        : falconIssuer
+    : isFxrpRoute
+      ? fxrpIssuer
+      : isFbnbRoute
+        ? fbnbIssuer
+        : isFethRoute
+          ? fethIssuer
+          : falconIssuer
   const activeCurrency = isFbtcRoute
     ? 'BTC'
-    : isFbnbRoute
-      ? fbnbCurrency
-      : isFethRoute
-        ? fethCurrency
-        : falconCurrency
+    : isFxrpRoute
+      ? 'XRP'
+      : isFbnbRoute
+        ? fbnbCurrency
+        : isFethRoute
+          ? fethCurrency
+          : falconCurrency
   const activeTrust = isFbtcRoute
     ? spvLive || hasFbtcTrustLine // SPV mints MPT — no classic trust line required
-    : isFbnbRoute
-      ? hasFbnbTrustLine
-      : isFethRoute
-        ? hasFethTrustLine
-        : hasFusdcTrustLine
+    : isFxrpRoute
+      ? hasFxrpTrustLine
+      : isFbnbRoute
+        ? hasFbnbTrustLine
+        : isFethRoute
+          ? hasFethTrustLine
+          : hasFusdcTrustLine
   const activeLockReady = isFbtcRoute
     ? fbtcReady && hasBtc
-    : isFbnbRoute
-      ? fbnbReady
-      : isFethRoute
-        ? fethReady
-        : bridgeReady
+    : isFxrpRoute
+      ? fxrpReady && hasXrpl
+      : isFbnbRoute
+        ? fbnbReady
+        : isFethRoute
+          ? fethReady
+          : bridgeReady
   const canBridgeIn = isFbtcRoute
     ? hasBtc && fbtcReady && (spvLive || (hasFbtcTrustLine && !!activeIssuer))
-    : activeTrust && !!activeIssuer && activeLockReady
+    : isFxrpRoute
+      ? hasXrpl && fxrpReady && hasFxrpTrustLine && !!activeIssuer
+      : activeTrust && !!activeIssuer && activeLockReady
   const assetLabel = isFbtcRoute
     ? 'FBTC'
-    : isFbnbRoute
-      ? 'FBNB'
-      : isFethRoute
-        ? 'FETH'
-        : 'F-USDC'
+    : isFxrpRoute
+      ? 'FXRP'
+      : isFbnbRoute
+        ? 'FBNB'
+        : isFethRoute
+          ? 'FETH'
+          : 'F-USDC'
 
   const refreshFusdcBalance = useCallback(async () => {
     setFusdcLoading(true)
@@ -305,6 +391,16 @@ export default function BridgeDepositPanel({
         setHasFbtcTrustLine(false)
         setFbtcLive(0)
       }
+      const fxrpTok =
+        tokens.find((t) => t.currency === 'XRP' || t.symbol === 'FXRP') ||
+        tokens.find((t) => t.issuer === fxrpIssuer)
+      if (fxrpTok) {
+        setHasFxrpTrustLine(!!fxrpTok.hasTrustLine)
+        setFxrpLive(fxrpTok.hasTrustLine ? (fxrpTok.balance ?? 0) : 0)
+      } else if (fxrpIssuer) {
+        setHasFxrpTrustLine(false)
+        setFxrpLive(0)
+      }
       onFalconRefresh?.()
     } catch (e: unknown) {
       setFusdcError(e instanceof Error ? e.message : 'Could not load Falcon balances')
@@ -319,6 +415,7 @@ export default function BridgeDepositPanel({
     bridgeCfg.fbnb?.token_currency,
     bridgeCfg.fbnb?.token_issuer,
     fbtcIssuer,
+    fxrpIssuer,
   ])
 
   useEffect(() => {
@@ -374,6 +471,18 @@ export default function BridgeDepositPanel({
         if (j.falcon?.token_issuer) setFbtcIssuer(String(j.falcon.token_issuer))
       })
       .catch(() => {})
+    // FXRP: optional public config + bridge manifest
+    void fetch('/config/fxrp-bridge.json', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { falcon?: { token_issuer?: string }; classic?: { custody?: string } } | null) => {
+        if (cancelled || !j) return
+        if (j.falcon?.token_issuer) setFxrpIssuer(String(j.falcon.token_issuer))
+        if (j.classic?.custody) setFxrpCustody(String(j.classic.custody))
+      })
+      .catch(() => {})
+    const fx = (bridgeCfg as { fxrp?: { token_issuer?: string; classic_custody?: string } }).fxrp
+    if (fx?.token_issuer) setFxrpIssuer(fx.token_issuer)
+    if (fx?.classic_custody) setFxrpCustody(fx.classic_custody)
     void fetchSpvStatus()
       .then((s) => {
         if (!cancelled) setSpvStatus(s)
@@ -392,7 +501,7 @@ export default function BridgeDepositPanel({
       cancelled = true
       clearInterval(t)
     }
-  }, [])
+  }, [bridgeCfg])
 
   useEffect(() => {
     if (bridgeRoute !== 'fbtc-btc' || !wallet.btcAddress) return
@@ -402,6 +511,19 @@ export default function BridgeDepositPanel({
     })
     return () => { cancelled = true }
   }, [bridgeRoute, wallet.btcAddress])
+
+  useEffect(() => {
+    if (bridgeRoute !== 'fxrp-xrpl' || !wallet.xrplClassicAddress) return
+    let cancelled = false
+    void import('@/lib/create-xrpl-classic-wallet').then(({ fetchXrplClassicXrpBalance }) =>
+      fetchXrplClassicXrpBalance(wallet.xrplClassicAddress!, 'testnet').then((b) => {
+        if (!cancelled) setXrplBal(b)
+      }),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [bridgeRoute, wallet.xrplClassicAddress])
 
   const attachEvmWallet = async (
     privateKey: string,
@@ -877,6 +999,7 @@ export default function BridgeDepositPanel({
       })
       if (ok) {
         if (isFbtcRoute) setHasFbtcTrustLine(true)
+        if (isFxrpRoute) setHasFxrpTrustLine(true)
         else if (isFbnbRoute) setHasFbnbTrustLine(true)
         else if (isFethRoute) setHasFethTrustLine(true)
         else setHasFusdcTrustLine(true)
@@ -1117,35 +1240,32 @@ export default function BridgeDepositPanel({
   const usdcAvail = parseFloat(usdcAvailRaw) || 0
   const ethAvail = balances ? parseFloat(balances.eth) : 0
 
-  const routeTitleIn = isFbtcRoute
-    ? 'Bridge In — BTC → FBTC'
-    : isFbnbRoute
-      ? 'Bridge In — BNB → FBNB'
-      : isFethRoute
-        ? 'Bridge In — ETH → FETH'
-        : 'Bridge In — USDC → F-USDC'
-  const routeTitleOut = isFbtcRoute
-    ? 'Bridge Out — FBTC → BTC (custody)'
-    : isWrapRoute
-      ? `Bridge Out — ${assetLabel} (soon)`
-      : 'Bridge Out — F-USDC → USDC'
+  const routeTitleIn = `Bridge In — ${routeInLabel(bridgeRoute)}`
+  const routeTitleOut = ROUTE_SUPPORTS_OUT[bridgeRoute]
+    ? `Bridge Out — ${routeOutLabel(bridgeRoute)}`
+    : `Bridge Out — ${routeOutLabel(bridgeRoute)} (soon)`
   const sourceAvailLabel = isFbtcRoute
     ? `${btcBal != null ? Number(btcBal).toLocaleString(undefined, { maximumFractionDigits: 8 }) : '—'} BTC`
-    : isFbnbRoute
-      ? `${bnbBal != null ? fmt(bnbBal, 6) : '—'} BNB`
-      : isFethRoute
-        ? `${balanceLoading ? '…' : balances ? fmt(balances.eth, 6) : '—'} ETH`
-        : `${balanceLoading ? '…' : balances ? fmtFloor(usdcAvailRaw, 2) : '—'} USDC`
+    : isFxrpRoute
+      ? `${xrplBal != null ? Number(xrplBal).toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—'} XRP`
+      : isFbnbRoute
+        ? `${bnbBal != null ? fmt(bnbBal, 6) : '—'} BNB`
+        : isFethRoute
+          ? `${balanceLoading ? '…' : balances ? fmt(balances.eth, 6) : '—'} ETH`
+          : `${balanceLoading ? '…' : balances ? fmtFloor(usdcAvailRaw, 2) : '—'} USDC`
   const falconAvailLabel = isFbtcRoute
     ? `${fusdcLoading ? '…' : fmt(fbtcLive ?? 0, 8)} FBTC`
-    : isFbnbRoute
-      ? `${fusdcLoading ? '…' : fmt(fbnbLive ?? 0, 6)} FBNB`
-      : isFethRoute
-        ? `${fusdcLoading ? '…' : fmt(fethLive ?? 0, 6)} FETH`
-        : `${fusdcLoading ? '…' : fmt(fusdcAvail, 2)} F-USDC`
+    : isFxrpRoute
+      ? `${fusdcLoading ? '…' : fmt(fxrpLive ?? 0, 6)} FXRP`
+      : isFbnbRoute
+        ? `${fusdcLoading ? '…' : fmt(fbnbLive ?? 0, 6)} FBNB`
+        : isFethRoute
+          ? `${fusdcLoading ? '…' : fmt(fethLive ?? 0, 6)} FETH`
+          : `${fusdcLoading ? '…' : fmt(fusdcAvail, 2)} F-USDC`
   const bnbAvail = bnbBal != null ? parseFloat(bnbBal) : 0
   const btcAvail = btcBal != null ? parseFloat(btcBal) : 0
-  const canUseBridge = hasEvm || (isFbtcRoute && hasBtc)
+  const canUseBridge = hasEvm || hasBtc || hasXrpl
+  const xrplAvail = xrplBal != null ? parseFloat(xrplBal) : 0
 
   return (
     <div className="space-y-4">
@@ -1153,18 +1273,19 @@ export default function BridgeDepositPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">Bridge</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Lock on the source chain → mint the F-asset on Falcon. Deposit wallets live under{' '}
-            <strong className="text-slate-300">Multi-chain</strong>.
+            <strong className="text-slate-300">In</strong> = multi-chain → Falcon F-asset.{' '}
+            <strong className="text-slate-300">Out</strong> = Falcon F-asset → multi-chain. Deposit wallets live
+            under Multi-chain.
           </p>
         </div>
 
         <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2.5">
           <span className="font-semibold">Testnet · custodial bridge.</span> Mint and release use an off-chain
-          relay + multi-sig lock — not fully trustless.
+          relay + multi-sig lock — not fully trustless (SPV path for BTC when enabled).
         </div>
 
         {/* 1) Direction */}
-        {(hasEvm || hasBtc) && (
+        {canUseBridge && (
           <div className="space-y-1.5">
             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">1 · Direction</div>
             <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
@@ -1178,11 +1299,11 @@ export default function BridgeDepositPanel({
               <button
                 type="button"
                 onClick={() => {
-                  if (isWrapRoute) {
-                    setError(`${assetLabel} Bridge Out is not enabled yet — deposit mint is live`)
-                    return
+                  // If current route has no Out, snap to first route that does
+                  if (!ROUTE_SUPPORTS_OUT[bridgeRoute]) {
+                    setBridgeRoute(hasEvm ? 'fusdc-sepolia' : hasBtc ? 'fbtc-btc' : 'fusdc-sepolia')
                   }
-                  if (isFbtcRoute && !hasBtc) {
+                  if (bridgeRoute === 'fbtc-btc' && !hasBtc) {
                     setError('Open Multi-chain BTC first — payout goes to your BTC address')
                     return
                   }
@@ -1199,8 +1320,8 @@ export default function BridgeDepositPanel({
           </div>
         )}
 
-        {/* 2) Asset route */}
-        {(hasEvm || hasBtc) && (
+        {/* 2) Asset route — labels always match In/Out */}
+        {canUseBridge && (
           <div className="space-y-1.5">
             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">2 · Asset</div>
             <select
@@ -1214,37 +1335,94 @@ export default function BridgeDepositPanel({
                 setAmount('')
                 setWithdrawAmount('')
                 setTrustLineResult(null)
-                if (
-                  (v === 'feth-sepolia' || v === 'fbnb-bsc' || v === 'fbtc-btc') &&
-                  direction === 'withdraw'
-                ) {
+                // Out not available for this corridor → stay on In
+                if (direction === 'withdraw' && !ROUTE_SUPPORTS_OUT[v]) {
                   setDirection('deposit')
                 }
               }}
             >
-              <option value="fusdc-sepolia" disabled={!hasEvm}>
-                {direction === 'deposit' ? 'USDC → F-USDC' : 'F-USDC → USDC'}
+              <option
+                value="fusdc-sepolia"
+                disabled={
+                  direction === 'deposit'
+                    ? !hasEvm
+                    : !hasEvm || !ROUTE_SUPPORTS_OUT['fusdc-sepolia']
+                }
+              >
+                {routeOptionLabel('fusdc-sepolia', direction, {
+                  ready: bridgeReady,
+                  walletReady: hasEvm,
+                  walletHint: 'open Multi-chain ETH first',
+                })}
               </option>
-              <option value="feth-sepolia" disabled={!fethReady || !hasEvm}>
-                {fethReady ? 'ETH → FETH' : 'ETH → FETH (config missing)'}
+              <option
+                value="feth-sepolia"
+                disabled={
+                  direction === 'withdraw' ||
+                  !hasEvm ||
+                  !fethReady
+                }
+              >
+                {routeOptionLabel('feth-sepolia', direction, {
+                  ready: fethReady,
+                  walletReady: hasEvm,
+                  walletHint: 'open Multi-chain ETH first',
+                })}
               </option>
-              <option value="fbnb-bsc" disabled={!fbnbReady || !hasEvm}>
-                {fbnbReady ? 'BNB → FBNB' : 'BNB → FBNB (deploying lock…)'}
+              <option
+                value="fbnb-bsc"
+                disabled={direction === 'withdraw' || !hasEvm || !fbnbReady}
+              >
+                {routeOptionLabel('fbnb-bsc', direction, {
+                  ready: fbnbReady,
+                  walletReady: hasEvm,
+                  walletHint: 'open Multi-chain BNB first',
+                })}
               </option>
-              <option value="fbtc-btc" disabled={!fbtcReady || !hasBtc}>
-                {!hasBtc
-                  ? 'BTC → FBTC (open Multi-chain BTC first)'
-                  : fbtcReady
-                    ? 'BTC → FBTC'
-                    : 'BTC → FBTC (config missing)'}
+              <option
+                value="fbtc-btc"
+                disabled={
+                  direction === 'deposit'
+                    ? !hasBtc || !fbtcReady
+                    : !hasBtc || !fbtcReady || !ROUTE_SUPPORTS_OUT['fbtc-btc']
+                }
+              >
+                {routeOptionLabel('fbtc-btc', direction, {
+                  ready: fbtcReady,
+                  walletReady: hasBtc,
+                  walletHint: 'open Multi-chain BTC first',
+                })}
+              </option>
+              <option
+                value="fxrp-xrpl"
+                disabled={direction === 'withdraw' || !hasXrpl || !fxrpReady}
+              >
+                {routeOptionLabel('fxrp-xrpl', direction, {
+                  ready: fxrpReady,
+                  walletReady: hasXrpl,
+                  walletHint: !hasXrpl
+                    ? 'open Multi-chain XRP first'
+                    : 'FXRP config pending',
+                })}
               </option>
             </select>
+            <p className="text-[10px] text-slate-500">
+              {direction === 'deposit'
+                ? 'Showing lock/mint corridors (source chain → Falcon).'
+                : 'Showing unlock corridors (Falcon → source chain). Routes marked “out soon” switch to In if selected.'}
+            </p>
           </div>
         )}
 
-        {(hasEvm || hasBtc) && !activeLockReady && (
+        {canUseBridge && !activeLockReady && (
           <div className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2.5">
-            {isFbtcRoute
+            {isFxrpRoute
+              ? !hasXrpl
+                ? 'Provision classic XRP on Multi-chain, then return here for XRP → FXRP.'
+                : !fxrpReady
+                  ? 'FXRP bridge config missing (issuer + classic custody). Ops must deploy FXRP corridor.'
+                  : 'FXRP bridge not ready.'
+              : isFbtcRoute
               ? !hasBtc
                 ? 'Provision BTC keys on Multi-chain, then return here for BTC → FBTC.'
                 : 'FBTC bridge config missing.'
@@ -1256,7 +1434,7 @@ export default function BridgeDepositPanel({
           </div>
         )}
 
-        {!hasEvm && !(isFbtcRoute && hasBtc) ? (
+        {!hasEvm && !(isFbtcRoute && hasBtc) && !(isFxrpRoute && hasXrpl) ? (
           evmPanel === 'restore' ? (
             <div className="space-y-4">
               <button
@@ -1458,16 +1636,25 @@ export default function BridgeDepositPanel({
                 <div className="text-2xl font-bold text-white font-mono">{sourceAvailLabel}</div>
                 <p className="text-[11px] text-slate-500 leading-snug">
                   {isFbtcRoute
-                    ? 'One action: passkey sends your multi-chain BTC to bridge custody and mints FBTC. No WBTC in the wallet.'
-                    : isFbnbRoute
-                      ? 'Available BNB on Multi-chain (wrap + lock on BSC testnet → mint FBNB). Keep ~0.002 BNB for gas.'
-                      : isFethRoute
-                        ? 'Available ETH on Multi-chain (wrap + lock → mint FETH). Keep ~0.001 ETH for gas.'
-                        : 'Available USDC on Multi-chain (lock → mint F-USDC). Needs a little ETH for gas.'}
+                    ? 'One action: passkey sends multi-chain BTC → custody/SPV and mints FBTC on Falcon.'
+                    : isFxrpRoute
+                      ? 'Bridge In: multi-chain classic XRP → FXRP on Falcon (custodial mint).'
+                      : isFbnbRoute
+                        ? 'Available BNB on Multi-chain (wrap + lock on BSC testnet → mint FBNB). Keep ~0.002 BNB for gas.'
+                        : isFethRoute
+                          ? 'Available ETH on Multi-chain (wrap + lock → mint FETH). Keep ~0.001 ETH for gas.'
+                          : 'Available USDC on Multi-chain (lock → mint F-USDC). Needs a little ETH for gas.'}
                 </p>
                 {isFbtcRoute && btcAvail <= 0 && (
                   <p className="text-xs text-amber-400">
                     No testnet BTC — Multi-chain → BTC → Receive, fund from a BTC testnet faucet.
+                  </p>
+                )}
+                {isFxrpRoute && (!hasXrpl || xrplAvail <= 0) && (
+                  <p className="text-xs text-amber-400">
+                    {!hasXrpl
+                      ? 'Open Multi-chain → XRP to provision classic XRPL keys, then fund testnet XRP.'
+                      : 'No classic XRP balance — fund Multi-chain XRP from an XRPL testnet faucet.'}
                   </p>
                 )}
                 {isFbnbRoute && bnbAvail < 0.002 && (
@@ -1475,7 +1662,7 @@ export default function BridgeDepositPanel({
                     Low BSC testnet BNB — fund Multi-chain BNB (Receive) from a testnet faucet.
                   </p>
                 )}
-                {!isFbnbRoute && !isFbtcRoute && ethAvail < 0.001 && (
+                {!isFbnbRoute && !isFbtcRoute && !isFxrpRoute && ethAvail < 0.001 && (
                   <p className="text-xs text-amber-400">
                     Low gas ETH — fund on Multi-chain or a{' '}
                     <a href="https://sepoliafaucet.com" target="_blank" rel="noopener noreferrer" className="underline text-brand-400">

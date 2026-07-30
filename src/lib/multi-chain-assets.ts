@@ -147,11 +147,11 @@ export const NATIVE_CHAIN_WALLETS: NativeChainWalletDef[] = [
     id: 'xrp',
     symbol: 'XRP',
     chainLabel: 'XRP Ledger (classic)',
-    subtitle: 'Today’s XRPL · own r… · secp/ed25519 · separate from Falcon',
+    subtitle: 'Today’s XRPL · own r… · Bridge In → FXRP on Falcon',
     status: 'live',
     canSend: true,
     canReceive: true,
-    canBridge: false,
+    canBridge: true,
   },
 ]
 

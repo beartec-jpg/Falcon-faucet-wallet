@@ -56,6 +56,15 @@ export interface FbnbBridgeMeta {
   status?: string
 }
 
+export interface FxrpBridgeMeta {
+  token_symbol: string
+  token_currency: string
+  token_issuer: string
+  /** Classic XRPL (testnet) custody r… that receives native XRP for mint */
+  classic_custody?: string
+  status?: string
+}
+
 export interface UsdcBridgeManifest {
   version: number
   status: string
@@ -65,6 +74,7 @@ export interface UsdcBridgeManifest {
   falcon: FalconBridgeToken
   feth?: FethBridgeMeta
   fbnb?: FbnbBridgeMeta
+  fxrp?: FxrpBridgeMeta
   deposit_flow: {
     type: string
     steps: string[]
