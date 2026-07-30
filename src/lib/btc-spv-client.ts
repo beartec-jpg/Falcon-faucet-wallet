@@ -460,7 +460,14 @@ export async function fetchSpvClaimMaterials(
   if (!proofR.ok) throw new Error('Could not fetch merkle proof')
   const proof = (await proofR.json()) as { merkle?: string[]; pos?: number }
   const siblings = proof.merkle ?? []
-  const merkleProofHex = siblings.map((h) => h.toLowerCase()).join('')
+  // Esplora display-order siblings → Bitcoin internal (byte-reversed) for Falcon
+  const merkleProofHex = siblings
+    .map((h) => {
+      const hex = h.toLowerCase().replace(/^0x/i, '')
+      if (!/^[0-9a-f]{64}$/.test(hex)) return hex
+      return hex.match(/.{2}/g)!.reverse().join('')
+    })
+    .join('')
   const txIndex = proof.pos ?? 0
 
   // tip height for confs
@@ -498,33 +505,47 @@ export async function submitSpvDepositClaim(opts: {
   const fee = opts.feeDrops ?? '1000000'
   const netId = networkIdForTx(opts.networkId)
 
-  return submitWithSequenceRetry({
-    networkKey: opts.networkKey,
-    fetchSequence: async () => {
-      const s = await fetchSequenceInfo(opts.account, opts.networkKey)
-      if (!s.exists) throw new Error('Falcon account not funded on ledger')
-      return { sequence: s.sequence, currentLedger: s.currentLedger }
-    },
-    sign: async ({ sequence, lastLedgerSequence }) => {
-      const tx: Record<string, unknown> = {
-        TransactionType: 'BTCDepositClaim',
-        Account: opts.account,
-        Destination: opts.account,
-        Fee: fee,
-        Sequence: sequence,
-        LastLedgerSequence: lastLedgerSequence,
-        Flags: 0,
-        BtcRawTx: opts.materials.rawTxHex.toUpperCase(),
-        BtcMerkleProof: opts.materials.merkleProofHex.toUpperCase(),
-        BtcTxIndex: opts.materials.txIndex,
-        BtcBlockHash: opts.materials.blockHash.toUpperCase(),
-        BtcVout: opts.materials.vout,
-      }
-      if (netId !== undefined) tx.NetworkID = netId
-      const tx_blob = await signTxJson(tx, opts.falconSecret)
-      return { tx_blob }
-    },
-  })
+  try {
+    return await submitWithSequenceRetry({
+      networkKey: opts.networkKey,
+      fetchSequence: async () => {
+        const s = await fetchSequenceInfo(opts.account, opts.networkKey)
+        if (!s.exists) throw new Error('Falcon account not funded on ledger')
+        return { sequence: s.sequence, currentLedger: s.currentLedger }
+      },
+      sign: async ({ sequence, lastLedgerSequence }) => {
+        const tx: Record<string, unknown> = {
+          TransactionType: 'BTCDepositClaim',
+          Account: opts.account,
+          Destination: opts.account,
+          Fee: fee,
+          Sequence: sequence,
+          LastLedgerSequence: lastLedgerSequence,
+          Flags: 0,
+          BtcRawTx: opts.materials.rawTxHex.toUpperCase(),
+          BtcMerkleProof: opts.materials.merkleProofHex.toUpperCase(),
+          BtcTxIndex: opts.materials.txIndex,
+          BtcBlockHash: opts.materials.blockHash.toUpperCase(),
+          BtcVout: opts.materials.vout,
+        }
+        if (netId !== undefined) tx.NetworkID = netId
+        const tx_blob = await signTxJson(tx, opts.falconSecret)
+        return { tx_blob }
+      },
+    })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    // Engine often returns bare codes with no human text
+    if (/^temMALFORMED/i.test(msg) || msg === 'temMALFORMED') {
+      throw new Error(
+        'temMALFORMED — SPV proof rejected (merkle/raw tx/OP_RETURN). Hard-refresh and retry claim.',
+      )
+    }
+    if (/^tecTOO_SOON/i.test(msg)) {
+      throw new Error('tecTOO_SOON — need more Falcon-side confirmations (headers still catching up)')
+    }
+    throw e instanceof Error ? e : new Error(msg)
+  }
 }
 
 /** Full live peg-in: deposit BTC then (after confs) claim. Claim may need retry. */

@@ -267,7 +267,15 @@ export async function POST(req: NextRequest) {
     }
     const proof = (await proofR.json()) as { merkle?: string[]; pos?: number }
     const siblings = proof.merkle ?? []
-    const merkleProofHex = siblings.map((h) => h.toLowerCase().replace(/^0x/i, '')).join('')
+    // Esplora returns sibling hashes in display (RPC) order. Falcon BTCDepositClaim
+    // expects Bitcoin internal byte order in BtcMerkleProof (same as e2e / bitcoind).
+    const merkleProofHex = siblings
+      .map((h) => {
+        const hex = h.toLowerCase().replace(/^0x/i, '')
+        if (!/^[0-9a-f]{64}$/.test(hex)) return hex
+        return hex.match(/.{2}/g)!.reverse().join('')
+      })
+      .join('')
     const txIndex = proof.pos ?? 0
     const blockHash = status.status.block_hash.replace(/^0x/i, '')
 
