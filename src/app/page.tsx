@@ -226,7 +226,7 @@ export default function MarketingHomePage() {
               {
                 n: '01',
                 title: 'Multichain Wallet',
-                p1: 'Hold FALCON, Bitcoin, Ethereum, BNB and more in one place.',
+                p1: 'Hold FALCON, XRP, Bitcoin, Ethereum, and BNB in one place.',
                 p2: 'One wallet. Multiple chains. Simple and secure.',
                 img: '/assets/images/features/feature-wallet.jpg',
                 replace: 'feature-wallet.png',
