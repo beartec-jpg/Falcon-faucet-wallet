@@ -1,7 +1,10 @@
 {
-  "status": "pending_activation",
+  "status": "live",
   "btc_network": "testnet",
   "chain_id": 1,
-  "watch_address": "",
-  "notes": "After BitcoinSPVBridge enables and BTCBridgeActivate runs, set watch_address to the live watch P2PKH (testnet m…/n…). Headers must be submitted by ops before claims succeed."
+  "watch_address": "mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik",
+  "watch_script_hash": "80826940BF64D47291CB48B76FBC7EED0D66C4777279609BBBB1BDBE36261051",
+  "min_confirmations": 6,
+  "pseudo_issuer": "rhLQHST1dmeq4MjxcQnesd3DC6cYmNrFcj",
+  "notes": "SPV light client live on Falcon 1001. Deposit BTC testnet to watch_address with OP_RETURN FALC||AccountID, wait 6 confs + headers, claim BTCDepositClaim."
 }
