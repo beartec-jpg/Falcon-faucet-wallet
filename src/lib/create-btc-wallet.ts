@@ -128,7 +128,7 @@ export async function provisionBtcWalletForStoredWallet(wallet: StoredWallet): P
   return reloaded
 }
 
-/** Provision EVM + BTC for multi-chain (idempotent). */
+/** Provision EVM + BTC + classic XRPL for multi-chain (idempotent). */
 export async function provisionMultiChainWallets(wallet: StoredWallet): Promise<StoredWallet> {
   let w = wallet
   if (!w.evmAddress || !w.evmEncrypted) {
@@ -137,6 +137,12 @@ export async function provisionMultiChainWallets(wallet: StoredWallet): Promise<
   }
   if (!hasBtcWallet(w)) {
     w = await provisionBtcWalletForStoredWallet(w)
+  }
+  const { hasXrplClassicWallet, provisionXrplClassicWalletForStoredWallet } = await import(
+    '@/lib/create-xrpl-classic-wallet'
+  )
+  if (!hasXrplClassicWallet(w)) {
+    w = await provisionXrplClassicWalletForStoredWallet(w)
   }
   return w
 }

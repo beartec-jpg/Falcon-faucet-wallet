@@ -110,6 +110,14 @@ import {
   provisionBtcWalletForStoredWallet,
 } from '@/lib/create-btc-wallet'
 import {
+  createXrplClassicWalletForPasskey,
+  encryptXrplClassicSeedForPasskey,
+  fetchXrplClassicXrpBalance,
+  hasXrplClassicWallet,
+  provisionXrplClassicWalletForStoredWallet,
+  sendClassicXrpPayment,
+} from '@/lib/create-xrpl-classic-wallet'
+import {
   isValidBtcP2pkh,
   sendBtcP2pkh,
   type BtcBalance,
@@ -195,6 +203,10 @@ interface PendingWalletSave {
   btcAddressMainnet: string
   btcPrivateKeyHex: string
   btcEncrypted: StoredWallet['btcEncrypted']
+  xrplClassicAddress: string
+  xrplClassicPublicKey: string
+  xrplClassicSeed: string
+  xrplClassicEncrypted: StoredWallet['xrplClassicEncrypted']
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -384,13 +396,14 @@ export default function WalletPage() {
     usdc: true,
     btc: true,
     bnb: true,
+    xrp: true,
   })
   const [hideZeroBalances, setHideZeroBalances] = useState(false)
   const [assetSearch, setAssetSearch] = useState('')
   const [balanceFlash, setBalanceFlash] = useState(0)
   const [panelKey, setPanelKey] = useState(0)
   const [transferPicker, setTransferPicker] = useState<null | 'send' | 'receive'>(null)
-  const [spotPrices, setSpotPrices] = useState<SpotPrices>({ eth: 0, btc: 0, bnb: 0, usdc: 1 })
+  const [spotPrices, setSpotPrices] = useState<SpotPrices>({ eth: 0, btc: 0, bnb: 0, usdc: 1, xrp: 0 })
   const [bridgeInitialMode, setBridgeInitialMode] = useState<'deposit' | 'withdraw' | 'send' | 'receive'>('deposit')
   const [bridgeInitialRoute, setBridgeInitialRoute] = useState<
     'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc' | 'fbtc-btc'
@@ -400,6 +413,7 @@ export default function WalletPage() {
   const [usdcNativeBal, setUsdcNativeBal] = useState<string | null>(null)
   const [bnbNativeBal, setBnbNativeBal] = useState<string | null>(null)
   const [btcNativeBal, setBtcNativeBal] = useState<BtcBalance | null>(null)
+  const [xrplClassicBal, setXrplClassicBal] = useState<string | null>(null)
   const [nativeBalLoading, setNativeBalLoading] = useState(false)
   const [bridgeMissing, setBridgeMissing] = useState(false)
   const bridgeAutoProvisioned = useRef(false)
@@ -435,7 +449,7 @@ export default function WalletPage() {
   const [createLabel, setCreateLabel] = useState('')
 
   // Send form (Falcon IOUs + native multi-chain)
-  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'feth' | 'fbnb' | 'fbtc' | 'btc' | 'bnb' | 'eth'>('falcon')
+  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'feth' | 'fbnb' | 'fbtc' | 'btc' | 'bnb' | 'eth' | 'xrp'>('falcon')
   const [sendTo,     setSendTo]     = useState('')
   const [sendAmount, setSendAmount] = useState('')
   const [sendResult, setSendResult] = useState<{
@@ -594,8 +608,11 @@ export default function WalletPage() {
     const btcP = wallet.btcAddress
       ? fetchBtcTestnetBalance(wallet.btcAddress).catch(() => null)
       : Promise.resolve(null)
+    const xrplP = wallet.xrplClassicAddress
+      ? fetchXrplClassicXrpBalance(wallet.xrplClassicAddress, 'testnet').catch(() => null)
+      : Promise.resolve(null)
 
-    void Promise.all([ethP, bnbP, btcP]).then(([ethB, bnbB, btcB]) => {
+    void Promise.all([ethP, bnbP, btcP, xrplP]).then(([ethB, bnbB, btcB, xrpB]) => {
       if (cancelled) return
       if (ethB) {
         setEthNativeBal(ethB.eth)
@@ -605,11 +622,12 @@ export default function WalletPage() {
       }
       setBnbNativeBal(bnbB)
       setBtcNativeBal(btcB)
+      setXrplClassicBal(xrpB)
       setNativeBalLoading(false)
     })
 
     return () => { cancelled = true }
-  }, [walletSection, wallet?.evmAddress, wallet?.btcAddress, bridgeCfg, wallet])
+  }, [walletSection, wallet?.evmAddress, wallet?.btcAddress, wallet?.xrplClassicAddress, bridgeCfg, wallet])
 
   // Auto-provision missing BTC deposit key (same passkey vault)
   useEffect(() => {
@@ -618,6 +636,15 @@ export default function WalletPage() {
     void provisionBtcWalletForStoredWallet(wallet)
       .then((w) => setWallet(w))
       .catch(() => { /* user can retry via Open Bridge */ })
+  }, [wallet, walletSection, view, busy])
+
+  // Auto-provision classic XRPL (secp/ed25519) multi-chain XRP
+  useEffect(() => {
+    if (!wallet || hasXrplClassicWallet(wallet) || busy || view !== 'dashboard') return
+    if (walletSection !== 'multichain' && walletSection !== 'bridge') return
+    void provisionXrplClassicWalletForStoredWallet(wallet)
+      .then((w) => setWallet(w))
+      .catch(() => { /* user can retry */ })
   }, [wallet, walletSection, view, busy])
 
   // ── On mount: load wallet from IndexedDB ──────────────────────────────────
@@ -807,6 +834,7 @@ export default function WalletPage() {
       const { address: evmAddress, privateKeyHex: evmPrivateKeyHex } = createRandomEvmWallet()
       const evmEncrypted = await encryptSeed(evmPrivateKeyHex, keyBytes, hasPrf)
       const btc = await createBtcWalletForPasskey(keyBytes, hasPrf)
+      const classic = await createXrplClassicWalletForPasskey(keyBytes, hasPrf)
 
       setPendingSave({
         credentialId,
@@ -823,6 +851,10 @@ export default function WalletPage() {
         btcAddressMainnet: btc.addressMainnet,
         btcPrivateKeyHex: btc.privateKeyHex,
         btcEncrypted: btc.btcEncrypted,
+        xrplClassicAddress: classic.address,
+        xrplClassicPublicKey: classic.publicKey,
+        xrplClassicSeed: classic.seed,
+        xrplClassicEncrypted: classic.xrplClassicEncrypted,
       })
       setView('backup')
     } catch (e: unknown) {
@@ -848,6 +880,7 @@ export default function WalletPage() {
         falcon_secret: _secret,
         evmPrivateKeyHex: _evmPk,
         btcPrivateKeyHex: _btcPk,
+        xrplClassicSeed: _xrplSeed,
         ...rest
       } = pendingSave
       const stored: StoredWallet = {
@@ -858,6 +891,9 @@ export default function WalletPage() {
         btcAddress: pendingSave.btcAddress,
         btcAddressMainnet: pendingSave.btcAddressMainnet,
         btcEncrypted: pendingSave.btcEncrypted,
+        xrplClassicAddress: pendingSave.xrplClassicAddress,
+        xrplClassicPublicKey: pendingSave.xrplClassicPublicKey,
+        xrplClassicEncrypted: pendingSave.xrplClassicEncrypted,
       }
       await replacePrimaryWallet(stored)
       const verified = await loadPrimaryWallet()
@@ -917,6 +953,9 @@ export default function WalletPage() {
         btc_private_key: pendingSave.btcPrivateKeyHex,
         btc_address: pendingSave.btcAddress,
         btc_address_mainnet: pendingSave.btcAddressMainnet,
+        xrpl_classic_seed: pendingSave.xrplClassicSeed,
+        xrpl_classic_address: pendingSave.xrplClassicAddress,
+        xrpl_classic_public_key: pendingSave.xrplClassicPublicKey,
       }, backupPassphrase)
       downloadBackup(file)
       setBackupDownloaded(true)
@@ -949,7 +988,14 @@ export default function WalletPage() {
     label: string,
     bridgeFromBackup?: Pick<
       BackupPayload,
-      'evm_private_key' | 'evm_address' | 'btc_private_key' | 'btc_address' | 'btc_address_mainnet'
+      | 'evm_private_key'
+      | 'evm_address'
+      | 'btc_private_key'
+      | 'btc_address'
+      | 'btc_address_mainnet'
+      | 'xrpl_classic_seed'
+      | 'xrpl_classic_address'
+      | 'xrpl_classic_public_key'
     >,
   ) => {
     if (!isPasskeySupported()) {
@@ -989,6 +1035,16 @@ export default function WalletPage() {
         // Prefer restoring the key; recompute addresses from key (already done in encryptBtcKey)
       }
 
+      const classic = bridgeFromBackup?.xrpl_classic_seed
+        ? await encryptXrplClassicSeedForPasskey(bridgeFromBackup.xrpl_classic_seed, keyBytes, hasPrf)
+        : await createXrplClassicWalletForPasskey(keyBytes, hasPrf)
+      if (
+        bridgeFromBackup?.xrpl_classic_address &&
+        classic.address !== bridgeFromBackup.xrpl_classic_address
+      ) {
+        throw new Error('Classic XRPL seed in backup does not match the stored address')
+      }
+
       const stored: StoredWallet = {
         credentialId,
         address,
@@ -1002,6 +1058,9 @@ export default function WalletPage() {
         btcAddress: btc.address,
         btcAddressMainnet: btc.addressMainnet,
         btcEncrypted: btc.btcEncrypted,
+        xrplClassicAddress: classic.address,
+        xrplClassicPublicKey: classic.publicKey,
+        xrplClassicEncrypted: classic.xrplClassicEncrypted,
       }
       await replacePrimaryWallet(stored)
 
@@ -1063,6 +1122,9 @@ export default function WalletPage() {
         btc_private_key: payload.btc_private_key,
         btc_address: payload.btc_address,
         btc_address_mainnet: payload.btc_address_mainnet,
+        xrpl_classic_seed: payload.xrpl_classic_seed,
+        xrpl_classic_address: payload.xrpl_classic_address,
+        xrpl_classic_public_key: payload.xrpl_classic_public_key,
       })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not read backup file')
@@ -1109,17 +1171,40 @@ export default function WalletPage() {
         await saveWallet(withBtc)
         setWallet(withBtc)
       }
+      let xrpl_classic_seed: string | undefined
+      let xrpl_classic_address = wallet.xrplClassicAddress
+      let xrpl_classic_public_key = wallet.xrplClassicPublicKey
+      let exportWallet = wallet
+      if (wallet.xrplClassicEncrypted) {
+        xrpl_classic_seed = await decryptSeed(wallet.xrplClassicEncrypted, keyBytes)
+      } else {
+        const classic = await createXrplClassicWalletForPasskey(keyBytes, wallet.hasPrf)
+        xrpl_classic_seed = classic.seed
+        xrpl_classic_address = classic.address
+        xrpl_classic_public_key = classic.publicKey
+        exportWallet = {
+          ...wallet,
+          xrplClassicAddress: classic.address,
+          xrplClassicPublicKey: classic.publicKey,
+          xrplClassicEncrypted: classic.xrplClassicEncrypted,
+        }
+        await saveWallet(exportWallet)
+        setWallet(exportWallet)
+      }
       const file = await createEncryptedBackup({
         falcon_secret,
-        address: wallet.address,
-        publicKey: wallet.publicKey,
-        label: wallet.label,
-        createdAt: wallet.createdAt,
+        address: exportWallet.address,
+        publicKey: exportWallet.publicKey,
+        label: exportWallet.label,
+        createdAt: exportWallet.createdAt,
         evm_private_key,
-        evm_address: wallet.evmAddress,
+        evm_address: exportWallet.evmAddress,
         btc_private_key,
         btc_address,
         btc_address_mainnet,
+        xrpl_classic_seed,
+        xrpl_classic_address,
+        xrpl_classic_public_key,
       }, exportPassphrase)
       downloadBackup(file)
       setShowExportBackup(false)
@@ -1163,19 +1248,75 @@ export default function WalletPage() {
     e.preventDefault()
     if (!wallet) return
 
-    const isNative = sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth'
+    const isClassicXrp = sendAsset === 'xrp'
+    const isNative = sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth' || isClassicXrp
     if (!isNative && !account) return
     if (!isNative && !network.live) {
       setError(`${network.name} is not live yet.`)
       return
     }
 
-    // ── Native multi-chain send (BTC / BNB / ETH) ───────────────────────────
+    // ── Native multi-chain send (BTC / BNB / ETH / classic XRPL XRP) ─────────
     if (isNative) {
       let to = sendTo.trim()
       const amt = parseFloat(sendAmount)
       if (isNaN(amt) || amt <= 0) {
         setError('Invalid amount')
+        return
+      }
+
+      if (sendAsset === 'xrp') {
+        if (!wallet.xrplClassicEncrypted || !wallet.xrplClassicAddress) {
+          setError('Classic XRPL wallet not set up — open Multi-chain to provision keys')
+          return
+        }
+        if (!isValidFalconAddress(to)) {
+          setError('Invalid classic XRPL destination (expect r… address)')
+          return
+        }
+        if (to === wallet.xrplClassicAddress) {
+          setError('Destination must differ from your classic XRPL address')
+          return
+        }
+        if (to === wallet.address) {
+          setError('That is your Falcon r… — classic XRP needs a classic XRPL destination')
+          return
+        }
+        if (xrplClassicBal != null && amt > parseFloat(xrplClassicBal)) {
+          setError('Insufficient classic XRPL XRP balance')
+          return
+        }
+        setBusy(true)
+        setError(null)
+        setSendResult(null)
+        try {
+          const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+          const seed = await decryptSeed(wallet.xrplClassicEncrypted, keyBytes)
+          const result = await sendClassicXrpPayment({
+            seed,
+            destination: to,
+            amountXrp: String(amt),
+            network: 'testnet',
+          })
+          setSendResult({
+            success: true,
+            hash: result.hash,
+            message: `Classic XRPL: ${result.engine_result}`,
+            explorerUrl: result.hash
+              ? `https://testnet.xrpl.org/transactions/${result.hash}`
+              : undefined,
+          })
+          setSendTo('')
+          setSendAmount('')
+          void fetchXrplClassicXrpBalance(wallet.xrplClassicAddress, 'testnet').then(setXrplClassicBal)
+        } catch (e: unknown) {
+          setSendResult({
+            success: false,
+            message: e instanceof Error ? e.message : 'Classic XRPL send failed',
+          })
+        } finally {
+          setBusy(false)
+        }
         return
       }
 
@@ -1993,6 +2134,7 @@ export default function WalletPage() {
                     usdc: usdcNativeBal != null ? Number(usdcNativeBal) : null,
                     btc: btcNativeBal != null ? Number(btcNativeBal.btc) : null,
                     bnb: bnbNativeBal != null ? Number(bnbNativeBal) : null,
+                    xrp: xrplClassicBal != null ? Number(xrplClassicBal) : null,
                   }
                   const usdTotal = multiChainUsdTotal(multiBals, spotPrices)
                   const falconTotal = fb.falcon
@@ -2053,7 +2195,7 @@ export default function WalletPage() {
                         </div>
                         {walletSection === 'multichain' && (
                           <p className="text-[11px] text-slate-500 mt-1">
-                            ETH · USDC · BTC · BNB · spot rates when available
+                            ETH · USDC · BTC · BNB · XRP · spot rates when available
                           </p>
                         )}
                         {walletSection === 'falcon' && (
@@ -2497,7 +2639,7 @@ export default function WalletPage() {
                   </div>
                   )}
 
-                  {/* ── Native multi-chain rows (ETH / USDC / BTC / BNB) ── */}
+                  {/* ── Native multi-chain rows (ETH / USDC / BTC / BNB / classic XRP) ── */}
                   {walletSection === 'multichain' && (
                   <div className="space-y-2">
                     {!hasBridgeWallet(wallet) && (
@@ -2529,6 +2671,7 @@ export default function WalletPage() {
                           usdc: usdcNativeBal != null ? Number(usdcNativeBal) : null,
                           btc: btcNativeBal != null ? Number(btcNativeBal.btc) : null,
                           bnb: bnbNativeBal != null ? Number(bnbNativeBal) : null,
+                          xrp: xrplClassicBal != null ? Number(xrplClassicBal) : null,
                         })
                         if (bal != null && bal <= 0) return false
                       }
@@ -2537,13 +2680,18 @@ export default function WalletPage() {
                       const isLive = chain.status === 'live'
                       const hasEvmKey = hasBridgeWallet(wallet)
                       const hasBtc = hasBtcWallet(wallet)
+                      const hasXrp = hasXrplClassicWallet(wallet)
                       const usesEvm = chain.id === 'eth' || chain.id === 'usdc' || chain.id === 'bnb'
-                      const hasKey = chain.id === 'btc' ? hasBtc : hasEvmKey
+                      const hasKey =
+                        chain.id === 'btc' ? hasBtc : chain.id === 'xrp' ? hasXrp : hasEvmKey
                       const shortEvm = wallet.evmAddress
                         ? `${wallet.evmAddress.slice(0, 10)}…${wallet.evmAddress.slice(-6)}`
                         : ''
                       const shortBtc = wallet.btcAddress
                         ? `${wallet.btcAddress.slice(0, 10)}…${wallet.btcAddress.slice(-6)}`
+                        : ''
+                      const shortXrp = wallet.xrplClassicAddress
+                        ? `${wallet.xrplClassicAddress.slice(0, 10)}…${wallet.xrplClassicAddress.slice(-6)}`
                         : ''
                       let balanceLabel = '—'
                       if (chain.id === 'eth' && hasEvmKey) {
@@ -2571,6 +2719,14 @@ export default function WalletPage() {
                             ? Number(btcNativeBal.btc).toLocaleString(undefined, {
                                 maximumFractionDigits: 8,
                                 minimumFractionDigits: 0,
+                              })
+                            : 'unavailable'
+                      } else if (chain.id === 'xrp' && hasXrp) {
+                        balanceLabel = nativeBalLoading
+                          ? '…'
+                          : xrplClassicBal != null
+                            ? Number(xrplClassicBal).toLocaleString(undefined, {
+                                maximumFractionDigits: 6,
                               })
                             : 'unavailable'
                       }
@@ -2606,6 +2762,12 @@ export default function WalletPage() {
                                     {shortBtc} <span className="font-sans text-slate-600">· BTC testnet</span>
                                   </span>
                                 )}
+                                {chain.id === 'xrp' && hasXrp && (
+                                  <span className="text-slate-400">
+                                    {shortXrp}{' '}
+                                    <span className="font-sans text-slate-600">· classic XRPL testnet</span>
+                                  </span>
+                                )}
                                 {!hasKey && <span className="font-sans">{chain.subtitle}</span>}
                               </div>
                               {chain.id === 'btc' && hasBtc && btcNativeBal && btcNativeBal.totalSats > 0 && (
@@ -2616,6 +2778,11 @@ export default function WalletPage() {
                               {chain.id === 'bnb' && bnbNativeBal == null && !nativeBalLoading && hasEvmKey && (
                                 <div className="text-[10px] text-amber-400/80 mt-0.5 font-sans">
                                   Balance unavailable
+                                </div>
+                              )}
+                              {chain.id === 'xrp' && hasXrp && xrplClassicBal === '0' && (
+                                <div className="text-[10px] text-slate-600 mt-0.5 font-sans">
+                                  Unfunded — use XRPL testnet faucet
                                 </div>
                               )}
                             </div>
@@ -2852,13 +3019,16 @@ export default function WalletPage() {
               {view === 'receive' && (() => {
                 const isNativeEvm = receiveAssetId === 'eth' || receiveAssetId === 'bnb' || receiveAssetId === 'usdc'
                 const isBtc = receiveAssetId === 'btc'
+                const isXrp = receiveAssetId === 'xrp'
                 const recvAddr = isNativeEvm
                   ? (wallet.evmAddress || '')
                   : isBtc
                     ? (wallet.btcAddress || '')
-                    : wallet.address
+                    : isXrp
+                      ? (wallet.xrplClassicAddress || '')
+                      : wallet.address
                 const recvSymbol = multiChainAssetById(receiveAssetId)?.symbol
-                  ?? (receiveAssetId === 'eth' ? 'ETH' : receiveAssetId === 'btc' ? 'BTC' : receiveAssetId === 'bnb' ? 'BNB' : 'assets')
+                  ?? (receiveAssetId === 'eth' ? 'ETH' : receiveAssetId === 'btc' ? 'BTC' : receiveAssetId === 'bnb' ? 'BNB' : receiveAssetId === 'xrp' ? 'XRP' : 'assets')
                 return (
                 <div className="card p-5 space-y-4">
                   <div className="flex items-center gap-2">
@@ -2884,6 +3054,8 @@ export default function WalletPage() {
                         ? 'Same 0x as ETH. On BSC testnet this receives BNB. Bridge → FBNB.'
                       : receiveAssetId === 'btc'
                         ? 'Native Bitcoin testnet P2PKH address. Only send testnet BTC. Bridge → FBTC.'
+                      : receiveAssetId === 'xrp'
+                        ? 'Classic XRP Ledger (today’s XRPL crypto). Separate r… from Falcon. Fund via XRPL testnet faucet.'
                       : receiveAssetId === 'fusdc'
                         ? 'F-USDC lives on Falcon. Share your r… address, or Bridge In from Multi-chain USDC.'
                         : receiveAssetId === 'falcon'
@@ -2907,7 +3079,11 @@ export default function WalletPage() {
                       </div>
                     </>
                   ) : (
-                    <p className="text-sm text-amber-300">No deposit address yet — open Bridge to create the ETH wallet.</p>
+                    <p className="text-sm text-amber-300">
+                      {isXrp
+                        ? 'No classic XRPL address yet — open Multi-chain to provision keys.'
+                        : 'No deposit address yet — open Bridge to create the ETH wallet.'}
+                    </p>
                   )}
                   <div className="flex gap-2">
                     <button
@@ -2929,6 +3105,16 @@ export default function WalletPage() {
                       >
                         Get from Faucet →
                       </Link>
+                    )}
+                    {isXrp && (
+                      <a
+                        href="https://xrpl.org/resources/dev-tools/xrp-faucets"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors text-center"
+                      >
+                        XRPL faucet →
+                      </a>
                     )}
                     {(receiveAssetId === 'fusdc' || receiveAssetId === 'eth') && (
                       <button
@@ -2972,6 +3158,16 @@ export default function WalletPage() {
                       setError(null)
                       return
                     }
+                    if (sendAsset === 'xrp') {
+                      const addr = parseFalconAddressFromScan(raw)
+                      if (!addr) {
+                        setError('QR does not contain a valid classic XRPL r-address')
+                        return
+                      }
+                      setSendTo(addr)
+                      setError(null)
+                      return
+                    }
                     const addr = parseFalconAddressFromScan(raw)
                     if (!addr) {
                       setError('QR code does not contain a valid Falcon r-address')
@@ -2993,7 +3189,7 @@ export default function WalletPage() {
                         setView('dashboard')
                         setError(null)
                         setSendResult(null)
-                        if (sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth') {
+                        if (sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth' || sendAsset === 'xrp') {
                           setWalletSection('multichain')
                         }
                       }}
@@ -3010,6 +3206,8 @@ export default function WalletPage() {
                           ? 'Send BNB (BSC testnet)'
                           : sendAsset === 'eth'
                             ? 'Send ETH (Sepolia)'
+                            : sendAsset === 'xrp'
+                              ? 'Send XRP (classic XRPL testnet)'
                             : 'Send on Falcon'}
                     </h3>
                   </div>
@@ -3056,6 +3254,12 @@ export default function WalletPage() {
                           : 'Sepolia ETH · same deposit wallet used for Bridge In.'}
                     </p>
                   )}
+                  {sendAsset === 'xrp' && (
+                    <p className="text-[11px] text-slate-500 leading-snug">
+                      Classic XRPL (today&apos;s XRP) · own r… · secp/ed25519 under your passkey. Not Falcon-512.
+                      Submits on XRPL testnet.
+                    </p>
+                  )}
 
                   {sendResult ? (
                     <div className={`rounded-xl px-4 py-4 space-y-2 ${
@@ -3093,7 +3297,7 @@ export default function WalletPage() {
                         onClick={() => {
                           setSendResult(null)
                           setView('dashboard')
-                          if (sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth') {
+                          if (sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth' || sendAsset === 'xrp') {
                             setWalletSection('multichain')
                           }
                         }}
@@ -3110,6 +3314,8 @@ export default function WalletPage() {
                             ? 'Destination (testnet m… / n…)'
                             : sendAsset === 'eth' || sendAsset === 'bnb'
                               ? 'Destination (0x…)'
+                              : sendAsset === 'xrp'
+                                ? 'Destination (classic XRPL r…)'
                               : 'Destination (r… or name)'}
                         </label>
                         <div className="flex items-stretch gap-2">
@@ -3122,6 +3328,8 @@ export default function WalletPage() {
                                 ? 'm… or n…'
                                 : sendAsset === 'eth' || sendAsset === 'bnb'
                                   ? '0x…'
+                                  : sendAsset === 'xrp'
+                                    ? 'rXXX… (classic XRPL)'
                                   : 'rXXX… or alice.bob'
                             }
                             className="input-field flex-1 min-w-0 w-0"
@@ -3160,6 +3368,8 @@ export default function WalletPage() {
                                     ? 'BTC'
                                     : sendAsset === 'bnb'
                                       ? 'BNB'
+                                      : sendAsset === 'xrp'
+                                        ? 'XRP'
                                       : 'ETH'}
                           )
                         </label>
@@ -3292,6 +3502,24 @@ export default function WalletPage() {
                                 Max
                               </button>
                             )}
+                          </div>
+                        )}
+                        {sendAsset === 'xrp' && xrplClassicBal != null && (
+                          <div className="flex justify-between text-xs text-slate-600">
+                            <span>
+                              Available:{' '}
+                              {Number(xrplClassicBal).toLocaleString(undefined, { maximumFractionDigits: 6 })}{' '}
+                              XRP (classic)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSendAmount(String(Math.max(0, parseFloat(xrplClassicBal) - 0.000012)))
+                              }
+                              className="text-brand-500 hover:text-brand-400 transition-colors"
+                            >
+                              Max
+                            </button>
                           </div>
                         )}
                         {sendAsset === 'bnb' && (
@@ -3931,6 +4159,7 @@ export default function WalletPage() {
                       usdc: usdcNativeBal != null ? Number(usdcNativeBal) : null,
                       btc: btcNativeBal != null ? Number(btcNativeBal.btc) : null,
                       bnb: bnbNativeBal != null ? Number(bnbNativeBal) : null,
+                      xrp: xrplClassicBal != null ? Number(xrplClassicBal) : null,
                     }) ?? 0
                   return {
                     id: c.id,
@@ -3960,7 +4189,7 @@ export default function WalletPage() {
                       if (transferPicker === 'send') {
                         if (id === 'fusdc' || id === 'feth' || id === 'fbnb' || id === 'fbtc' || id === 'falcon') {
                           setSendAsset(id)
-                        } else if (id === 'btc' || id === 'bnb' || id === 'eth') {
+                        } else if (id === 'btc' || id === 'bnb' || id === 'eth' || id === 'xrp') {
                           setSendAsset(id)
                         } else {
                           setTransferPicker(null)

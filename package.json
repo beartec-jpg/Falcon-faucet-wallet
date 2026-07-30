@@ -32,7 +32,8 @@
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "ripple-address-codec": "^5.0.0",
-    "ripple-binary-codec": "^2.8.0"
+    "ripple-binary-codec": "^2.8.0",
+    "xrpl": "^4.6.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

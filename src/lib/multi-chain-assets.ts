@@ -1,14 +1,15 @@
 /**
  * Wallet catalogs:
  * - Falcon Wallet = native FALCON + Falcon IOUs (F-USDC, FETH, FBTC, FBNB)
- * - Multi-chain = native deposit rows (ETH, USDC, BTC, BNB) that feed Bridge
+ * - Multi-chain = native deposit rows (ETH, USDC, BTC, BNB, classic XRP)
  *   USDC is its own row (Ethereum USDC), not nested under ETH.
+ *   XRP is today’s XRPL (secp/ed25519) — separate r… from Falcon-512.
  */
 
 export type FalconAssetId = 'falcon' | 'fusdc' | 'feth' | 'fbtc' | 'fbnb'
-export type NativeChainId = 'eth' | 'btc' | 'bnb'
-/** Multi-chain tab display rows (includes USDC as separate from ETH). */
-export type MultiChainRowId = 'eth' | 'usdc' | 'btc' | 'bnb'
+export type NativeChainId = 'eth' | 'btc' | 'bnb' | 'xrp'
+/** Multi-chain tab display rows (USDC separate from ETH; XRP = classic XRPL). */
+export type MultiChainRowId = 'eth' | 'usdc' | 'btc' | 'bnb' | 'xrp'
 
 export type MultiChainAssetId = FalconAssetId | NativeChainId | 'usdc'
 export type MultiChainAssetStatus = 'live' | 'coming_soon'
@@ -141,6 +142,16 @@ export const NATIVE_CHAIN_WALLETS: NativeChainWalletDef[] = [
     canSend: true,
     canReceive: true,
     canBridge: true,
+  },
+  {
+    id: 'xrp',
+    symbol: 'XRP',
+    chainLabel: 'XRP Ledger (classic)',
+    subtitle: 'Today’s XRPL · own r… · secp/ed25519 · separate from Falcon',
+    status: 'live',
+    canSend: true,
+    canReceive: true,
+    canBridge: false,
   },
 ]
 

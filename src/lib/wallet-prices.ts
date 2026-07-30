@@ -5,6 +5,7 @@ export type SpotPrices = {
   btc: number
   bnb: number
   usdc: number
+  xrp: number
 }
 
 const DEFAULTS: SpotPrices = {
@@ -12,13 +13,14 @@ const DEFAULTS: SpotPrices = {
   btc: 0,
   bnb: 0,
   usdc: 1,
+  xrp: 0,
 }
 
 /** CoinGecko free simple price — fails soft to zeros. */
 export async function fetchSpotPrices(): Promise<SpotPrices> {
   try {
     const url =
-      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,binancecoin&vs_currencies=usd'
+      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,binancecoin,ripple&vs_currencies=usd'
     const r = await fetch(url, { signal: AbortSignal.timeout(8000) })
     if (!r.ok) return { ...DEFAULTS }
     const j = (await r.json()) as Record<string, { usd?: number }>
@@ -27,6 +29,7 @@ export async function fetchSpotPrices(): Promise<SpotPrices> {
       btc: j.bitcoin?.usd ?? 0,
       bnb: j.binancecoin?.usd ?? 0,
       usdc: 1,
+      xrp: j.ripple?.usd ?? 0,
     }
   } catch {
     return { ...DEFAULTS }
@@ -34,7 +37,13 @@ export async function fetchSpotPrices(): Promise<SpotPrices> {
 }
 
 export function multiChainUsdTotal(
-  bals: { eth: number | null; usdc: number | null; btc: number | null; bnb: number | null },
+  bals: {
+    eth: number | null
+    usdc: number | null
+    btc: number | null
+    bnb: number | null
+    xrp?: number | null
+  },
   prices: SpotPrices,
 ): number | null {
   const parts: number[] = []
@@ -42,9 +51,10 @@ export function multiChainUsdTotal(
   if (bals.eth != null && prices.eth > 0) parts.push(bals.eth * prices.eth)
   if (bals.btc != null && prices.btc > 0) parts.push(bals.btc * prices.btc)
   if (bals.bnb != null && prices.bnb > 0) parts.push(bals.bnb * prices.bnb)
+  if (bals.xrp != null && prices.xrp > 0) parts.push(bals.xrp * prices.xrp)
   if (parts.length === 0) return null
   // If we only have USDC known, still show that
-  if (prices.eth <= 0 && prices.btc <= 0 && prices.bnb <= 0) {
+  if (prices.eth <= 0 && prices.btc <= 0 && prices.bnb <= 0 && prices.xrp <= 0) {
     return bals.usdc
   }
   return parts.reduce((a, b) => a + b, 0)

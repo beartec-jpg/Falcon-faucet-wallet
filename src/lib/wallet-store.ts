@@ -27,6 +27,15 @@ export interface StoredWallet {
   btcAddress?: string
   /** Bitcoin P2PKH mainnet address (1…) */
   btcAddressMainnet?: string
+  /**
+   * Classic XRPL multi-chain (secp256k1/ed25519 — NOT Falcon-512).
+   * Separate r… address from Falcon `address`.
+   */
+  xrplClassicEncrypted?: EncryptedSeed
+  /** Classic XRPL r… (family seed crypto) */
+  xrplClassicAddress?: string
+  /** Classic public key hex (display / verify) */
+  xrplClassicPublicKey?: string
 }
 
 // ─── DB init ──────────────────────────────────────────────────────────────────

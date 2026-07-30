@@ -1,18 +1,19 @@
 /**
  * Per-wallet-tab asset row visibility (localStorage).
  * Falcon tab: FALCON / F-USDC / FETH / FBTC / FBNB
- * Multi-chain tab: ETH / USDC / BTC / BNB (USDC is its own row)
+ * Multi-chain tab: ETH / USDC / BTC / BNB / XRP (classic)
  */
 
 import type { FalconAssetId } from '@/lib/multi-chain-assets'
 
-export type MultiChainRowId = 'eth' | 'usdc' | 'btc' | 'bnb'
+export type MultiChainRowId = 'eth' | 'usdc' | 'btc' | 'bnb' | 'xrp'
 
 const FALCON_KEY = 'falcon-wallet-visible-falcon-v1'
-const MULTI_KEY = 'falcon-wallet-visible-multi-v1'
+/** v2 adds classic XRP row */
+const MULTI_KEY = 'falcon-wallet-visible-multi-v2'
 
 export const FALCON_ROW_IDS: FalconAssetId[] = ['falcon', 'fusdc', 'feth', 'fbtc', 'fbnb']
-export const MULTI_ROW_IDS: MultiChainRowId[] = ['eth', 'usdc', 'btc', 'bnb']
+export const MULTI_ROW_IDS: MultiChainRowId[] = ['eth', 'usdc', 'btc', 'bnb', 'xrp']
 
 export const FALCON_ROW_LABELS: Record<FalconAssetId, string> = {
   falcon: 'FALCON',
@@ -27,6 +28,7 @@ export const MULTI_ROW_LABELS: Record<MultiChainRowId, string> = {
   usdc: 'USDC',
   btc: 'BTC',
   bnb: 'BNB',
+  xrp: 'XRP',
 }
 
 function defaultMap<T extends string>(ids: readonly T[]): Record<T, boolean> {

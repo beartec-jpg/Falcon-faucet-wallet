@@ -1,11 +1,12 @@
 /**
  * Encrypted wallet backup files for client-side restore.
- * One file = Falcon + multi-chain deposit keys (EVM + BTC).
- * v1 Falcon only · v2 + EVM · v3 + BTC (optional fields; restore accepts 1–3).
+ * One file = Falcon + multi-chain deposit keys (EVM + BTC + classic XRPL).
+ * v1 Falcon only · v2 + EVM · v3 + BTC · v4 + classic XRPL XRP
  */
 
 export const BACKUP_TYPE = 'qxrp-falcon-wallet-backup'
-export const BACKUP_VERSION = 3
+export const BACKUP_VERSION = 4
+export const BACKUP_VERSION_V3 = 3
 export const BACKUP_VERSION_V2 = 2
 export const BACKUP_VERSION_LEGACY = 1
 
@@ -25,6 +26,10 @@ export interface BackupPayload {
   btc_address?: string
   /** Bitcoin mainnet P2PKH (1…) */
   btc_address_mainnet?: string
+  /** Classic XRPL family seed (s…) — not Falcon-512 */
+  xrpl_classic_seed?: string
+  xrpl_classic_address?: string
+  xrpl_classic_public_key?: string
 }
 
 export interface EncryptedBackupFile {
@@ -36,6 +41,8 @@ export interface EncryptedBackupFile {
   evm_address?: string
   /** BTC testnet address (outer metadata) */
   btc_address?: string
+  /** Classic XRPL r… (outer metadata) */
+  xrpl_classic_address?: string
   label: string
   createdAt: number
   payload: {
@@ -98,7 +105,8 @@ export function validateBackupPassphrase(passphrase: string): string | null {
 }
 
 function backupVersionForPayload(payload: BackupPayload): number {
-  if (payload.btc_private_key && payload.btc_address) return BACKUP_VERSION // 3
+  if (payload.xrpl_classic_seed && payload.xrpl_classic_address) return BACKUP_VERSION // 4
+  if (payload.btc_private_key && payload.btc_address) return BACKUP_VERSION_V3
   if (payload.evm_private_key && payload.evm_address) return BACKUP_VERSION_V2
   return BACKUP_VERSION_LEGACY
 }
@@ -131,6 +139,7 @@ export async function createEncryptedBackup(
     address: payload.address,
     evm_address: payload.evm_address,
     btc_address: payload.btc_address,
+    xrpl_classic_address: payload.xrpl_classic_address,
     label: payload.label,
     createdAt: payload.createdAt,
     payload: {
@@ -178,7 +187,12 @@ export function parseBackupFile(raw: unknown): WalletBackupFile {
   const file = raw as Record<string, unknown>
   if (file.type !== BACKUP_TYPE) throw new Error('Not a Falcon Ledger wallet backup file')
   const ver = Number(file.version)
-  if (ver !== BACKUP_VERSION && ver !== BACKUP_VERSION_V2 && ver !== BACKUP_VERSION_LEGACY) {
+  if (
+    ver !== BACKUP_VERSION &&
+    ver !== BACKUP_VERSION_V3 &&
+    ver !== BACKUP_VERSION_V2 &&
+    ver !== BACKUP_VERSION_LEGACY
+  ) {
     throw new Error('Unsupported backup version')
   }
 
@@ -199,6 +213,10 @@ export function backupHasBridgeKeys(payload: BackupPayload): boolean {
 
 export function backupHasBtcKeys(payload: BackupPayload): boolean {
   return !!(payload.btc_private_key && payload.btc_address)
+}
+
+export function backupHasXrplClassicKeys(payload: BackupPayload): boolean {
+  return !!(payload.xrpl_classic_seed && payload.xrpl_classic_address)
 }
 
 export function backupFilename(address: string): string {
@@ -223,7 +241,7 @@ export async function shareBackup(file: WalletBackupFile): Promise<boolean> {
   await navigator.share({
     files: [shareFile],
     title: 'Falcon Ledger wallet backup',
-    text: `Backup for ${file.address}${file.evm_address ? ` + EVM ${file.evm_address}` : ''}${file.btc_address ? ` + BTC ${file.btc_address}` : ''}`,
+    text: `Backup for ${file.address}${file.evm_address ? ` + EVM ${file.evm_address}` : ''}${file.btc_address ? ` + BTC ${file.btc_address}` : ''}${file.xrpl_classic_address ? ` + XRPL ${file.xrpl_classic_address}` : ''}`,
   })
   return true
 }

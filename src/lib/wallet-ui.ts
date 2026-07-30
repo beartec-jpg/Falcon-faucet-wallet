@@ -13,6 +13,7 @@ export const TOKEN_CHIP: Record<string, string> = {
   usdc: 'from-sky-400 to-blue-600 text-white',
   btc: 'from-orange-400 to-amber-600 text-slate-950',
   bnb: 'from-yellow-300 to-amber-500 text-slate-950',
+  xrp: 'from-indigo-400 to-violet-600 text-white',
 }
 
 export function tokenChipClass(id: string): string {
@@ -30,6 +31,7 @@ export function shortTokenLabel(id: string): string {
     usdc: 'U',
     btc: '₿',
     bnb: 'B',
+    xrp: 'X',
   }
   return map[id] ?? '?'
 }
@@ -67,10 +69,17 @@ export function falconRowBalance(id: FalconAssetId, b: FalconBalances): number {
 
 export function multiRowBalance(
   id: MultiChainRowId,
-  vals: { eth: number | null; usdc: number | null; btc: number | null; bnb: number | null },
+  vals: {
+    eth: number | null
+    usdc: number | null
+    btc: number | null
+    bnb: number | null
+    xrp?: number | null
+  },
 ): number | null {
   if (id === 'eth') return vals.eth
   if (id === 'usdc') return vals.usdc
   if (id === 'btc') return vals.btc
+  if (id === 'xrp') return vals.xrp ?? null
   return vals.bnb
 }
