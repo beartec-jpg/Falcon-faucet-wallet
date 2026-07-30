@@ -1101,16 +1101,27 @@ export default function BridgeDepositPanel({
 
   const handleSpvClearPending = () => {
     if (!spvPending) return
+    const isDead =
+      spvPending.txid === 'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524'
     if (
+      !isDead &&
       spvPending.status !== 'claimed' &&
       !window.confirm(
-        'Clear open SPV bridge tracking? Only do this if the BTC tx failed or you already claimed FBTC.',
+        'Clear open SPV bridge tracking? Only if the BTC was refunded, failed, or you already claimed FBTC.',
       )
     ) {
       return
     }
     clearSpvPending(wallet.address)
+    // Also wipe any legacy storage key from older portal builds
+    try {
+      localStorage.removeItem('falcon-spv-pending-v1')
+      localStorage.removeItem('falcon-spv-pending-v2')
+    } catch {
+      /* ignore */
+    }
     setSpvPending(null)
+    setError(null)
   }
 
   const handleTrustLine = async () => {
@@ -1515,9 +1526,9 @@ export default function BridgeDepositPanel({
               <button
                 type="button"
                 onClick={handleSpvClearPending}
-                className="text-[10px] text-slate-500 hover:text-slate-300 shrink-0"
+                className="text-[11px] font-medium text-orange-200/90 hover:text-white shrink-0 underline underline-offset-2"
               >
-                Clear
+                Clear / dismiss
               </button>
             </div>
             <div className="text-xs font-mono text-slate-300 break-all">

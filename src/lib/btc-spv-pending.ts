@@ -29,15 +29,40 @@ export interface SpvPendingDeposit {
   updatedAt: number
 }
 
-const KEY = 'falcon-spv-pending-v1'
+const KEY = 'falcon-spv-pending-v2'
+/** Legacy key — drop on read so refunded/stuck jobs cannot block Bridge forever. */
+const LEGACY_KEYS = ['falcon-spv-pending-v1'] as const
+
+/** BTC deposits that must never be claim-tracked (refunded / abandoned). */
+const DEAD_SPV_TXIDS = new Set([
+  'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524',
+])
 
 function readAll(): Record<string, SpvPendingDeposit> {
   if (typeof window === 'undefined') return {}
   try {
+    // One-time migrate: wipe v1 so stale open-bridge cards (e.g. refunded deposits) vanish
+    for (const k of LEGACY_KEYS) {
+      try {
+        if (localStorage.getItem(k)) localStorage.removeItem(k)
+      } catch {
+        /* ignore */
+      }
+    }
     const raw = localStorage.getItem(KEY)
     if (!raw) return {}
     const j = JSON.parse(raw) as Record<string, SpvPendingDeposit>
-    return j && typeof j === 'object' ? j : {}
+    if (!j || typeof j !== 'object') return {}
+    // Strip dead txids
+    let dirty = false
+    for (const [acct, p] of Object.entries(j)) {
+      if (p?.txid && DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) {
+        delete j[acct]
+        dirty = true
+      }
+    }
+    if (dirty) writeAll(j)
+    return j
   } catch {
     return {}
   }
