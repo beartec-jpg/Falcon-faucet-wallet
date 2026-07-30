@@ -44,7 +44,7 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
   },
   {
     title: 'Multi-Chain Wallet & Bridge Report',
-    description: 'Falcon, Ethereum, BNB, Bitcoin wallets and lock-mint bridges.',
+    description: 'Falcon, XRP, Bitcoin, Ethereum, and BNB wallets and lock-mint bridges.',
     href: '/Docs/FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
     filename: 'FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
   },
@@ -69,7 +69,7 @@ export interface WhitepaperSection {
 /**
  * Structured white paper body.
  * Vision: FALCON is the centre of a multi-chain lending & liquidity network
- * (Falcon + Ethereum + BNB Chain + Bitcoin + expandable corridors).
+ * spanning Falcon, XRP, Bitcoin, Ethereum, and BNB.
  */
 export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
   {
@@ -78,7 +78,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'lead',
-        text: 'Falcon Ledger is a quantum-safe settlement layer built so that one token — FALCON — can coordinate liquidity, collateral, and rewards across a multi-chain lending network. The network is designed around five rails today, with architecture that can add more chains without redesigning the core.',
+        text: 'Falcon Ledger is a quantum-safe settlement layer built so that one token — FALCON — can coordinate liquidity, collateral, and rewards across a multi-chain lending network spanning five chains: Falcon, XRP, Bitcoin, Ethereum, and BNB.',
       },
       {
         type: 'p',
@@ -97,21 +97,21 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'callout',
-        title: 'Network rails (expandable)',
-        text: 'Five rails form the launch map: Falcon Ledger (hub), Ethereum, BNB Smart Chain, Bitcoin, and further corridors as bridges and demand come online. Assets move onto Falcon as IOUs for lending, pools, and settlement — then can move back out when routes support it.',
+        title: 'Five chains',
+        text: 'The network spans Falcon Ledger (hub), XRP, Bitcoin, Ethereum, and BNB. Assets move onto Falcon for lending, pools, and settlement, and move across corridors through the multi-chain wallet and bridges — one product surface, five chains.',
       },
       {
         type: 'stats',
         items: [
-          { label: 'Hub chain', value: 'Falcon Ledger' },
-          { label: 'External rails', value: 'ETH · BNB · BTC + more' },
+          { label: 'Hub', value: 'Falcon' },
+          { label: 'Chains', value: 'XRP · BTC · ETH · BNB' },
           { label: 'Core asset', value: 'FALCON' },
           { label: 'Model', value: 'Lend · Pool · Bridge' },
         ],
       },
       {
         type: 'p',
-        text: 'On Falcon, bridged forms such as F-USDC, FETH, FBNB, and FBTC sit alongside native FALCON. Users hold, swap, provide liquidity, and borrow under one passkey-secured experience — without jumping between disconnected apps for every chain.',
+        text: 'On Falcon, native FALCON sits alongside bridged representations from the connected chains — including corridors for XRP, BTC, ETH, and BNB (and related assets such as stablecoins on those rails). Users hold, swap, provide liquidity, and borrow under one passkey-secured experience — without jumping between disconnected apps for every chain.',
       },
     ],
   },
@@ -150,8 +150,8 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ['Supply', '200B hard cap · 98% keyless treasury · 2% public bootstrap'],
           ['Incentives', 'Proof of Participation & Liquidity (PoPL) — validators + LPs paid by epoch'],
           ['Markets', 'Built-in AMM, DEX orders, collateralised lending & borrowing'],
-          ['Multi-chain', 'Lock-mint bridges + multi-key wallet under one passkey'],
-          ['Growth', 'New chains and assets added as bridge routes without forking the hub'],
+          ['Multi-chain', 'Falcon · XRP · BTC · ETH · BNB under one passkey'],
+          ['Bridges', 'Lock-mint corridors into Falcon lending and liquidity'],
         ],
       },
       {
@@ -175,19 +175,19 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'table',
-        headers: ['Rail', 'Role on the network', 'Status direction'],
+        headers: ['Chain', 'Role on the network'],
         rows: [
-          ['Falcon Ledger', 'Settlement hub · FALCON · lending · AMM · rewards', 'Live testnet'],
-          ['Ethereum', 'USDC and ETH corridors into F-USDC / FETH', 'Live testnet routes'],
-          ['BNB Smart Chain', 'BNB corridor into FBNB', 'Live testnet bridge-in'],
-          ['Bitcoin', 'BTC corridor into FBTC', 'Bringing native path live'],
-          ['Additional chains', 'Same hub model as demand and audits allow', 'Expandable by design'],
+          ['Falcon Ledger', 'Settlement hub · FALCON · lending · AMM · rewards'],
+          ['XRP', 'XRP corridor into the Falcon liquidity and lending stack'],
+          ['Bitcoin', 'BTC corridor into FBTC and Falcon markets'],
+          ['Ethereum', 'ETH and USDC corridors into FETH / F-USDC'],
+          ['BNB', 'BNB corridor into FBNB and Falcon markets'],
         ],
       },
       {
         type: 'callout',
-        title: 'One wallet, many domains',
-        text: 'A single passkey can protect Falcon keys (r…), a shared EVM key for Ethereum and BNB networks, and Bitcoin keys — so multi-chain is operationally one product, not five separate wallets.',
+        title: 'One wallet, five chains',
+        text: 'A single passkey protects Falcon keys and the multi-chain deposit domains for XRP, Bitcoin, Ethereum, and BNB — so multi-chain is one product, not five separate wallets.',
       },
       {
         type: 'p',
@@ -289,8 +289,8 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
         type: 'table',
         headers: ['Surface', 'What it does'],
         rows: [
-          ['Wallet', 'Passkey Falcon accounts; multi-chain keys; send/receive'],
-          ['Bridge', 'Move value onto Falcon (and out where routes allow)'],
+          ['Wallet', 'Passkey Falcon accounts; XRP, BTC, ETH, BNB keys; send/receive'],
+          ['Bridge', 'Move value across Falcon, XRP, BTC, ETH, and BNB'],
           ['Swap & orders', 'AMM swaps and DEX limit orders'],
           ['Pools', 'Provide liquidity; earn protocol recognition'],
           ['Lend', 'Supply, borrow, repay, manage health factor'],
@@ -329,16 +329,15 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       {
         type: 'bullets',
         items: [
-          'Deepen multi-chain corridors (in and out) with audited lock and custody paths.',
+          'Deepen corridors across Falcon, XRP, BTC, ETH, and BNB with audited lock and custody paths.',
           'Grow lending markets and LP depth around FALCON and bridged assets.',
-          'Expand the chain set only when operational and security bars are met.',
           'Mainnet ceremony with published genesis, freeze pin, and transparent bootstrap wallets.',
           'External audits of freeze scope, bridges, and lending risk parameters.',
         ],
       },
       {
         type: 'p',
-        text: 'The north star does not change: FALCON as the centre of a decentralised lending and liquidity network that starts multi-chain and is allowed to grow.',
+        text: 'The north star does not change: FALCON as the centre of a decentralised lending and liquidity network spanning Falcon, XRP, Bitcoin, Ethereum, and BNB.',
       },
     ],
   },
@@ -358,7 +357,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ['Supply', '200B hard cap · 98% keyless treasury · 2% bootstrap'],
           ['Rewards', 'PoPL — validators and liquidity participants'],
           ['Markets', 'AMM · DEX · collateralised lending'],
-          ['Multi-chain', 'Ethereum · BNB Chain · Bitcoin · expandable'],
+          ['Multi-chain', 'Falcon · XRP · BTC · ETH · BNB'],
           ['Testnet ID', '1001'],
           ['Mainnet ID', '1026 (ceremony pack)'],
         ],
