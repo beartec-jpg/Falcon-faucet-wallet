@@ -1972,7 +1972,7 @@ export default function WalletPage() {
                 {/* Portfolio total + primary actions */}
                 {(() => {
                   const fb = parseFalconBalances(account)
-                  const primaryTotal =
+                  const primaryTotal: number | null =
                     walletSection === 'falcon'
                       ? fb.falcon
                       : multiRowBalance('eth', {
@@ -1982,11 +1982,9 @@ export default function WalletPage() {
                           bnb: bnbNativeBal != null ? Number(bnbNativeBal) : null,
                         })
                   const totalLabel =
-                    walletSection === 'falcon'
-                      ? primaryTotal.toLocaleString(undefined, { maximumFractionDigits: 6 })
-                      : primaryTotal == null
-                        ? '—'
-                        : primaryTotal.toLocaleString(undefined, { maximumFractionDigits: 6 })
+                    primaryTotal == null
+                      ? '—'
+                      : primaryTotal.toLocaleString(undefined, { maximumFractionDigits: 6 })
                   const totalUnit = walletSection === 'falcon' ? 'FALCON' : 'ETH'
                   const emptyFalcon =
                     walletSection === 'falcon' &&
