@@ -382,6 +382,15 @@ button { font: inherit; border: none; background: none; cursor: pointer; color: 
 .section {
   position: relative;
   padding: 7rem 0;
+  scroll-margin-top: calc(var(--header-h) + 12px);
+}
+
+#what-is-falcon,
+#platform,
+#features,
+#built-differently,
+#cta {
+  scroll-margin-top: calc(var(--header-h) + 12px);
 }
 
 .section-header {
