@@ -1093,25 +1093,47 @@ export default function BridgeDepositPanel({
         if (spvLive && spvStatus?.watchAddress) {
           setStep('SPV: unlock Falcon key + send BTC deposit…')
           const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-          const peg = await spvPegIn({
-            btcPrivateKeyHex: btcPk,
-            falconSecret: falcon_secret,
-            falconAccount: wallet.address,
-            watchAddress: spvStatus.watchAddress,
-            amountBtc: amount.trim(),
-            networkKey,
-            networkId: network.networkId,
-            btcNetwork: spvStatus.btcNetwork || 'testnet',
-            minConfirmations: Number(spvStatus.bridge?.minConfirmations ?? 1) || 1,
-            onStep: (m) => setStep(m),
-          })
-          setResult({
-            depositHash: peg.depositTxid,
-            depositId: peg.claimHash
-              ? `SPV mint claim ${peg.claimHash}`
-              : `SPV deposit ${peg.depositTxid} — claim pending`,
-          })
-          setAmount('')
+          try {
+            const peg = await spvPegIn({
+              btcPrivateKeyHex: btcPk,
+              falconSecret: falcon_secret,
+              falconAccount: wallet.address,
+              watchAddress: spvStatus.watchAddress,
+              amountBtc: amount.trim(),
+              networkKey,
+              networkId: network.networkId,
+              btcNetwork: spvStatus.btcNetwork || 'testnet',
+              minConfirmations: Number(spvStatus.bridge?.minConfirmations ?? 6) || 6,
+              onStep: (m) => setStep(m),
+              // Show BTC tx immediately so a later claim/fetch glitch never looks like “nothing happened”
+              onDepositBroadcast: (d) => {
+                setResult({
+                  depositHash: d.txid,
+                  depositId: `BTC sent — waiting ${spvStatus.bridge?.minConfirmations ?? 6} confs then auto-claim`,
+                })
+                setAmount('')
+              },
+            })
+            setResult({
+              depositHash: peg.depositTxid,
+              depositId: peg.claimHash
+                ? `SPV mint claim ${peg.claimHash}`
+                : `SPV deposit ${peg.depositTxid} — claim pending`,
+            })
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e)
+            // Prefer structured recovery if BTC already left the wallet
+            const txm = msg.match(/\b([0-9a-f]{64})\b/i)
+            if (txm) {
+              setResult({
+                depositHash: txm[1],
+                depositId: msg,
+              })
+              setError(null)
+            } else {
+              throw e
+            }
+          }
           if (wallet.btcAddress) {
             void fetchBtcBalance(wallet.btcAddress, 'testnet').then((b) => setBtcBal(b?.btc ?? null))
           }

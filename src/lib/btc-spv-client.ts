@@ -539,6 +539,12 @@ export async function spvPegIn(opts: {
   btcNetwork?: BtcNetwork
   minConfirmations?: number
   onStep?: (msg: string) => void
+  /** Fired as soon as BTC is broadcast — UI can show success before claim. */
+  onDepositBroadcast?: (dep: {
+    txid: string
+    explorerUrl: string
+    amountSats: number
+  }) => void
 }): Promise<{ depositTxid: string; claimHash?: string; explorerUrl: string }> {
   const btcNet = opts.btcNetwork ?? 'testnet'
   const minConf = opts.minConfirmations ?? 1
@@ -551,38 +557,61 @@ export async function spvPegIn(opts: {
     network: btcNet,
   })
 
-  opts.onStep?.(`BTC tx ${dep.txid.slice(0, 12)}… waiting for confirmations…`)
+  opts.onDepositBroadcast?.({
+    txid: dep.txid,
+    explorerUrl: dep.explorerUrl,
+    amountSats: dep.amountSats,
+  })
+  opts.onStep?.(
+    `BTC sent ${dep.txid.slice(0, 12)}… waiting for ${minConf} confirmations (keep this tab open)…`,
+  )
+
   let materials: SpvClaimMaterials | null = null
-  for (let i = 0; i < 60; i++) {
+  let lastWaitErr = ''
+  // ~30 min max (120 × 15s) for slow testnet
+  for (let i = 0; i < 120; i++) {
     try {
       materials = await fetchSpvClaimMaterials(dep.txid, btcNet, dep.watchVout)
       if (materials.confirmations >= minConf) break
       opts.onStep?.(
-        `Confirmations ${materials.confirmations}/${minConf} — headers must also be on Falcon…`,
+        `BTC ${dep.txid.slice(0, 10)}… confs ${materials.confirmations}/${minConf}`,
       )
+      lastWaitErr = ''
     } catch (e) {
-      opts.onStep?.(e instanceof Error ? e.message : 'Waiting for BTC confirmation…')
+      lastWaitErr = e instanceof Error ? e.message : String(e)
+      opts.onStep?.(
+        `BTC ${dep.txid.slice(0, 10)}… waiting for confirmation (${lastWaitErr.slice(0, 80)})`,
+      )
     }
     await new Promise((r) => setTimeout(r, 15_000))
   }
   if (!materials || materials.confirmations < minConf) {
     throw new Error(
-      `Deposit broadcast (${dep.txid}) but not ready to claim yet. Retry claim later with this txid.`,
+      `BTC deposit is on-chain (or in mempool): ${dep.txid} — ${dep.explorerUrl}. ` +
+        `Not claimed yet (need ${minConf} confs). Keep the txid; claim can be retried after confirmations. ` +
+        (lastWaitErr ? `Last poll: ${lastWaitErr}` : ''),
     )
   }
 
   opts.onStep?.('Submitting BTCDepositClaim on Falcon…')
-  const claim = await submitSpvDepositClaim({
-    falconSecret: opts.falconSecret,
-    account: opts.falconAccount,
-    networkKey: opts.networkKey,
-    networkId: opts.networkId,
-    materials,
-  })
-
-  return {
-    depositTxid: dep.txid,
-    claimHash: claim.hash,
-    explorerUrl: dep.explorerUrl,
+  try {
+    const claim = await submitSpvDepositClaim({
+      falconSecret: opts.falconSecret,
+      account: opts.falconAccount,
+      networkKey: opts.networkKey,
+      networkId: opts.networkId,
+      materials,
+    })
+    return {
+      depositTxid: dep.txid,
+      claimHash: claim.hash,
+      explorerUrl: dep.explorerUrl,
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    throw new Error(
+      `BTC deposit OK: ${dep.txid} (${dep.explorerUrl}) but Falcon claim failed: ${msg}. ` +
+        `Your BTC is at the bridge watch address — do not re-send. Retry claim with this txid.`,
+    )
   }
 }
