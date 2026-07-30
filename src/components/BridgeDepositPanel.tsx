@@ -36,7 +36,9 @@ import {
   createSpvPending,
   getSpvPending,
   hasOpenSpvBridge,
+  isSpvWaitMessage,
   pollSpvConfirmations,
+  spvWaitUserMessage,
   type SpvPendingDeposit,
   updateSpvPending,
 } from '@/lib/btc-spv-pending'
@@ -568,7 +570,8 @@ export default function BridgeDepositPanel({
       try {
         const st = await pollSpvConfirmations(spvPending.txid, spvPending.btcNetwork)
         if (cancelled) return
-        const conf = st.confirmations
+        // Prefer never decreasing confs on transient explorer lag
+        const conf = Math.max(spvPending.confirmations, st.confirmations)
         let status = spvPending.status
         if (spvPending.status === 'claimed') return
         if (conf >= spvPending.minConfirmations) {
@@ -579,18 +582,30 @@ export default function BridgeDepositPanel({
         const next = updateSpvPending(wallet.address, {
           confirmations: conf,
           status,
-          lastError: undefined,
+          // Soft wait note only — not a hard error
+          lastError: st.waiting && conf < spvPending.minConfirmations ? st.waiting : undefined,
         })
         if (next) setSpvPending({ ...next })
+        if (st.waiting) setError(null) // never show red "Failed to fetch" while tracking
       } catch (e) {
         if (cancelled) return
         const msg = e instanceof Error ? e.message : String(e)
+        // Transient: keep bar green/orange wait copy, do not paint as failed tx
+        if (isSpvWaitMessage(msg)) {
+          const next = updateSpvPending(wallet.address, {
+            lastError: spvWaitUserMessage(msg),
+          })
+          if (next) setSpvPending({ ...next })
+          setError(null)
+          return
+        }
         const next = updateSpvPending(wallet.address, { lastError: msg })
         if (next) setSpvPending({ ...next })
       }
     }
     void tick()
-    const id = setInterval(() => void tick(), 15_000)
+    // Poll a bit more often while unconfirmed so explorers lag feels smoother
+    const id = setInterval(() => void tick(), 12_000)
     return () => {
       cancelled = true
       clearInterval(id)
@@ -600,6 +615,7 @@ export default function BridgeDepositPanel({
     spvPending?.status,
     spvPending?.minConfirmations,
     spvPending?.btcNetwork,
+    spvPending?.confirmations,
     wallet.address,
   ])
 
@@ -1053,24 +1069,60 @@ export default function BridgeDepositPanel({
   const handleSpvCompleteClaim = async () => {
     if (!spvPending || spvPending.status === 'claimed') return
     if (spvPending.confirmations < spvPending.minConfirmations) {
-      setError(
-        `Need ${spvPending.minConfirmations} confirmations (have ${spvPending.confirmations})`,
-      )
+      // Soft message — not a failed payment
+      const wait = `Still need ${spvPending.minConfirmations} Bitcoin confirmations (have ${spvPending.confirmations}). Your deposit is fine — wait for the bar to fill.`
+      updateSpvPending(wallet.address, { lastError: wait })
+      setSpvPending((p) => (p ? { ...p, lastError: wait } : p))
+      setError(null)
       return
     }
     setBusy(true)
     setError(null)
     setStep('Passkey to submit BTCDepositClaim…')
-    updateSpvPending(wallet.address, { status: 'claiming' })
-    setSpvPending((p) => (p ? { ...p, status: 'claiming' } : p))
+    updateSpvPending(wallet.address, { status: 'claiming', lastError: undefined })
+    setSpvPending((p) => (p ? { ...p, status: 'claiming', lastError: undefined } : p))
     try {
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-      const materials = await fetchSpvClaimMaterials(
-        spvPending.txid,
-        spvPending.btcNetwork,
-        spvPending.watchVout,
-      )
+
+      // Retry proof fetch: explorers often lag minutes after the 6th conf
+      let materials: Awaited<ReturnType<typeof fetchSpvClaimMaterials>> | null = null
+      let lastWait = ''
+      for (let attempt = 0; attempt < 18; attempt++) {
+        try {
+          setStep(
+            attempt === 0
+              ? 'Fetching merkle proof…'
+              : `Explorer still indexing proof (try ${attempt + 1}/18)…`,
+          )
+          materials = await fetchSpvClaimMaterials(
+            spvPending.txid,
+            spvPending.btcNetwork,
+            spvPending.watchVout,
+          )
+          if (materials.confirmations < spvPending.minConfirmations) {
+            lastWait = `Need ${spvPending.minConfirmations} confs (have ${materials.confirmations})`
+            materials = null
+          } else {
+            break
+          }
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e)
+          lastWait = msg
+          if (!isSpvWaitMessage(msg)) throw e
+        }
+        // ~3 min total (18 × 10s) of soft waiting before user-facing error
+        await new Promise((r) => setTimeout(r, 10_000))
+      }
+      if (!materials) {
+        const wait = spvWaitUserMessage(lastWait)
+        updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: wait })
+        setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: wait } : p))
+        setError(null)
+        return
+      }
+
+      setStep('Submitting BTCDepositClaim on Falcon…')
       const claim = await submitSpvDepositClaim({
         falconSecret: falcon_secret,
         account: wallet.address,
@@ -1095,9 +1147,16 @@ export default function BridgeDepositPanel({
       }, 5_000)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Claim failed'
-      updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: msg })
-      setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: msg } : p))
-      setError(msg)
+      if (isSpvWaitMessage(msg)) {
+        const wait = spvWaitUserMessage(msg)
+        updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: wait })
+        setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: wait } : p))
+        setError(null)
+      } else {
+        updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: msg })
+        setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: msg } : p))
+        setError(msg)
+      }
     } finally {
       setBusy(false)
       setStep(null)
@@ -1351,8 +1410,10 @@ export default function BridgeDepositPanel({
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e)
             const txm = msg.match(/\b([0-9a-f]{64})\b/i)
-            if (txm) {
-              if (!getSpvPending(wallet.address)) {
+            const already = getSpvPending(wallet.address)
+            // BTC already left the wallet — never show "Failed to fetch" as a failed payment
+            if (already || txm) {
+              if (!already && txm) {
                 const pending = createSpvPending({
                   falconAccount: wallet.address,
                   txid: txm[1],
@@ -1363,11 +1424,18 @@ export default function BridgeDepositPanel({
                 })
                 setSpvPending(pending)
               }
+              const txid = already?.txid || txm![1]
               setResult({
-                depositHash: txm[1],
-                depositId: msg,
+                depositHash: txid,
+                depositId: isSpvWaitMessage(msg)
+                  ? `BTC sent — waiting for ${minConf} confirmations (tracking above). Explorer lag is normal.`
+                  : msg,
               })
               setError(null)
+            } else if (isSpvWaitMessage(msg)) {
+              setError(
+                'Network hiccup while talking to Bitcoin explorers — if your BTC balance dropped, open Bridge again; tracking may already be open above.',
+              )
             } else {
               throw e
             }
@@ -1593,13 +1661,32 @@ export default function BridgeDepositPanel({
                 `Waiting for Bitcoin confirmations (${spvPending.confirmations} of ${spvPending.minConfirmations})…`}
               {spvPending.status === 'ready_to_claim' &&
                 'Confirmations reached — complete the Falcon claim (passkey).'}
-              {spvPending.status === 'claiming' && 'Submitting claim…'}
+              {spvPending.status === 'claiming' && (step || 'Submitting claim…')}
               {spvPending.status === 'broadcast' && 'Broadcast recorded — polling…'}
               {spvPending.status === 'failed' && (spvPending.lastError || 'Failed')}
             </p>
-            {(spvPending.lastError || error) && spvPending.status !== 'failed' && (
+            {/* Soft wait (explorer lag) vs hard claim error */}
+            {spvPending.lastError &&
+              spvPending.status !== 'failed' &&
+              (isSpvWaitMessage(spvPending.lastError) ||
+                /waiting|still need|explorers|mempool|confirmations/i.test(spvPending.lastError)) && (
+                <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90 break-words">
+                  {spvPending.lastError}
+                </div>
+              )}
+            {spvPending.lastError &&
+              spvPending.status !== 'failed' &&
+              !(
+                isSpvWaitMessage(spvPending.lastError) ||
+                /waiting|still need|explorers|mempool|confirmations/i.test(spvPending.lastError)
+              ) && (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
+                  Claim issue: {spvPending.lastError}
+                </div>
+              )}
+            {error && !isSpvWaitMessage(error) && !spvPending.lastError && (
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
-                Claim error: {spvPending.lastError || error}
+                {error}
               </div>
             )}
             {spvPending.confirmations >= spvPending.minConfirmations ? (
@@ -1620,7 +1707,7 @@ export default function BridgeDepositPanel({
             ) : (
               <div className="flex items-center gap-2 text-xs text-orange-300/90">
                 <Spinner className="w-3.5 h-3.5" />
-                Tracking confirmations — leave this tab or come back later
+                Tracking confirmations — deposit is live; this is not a failed tx
               </div>
             )}
           </div>
@@ -2554,9 +2641,20 @@ export default function BridgeDepositPanel({
         </div>
       )}
 
-      {error && (
+      {error && !isSpvWaitMessage(error) && (
         <div className="card p-4 border border-red-500/20 text-sm text-red-400">
           {error}
+          <button type="button" onClick={() => setError(null)} className="block text-xs text-slate-500 mt-2">
+            Dismiss
+          </button>
+        </div>
+      )}
+      {error && isSpvWaitMessage(error) && (
+        <div className="card p-4 border border-amber-500/25 bg-amber-500/10 text-sm text-amber-100/90">
+          {spvWaitUserMessage(error)}
+          <p className="text-[11px] text-slate-400 mt-1">
+            If the orange confirmation bar is open, your BTC deposit is tracking — this is not a failed send.
+          </p>
           <button type="button" onClick={() => setError(null)} className="block text-xs text-slate-500 mt-2">
             Dismiss
           </button>

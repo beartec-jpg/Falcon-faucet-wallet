@@ -209,12 +209,21 @@ export async function POST(req: NextRequest) {
     const statusR = await explorerGet(`/tx/${txid}`, network)
     if (!statusR.ok) {
       if (statusR.status === 404) {
+        // Explorer index lag after broadcast — not a failed payment
         return NextResponse.json(
-          { confirmed: false, confirmations: 0, error: 'Tx not found yet' },
+          {
+            confirmed: false,
+            confirmations: 0,
+            waiting: true,
+            error: 'Deposit broadcast — explorer still indexing (wait, do not re-send)',
+          },
           { status: 404 },
         )
       }
-      return NextResponse.json({ error: 'Tx status unavailable' }, { status: 502 })
+      return NextResponse.json(
+        { error: 'Tx status unavailable', waiting: true },
+        { status: 502 },
+      )
     }
     const status = (await statusR.json()) as {
       status?: { confirmed?: boolean; block_height?: number; block_hash?: string }
@@ -247,7 +256,12 @@ export async function POST(req: NextRequest) {
 
     if (!confirmed || !status.status?.block_hash) {
       return NextResponse.json(
-        { error: 'BTC tx not confirmed yet', confirmed: false, confirmations: 0 },
+        {
+          error: 'BTC tx not confirmed yet — wait for a block (deposit is fine)',
+          confirmed: false,
+          confirmations: 0,
+          waiting: true,
+        },
         { status: 409 },
       )
     }

@@ -147,29 +147,84 @@ export function createSpvPending(input: {
   return p
 }
 
-/** Poll confirmations (same-origin API). */
+/**
+ * Explorer / network messages that mean "keep waiting", not "tx failed".
+ * BTC may already be broadcast; indexes and confirmations lag.
+ */
+export function isSpvWaitMessage(msg: string): boolean {
+  const m = msg.toLowerCase()
+  return (
+    /failed to fetch|networkerror|load failed|fetch failed|econnreset|etimedout|aborterror|timeout/i.test(
+      m,
+    ) ||
+    /tx not found|not found yet|not confirmed yet|wait for|mempool|indexer|unavailable|raw tx not found|merkle proof unavailable|status \d+|502|503|504|404|409/i.test(
+      m,
+    )
+  )
+}
+
+/** Human copy for wait states (never looks like a failed payment). */
+export function spvWaitUserMessage(msg?: string): string {
+  if (!msg) return 'Waiting for Bitcoin explorers to index your deposit…'
+  const m = msg.toLowerCase()
+  if (/not confirmed|wait for a block|need \d+ confirmation/i.test(m)) {
+    return 'BTC is in the mempool or a recent block — waiting for more confirmations…'
+  }
+  if (/tx not found|not found yet|raw tx not found/i.test(m)) {
+    return 'Deposit broadcast — explorers still catching up (this can take a few minutes)…'
+  }
+  if (/failed to fetch|network|timeout|unavailable|502|503|504/i.test(m)) {
+    return 'Temporary network blip while checking status — deposit is not cancelled. Retrying…'
+  }
+  return `Still waiting: ${msg}`
+}
+
+/** Poll confirmations (same-origin API). Soft-fails as 0 confs while explorers lag. */
 export async function pollSpvConfirmations(
   txid: string,
   network: 'testnet' | 'mainnet' = 'testnet',
-): Promise<{ confirmed: boolean; confirmations: number; blockHeight?: number }> {
-  const r = await fetch('/api/bridge/btc-spv', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'status', btc_txid: txid, network }),
-    cache: 'no-store',
-  })
-  const j = (await r.json()) as {
-    confirmed?: boolean
-    confirmations?: number
-    blockHeight?: number
-    error?: string
-  }
-  if (!r.ok && r.status !== 409) {
-    throw new Error(j.error || `Status ${r.status}`)
-  }
-  return {
-    confirmed: !!j.confirmed,
-    confirmations: typeof j.confirmations === 'number' ? j.confirmations : 0,
-    blockHeight: j.blockHeight,
+): Promise<{ confirmed: boolean; confirmations: number; blockHeight?: number; waiting?: string }> {
+  try {
+    const r = await fetch('/api/bridge/btc-spv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'status', btc_txid: txid, network }),
+      cache: 'no-store',
+    })
+    const j = (await r.json().catch(() => ({}))) as {
+      confirmed?: boolean
+      confirmations?: number
+      blockHeight?: number
+      error?: string
+    }
+    // 404 / 409 = not indexed or not confirmed yet — not a failed deposit
+    if (r.status === 404 || r.status === 409) {
+      return {
+        confirmed: false,
+        confirmations: typeof j.confirmations === 'number' ? j.confirmations : 0,
+        waiting: spvWaitUserMessage(j.error || 'Tx not found yet'),
+      }
+    }
+    if (!r.ok) {
+      if (isSpvWaitMessage(j.error || String(r.status))) {
+        return {
+          confirmed: false,
+          confirmations: 0,
+          waiting: spvWaitUserMessage(j.error || `Status ${r.status}`),
+        }
+      }
+      throw new Error(j.error || `Status ${r.status}`)
+    }
+    return {
+      confirmed: !!j.confirmed,
+      confirmations: typeof j.confirmations === 'number' ? j.confirmations : 0,
+      blockHeight: j.blockHeight,
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (isSpvWaitMessage(msg)) {
+      return { confirmed: false, confirmations: 0, waiting: spvWaitUserMessage(msg) }
+    }
+    throw e
   }
 }

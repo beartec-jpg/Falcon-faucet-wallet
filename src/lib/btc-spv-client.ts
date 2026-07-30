@@ -431,13 +431,27 @@ export async function fetchSpvClaimMaterials(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'proof', btc_txid: txid, network, vout: watchVout }),
     })
-    if (r.ok) {
-      const j = (await r.json()) as SpvClaimMaterials & { error?: string }
-      if (j.rawTxHex && j.merkleProofHex) return j
-      if (j.error) throw new Error(j.error)
+    const j = (await r.json().catch(() => ({}))) as SpvClaimMaterials & {
+      error?: string
+      confirmed?: boolean
+      confirmations?: number
     }
+    if (r.ok && j.rawTxHex && j.merkleProofHex) return j
+    // Waiting states — never surface as a hard "Failed to fetch" to the user
+    if (r.status === 404 || r.status === 409) {
+      throw new Error(j.error || 'BTC tx not confirmed yet — wait for a block')
+    }
+    if (!r.ok && j.error) throw new Error(j.error)
   } catch (e) {
-    if (e instanceof Error && !/fetch|network|Failed/i.test(e.message)) throw e
+    const msg = e instanceof Error ? e.message : String(e)
+    // Re-throw wait/engine messages; only swallow pure transport for explorer fallback
+    if (
+      e instanceof Error &&
+      !/^(TypeError|Failed to fetch|NetworkError|Load failed)/i.test(msg) &&
+      !/failed to fetch/i.test(msg)
+    ) {
+      throw e
+    }
   }
 
   const txidClean = txid.toLowerCase()
