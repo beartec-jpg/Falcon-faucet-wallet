@@ -349,7 +349,7 @@ export default function MarketingHomePage() {
                 <Link href="/whitepaper" className="btn btn-secondary">
                   Read the Docs
                 </Link>
-                <Link href="/faucet" className="btn btn-ghost">
+                <Link href="/community" className="btn btn-secondary">
                   Join the Community
                 </Link>
               </div>
@@ -376,6 +376,7 @@ export default function MarketingHomePage() {
             <Link href="/whitepaper">Docs</Link>
             <Link href="/whitepaper">Whitepaper</Link>
             <Link href="/faucet">Faucet</Link>
+            <Link href="/community">Community</Link>
             <a href="https://github.com/beartec-jpg/Falcon-faucet-wallet" target="_blank" rel="noopener noreferrer">
               GitHub
             </a>

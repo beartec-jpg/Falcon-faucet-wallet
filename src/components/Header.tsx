@@ -14,7 +14,7 @@ type NavItem =
   | 'pool'
   | 'lend'
   | 'airdrop'
-  | 'board'
+  | 'community'
   | 'scan'
   | 'arcade'
   | 'whitepaper'
@@ -39,7 +39,7 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'pool', label: 'Pool', href: '/pool' },
   { key: 'lend', label: 'Lend', href: '/lend' },
   { key: 'airdrop', label: 'Airdrop', href: '/airdrop' },
-  { key: 'board', label: 'Board', href: '/board' },
+  { key: 'community', label: 'Community', href: '/community' },
   { key: 'whitepaper', label: 'Whitepaper', href: '/whitepaper' },
 ]
 
@@ -109,8 +109,8 @@ export default function Header({
             ? 'Lend · F-USDC vault'
             : current === 'airdrop'
               ? 'Airdrop · Community'
-              : current === 'board'
-                ? 'Board · Community'
+              : current === 'community'
+                ? 'Community'
                 : current === 'scan'
                   ? 'Explorer'
                   : current === 'arcade'
