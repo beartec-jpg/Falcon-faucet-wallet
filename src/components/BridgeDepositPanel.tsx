@@ -1083,6 +1083,32 @@ export default function BridgeDepositPanel({
     }
   }
 
+  /** Mark SPV peg-in done and remove the open-bridge card (unblocks Bridge In). */
+  const finishSpvClaimSuccess = (txid: string, claimHash?: string, note?: string) => {
+    try {
+      if (txid.startsWith('0ac5c315')) {
+        localStorage.setItem('falcon-spv-live-0ac5c315', 'claimed')
+      }
+    } catch {
+      /* ignore */
+    }
+    clearSpvPending(wallet.address)
+    setSpvPending(null)
+    setError(null)
+    setResult({
+      depositHash: txid,
+      depositId:
+        note ||
+        (claimHash
+          ? `FBTC minted — claim ${claimHash.slice(0, 12)}…`
+          : 'FBTC already minted for this deposit'),
+    })
+    setTimeout(() => {
+      refreshFusdcBalance()
+      onFalconRefresh?.()
+    }, 2_000)
+  }
+
   const handleSpvCompleteClaim = async () => {
     if (!spvPending || spvPending.status === 'claimed') return
     if (spvPending.confirmations < spvPending.minConfirmations) {
@@ -1098,6 +1124,7 @@ export default function BridgeDepositPanel({
     setStep('Passkey to submit BTCDepositClaim…')
     updateSpvPending(wallet.address, { status: 'claiming', lastError: undefined })
     setSpvPending((p) => (p ? { ...p, status: 'claiming', lastError: undefined } : p))
+    const txid = spvPending.txid
     try {
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
@@ -1113,7 +1140,7 @@ export default function BridgeDepositPanel({
               : `Explorer still indexing proof (try ${attempt + 1}/18)…`,
           )
           materials = await fetchSpvClaimMaterials(
-            spvPending.txid,
+            txid,
             spvPending.btcNetwork,
             spvPending.watchVout,
           )
@@ -1147,23 +1174,18 @@ export default function BridgeDepositPanel({
         networkId: network.networkId,
         materials,
       })
-      const done = updateSpvPending(wallet.address, {
-        status: 'claimed',
-        claimHash: claim.hash,
-        confirmations: materials.confirmations,
-        lastError: undefined,
-      })
-      if (done) setSpvPending({ ...done })
-      setResult({
-        depositHash: spvPending.txid,
-        depositId: claim.hash ? `SPV mint claim ${claim.hash}` : 'SPV claim submitted',
-      })
-      setTimeout(() => {
-        refreshFusdcBalance()
-        onFalconRefresh?.()
-      }, 5_000)
+      finishSpvClaimSuccess(txid, claim.hash, claim.hash ? `FBTC minted — claim ${claim.hash.slice(0, 12)}…` : undefined)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Claim failed'
+      // Already minted (double-click / refresh) — success, clear open card
+      if (/tecDUPLICATE/i.test(msg)) {
+        finishSpvClaimSuccess(
+          txid,
+          undefined,
+          'FBTC already minted for this deposit — bridge complete',
+        )
+        return
+      }
       if (isSpvWaitMessage(msg)) {
         const wait = spvWaitUserMessage(msg)
         updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: wait })

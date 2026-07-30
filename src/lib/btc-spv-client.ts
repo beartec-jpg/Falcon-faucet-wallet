@@ -550,6 +550,10 @@ export async function submitSpvDepositClaim(opts: {
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     // Engine often returns bare codes with no human text
+    if (/tecDUPLICATE/i.test(msg)) {
+      // Deposit already claimed / tombstone exists — treat as success upstream
+      throw new Error('tecDUPLICATE — Ledger object already exists.')
+    }
     if (/^temMALFORMED/i.test(msg) || msg === 'temMALFORMED') {
       throw new Error(
         'temMALFORMED — SPV proof rejected (merkle/raw tx/OP_RETURN). Hard-refresh and retry claim.',
