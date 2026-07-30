@@ -524,22 +524,9 @@ export default function BridgeDepositPanel({
     }
   }, [bridgeCfg])
 
-  // Restore open SPV job after refresh + seed known in-flight deposit for this wallet
+  // Restore open SPV job after refresh (localStorage only — do not re-seed refunded txs)
   useEffect(() => {
-    let p = getSpvPending(wallet.address)
-    // Recover the deposit that already left the wallet (pre-persistence fix)
-    if (!p && wallet.address === 'rKqqPLMJkCqZPXotoGQBjGdZiPYQvCAzcN') {
-      p = createSpvPending({
-        falconAccount: wallet.address,
-        txid: 'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524',
-        watchVout: 0,
-        watchAddress: 'mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik',
-        amountSats: 110_000,
-        minConfirmations: 6,
-        btcNetwork: 'testnet',
-      })
-    }
-    setSpvPending(p)
+    setSpvPending(getSpvPending(wallet.address))
   }, [wallet.address])
 
   // Poll confirmations for open SPV bridge (survives refresh)
