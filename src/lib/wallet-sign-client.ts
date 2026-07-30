@@ -25,6 +25,7 @@ import {
   signAmmDepositTx,
   signAmmWithdrawTx,
   signBridgeWithdrawTx,
+  signFbtcBridgeWithdrawTx,
   signFusdcPaymentTx,
   signClaimRewardTx,
   signNameSetTx,
@@ -322,6 +323,26 @@ export async function signBridgeWithdraw(
   falcon_secret: string,
 ): Promise<SignedTx> {
   const { tx_blob } = await signBridgeWithdrawTx(params, falcon_secret)
+  return { tx_blob }
+}
+
+export interface FbtcBridgeWithdrawParams {
+  account: string
+  issuer: string
+  currency: string
+  amount: string
+  btcRecipient: string
+  sequence: number
+  lastLedgerSequence: number
+  networkId: number
+  fee?: string
+}
+
+export async function signFbtcBridgeWithdraw(
+  params: FbtcBridgeWithdrawParams,
+  falcon_secret: string,
+): Promise<SignedTx> {
+  const { tx_blob } = await signFbtcBridgeWithdrawTx(params, falcon_secret)
   return { tx_blob }
 }
 

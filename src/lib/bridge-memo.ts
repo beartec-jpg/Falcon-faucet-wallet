@@ -8,3 +8,5 @@ export function utf8ToMemoHex(text: string): string {
 }
 
 export const BRIDGE_WITHDRAW_MEMO_TYPE = 'sepolia-withdraw'
+/** Custodial FBTC → native BTC bridge-out (MemoData = P2PKH address). */
+export const BRIDGE_BTC_WITHDRAW_MEMO_TYPE = 'btc-withdraw'

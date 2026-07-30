@@ -1,0 +1,7 @@
+{
+  "status": "pending_activation",
+  "btc_network": "testnet",
+  "chain_id": 1,
+  "watch_address": "",
+  "notes": "After BitcoinSPVBridge enables and BTCBridgeActivate runs, set watch_address to the live watch P2PKH (testnet m…/n…). Headers must be submitted by ops before claims succeed."
+}

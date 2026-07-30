@@ -14,7 +14,11 @@ import {
 } from './falcon-keys'
 import { getFalcon512 } from './falcon-wasm'
 import type { XrplAmount } from './xrpl-amount'
-import { BRIDGE_WITHDRAW_MEMO_TYPE, utf8ToMemoHex } from './bridge-memo'
+import {
+  BRIDGE_BTC_WITHDRAW_MEMO_TYPE,
+  BRIDGE_WITHDRAW_MEMO_TYPE,
+  utf8ToMemoHex,
+} from './bridge-memo'
 
 import { networkIdForTx } from '@/lib/networks'
 
@@ -248,6 +252,59 @@ export async function signBridgeWithdrawTx(
         Memo: {
           MemoType: utf8ToMemoHex(BRIDGE_WITHDRAW_MEMO_TYPE),
           MemoData: utf8ToMemoHex(evm),
+        },
+      },
+    ],
+  }
+  return { tx_blob: await signPrepared(tx, decoded) }
+}
+
+/**
+ * Custodial FBTC bridge-out: return BTC IOU to issuer; memo tags multi-chain
+ * BTC P2PKH address for custody payout (pre–SPV light-client path).
+ */
+export async function signFbtcBridgeWithdrawTx(
+  params: {
+    account: string
+    issuer: string
+    /** IOU currency code on Falcon — usually "BTC" */
+    currency: string
+    amount: string
+    btcRecipient: string
+    sequence: number
+    lastLedgerSequence: number
+    networkId: number
+    fee?: string
+  },
+  falcon_secret: string,
+): Promise<{ tx_blob: string }> {
+  const btc = params.btcRecipient.trim()
+  // testnet m/n… or mainnet 1…
+  if (!/^[mn2][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(btc) && !/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(btc)) {
+    throw new Error('Invalid Bitcoin P2PKH address for bridge-out')
+  }
+  const decoded = decodeFalconSecret(falcon_secret)
+  const tx = {
+    ...baseTx(
+      params.account,
+      params.sequence,
+      params.lastLedgerSequence,
+      decoded.publicKeyHex,
+      params.networkId,
+      params.fee,
+    ),
+    TransactionType: 'Payment',
+    Destination: params.issuer,
+    Amount: {
+      currency: params.currency,
+      issuer: params.issuer,
+      value: params.amount,
+    },
+    Memos: [
+      {
+        Memo: {
+          MemoType: utf8ToMemoHex(BRIDGE_BTC_WITHDRAW_MEMO_TYPE),
+          MemoData: utf8ToMemoHex(btc),
         },
       },
     ],

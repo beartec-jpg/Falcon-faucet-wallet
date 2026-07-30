@@ -61,7 +61,7 @@ export const FALCON_WALLET_ASSETS: FalconAssetDef[] = [
   {
     id: 'fbtc',
     symbol: 'FBTC',
-    subtitle: 'Bridged BTC on Falcon (Bridge · multi-chain BTC → FBTC, no WBTC shown)',
+    subtitle: 'Bridged BTC on Falcon (SPV light client · multi-chain BTC → FBTC)',
     status: 'live',
     canSend: true,
     canReceive: true,
@@ -126,7 +126,7 @@ export const NATIVE_CHAIN_WALLETS: NativeChainWalletDef[] = [
     id: 'btc',
     symbol: 'BTC',
     chainLabel: 'Bitcoin',
-    subtitle: 'Native BTC · testnet P2PKH · Bridge → FBTC',
+    subtitle: 'Native BTC · testnet P2PKH · SPV Bridge → FBTC',
     status: 'live',
     canSend: true,
     canReceive: true,

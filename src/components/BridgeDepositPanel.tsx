@@ -24,8 +24,14 @@ import {
 } from '@/lib/evm-bridge-client'
 import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
 import { sendBtcP2pkh, fetchBtcBalance } from '@/lib/btc-client'
+import { fetchSpvStatus, spvPegIn, type SpvStatus } from '@/lib/btc-spv-client'
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
-import { signBridgeWithdraw, signFusdcPayment, signTrustSet } from '@/lib/wallet-sign-client'
+import {
+  signBridgeWithdraw,
+  signFbtcBridgeWithdraw,
+  signFusdcPayment,
+  signTrustSet,
+} from '@/lib/wallet-sign-client'
 
 const AddressQrScanner = dynamic(() => import('@/components/AddressQrScanner'), { ssr: false })
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
@@ -170,6 +176,7 @@ export default function BridgeDepositPanel({
   const [hasFbtcTrustLine, setHasFbtcTrustLine] = useState(false)
   const [fbtcCustody, setFbtcCustody] = useState('mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik')
   const [fbtcIssuer, setFbtcIssuer] = useState('rnvzCKcBU7G8Kb9JXHwEKTHiK9aTrZAqWT')
+  const [spvStatus, setSpvStatus] = useState<SpvStatus | null>(null)
   const [trustLineResult, setTrustLineResult] = useState<{ ok: boolean; msg: string } | null>(null)
   type BridgeRouteId = 'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc' | 'fbtc-btc'
   /** Live bridge routes — honour initialRoute from Falcon / Multi-chain buttons */
@@ -183,7 +190,9 @@ export default function BridgeDepositPanel({
   const bridgeReady = lockContractReady(bridgeCfg)
   const fethReady = fethLockReady(bridgeCfg)
   const fbnbReady = fbnbLockReady(bridgeCfg)
-  const fbtcReady = !!(fbtcCustody && fbtcIssuer)
+  const spvLive = !!(spvStatus?.ready && spvStatus.watchAddress)
+  /** SPV light client preferred; fall back to custody relay when SPV not ready. */
+  const fbtcReady = spvLive || !!(fbtcCustody && fbtcIssuer)
   const hasEvm = !!(wallet.evmAddress && wallet.evmEncrypted)
   const hasBtc = !!(wallet.btcAddress && wallet.btcEncrypted)
   const falconIssuer = bridgeCfg.falcon?.token_issuer?.trim() ?? ''
@@ -211,7 +220,7 @@ export default function BridgeDepositPanel({
         ? fethCurrency
         : falconCurrency
   const activeTrust = isFbtcRoute
-    ? hasFbtcTrustLine
+    ? spvLive || hasFbtcTrustLine // SPV mints MPT — no classic trust line required
     : isFbnbRoute
       ? hasFbnbTrustLine
       : isFethRoute
@@ -224,7 +233,9 @@ export default function BridgeDepositPanel({
       : isFethRoute
         ? fethReady
         : bridgeReady
-  const canBridgeIn = activeTrust && !!activeIssuer && activeLockReady
+  const canBridgeIn = isFbtcRoute
+    ? hasBtc && fbtcReady && (spvLive || (hasFbtcTrustLine && !!activeIssuer))
+    : activeTrust && !!activeIssuer && activeLockReady
   const assetLabel = isFbtcRoute
     ? 'FBTC'
     : isFbnbRoute
@@ -363,7 +374,24 @@ export default function BridgeDepositPanel({
         if (j.falcon?.token_issuer) setFbtcIssuer(String(j.falcon.token_issuer))
       })
       .catch(() => {})
-    return () => { cancelled = true }
+    void fetchSpvStatus()
+      .then((s) => {
+        if (!cancelled) setSpvStatus(s)
+      })
+      .catch(() => {
+        if (!cancelled) setSpvStatus(null)
+      })
+    const t = setInterval(() => {
+      void fetchSpvStatus()
+        .then((s) => {
+          if (!cancelled) setSpvStatus(s)
+        })
+        .catch(() => {})
+    }, 30_000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
   }, [])
 
   useEffect(() => {
@@ -669,6 +697,70 @@ export default function BridgeDepositPanel({
   }
 
   const handleBridgeOut = async () => {
+    // ── FBTC custodial out (pre-SPV IOU → native BTC) ─────────────────────
+    if (isFbtcRoute) {
+      if (!fbtcIssuer || !wallet.btcAddress) {
+        setError('Need FBTC issuer + multi-chain BTC address')
+        return
+      }
+      const amt = parseFloat(withdrawAmount)
+      if (!Number.isFinite(amt) || amt <= 0) {
+        setError('Enter a valid FBTC amount')
+        return
+      }
+      if ((fbtcLive ?? 0) < amt) {
+        setError(`Insufficient FBTC (have ${fmt(fbtcLive ?? 0, 8)})`)
+        return
+      }
+
+      setBusy(true)
+      setError(null)
+      setWithdrawResult(null)
+      setReleaseStatus(null)
+      setStep(null)
+      try {
+        const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+        const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+        const amountStr = String(Math.round(amt * 1e8) / 1e8)
+        setStep('Returning FBTC to custody bridge…')
+        const data = await submitFalconSequenced(({ sequence, lastLedgerSequence }) =>
+          signFbtcBridgeWithdraw(
+            {
+              account: wallet.address,
+              issuer: fbtcIssuer,
+              currency: 'BTC',
+              amount: amountStr,
+              btcRecipient: wallet.btcAddress!,
+              sequence,
+              lastLedgerSequence,
+              networkId: network.networkId,
+            },
+            falcon_secret,
+          ),
+        )
+        setWithdrawResult({
+          falconTxHash: data.hash,
+          amount: amountStr,
+          sepoliaRecipient: wallet.btcAddress,
+        })
+        setWithdrawAmount('')
+        setReleaseStatus('pending')
+        setTimeout(() => {
+          onFalconRefresh?.()
+          refreshFusdcBalance()
+          if (wallet.btcAddress) {
+            void fetchBtcBalance(wallet.btcAddress, 'testnet').then((b) => setBtcBal(b?.btc ?? null))
+          }
+        }, 5000)
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'FBTC bridge out failed')
+      } finally {
+        setBusy(false)
+        setStep(null)
+      }
+      return
+    }
+
     const issuer = bridgeCfg.falcon?.token_issuer
     const currency = bridgeCfg.falcon?.token_currency
     if (!issuer || !currency || !wallet.evmAddress) return
@@ -871,9 +963,46 @@ export default function BridgeDepositPanel({
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
 
       if (isFbtcRoute) {
-        setStep('Sending BTC to bridge custody…')
         const btcPk = (await decryptSeed(wallet.btcEncrypted!, keyBytes)).replace(/^0x/i, '')
         const amountSats = Math.round(amt * 1e8)
+
+        // Prefer non-custodial SPV light client when amendment + activate + watch are live
+        if (spvLive && spvStatus?.watchAddress) {
+          setStep('SPV: unlock Falcon key + send BTC deposit…')
+          const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+          const peg = await spvPegIn({
+            btcPrivateKeyHex: btcPk,
+            falconSecret: falcon_secret,
+            falconAccount: wallet.address,
+            watchAddress: spvStatus.watchAddress,
+            amountBtc: amount.trim(),
+            networkKey,
+            networkId: network.networkId,
+            btcNetwork: spvStatus.btcNetwork || 'testnet',
+            minConfirmations: Number(spvStatus.bridge?.minConfirmations ?? 1) || 1,
+            onStep: (m) => setStep(m),
+          })
+          setResult({
+            depositHash: peg.depositTxid,
+            depositId: peg.claimHash
+              ? `SPV mint claim ${peg.claimHash}`
+              : `SPV deposit ${peg.depositTxid} — claim pending`,
+          })
+          setAmount('')
+          if (wallet.btcAddress) {
+            void fetchBtcBalance(wallet.btcAddress, 'testnet').then((b) => setBtcBal(b?.btc ?? null))
+          }
+          setTimeout(() => {
+            refreshFusdcBalance()
+            onFalconRefresh?.()
+          }, 8_000)
+          setStep(null)
+          setBusy(false)
+          return
+        }
+
+        // Legacy custody relay path
+        setStep('Sending BTC to bridge custody…')
         const sent = await sendBtcP2pkh({
           privateKeyHex: btcPk,
           toAddress: fbtcCustody,
@@ -995,9 +1124,11 @@ export default function BridgeDepositPanel({
       : isFethRoute
         ? 'Bridge In — ETH → FETH'
         : 'Bridge In — USDC → F-USDC'
-  const routeTitleOut = isWrapRoute || isFbtcRoute
-    ? `Bridge Out — ${assetLabel} (soon)`
-    : 'Bridge Out — F-USDC → USDC'
+  const routeTitleOut = isFbtcRoute
+    ? 'Bridge Out — FBTC → BTC (custody)'
+    : isWrapRoute
+      ? `Bridge Out — ${assetLabel} (soon)`
+      : 'Bridge Out — F-USDC → USDC'
   const sourceAvailLabel = isFbtcRoute
     ? `${btcBal != null ? Number(btcBal).toLocaleString(undefined, { maximumFractionDigits: 8 }) : '—'} BTC`
     : isFbnbRoute
@@ -1047,8 +1178,12 @@ export default function BridgeDepositPanel({
               <button
                 type="button"
                 onClick={() => {
-                  if (isWrapRoute || isFbtcRoute) {
+                  if (isWrapRoute) {
                     setError(`${assetLabel} Bridge Out is not enabled yet — deposit mint is live`)
+                    return
+                  }
+                  if (isFbtcRoute && !hasBtc) {
+                    setError('Open Multi-chain BTC first — payout goes to your BTC address')
                     return
                   }
                   setMode('bridge')
@@ -1370,7 +1505,9 @@ export default function BridgeDepositPanel({
                 </div>
                 <div className="text-2xl font-bold text-white font-mono">{falconAvailLabel}</div>
                 <p className="text-[11px] text-slate-500 leading-snug">
-                  Falcon balance returned to the bridge; USDC is released to your Multi-chain ETH wallet.
+                  {isFbtcRoute
+                    ? 'Return FBTC to the custody issuer; testnet BTC is paid to your multi-chain BTC address.'
+                    : 'Falcon balance returned to the bridge; USDC is released to your Multi-chain ETH wallet.'}
                 </p>
                 {fusdcError && (
                   <p className="text-xs text-amber-400">Falcon balance lookup failed: {fusdcError}</p>
@@ -1378,7 +1515,65 @@ export default function BridgeDepositPanel({
               </div>
             )}
 
-            {direction === 'withdraw' && (
+            {direction === 'withdraw' && isFbtcRoute && (
+              <>
+                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-slate-400">
+                  Custodial unlock for FBTC minted <strong className="text-slate-300">before</strong> the SPV
+                  light client. Returns FBTC to the issuer; the custody wallet pays matching BTC testnet to
+                  your multi-chain address (usually under a minute once the relay is running).
+                </div>
+                <div className="space-y-1.5">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">3 · Amount</div>
+                  <label className="text-xs text-slate-400">FBTC → BTC (your multi-chain wallet)</label>
+                  <input
+                    type="number"
+                    value={withdrawAmount}
+                    onChange={(e) => { setWithdrawAmount(e.target.value); setError(null) }}
+                    placeholder="0.00000000"
+                    min="0.00000546"
+                    step="any"
+                    className="input-field"
+                    disabled={busy || !fbtcIssuer || !hasBtc}
+                  />
+                  <div className="flex justify-between text-xs text-slate-600">
+                    <span>
+                      {(fbtcLive ?? 0) > 0
+                        ? `Available: ${fmt(fbtcLive ?? 0, 8)} FBTC`
+                        : 'No FBTC balance'}
+                    </span>
+                    {(fbtcLive ?? 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setWithdrawAmount(String(fbtcLive))}
+                        className="text-brand-500"
+                      >
+                        Max
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-500 break-all">
+                  BTC payout address:{' '}
+                  <span className="font-mono text-slate-400">{wallet.btcAddress ?? '—'}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={handleBridgeOut}
+                  disabled={
+                    busy ||
+                    !fbtcIssuer ||
+                    !hasBtc ||
+                    withdrawAmtNum <= 0 ||
+                    withdrawAmtNum > (fbtcLive ?? 0)
+                  }
+                  className="btn-primary flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-500"
+                >
+                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Unlock FBTC → BTC'}
+                </button>
+              </>
+            )}
+
+            {direction === 'withdraw' && !isFbtcRoute && (
               <>
                 <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-slate-400">
                   Return F-USDC on Falcon to the bridge issuer. Validators release matching Sepolia USDC
@@ -1648,9 +1843,29 @@ export default function BridgeDepositPanel({
                     </a>
                   </div>
                 )}
-                {isFbtcRoute && fbtcReady && (
-                  <div className="text-[10px] text-slate-500 font-mono break-all">
-                    Custody (auto): {fbtcCustody}
+                {isFbtcRoute && (
+                  <div className="text-[10px] text-slate-500 space-y-1">
+                    {spvStatus && (
+                      <div className="rounded border border-orange-500/20 bg-orange-500/5 px-2 py-1.5 space-y-0.5">
+                        <div className="text-orange-300/90 font-medium">
+                          BTC SPV light client {spvLive ? '· LIVE' : '· pending'}
+                        </div>
+                        <div className="text-slate-400">{spvStatus.message}</div>
+                        {spvStatus.bridge?.tipHeight != null && (
+                          <div className="font-mono">
+                            tip height {String(spvStatus.bridge.tipHeight)} · min conf{' '}
+                            {String(spvStatus.bridge.minConfirmations ?? '—')}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {spvLive && spvStatus?.watchAddress ? (
+                      <div className="font-mono break-all">
+                        Watch (SPV): {spvStatus.watchAddress}
+                      </div>
+                    ) : fbtcReady ? (
+                      <div className="font-mono break-all">Custody (relay): {fbtcCustody}</div>
+                    ) : null}
                   </div>
                 )}
               </>
@@ -1667,18 +1882,31 @@ export default function BridgeDepositPanel({
             <div className="text-xs text-slate-400 break-all">Falcon tx: {withdrawResult.falconTxHash}</div>
           )}
           <p className="text-xs text-slate-500">
-            Returned {withdrawResult.amount} F-USDC. Matching USDC is released to your Multi-chain ETH wallet
-            (usually within a few minutes).
+            {isFbtcRoute ? (
+              <>
+                Returned {withdrawResult.amount} FBTC. Matching testnet BTC is paid to your multi-chain BTC
+                address ({withdrawResult.sepoliaRecipient?.slice(0, 12)}…) — usually under a minute.
+              </>
+            ) : (
+              <>
+                Returned {withdrawResult.amount} F-USDC. Matching USDC is released to your Multi-chain ETH wallet
+                (usually within a few minutes).
+              </>
+            )}
           </p>
           {releaseStatus === 'pending' && (
             <div className="flex items-center gap-2 text-xs text-amber-400">
-              <Spinner /> Watching for release…
+              <Spinner /> {isFbtcRoute ? 'Custody payout pending…' : 'Watching for release…'}
             </div>
           )}
           {releaseStatus === 'released' && (
-            <div className="text-xs text-emerald-400">✓ USDC released to your Multi-chain ETH wallet.</div>
+            <div className="text-xs text-emerald-400">
+              {isFbtcRoute
+                ? '✓ BTC should be on your multi-chain address — refresh BTC balance.'
+                : '✓ USDC released to your Multi-chain ETH wallet.'}
+            </div>
           )}
-          {releaseStatus === 'unconfirmed' && (
+          {releaseStatus === 'unconfirmed' && !isFbtcRoute && (
             <div className="text-xs text-amber-400">
               Release not detected yet — check Multi-chain ETH USDC shortly.
             </div>
