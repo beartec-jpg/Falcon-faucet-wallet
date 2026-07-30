@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clear stuck SPV bridge</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        max-width: 36rem;
+        margin: 3rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      button {
+        background: #f97316;
+        color: #0f172a;
+        border: 0;
+        border-radius: 0.75rem;
+        padding: 0.75rem 1.25rem;
+        font-weight: 700;
+        cursor: pointer;
+        font-size: 1rem;
+      }
+      code {
+        background: #1e293b;
+        padding: 0.15rem 0.4rem;
+        border-radius: 0.35rem;
+        font-size: 0.85rem;
+      }
+      .ok {
+        color: #4ade80;
+        margin-top: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Clear stuck SPV bridge</h1>
+    <p>
+      Removes browser tracking for the refunded deposit
+      <code>c04373f5…</code> so Bridge In works again. Does not touch Falcon or Bitcoin.
+    </p>
+    <button type="button" id="go">Clear SPV tracking &amp; open wallet</button>
+    <p id="msg" class="ok" hidden></p>
+    <script>
+      ;(function () {
+        var DEAD = 'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524'
+        var removed = []
+        try {
+          var keys = []
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i)
+            if (k) keys.push(k)
+          }
+          keys.forEach(function (k) {
+            var v = localStorage.getItem(k) || ''
+            if (
+              k.indexOf('spv') !== -1 ||
+              k.indexOf('SPV') !== -1 ||
+              v.toLowerCase().indexOf(DEAD) !== -1 ||
+              k === 'falcon-spv-pending-v1' ||
+              k === 'falcon-spv-pending-v2'
+            ) {
+              localStorage.removeItem(k)
+              removed.push(k)
+            }
+          })
+          // Always
+          localStorage.removeItem('falcon-spv-pending-v1')
+          localStorage.removeItem('falcon-spv-pending-v2')
+        } catch (e) {
+          document.getElementById('msg').hidden = false
+          document.getElementById('msg').textContent = 'Error: ' + e
+          document.getElementById('msg').style.color = '#f87171'
+          return
+        }
+        document.getElementById('msg').hidden = false
+        document.getElementById('msg').textContent =
+          'Cleared ' + (removed.length ? removed.join(', ') : 'pending keys') + '. Redirecting…'
+        document.getElementById('go').onclick = function () {
+          location.href = '/wallet'
+        }
+        setTimeout(function () {
+          location.href = '/wallet'
+        }, 800)
+      })()
+    </script>
+  </body>
+</html>

@@ -524,9 +524,40 @@ export default function BridgeDepositPanel({
     }
   }, [bridgeCfg])
 
-  // Restore open SPV job after refresh (localStorage only — do not re-seed refunded txs)
+  // Restore open SPV job after refresh; scrub refunded/stuck deposits from any key
   useEffect(() => {
-    setSpvPending(getSpvPending(wallet.address))
+    const DEAD = 'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524'
+    try {
+      const keys: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k) keys.push(k)
+      }
+      for (const k of keys) {
+        const v = (localStorage.getItem(k) || '').toLowerCase()
+        if (
+          k === 'falcon-spv-pending-v1' ||
+          k === 'falcon-spv-pending-v2' ||
+          k.toLowerCase().includes('spv-pending') ||
+          v.includes(DEAD)
+        ) {
+          // Always wipe v1; wipe any key that mentions the refunded deposit
+          if (k === 'falcon-spv-pending-v1' || v.includes(DEAD)) {
+            localStorage.removeItem(k)
+          }
+        }
+      }
+      localStorage.removeItem('falcon-spv-pending-v1')
+    } catch {
+      /* ignore */
+    }
+    const p = getSpvPending(wallet.address)
+    if (p && p.txid.toLowerCase() === DEAD) {
+      clearSpvPending(wallet.address)
+      setSpvPending(null)
+      return
+    }
+    setSpvPending(p)
   }, [wallet.address])
 
   // Poll confirmations for open SPV bridge (survives refresh)
