@@ -2279,9 +2279,10 @@ export default function WalletPage() {
                             >
                               Send
                             </button>
+                            {asset.canBridge && (
                             <button
                               type="button"
-                              disabled={!isLive || !asset.canBridge}
+                              disabled={!isLive}
                               onClick={() => {
                                 if (asset.id === 'feth') {
                                   setBridgeInitialRoute('feth-sepolia')
@@ -2305,6 +2306,7 @@ export default function WalletPage() {
                             >
                               Bridge
                             </button>
+                            )}
                           </div>
                         </div>
                       )
