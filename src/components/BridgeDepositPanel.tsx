@@ -528,69 +528,28 @@ export default function BridgeDepositPanel({
     }
   }, [bridgeCfg])
 
-  // Auto-restore open SPV job (multi-layer storage) — no paste needed
+  // Auto-restore open SPV job (multi-layer storage) — no paste needed.
+  // Never re-seed completed/refunded deposits (DEAD list in btc-spv-pending).
   useEffect(() => {
-    const DEAD = 'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524'
-    const LIVE = '0ac5c315c05858ca284c9587b62acba144a540e97a8f6d2e4f3ddd7aebd3fb2d'
-    const LIVE_FLAG = 'falcon-spv-live-0ac5c315'
     try {
       localStorage.removeItem('falcon-spv-pending-v1')
+      localStorage.setItem('falcon-spv-live-0ac5c315', 'claimed')
     } catch {
       /* ignore */
     }
-    // Prefer map + last-open backup
-    let p = ensureSpvPendingTracked(wallet.address, {
+    const p = ensureSpvPendingTracked(wallet.address, {
       watchAddress: spvStatus?.watchAddress || fbtcCustody,
       minConfirmations: Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6,
       btcNetwork: spvStatus?.btcNetwork || 'testnet',
     })
-    // Rehydrate unfinished deposit if this device lost storage (once until claimed)
-    if (
-      !p &&
-      wallet.address === 'rKqqPLMJkCqZPXotoGQBjGdZiPYQvCAzcN' &&
-      spvStatus?.watchAddress
-    ) {
-      let flag = ''
-      try {
-        flag = localStorage.getItem(LIVE_FLAG) || ''
-      } catch {
-        /* ignore */
-      }
-      if (flag !== 'claimed') {
-        p = createSpvPending({
-          falconAccount: wallet.address,
-          txid: LIVE,
-          watchAddress: spvStatus.watchAddress,
-          amountSats: 50_000,
-          minConfirmations: Number(spvStatus.bridge?.minConfirmations ?? 6) || 6,
-          btcNetwork: spvStatus.btcNetwork || 'testnet',
-        })
-        try {
-          localStorage.setItem(LIVE_FLAG, 'open')
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    if (p && p.txid.toLowerCase() === DEAD) {
-      clearSpvPending(wallet.address)
-      setSpvPending(null)
-      return
-    }
-    // Already finished (claimed, or engine said tecDUPLICATE) — drop open card
+    // Finished / blocked txids come back null from getSpvPending (dead list)
     if (
       p &&
       (p.status === 'claimed' ||
         /tecDUPLICATE/i.test(p.lastError || '') ||
-        (typeof window !== 'undefined' &&
-          p.txid.startsWith('0ac5c315') &&
-          localStorage.getItem(LIVE_FLAG) === 'claimed'))
+        p.txid.startsWith('0ac5c315') ||
+        p.txid.startsWith('c04373f5'))
     ) {
-      try {
-        if (p.txid.startsWith('0ac5c315')) localStorage.setItem(LIVE_FLAG, 'claimed')
-      } catch {
-        /* ignore */
-      }
       clearSpvPending(wallet.address)
       setSpvPending(null)
       return

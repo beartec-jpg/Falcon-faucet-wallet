@@ -39,9 +39,14 @@ const LAST_OPEN_KEY = 'falcon-spv-last-open-v1'
 /** Legacy key — drop on read so refunded jobs cannot block Bridge forever. */
 const LEGACY_KEYS = ['falcon-spv-pending-v1'] as const
 
-/** BTC deposits that must never be claim-tracked (refunded / abandoned). */
+/**
+ * Deposits that must never re-open the claim card:
+ * - refunded, or
+ * - already successfully claimed (FBTC minted / tecDUPLICATE).
+ */
 const DEAD_SPV_TXIDS = new Set([
-  'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524',
+  'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524', // refunded
+  '0ac5c315c05858ca284c9587b62acba144a540e97a8f6d2e4f3ddd7aebd3fb2d', // claimed / minted
 ])
 
 function isBrowser(): boolean {
