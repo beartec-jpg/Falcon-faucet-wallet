@@ -112,7 +112,7 @@ export default function MarketingHomePage() {
               use the network.
             </p>
             <div className="hero-actions reveal-load" data-delay="600">
-              <a href="#platform" className="btn btn-primary">
+              <a href="#what-is-falcon" className="btn btn-primary">
                 Explore the Platform
               </a>
               <Link href="/faucet" className="btn btn-secondary">

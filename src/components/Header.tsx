@@ -127,19 +127,28 @@ export default function Header({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <Link href="/" className="w-8 h-8 rounded-lg overflow-hidden shrink-0">
-            <Image
-              src="/falcon-logo.png"
-              alt="Falcon Ledger"
-              width={32}
-              height={32}
-              className="w-full h-full object-cover rounded-lg"
-            />
+          <Link
+            href="/"
+            className="flex items-center gap-3 min-w-0 rounded-lg hover:opacity-90 transition-opacity group"
+            aria-label="Falcon Ledger home"
+            title="Home"
+          >
+            <span className="w-8 h-8 rounded-lg overflow-hidden shrink-0 ring-1 ring-brand-500/30 group-hover:ring-brand-400/50 transition-shadow">
+              <Image
+                src="/falcon-logo.png"
+                alt=""
+                width={32}
+                height={32}
+                className="w-full h-full object-cover rounded-lg"
+              />
+            </span>
+            <span className="min-w-0 text-left">
+              <span className="block font-semibold text-white leading-tight truncate group-hover:text-brand-400 transition-colors">
+                {network.name}
+              </span>
+              <span className="block text-xs text-slate-500 truncate">{subtitleText}</span>
+            </span>
           </Link>
-          <div className="min-w-0">
-            <div className="font-semibold text-white leading-tight truncate">{network.name}</div>
-            <div className="text-xs text-slate-500 truncate">{subtitleText}</div>
-          </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
