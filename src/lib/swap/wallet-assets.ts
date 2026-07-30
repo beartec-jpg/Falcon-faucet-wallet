@@ -12,6 +12,9 @@ export interface WalletIouBalance {
   currency: string
   issuer: string
   hasTrustLine: boolean
+  /** SPV light-client mint (MPToken); amount already included in balance when set */
+  spvMpt?: boolean
+  mptIssuanceId?: string
 }
 
 export interface WalletAssetBalances {
@@ -82,6 +85,79 @@ export async function fetchWalletAssets(
       hasTrustLine: !!line,
     }
   })
+
+  // SPV FBTC is minted as MPToken (sats integer), not the legacy IOU trust line.
+  // Merge MPT balance into the FBTC row so the Falcon tab shows the light-client mint.
+  try {
+    const [bridgeR, objsR] = await Promise.all([
+      serverRpcCall<{
+        node?: {
+          MPTokenIssuanceID?: string
+          Account?: string
+        }
+        error?: string
+      }>(
+        networkKey,
+        'ledger_entry',
+        { btc_bridge_state: true, ledger_index: 'validated' },
+        { allowError: true },
+      ).catch(() => ({ node: undefined })),
+      serverRpcCall<{
+        account_objects?: Array<{
+          LedgerEntryType?: string
+          MPTokenIssuanceID?: string
+          MPTAmount?: string | number
+        }>
+      }>(networkKey, 'account_objects', {
+        account: address,
+        ledger_index: 'validated',
+        limit: 400,
+      }).catch(() => ({ account_objects: [] })),
+    ])
+
+    const issuanceId = (bridgeR as { node?: { MPTokenIssuanceID?: string } })?.node
+      ?.MPTokenIssuanceID
+    const spvIssuer = (bridgeR as { node?: { Account?: string } })?.node?.Account
+    if (issuanceId) {
+      const mpt = (objsR.account_objects ?? []).find(
+        (o) =>
+          o.LedgerEntryType === 'MPToken' &&
+          String(o.MPTokenIssuanceID || '').toUpperCase() === issuanceId.toUpperCase(),
+      )
+      if (mpt) {
+        const sats = parseInt(String(mpt.MPTAmount ?? '0'), 10)
+        const btc = Number.isFinite(sats) ? sats / 1e8 : 0
+        const fbtcIdx = tokens.findIndex(
+          (t) => t.symbol === 'FBTC' || t.currency === 'BTC' || t.id === 'fbtc',
+        )
+        if (fbtcIdx >= 0) {
+          // Prefer SPV MPT; keep IOU if any for display sum (usually 0 after SPV)
+          tokens[fbtcIdx] = {
+            ...tokens[fbtcIdx],
+            balance: tokens[fbtcIdx].balance + btc,
+            hasTrustLine: true,
+            spvMpt: true,
+            mptIssuanceId: issuanceId,
+            // Show SPV pseudo-issuer when MPT holds the balance
+            issuer: spvIssuer || tokens[fbtcIdx].issuer,
+          }
+        } else if (btc > 0) {
+          tokens.push({
+            id: 'fbtc',
+            symbol: 'FBTC',
+            balance: btc,
+            currency: 'BTC',
+            issuer: spvIssuer || '',
+            hasTrustLine: true,
+            spvMpt: true,
+            mptIssuanceId: issuanceId,
+          })
+        }
+      }
+    }
+  } catch {
+    /* SPV not active or RPC missing fields — keep IOU-only view */
+  }
 
   const usdcTok = tokens.find((t) => t.currency === token.currency && t.issuer === token.issuer)
   const fusdc: WalletAssetBalances['fusdc'] = usdcTok
