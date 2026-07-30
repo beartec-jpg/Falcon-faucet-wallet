@@ -1731,17 +1731,20 @@ export default function BridgeDepositPanel({
 
         {/* Resume tracking if deposit already broadcast (no open job) */}
         {spvLive && isFbtcRoute && direction === 'deposit' && !spvPending && (
-          <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3 space-y-2">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
-              Resume SPV deposit
+          <div className="rounded-xl border border-orange-500/25 bg-orange-500/5 p-4 space-y-2">
+            <div className="text-sm font-semibold text-orange-200">
+              Lost the conf bar? Resume claim here
             </div>
-            <p className="text-[11px] text-slate-500">
-              Already sent BTC with OP_RETURN? Paste the txid to track confs and claim (blocks a second bridge).
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Your BTC deposit already left the wallet. Mint is <strong className="text-slate-300">not</strong>{' '}
+              fully automatic — after 6 confirmations you click <strong className="text-slate-300">Complete claim</strong>.
+              Paste the <strong className="text-slate-300">Bitcoin transaction ID</strong> (from mempool.space /
+              block explorer — 64 hex characters, not a password). Then Track → wait for 6/6 → Complete claim.
             </p>
             <div className="flex gap-2">
               <input
                 className="input-field font-mono text-xs flex-1"
-                placeholder="BTC txid (64 hex)"
+                placeholder="e.g. 0ac5c315c05858ca… (your deposit tx id)"
                 value={spvResumeTxid}
                 onChange={(e) => setSpvResumeTxid(e.target.value.trim())}
                 spellCheck={false}
@@ -1749,11 +1752,14 @@ export default function BridgeDepositPanel({
               <button
                 type="button"
                 onClick={handleSpvResumeTxid}
-                className="px-3 rounded-xl border border-slate-600 text-xs text-slate-200 shrink-0"
+                className="px-4 rounded-xl bg-orange-500 hover:bg-orange-400 text-slate-950 text-xs font-bold shrink-0"
               >
-                Track
+                Track → claim
               </button>
             </div>
+            <p className="text-[10px] text-slate-500">
+              Open your multi-chain BTC explorer history if you lost the id — look for the send to the SPV watch address.
+            </p>
           </div>
         )}
 
