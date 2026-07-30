@@ -70,6 +70,7 @@ import {
 } from '@/lib/create-evm-wallet'
 import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
+import WalletAssetPicker from '@/components/WalletAssetPicker'
 import {
   FALCON_WALLET_ASSETS,
   NATIVE_CHAIN_WALLETS,
@@ -95,6 +96,7 @@ import {
   tokenChipClass,
   shortTokenLabel,
 } from '@/lib/wallet-ui'
+import { fetchSpotPrices, multiChainUsdTotal, type SpotPrices } from '@/lib/wallet-prices'
 import { fetchSepoliaBalances, sendSepoliaEth } from '@/lib/evm-bridge-client'
 import {
   fetchBnbTestnetBalance,
@@ -387,6 +389,8 @@ export default function WalletPage() {
   const [assetSearch, setAssetSearch] = useState('')
   const [balanceFlash, setBalanceFlash] = useState(0)
   const [panelKey, setPanelKey] = useState(0)
+  const [transferPicker, setTransferPicker] = useState<null | 'send' | 'receive'>(null)
+  const [spotPrices, setSpotPrices] = useState<SpotPrices>({ eth: 0, btc: 0, bnb: 0, usdc: 1 })
   const [bridgeInitialMode, setBridgeInitialMode] = useState<'deposit' | 'withdraw' | 'send' | 'receive'>('deposit')
   const [bridgeInitialRoute, setBridgeInitialRoute] = useState<
     'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc' | 'fbtc-btc'
@@ -414,6 +418,18 @@ export default function WalletPage() {
       if (localStorage.getItem('falcon-wallet-hide-zero-v1') === '1') setHideZeroBalances(true)
     } catch { /* ignore */ }
   }, [])
+
+  useEffect(() => {
+    if (walletSection !== 'multichain' && walletSection !== 'bridge') return
+    let cancelled = false
+    void fetchSpotPrices().then((p) => {
+      if (!cancelled) setSpotPrices(p)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [walletSection])
+
 
   // Create-wallet form
   const [createLabel, setCreateLabel] = useState('')
@@ -1972,20 +1988,25 @@ export default function WalletPage() {
                 {/* Portfolio total + primary actions */}
                 {(() => {
                   const fb = parseFalconBalances(account)
-                  const primaryTotal: number | null =
-                    walletSection === 'falcon'
-                      ? fb.falcon
-                      : multiRowBalance('eth', {
-                          eth: ethNativeBal != null ? Number(ethNativeBal) : null,
-                          usdc: usdcNativeBal != null ? Number(usdcNativeBal) : null,
-                          btc: btcNativeBal != null ? Number(btcNativeBal.btc) : null,
-                          bnb: bnbNativeBal != null ? Number(bnbNativeBal) : null,
-                        })
+                  const multiBals = {
+                    eth: ethNativeBal != null ? Number(ethNativeBal) : null,
+                    usdc: usdcNativeBal != null ? Number(usdcNativeBal) : null,
+                    btc: btcNativeBal != null ? Number(btcNativeBal.btc) : null,
+                    bnb: bnbNativeBal != null ? Number(bnbNativeBal) : null,
+                  }
+                  const usdTotal = multiChainUsdTotal(multiBals, spotPrices)
+                  const falconTotal = fb.falcon
                   const totalLabel =
-                    primaryTotal == null
-                      ? '—'
-                      : primaryTotal.toLocaleString(undefined, { maximumFractionDigits: 6 })
-                  const totalUnit = walletSection === 'falcon' ? 'FALCON' : 'ETH'
+                    walletSection === 'falcon'
+                      ? falconTotal.toLocaleString(undefined, { maximumFractionDigits: 6 })
+                      : usdTotal == null
+                        ? '—'
+                        : usdTotal.toLocaleString(undefined, {
+                            style: 'currency',
+                            currency: 'USD',
+                            maximumFractionDigits: 2,
+                          })
+                  const totalUnit = walletSection === 'falcon' ? 'FALCON' : ''
                   const emptyFalcon =
                     walletSection === 'falcon' &&
                     account?.exists &&
@@ -1994,25 +2015,52 @@ export default function WalletPage() {
                     fb.feth <= 0 &&
                     fb.fbtc <= 0 &&
                     fb.fbnb <= 0
+
+                  const openSendPicker = () => setTransferPicker('send')
+                  const openReceivePicker = () => setTransferPicker('receive')
+                  const openBridge = () => {
+                    // Falcon tab = bridge out (withdraw); Multi-chain = bridge in (deposit)
+                    if (walletSection === 'falcon') {
+                      setBridgeInitialMode('withdraw')
+                      setBridgeInitialRoute('fusdc-sepolia')
+                    } else {
+                      setBridgeInitialMode('deposit')
+                      setBridgeInitialRoute('fusdc-sepolia')
+                    }
+                    setWalletSection('bridge')
+                  }
+
                   return (
                     <>
                       <div className="rounded-xl border border-brand-500/15 bg-gradient-to-br from-brand-500/10 via-slate-900/40 to-transparent px-4 py-4">
                         <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
-                          {walletSection === 'falcon' ? 'Native balance' : 'Primary (ETH)'}
+                          {walletSection === 'falcon' ? 'Falcon balance' : 'Portfolio (approx. USD)'}
                         </div>
                         <div
                           key={balanceFlash}
-                          className={`mt-1 text-3xl font-bold tracking-tight tabular-nums text-white wallet-balance-flash`}
+                          className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-white wallet-balance-flash"
                         >
                           {account == null && walletSection === 'falcon' ? (
                             <span className="wallet-skeleton inline-block h-9 w-36 align-middle" />
                           ) : (
                             <>
-                              {totalLabel}{' '}
-                              <span className="text-base font-semibold text-brand-400">{totalUnit}</span>
+                              {totalLabel}
+                              {totalUnit ? (
+                                <span className="text-base font-semibold text-brand-400"> {totalUnit}</span>
+                              ) : null}
                             </>
                           )}
                         </div>
+                        {walletSection === 'multichain' && (
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            ETH · USDC · BTC · BNB · spot rates when available
+                          </p>
+                        )}
+                        {walletSection === 'falcon' && (
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            Bridged assets listed below · use Send / Receive to pick a token
+                          </p>
+                        )}
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <button
                             type="button"
@@ -2036,14 +2084,10 @@ export default function WalletPage() {
                         </div>
                       </div>
 
-                      {/* Primary action bar */}
-                      <div className="grid grid-cols-4 gap-2">
+                      <div className="grid grid-cols-3 gap-2">
                         <button
                           type="button"
-                          onClick={() => {
-                            setReceiveAssetId(walletSection === 'falcon' ? 'falcon' : 'eth')
-                            setView('receive')
-                          }}
+                          onClick={openReceivePicker}
                           className="wallet-action-btn bg-slate-800/80 hover:bg-slate-700 text-slate-100 border border-slate-700/80"
                         >
                           Receive
@@ -2051,37 +2095,19 @@ export default function WalletPage() {
                         <button
                           type="button"
                           disabled={walletSection === 'falcon' && (!account?.exists || !network.live)}
-                          onClick={() => {
-                            setSendAsset(walletSection === 'falcon' ? 'falcon' : 'eth')
-                            setSendTo('')
-                            setSendAmount('')
-                            setSendResult(null)
-                            setError(null)
-                            setView('send')
-                          }}
+                          onClick={openSendPicker}
                           className="wallet-action-btn bg-brand-500/90 hover:bg-brand-400 text-slate-950 disabled:opacity-35"
                         >
                           Send
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            setBridgeInitialMode('deposit')
-                            setBridgeInitialRoute(
-                              walletSection === 'multichain' ? 'feth-sepolia' : 'fusdc-sepolia',
-                            )
-                            setWalletSection('bridge')
-                          }}
+                          onClick={openBridge}
                           className="wallet-action-btn bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25"
+                          title={walletSection === 'falcon' ? 'Bridge out from Falcon' : 'Bridge in to Falcon'}
                         >
-                          Bridge
+                          {walletSection === 'falcon' ? 'Bridge out' : 'Bridge in'}
                         </button>
-                        <Link
-                          href="/swap"
-                          className="wallet-action-btn bg-slate-800/80 hover:bg-slate-700 text-slate-100 border border-slate-700/80 text-center"
-                        >
-                          Swap
-                        </Link>
                       </div>
 
                       {walletSection === 'falcon' && emptyFalcon && (
@@ -2219,7 +2245,7 @@ export default function WalletPage() {
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
-                      {walletSection === 'falcon' ? 'Assets' : 'Chains & tokens'}
+                      {walletSection === 'falcon' ? 'Bridged assets' : 'Chains & tokens'}
                     </div>
                     <div className="flex items-center gap-1.5">
                       <button
@@ -2269,7 +2295,7 @@ export default function WalletPage() {
                         Choose which rows appear. Hidden assets stay in your wallet — only the list is filtered.
                       </p>
                       <div className="flex flex-wrap gap-2">
-                        {(walletSection === 'falcon' ? FALCON_ROW_IDS : MULTI_ROW_IDS).map((id) => {
+                        {(walletSection === 'falcon' ? FALCON_ROW_IDS.filter((id) => id !== 'falcon') : MULTI_ROW_IDS).map((id) => {
                           const on =
                             walletSection === 'falcon'
                               ? falconVisible[id as FalconAssetId]
@@ -2356,6 +2382,8 @@ export default function WalletPage() {
                   {walletSection === 'falcon' && (
                   <div className="space-y-2">
                     {FALCON_WALLET_ASSETS.filter((asset) => {
+                      // Top card is FALCON — list only bridged assets under it
+                      if (asset.id === 'falcon') return false
                       if (!falconVisible[asset.id]) return false
                       const q = assetSearch.trim().toLowerCase()
                       if (q && !asset.symbol.toLowerCase().includes(q) && !asset.subtitle.toLowerCase().includes(q)) return false
@@ -2462,70 +2490,7 @@ export default function WalletPage() {
                               {balanceLabel}
                             </div>
                           </div>
-                          <div className="mt-2.5 flex flex-wrap gap-1.5">
-                            <button
-                              type="button"
-                              disabled={!isLive || !asset.canReceive}
-                              onClick={() => {
-                                setReceiveAssetId(asset.id)
-                                setView('receive')
-                              }}
-                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-35"
-                            >
-                              Receive
-                            </button>
-                            <button
-                              type="button"
-                              disabled={!isLive || !asset.canSend || !account?.exists || !network.live}
-                              onClick={() => {
-                                setSendAsset(
-                                  asset.id === 'fusdc'
-                                    ? 'fusdc'
-                                    : asset.id === 'feth'
-                                      ? 'feth'
-                                      : asset.id === 'fbnb'
-                                        ? 'fbnb'
-                                        : asset.id === 'fbtc'
-                                          ? 'fbtc'
-                                          : 'falcon',
-                                )
-                                setView('send')
-                                setError(null)
-                                setSendResult(null)
-                              }}
-                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-brand-500/90 hover:bg-brand-400 text-slate-950 disabled:opacity-35"
-                            >
-                              Send
-                            </button>
-                            {asset.canBridge && (
-                            <button
-                              type="button"
-                              disabled={!isLive}
-                              onClick={() => {
-                                if (asset.id === 'feth') {
-                                  setBridgeInitialRoute('feth-sepolia')
-                                  setBridgeInitialMode('deposit')
-                                } else if (asset.id === 'fbnb') {
-                                  setBridgeInitialRoute('fbnb-bsc')
-                                  setBridgeInitialMode('deposit')
-                                } else if (asset.id === 'fbtc') {
-                                  setBridgeInitialRoute('fbtc-btc')
-                                  setBridgeInitialMode('deposit')
-                                } else if (asset.id === 'fusdc') {
-                                  setBridgeInitialRoute('fusdc-sepolia')
-                                  setBridgeInitialMode('withdraw')
-                                } else {
-                                  setBridgeInitialRoute('fusdc-sepolia')
-                                  setBridgeInitialMode('deposit')
-                                }
-                                setWalletSection('bridge')
-                              }}
-                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25 disabled:opacity-35"
-                            >
-                              Bridge
-                            </button>
-                            )}
-                          </div>
+
                         </div>
                       )
                     })}
@@ -2650,7 +2615,7 @@ export default function WalletPage() {
                               )}
                               {chain.id === 'bnb' && bnbNativeBal == null && !nativeBalLoading && hasEvmKey && (
                                 <div className="text-[10px] text-amber-400/80 mt-0.5 font-sans">
-                                  Balance unavailable — try Refresh below
+                                  Balance unavailable
                                 </div>
                               )}
                             </div>
@@ -2659,82 +2624,7 @@ export default function WalletPage() {
                               {balanceLabel}
                             </div>
                           </div>
-                          <div className="mt-2.5 flex flex-wrap gap-1.5">
-                            <button
-                              type="button"
-                              disabled={!isLive || !chain.canReceive || !hasKey}
-                              onClick={() => {
-                                setReceiveAssetId(chain.id)
-                                setView('receive')
-                              }}
-                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-35"
-                            >
-                              Receive
-                            </button>
-                            <button
-                              type="button"
-                              disabled={!isLive || !chain.canSend || !hasKey}
-                              onClick={() => {
-                                if (chain.id === 'btc') setSendAsset('btc')
-                                else if (chain.id === 'bnb') setSendAsset('bnb')
-                                else if (chain.id === 'eth') setSendAsset('eth')
-                                else return
-                                setSendTo('')
-                                setSendAmount('')
-                                setSendResult(null)
-                                setError(null)
-                                setView('send')
-                              }}
-                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-brand-500/90 hover:bg-brand-400 text-slate-950 disabled:opacity-35"
-                            >
-                              Send
-                            </button>
-                            {(chain.id === 'bnb' || chain.id === 'btc') && hasKey && (
-                              <button
-                                type="button"
-                                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-35"
-                                disabled={nativeBalLoading}
-                                onClick={() => {
-                                  if (chain.id === 'bnb' && wallet.evmAddress) {
-                                    setNativeBalLoading(true)
-                                    void fetchBnbTestnetBalance(wallet.evmAddress)
-                                      .then((b) => setBnbNativeBal(b))
-                                      .finally(() => setNativeBalLoading(false))
-                                  }
-                                  if (chain.id === 'btc' && wallet.btcAddress) {
-                                    setNativeBalLoading(true)
-                                    void fetchBtcTestnetBalance(wallet.btcAddress)
-                                      .then((b) => setBtcNativeBal(b))
-                                      .finally(() => setNativeBalLoading(false))
-                                  }
-                                }}
-                              >
-                                Refresh
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              disabled={!isLive || !chain.canBridge || !hasKey}
-                              onClick={() => {
-                                setBridgeInitialMode('deposit')
-                                setBridgeInitialRoute(
-                                  chain.id === 'eth'
-                                    ? 'feth-sepolia'
-                                    : chain.id === 'usdc'
-                                      ? 'fusdc-sepolia'
-                                      : chain.id === 'bnb'
-                                        ? 'fbnb-bsc'
-                                        : chain.id === 'btc'
-                                          ? 'fbtc-btc'
-                                          : 'fusdc-sepolia',
-                                )
-                                setWalletSection('bridge')
-                              }}
-                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25 disabled:opacity-35"
-                            >
-                              Bridge
-                            </button>
-                          </div>
+
                         </div>
                       )
                     })}
@@ -2914,16 +2804,6 @@ export default function WalletPage() {
                       >
                         Vault
                       </Link>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setBridgeInitialMode('deposit')
-                          setWalletSection('bridge')
-                        }}
-                        className="flex-1 min-w-[100px] py-2.5 rounded-xl text-sm font-semibold bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25"
-                      >
-                        Bridge
-                      </button>
                       <button
                         onClick={() => {
                           setShowNodeSetup(!savedNode)
@@ -4028,6 +3908,79 @@ export default function WalletPage() {
                   </svg>
                 </Link>
               )}
+
+
+              {/* Asset picker for Send / Receive */}
+              {transferPicker && wallet && (() => {
+                const fb = parseFalconBalances(account)
+                const falconOpts = FALCON_WALLET_ASSETS.map((a) => {
+                  const bal = falconRowBalance(a.id, fb)
+                  return {
+                    id: a.id,
+                    symbol: a.symbol,
+                    subtitle: a.subtitle,
+                    balance: bal,
+                    canSend: a.canSend && a.status === 'live',
+                    balanceLabel: bal.toLocaleString(undefined, { maximumFractionDigits: 6 }),
+                  }
+                })
+                const multiOpts = NATIVE_CHAIN_WALLETS.map((c) => {
+                  const bal =
+                    multiRowBalance(c.id, {
+                      eth: ethNativeBal != null ? Number(ethNativeBal) : null,
+                      usdc: usdcNativeBal != null ? Number(usdcNativeBal) : null,
+                      btc: btcNativeBal != null ? Number(btcNativeBal.btc) : null,
+                      bnb: bnbNativeBal != null ? Number(bnbNativeBal) : null,
+                    }) ?? 0
+                  return {
+                    id: c.id,
+                    symbol: c.symbol,
+                    subtitle: c.chainLabel,
+                    balance: bal,
+                    canSend: c.canSend && c.status === 'live',
+                    balanceLabel:
+                      bal > 0
+                        ? bal.toLocaleString(undefined, { maximumFractionDigits: 6 })
+                        : '0',
+                  }
+                })
+                // Send: falcon tab → falcon assets with balance; multi → multi with balance
+                // Receive: show all rows for current tab (including zero)
+                const options =
+                  walletSection === 'multichain' || walletSection === 'bridge'
+                    ? multiOpts
+                    : falconOpts
+                return (
+                  <WalletAssetPicker
+                    mode={transferPicker}
+                    title={transferPicker === 'send' ? 'Send' : 'Receive'}
+                    options={options}
+                    onClose={() => setTransferPicker(null)}
+                    onPick={(id) => {
+                      if (transferPicker === 'send') {
+                        if (id === 'fusdc' || id === 'feth' || id === 'fbnb' || id === 'fbtc' || id === 'falcon') {
+                          setSendAsset(id)
+                        } else if (id === 'btc' || id === 'bnb' || id === 'eth') {
+                          setSendAsset(id)
+                        } else {
+                          setTransferPicker(null)
+                          return
+                        }
+                        setSendTo('')
+                        setSendAmount('')
+                        setSendResult(null)
+                        setError(null)
+                        setTransferPicker(null)
+                        setView('send')
+                      } else {
+                        setReceiveAssetId(id as MultiChainAssetId)
+                        setTransferPicker(null)
+                        setView('receive')
+                      }
+                    }}
+                  />
+                )
+              })()}
 
               {/* ── Transaction history ── */}
               {view === 'dashboard' && account && account.transactions.length > 0 && (
