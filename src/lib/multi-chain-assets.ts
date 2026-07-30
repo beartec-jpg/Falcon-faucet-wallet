@@ -1,14 +1,16 @@
 /**
  * Wallet catalogs:
- * - Falcon Wallet = native FALCON + Falcon IOUs (F-USDC, later FETH/FBTC/FBNB)
- * - Multi-chain = native deposit wallets (ETH, BTC, BNB) that feed Bridge
+ * - Falcon Wallet = native FALCON + Falcon IOUs (F-USDC, FETH, FBTC, FBNB)
+ * - Multi-chain = native deposit rows (ETH, USDC, BTC, BNB) that feed Bridge
+ *   USDC is its own row (Ethereum USDC), not nested under ETH.
  */
 
 export type FalconAssetId = 'falcon' | 'fusdc' | 'feth' | 'fbtc' | 'fbnb'
 export type NativeChainId = 'eth' | 'btc' | 'bnb'
+/** Multi-chain tab display rows (includes USDC as separate from ETH). */
+export type MultiChainRowId = 'eth' | 'usdc' | 'btc' | 'bnb'
 
-export type MultiChainAssetId = FalconAssetId | NativeChainId
-
+export type MultiChainAssetId = FalconAssetId | NativeChainId | 'usdc'
 export type MultiChainAssetStatus = 'live' | 'coming_soon'
 
 export interface FalconAssetDef {
@@ -78,30 +80,44 @@ export const FALCON_WALLET_ASSETS: FalconAssetDef[] = [
 ]
 
 export interface NativeChainWalletDef {
-  id: NativeChainId
+  id: MultiChainRowId
   symbol: string
   chainLabel: string
   subtitle: string
   status: MultiChainAssetStatus
-  /** Same secp256k1 key as ETH for BNB (BIP-44 coin 60). */
+  /** Same secp256k1 key as ETH for BNB / USDC (BIP-44 coin 60). */
   sharesEthKey?: boolean
+  /** Native gas asset on that address (ETH/BNB/BTC). USDC is an ERC-20 on ETH. */
+  isToken?: boolean
   canSend: boolean
   canReceive: boolean
   canBridge: boolean
 }
 
 /**
- * Multi-chain tab = native wallets. Bridge locks from these addresses
- * and mints F-assets onto Falcon Wallet.
+ * Multi-chain tab = one row per asset users care about.
+ * USDC is separate from ETH (same 0x deposit address, own balance + bridge path).
  */
 export const NATIVE_CHAIN_WALLETS: NativeChainWalletDef[] = [
   {
     id: 'eth',
     symbol: 'ETH',
     chainLabel: 'Ethereum',
-    subtitle: 'Native ETH · deposit / gas · Bridge uses this wallet for USDC/ETH locks',
+    subtitle: 'Native ETH · gas & deposit · Bridge → FETH',
     status: 'live',
     canSend: true,
+    canReceive: true,
+    canBridge: true,
+  },
+  {
+    id: 'usdc',
+    symbol: 'USDC',
+    chainLabel: 'Ethereum',
+    subtitle: 'USDC on Ethereum · same 0x as ETH · Bridge → F-USDC',
+    status: 'live',
+    sharesEthKey: true,
+    isToken: true,
+    canSend: false,
     canReceive: true,
     canBridge: true,
   },
@@ -109,7 +125,7 @@ export const NATIVE_CHAIN_WALLETS: NativeChainWalletDef[] = [
     id: 'btc',
     symbol: 'BTC',
     chainLabel: 'Bitcoin',
-    subtitle: 'Native BTC · testnet P2PKH · Bridge → FBTC (one action, no WBTC)',
+    subtitle: 'Native BTC · testnet P2PKH · Bridge → FBTC',
     status: 'live',
     canSend: true,
     canReceive: true,
@@ -119,7 +135,7 @@ export const NATIVE_CHAIN_WALLETS: NativeChainWalletDef[] = [
     id: 'bnb',
     symbol: 'BNB',
     chainLabel: 'BNB Smart Chain',
-    subtitle: 'Same 0x as ETH · BSC testnet · Bridge → FBNB (wrap WBNB)',
+    subtitle: 'Same 0x as ETH · BSC testnet · Bridge → FBNB',
     status: 'live',
     sharesEthKey: true,
     canSend: true,
@@ -137,7 +153,7 @@ export function falconAssetById(id: FalconAssetId): FalconAssetDef | undefined {
   return FALCON_WALLET_ASSETS.find((a) => a.id === id)
 }
 
-export function nativeChainById(id: NativeChainId): NativeChainWalletDef | undefined {
+export function nativeChainById(id: MultiChainRowId): NativeChainWalletDef | undefined {
   return NATIVE_CHAIN_WALLETS.find((a) => a.id === id)
 }
 
