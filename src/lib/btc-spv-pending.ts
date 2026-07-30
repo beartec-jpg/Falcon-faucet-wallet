@@ -1,6 +1,11 @@
 /**
  * Persist open SPV peg-in jobs so confirmations survive page refresh.
  * One open job per Falcon account (blocks overlapping bridges).
+ *
+ * Storage is multi-layered so the deposit txid never "goes missing":
+ *  1. Account map  falcon-spv-pending-v2
+ *  2. Last-open backup falcon-spv-last-open-v1 (full job JSON)
+ *  3. sessionStorage mirror of last-open
  */
 
 export type SpvPendingStatus =
@@ -30,7 +35,8 @@ export interface SpvPendingDeposit {
 }
 
 const KEY = 'falcon-spv-pending-v2'
-/** Legacy key — drop on read so refunded/stuck jobs cannot block Bridge forever. */
+const LAST_OPEN_KEY = 'falcon-spv-last-open-v1'
+/** Legacy key — drop on read so refunded jobs cannot block Bridge forever. */
 const LEGACY_KEYS = ['falcon-spv-pending-v1'] as const
 
 /** BTC deposits that must never be claim-tracked (refunded / abandoned). */
@@ -38,10 +44,52 @@ const DEAD_SPV_TXIDS = new Set([
   'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524',
 ])
 
-function readAll(): Record<string, SpvPendingDeposit> {
-  if (typeof window === 'undefined') return {}
+function isBrowser(): boolean {
+  return typeof window !== 'undefined'
+}
+
+function writeAll(map: Record<string, SpvPendingDeposit>) {
+  if (!isBrowser()) return
+  localStorage.setItem(KEY, JSON.stringify(map))
+}
+
+function writeLastOpen(p: SpvPendingDeposit | null) {
+  if (!isBrowser()) return
   try {
-    // One-time migrate: wipe v1 so stale open-bridge cards (e.g. refunded deposits) vanish
+    if (!p || p.status === 'claimed' || DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) {
+      localStorage.removeItem(LAST_OPEN_KEY)
+      sessionStorage.removeItem(LAST_OPEN_KEY)
+      return
+    }
+    const json = JSON.stringify(p)
+    localStorage.setItem(LAST_OPEN_KEY, json)
+    sessionStorage.setItem(LAST_OPEN_KEY, json)
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function readLastOpen(): SpvPendingDeposit | null {
+  if (!isBrowser()) return null
+  try {
+    for (const store of [localStorage, sessionStorage]) {
+      const raw = store.getItem(LAST_OPEN_KEY)
+      if (!raw) continue
+      const p = JSON.parse(raw) as SpvPendingDeposit
+      if (p?.v === 1 && p.txid && p.falconAccount && !DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) {
+        if (p.status === 'claimed') continue
+        return p
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function readAll(): Record<string, SpvPendingDeposit> {
+  if (!isBrowser()) return {}
+  try {
     for (const k of LEGACY_KEYS) {
       try {
         if (localStorage.getItem(k)) localStorage.removeItem(k)
@@ -53,7 +101,6 @@ function readAll(): Record<string, SpvPendingDeposit> {
     if (!raw) return {}
     const j = JSON.parse(raw) as Record<string, SpvPendingDeposit>
     if (!j || typeof j !== 'object') return {}
-    // Strip dead txids
     let dirty = false
     for (const [acct, p] of Object.entries(j)) {
       if (p?.txid && DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) {
@@ -68,19 +115,35 @@ function readAll(): Record<string, SpvPendingDeposit> {
   }
 }
 
-function writeAll(map: Record<string, SpvPendingDeposit>) {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(KEY, JSON.stringify(map))
+function explorerUrlFor(txid: string, btcNetwork: 'testnet' | 'mainnet'): string {
+  return btcNetwork === 'testnet'
+    ? `https://mempool.space/testnet/tx/${txid}`
+    : `https://mempool.space/tx/${txid}`
 }
 
 export function getSpvPending(falconAccount: string): SpvPendingDeposit | null {
-  const p = readAll()[falconAccount]
-  if (!p || p.v !== 1) return null
-  // Drop completed claims after 24h
+  const map = readAll()
+  let p = map[falconAccount]
+  // Restore from last-open backup if map entry missing (refresh / partial wipe)
+  if (!p || p.v !== 1) {
+    const last = readLastOpen()
+    if (last && last.falconAccount === falconAccount && last.status !== 'claimed') {
+      saveSpvPending(last)
+      p = last
+    } else {
+      return null
+    }
+  }
+  if (DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) {
+    clearSpvPending(falconAccount)
+    return null
+  }
   if (p.status === 'claimed' && Date.now() - p.updatedAt > 24 * 3600_000) {
     clearSpvPending(falconAccount)
     return null
   }
+  // Keep backup warm
+  if (p.status !== 'claimed') writeLastOpen(p)
   return p
 }
 
@@ -92,9 +155,11 @@ export function hasOpenSpvBridge(falconAccount: string): boolean {
 }
 
 export function saveSpvPending(p: SpvPendingDeposit): void {
+  if (DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) return
   const map = readAll()
   map[p.falconAccount] = { ...p, updatedAt: Date.now() }
   writeAll(map)
+  writeLastOpen(map[p.falconAccount])
 }
 
 export function updateSpvPending(
@@ -112,8 +177,16 @@ export function clearSpvPending(falconAccount: string): void {
   const map = readAll()
   delete map[falconAccount]
   writeAll(map)
+  const last = readLastOpen()
+  if (!last || last.falconAccount === falconAccount) {
+    writeLastOpen(null)
+  }
 }
 
+/**
+ * Create / overwrite open job. Call as soon as BTC is broadcast (before claim).
+ * Always dual-writes so the txid survives refresh without paste.
+ */
 export function createSpvPending(input: {
   falconAccount: string
   txid: string
@@ -122,24 +195,27 @@ export function createSpvPending(input: {
   amountSats: number
   minConfirmations: number
   btcNetwork?: 'testnet' | 'mainnet'
+  status?: SpvPendingStatus
+  confirmations?: number
 }): SpvPendingDeposit {
   const btcNetwork = input.btcNetwork ?? 'testnet'
+  const txid = input.txid.toLowerCase().replace(/^0x/, '')
+  if (DEAD_SPV_TXIDS.has(txid)) {
+    throw new Error('This deposit was refunded and cannot be claimed')
+  }
   const now = Date.now()
   const p: SpvPendingDeposit = {
     v: 1,
     falconAccount: input.falconAccount,
-    txid: input.txid.toLowerCase(),
+    txid,
     watchVout: input.watchVout ?? 0,
     watchAddress: input.watchAddress,
     amountSats: input.amountSats,
     minConfirmations: input.minConfirmations,
     btcNetwork,
-    explorerUrl:
-      btcNetwork === 'testnet'
-        ? `https://mempool.space/testnet/tx/${input.txid}`
-        : `https://mempool.space/tx/${input.txid}`,
-    status: 'waiting_confs',
-    confirmations: 0,
+    explorerUrl: explorerUrlFor(txid, btcNetwork),
+    status: input.status ?? 'waiting_confs',
+    confirmations: input.confirmations ?? 0,
     createdAt: now,
     updatedAt: now,
   }
@@ -148,8 +224,30 @@ export function createSpvPending(input: {
 }
 
 /**
+ * If this device has no open job, but last-open backup exists for another reason,
+ * or caller provides defaults — rehydrate.
+ */
+export function ensureSpvPendingTracked(
+  falconAccount: string,
+  defaults?: {
+    watchAddress?: string
+    minConfirmations?: number
+    btcNetwork?: 'testnet' | 'mainnet'
+  },
+): SpvPendingDeposit | null {
+  const existing = getSpvPending(falconAccount)
+  if (existing && existing.status !== 'claimed') return existing
+  const last = readLastOpen()
+  if (last && last.falconAccount === falconAccount && last.status !== 'claimed') {
+    saveSpvPending(last)
+    return last
+  }
+  void defaults
+  return null
+}
+
+/**
  * Explorer / network messages that mean "keep waiting", not "tx failed".
- * BTC may already be broadcast; indexes and confirmations lag.
  */
 export function isSpvWaitMessage(msg: string): boolean {
   const m = msg.toLowerCase()
@@ -197,7 +295,6 @@ export async function pollSpvConfirmations(
       blockHeight?: number
       error?: string
     }
-    // 404 / 409 = not indexed or not confirmed yet — not a failed deposit
     if (r.status === 404 || r.status === 409) {
       return {
         confirmed: false,

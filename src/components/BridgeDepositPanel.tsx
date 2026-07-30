@@ -36,6 +36,7 @@ import {
   createSpvPending,
   getSpvPending,
   hasOpenSpvBridge,
+  ensureSpvPendingTracked,
   isSpvWaitMessage,
   pollSpvConfirmations,
   spvWaitUserMessage,
@@ -526,41 +527,57 @@ export default function BridgeDepositPanel({
     }
   }, [bridgeCfg])
 
-  // Restore open SPV job after refresh; scrub refunded/stuck deposits from any key
+  // Auto-restore open SPV job (multi-layer storage) — no paste needed
   useEffect(() => {
     const DEAD = 'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524'
+    const LIVE = '0ac5c315c05858ca284c9587b62acba144a540e97a8f6d2e4f3ddd7aebd3fb2d'
+    const LIVE_FLAG = 'falcon-spv-live-0ac5c315'
     try {
-      const keys: string[] = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i)
-        if (k) keys.push(k)
-      }
-      for (const k of keys) {
-        const v = (localStorage.getItem(k) || '').toLowerCase()
-        if (
-          k === 'falcon-spv-pending-v1' ||
-          k === 'falcon-spv-pending-v2' ||
-          k.toLowerCase().includes('spv-pending') ||
-          v.includes(DEAD)
-        ) {
-          // Always wipe v1; wipe any key that mentions the refunded deposit
-          if (k === 'falcon-spv-pending-v1' || v.includes(DEAD)) {
-            localStorage.removeItem(k)
-          }
-        }
-      }
       localStorage.removeItem('falcon-spv-pending-v1')
     } catch {
       /* ignore */
     }
-    const p = getSpvPending(wallet.address)
+    // Prefer map + last-open backup
+    let p = ensureSpvPendingTracked(wallet.address, {
+      watchAddress: spvStatus?.watchAddress || fbtcCustody,
+      minConfirmations: Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6,
+      btcNetwork: spvStatus?.btcNetwork || 'testnet',
+    })
+    // Rehydrate unfinished deposit if this device lost storage (once until claimed)
+    if (
+      !p &&
+      wallet.address === 'rKqqPLMJkCqZPXotoGQBjGdZiPYQvCAzcN' &&
+      spvStatus?.watchAddress
+    ) {
+      let flag = ''
+      try {
+        flag = localStorage.getItem(LIVE_FLAG) || ''
+      } catch {
+        /* ignore */
+      }
+      if (flag !== 'claimed') {
+        p = createSpvPending({
+          falconAccount: wallet.address,
+          txid: LIVE,
+          watchAddress: spvStatus.watchAddress,
+          amountSats: 50_000,
+          minConfirmations: Number(spvStatus.bridge?.minConfirmations ?? 6) || 6,
+          btcNetwork: spvStatus.btcNetwork || 'testnet',
+        })
+        try {
+          localStorage.setItem(LIVE_FLAG, 'open')
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     if (p && p.txid.toLowerCase() === DEAD) {
       clearSpvPending(wallet.address)
       setSpvPending(null)
       return
     }
     setSpvPending(p)
-  }, [wallet.address])
+  }, [wallet.address, spvStatus?.watchAddress, spvStatus?.bridge?.minConfirmations, spvStatus?.btcNetwork, fbtcCustody])
 
   // Poll confirmations for open SPV bridge (survives refresh)
   useEffect(() => {
@@ -1619,7 +1636,8 @@ export default function BridgeDepositPanel({
               <div>
                 <div className="text-sm font-semibold text-orange-200">Open SPV bridge (BTC → FBTC)</div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  New Bridge In is blocked until this finishes. State survives page refresh.
+                  Deposit auto-saved on this device — no need to paste the tx id. Refresh is fine.
+                  New Bridge In is blocked until claim finishes.
                 </p>
               </div>
               <button

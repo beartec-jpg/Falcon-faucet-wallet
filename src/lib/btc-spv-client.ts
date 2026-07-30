@@ -592,13 +592,30 @@ export async function spvPegIn(opts: {
     network: btcNet,
   })
 
+  // Persist txid immediately (localStorage + session) so claim UI survives refresh
+  try {
+    const { createSpvPending } = await import('@/lib/btc-spv-pending')
+    createSpvPending({
+      falconAccount: opts.falconAccount,
+      txid: dep.txid,
+      watchVout: dep.watchVout,
+      watchAddress: opts.watchAddress,
+      amountSats: dep.amountSats,
+      minConfirmations: minConf,
+      btcNetwork: btcNet,
+      status: 'waiting_confs',
+    })
+  } catch {
+    /* non-browser / storage blocked */
+  }
+
   opts.onDepositBroadcast?.({
     txid: dep.txid,
     explorerUrl: dep.explorerUrl,
     amountSats: dep.amountSats,
   })
   opts.onStep?.(
-    `BTC sent ${dep.txid.slice(0, 12)}… waiting for ${minConf} confirmations (keep this tab open)…`,
+    `BTC sent ${dep.txid.slice(0, 12)}… waiting for ${minConf} confirmations (auto-saved on this device)…`,
   )
 
   let materials: SpvClaimMaterials | null = null
