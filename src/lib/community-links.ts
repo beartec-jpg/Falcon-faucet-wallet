@@ -15,7 +15,7 @@ export const COMMUNITY_SOCIALS: CommunitySocial[] = [
     name: 'X',
     description: 'Announcements, updates, and conversation.',
     // Set your public X profile here when ready — leave empty to hide the card
-    href: process.env.NEXT_PUBLIC_COMMUNITY_X_URL ?? '',
+    href: process.env.NEXT_PUBLIC_COMMUNITY_X_URL ?? 'https://x.com/TheFalconLedger',
     accent: '#e7e9ea',
   },
   {
