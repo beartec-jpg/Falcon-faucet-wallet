@@ -28,6 +28,7 @@ import {
   fetchSpvClaimMaterials,
   fetchSpvStatus,
   spvPegIn,
+  spvPegOut,
   submitSpvDepositClaim,
   type SpvStatus,
 } from '@/lib/btc-spv-client'
@@ -576,6 +577,24 @@ export default function BridgeDepositPanel({
       setSpvPending(null)
       return
     }
+    // Already finished (claimed, or engine said tecDUPLICATE) — drop open card
+    if (
+      p &&
+      (p.status === 'claimed' ||
+        /tecDUPLICATE/i.test(p.lastError || '') ||
+        (typeof window !== 'undefined' &&
+          p.txid.startsWith('0ac5c315') &&
+          localStorage.getItem(LIVE_FLAG) === 'claimed'))
+    ) {
+      try {
+        if (p.txid.startsWith('0ac5c315')) localStorage.setItem(LIVE_FLAG, 'claimed')
+      } catch {
+        /* ignore */
+      }
+      clearSpvPending(wallet.address)
+      setSpvPending(null)
+      return
+    }
     setSpvPending(p)
   }, [wallet.address, spvStatus?.watchAddress, spvStatus?.bridge?.minConfirmations, spvStatus?.btcNetwork, fbtcCustody])
 
@@ -952,19 +971,24 @@ export default function BridgeDepositPanel({
   }
 
   const handleBridgeOut = async () => {
-    // ── FBTC custodial out (pre-SPV IOU → native BTC) ─────────────────────
+    // ── FBTC out: SPV peg-out (MPT burn) preferred; legacy IOU custody fallback ─
     if (isFbtcRoute) {
-      if (!fbtcIssuer || !wallet.btcAddress) {
-        setError('Need FBTC issuer + multi-chain BTC address')
+      if (!wallet.btcAddress) {
+        setError('Need multi-chain BTC address for payout')
         return
       }
       const amt = parseFloat(withdrawAmount)
       if (!Number.isFinite(amt) || amt <= 0) {
-        setError('Enter a valid FBTC amount')
+        setError('Enter a valid FBTC amount (any size up to your balance)')
         return
       }
       if ((fbtcLive ?? 0) < amt) {
         setError(`Insufficient FBTC (have ${fmt(fbtcLive ?? 0, 8)})`)
+        return
+      }
+      const amountSats = Math.round(amt * 1e8)
+      if (amountSats < 546) {
+        setError('Amount too small (dust)')
         return
       }
 
@@ -977,7 +1001,44 @@ export default function BridgeDepositPanel({
         const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
         const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
         const amountStr = String(Math.round(amt * 1e8) / 1e8)
-        setStep('Returning FBTC to custody bridge…')
+
+        // SPV light-client peg-out when bridge is live (MPT FBTC)
+        if (spvLive) {
+          setStep('SPV peg-out: burn FBTC…')
+          const peg = await spvPegOut({
+            falconSecret: falcon_secret,
+            account: wallet.address,
+            networkKey,
+            networkId: network.networkId,
+            amountSats,
+            btcPayoutAddress: wallet.btcAddress!,
+            btcNetwork: spvStatus?.btcNetwork || 'testnet',
+            onStep: (m) => setStep(m),
+          })
+          setWithdrawResult({
+            falconTxHash: peg.finalizeHash || peg.burnHash || `burn-seq-${peg.burnSeq}`,
+            amount: amountStr,
+            sepoliaRecipient: wallet.btcAddress,
+          })
+          setWithdrawAmount('')
+          setReleaseStatus('pending')
+          setStep(null)
+          setTimeout(() => {
+            onFalconRefresh?.()
+            refreshFusdcBalance()
+            if (wallet.btcAddress) {
+              void fetchBtcBalance(wallet.btcAddress, 'testnet').then((b) => setBtcBal(b?.btc ?? null))
+            }
+          }, 5000)
+          return
+        }
+
+        // Legacy custodial IOU path
+        if (!fbtcIssuer) {
+          setError('FBTC issuer missing and SPV not live')
+          return
+        }
+        setStep('Returning FBTC IOU to custody bridge…')
         const data = await submitFalconSequenced(({ sequence, lastLedgerSequence }) =>
           signFbtcBridgeWithdraw(
             {
@@ -2212,7 +2273,9 @@ export default function BridgeDepositPanel({
                 <div className="text-2xl font-bold text-white font-mono">{falconAvailLabel}</div>
                 <p className="text-[11px] text-slate-500 leading-snug">
                   {isFbtcRoute
-                    ? 'Return FBTC to the custody issuer; testnet BTC is paid to your multi-chain BTC address.'
+                    ? spvLive
+                      ? 'SPV peg-out: burn any amount of FBTC (up to balance) → challenge window → finalize → testnet BTC to your multi-chain address.'
+                      : 'Return FBTC IOU to the custody issuer; testnet BTC is paid to your multi-chain BTC address.'
                     : 'Falcon balance returned to the bridge; USDC is released to your Multi-chain ETH wallet.'}
                 </p>
                 {fusdcError && (
@@ -2223,14 +2286,28 @@ export default function BridgeDepositPanel({
 
             {direction === 'withdraw' && isFbtcRoute && (
               <>
-                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-slate-400">
-                  Custodial unlock for FBTC minted <strong className="text-slate-300">before</strong> the SPV
-                  light client. Returns FBTC to the issuer; the custody wallet pays matching BTC testnet to
-                  your multi-chain address (usually under a minute once the relay is running).
+                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-slate-400 space-y-1">
+                  {spvLive ? (
+                    <>
+                      <p>
+                        <strong className="text-slate-300">SPV peg-out (light client).</strong> Burn any
+                        amount of your FBTC (partial or full). After a short Falcon challenge window (~32
+                        ledgers), finalize, then the payout relay sends matching testnet BTC.
+                      </p>
+                      <p className="text-[10px] text-slate-500">
+                        Not custodial IOU return — uses <code className="text-slate-400">BTCBridgeBurn</code>.
+                      </p>
+                    </>
+                  ) : (
+                    <p>
+                      Custodial unlock for legacy IOU FBTC. Returns tokens to the issuer; custody pays
+                      testnet BTC to your multi-chain address.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">3 · Amount</div>
-                  <label className="text-xs text-slate-400">FBTC → BTC (your multi-chain wallet)</label>
+                  <label className="text-xs text-slate-400">FBTC → BTC (any amount ≤ balance)</label>
                   <input
                     type="number"
                     value={withdrawAmount}
@@ -2239,7 +2316,7 @@ export default function BridgeDepositPanel({
                     min="0.00000546"
                     step="any"
                     className="input-field"
-                    disabled={busy || !fbtcIssuer || !hasBtc}
+                    disabled={busy || !hasBtc || (!spvLive && !fbtcIssuer)}
                   />
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>
@@ -2267,14 +2344,22 @@ export default function BridgeDepositPanel({
                   onClick={handleBridgeOut}
                   disabled={
                     busy ||
-                    !fbtcIssuer ||
                     !hasBtc ||
+                    (!spvLive && !fbtcIssuer) ||
                     withdrawAmtNum <= 0 ||
                     withdrawAmtNum > (fbtcLive ?? 0)
                   }
                   className="btn-primary flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-500"
                 >
-                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Unlock FBTC → BTC'}
+                  {busy ? (
+                    <>
+                      <Spinner /> {step ?? 'Signing…'}
+                    </>
+                  ) : spvLive ? (
+                    'SPV burn → BTC'
+                  ) : (
+                    'Unlock FBTC → BTC'
+                  )}
                 </button>
               </>
             )}

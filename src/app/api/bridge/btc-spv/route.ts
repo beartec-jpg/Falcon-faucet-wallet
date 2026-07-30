@@ -186,6 +186,8 @@ export async function POST(req: NextRequest) {
     btc_txid?: string
     network?: BtcNetwork
     vout?: number
+    account?: string
+    seq?: number
   }
   try {
     body = (await req.json()) as typeof body
@@ -194,8 +196,61 @@ export async function POST(req: NextRequest) {
   }
 
   const action = body.action || 'proof'
-  if (action !== 'proof' && action !== 'status') {
+  if (action !== 'proof' && action !== 'status' && action !== 'withdraw_status') {
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+  }
+
+  // SPV peg-out: poll BtcWithdrawal challenge window
+  if (action === 'withdraw_status') {
+    const account = (body.account || '').trim()
+    const seq = Math.floor(Number(body.seq ?? 0))
+    if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account) || seq < 1) {
+      return NextResponse.json({ error: 'Need account + seq (burn sequence)' }, { status: 400 })
+    }
+    try {
+      const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
+      const net = getNetwork(networkKey)
+      const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
+      const [wRes, srv] = await Promise.all([
+        falconRpc(
+          'ledger_entry',
+          {
+            btc_withdrawal: { account, seq },
+            ledger_index: 'validated',
+          },
+          rpcUrl,
+        ),
+        falconRpc('server_info', {}, rpcUrl),
+      ])
+      if (wRes.error === 'entryNotFound' || !wRes.node) {
+        return NextResponse.json(
+          { error: 'Withdraw object not found yet', ready: false },
+          { status: 404 },
+        )
+      }
+      const node = wRes.node as Record<string, unknown>
+      const challengeEnd = Number(node.BtcChallengeEndLedger ?? 0)
+      const status = Number(node.BtcWithdrawStatus ?? 0)
+      const amountSats = Number(node.BtcWithdrawAmount ?? 0)
+      const info = (srv.info || {}) as { validated_ledger?: { seq?: number } }
+      const currentLedger = Number(info.validated_ledger?.seq ?? 0)
+      // ready when ledger has advanced past challenge end (same as tecTOO_SOON check)
+      const ready = currentLedger > challengeEnd && (status === 0 || status === 2)
+      return NextResponse.json({
+        status,
+        challengeEndLedger: challengeEnd,
+        currentLedger,
+        amountSats,
+        ready,
+        payoutScript: node.BtcPayoutScript,
+        account: node.Account,
+      })
+    } catch (e: unknown) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : 'withdraw_status failed' },
+        { status: 502 },
+      )
+    }
   }
 
   const txid = (body.btc_txid || '').trim().toLowerCase()

@@ -507,6 +507,222 @@ export async function fetchSpvClaimMaterials(
   }
 }
 
+/** P2PKH scriptPubKey hex for BtcPayoutScript (SPV burn). */
+export function btcP2pkhScriptHex(address: string, network: BtcNetwork = 'testnet'): string {
+  const h160 = decodeP2pkhAddress(address, network)
+  const script = concatBytes(new Uint8Array([0x76, 0xa9, 0x14]), h160, new Uint8Array([0x88, 0xac]))
+  return bytesToHex(script)
+}
+
+export function randomBurnPreimageHex(bytes = 32): string {
+  const b = crypto.getRandomValues(new Uint8Array(bytes))
+  return bytesToHex(b)
+}
+
+/** Sign + submit BTCBridgeBurn (any sats ≤ MPT balance). */
+export async function submitSpvBridgeBurn(opts: {
+  falconSecret: string
+  account: string
+  networkKey: NetworkKey
+  networkId: number
+  /** Satoshis to burn / withdraw */
+  amountSats: number
+  /** Destination BTC P2PKH address (testnet m/n…) */
+  btcPayoutAddress: string
+  btcNetwork?: BtcNetwork
+  burnPreimageHex?: string
+  feeDrops?: string
+}): Promise<{ hash?: string; result?: string; burnSeq: number; preimageHex: string }> {
+  const fee = opts.feeDrops ?? '1000000'
+  const netId = networkIdForTx(opts.networkId)
+  const btcNet = opts.btcNetwork ?? 'testnet'
+  const preimageHex = (opts.burnPreimageHex || randomBurnPreimageHex(32)).replace(/^0x/i, '')
+  const payoutScript = btcP2pkhScriptHex(opts.btcPayoutAddress, btcNet)
+  const amountSats = Math.floor(opts.amountSats)
+  if (!Number.isFinite(amountSats) || amountSats < 546) {
+    throw new Error('Withdraw amount too small (dust)')
+  }
+
+  let burnSeq = 0
+  const res = await submitWithSequenceRetry({
+    networkKey: opts.networkKey,
+    fetchSequence: async () => {
+      const s = await fetchSequenceInfo(opts.account, opts.networkKey)
+      if (!s.exists) throw new Error('Falcon account not funded on ledger')
+      return { sequence: s.sequence, currentLedger: s.currentLedger }
+    },
+    sign: async ({ sequence, lastLedgerSequence }) => {
+      burnSeq = sequence
+      const tx: Record<string, unknown> = {
+        TransactionType: 'BTCBridgeBurn',
+        Account: opts.account,
+        Fee: fee,
+        Sequence: sequence,
+        LastLedgerSequence: lastLedgerSequence,
+        Flags: 0,
+        BtcWithdrawAmount: amountSats,
+        BtcPayoutScript: payoutScript.toUpperCase(),
+        BtcBurnPreimage: preimageHex.toUpperCase(),
+      }
+      if (netId !== undefined) tx.NetworkID = netId
+      const tx_blob = await signTxJson(tx, opts.falconSecret)
+      return { tx_blob }
+    },
+  })
+  return { ...res, burnSeq, preimageHex }
+}
+
+/** After challenge window: mark withdraw FINAL (user-signed). */
+export async function submitSpvWithdrawFinalize(opts: {
+  falconSecret: string
+  account: string
+  networkKey: NetworkKey
+  networkId: number
+  /** Sequence of the BTCBridgeBurn tx */
+  burnSeq: number
+  feeDrops?: string
+}): Promise<{ hash?: string; result?: string }> {
+  const fee = opts.feeDrops ?? '1000000'
+  const netId = networkIdForTx(opts.networkId)
+  try {
+    return await submitWithSequenceRetry({
+      networkKey: opts.networkKey,
+      fetchSequence: async () => {
+        const s = await fetchSequenceInfo(opts.account, opts.networkKey)
+        if (!s.exists) throw new Error('Falcon account not funded on ledger')
+        return { sequence: s.sequence, currentLedger: s.currentLedger }
+      },
+      sign: async ({ sequence, lastLedgerSequence }) => {
+        const tx: Record<string, unknown> = {
+          TransactionType: 'BTCWithdrawFinalize',
+          Account: opts.account,
+          Fee: fee,
+          Sequence: sequence,
+          LastLedgerSequence: lastLedgerSequence,
+          Flags: 0,
+          BtcWithdrawSeq: opts.burnSeq,
+        }
+        if (netId !== undefined) tx.NetworkID = netId
+        const tx_blob = await signTxJson(tx, opts.falconSecret)
+        return { tx_blob }
+      },
+    })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/tecTOO_SOON/i.test(msg)) {
+      throw new Error('Challenge window still open — wait a bit longer then finalize')
+    }
+    if (/tecDUPLICATE/i.test(msg)) {
+      return { result: 'tecDUPLICATE' }
+    }
+    throw e instanceof Error ? e : new Error(msg)
+  }
+}
+
+/** Poll withdraw object + ledger until challenge end (default 32 ledgers). */
+export async function waitSpvChallengeWindow(opts: {
+  account: string
+  burnSeq: number
+  onStep?: (msg: string) => void
+  /** Max wait ~3 min */
+  maxPolls?: number
+  intervalMs?: number
+}): Promise<{ challengeEnd: number; currentLedger: number; amountSats?: number }> {
+  const maxPolls = opts.maxPolls ?? 90
+  const intervalMs = opts.intervalMs ?? 2000
+  for (let i = 0; i < maxPolls; i++) {
+    const r = await fetch('/api/bridge/btc-spv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'withdraw_status',
+        account: opts.account,
+        seq: opts.burnSeq,
+      }),
+      cache: 'no-store',
+    })
+    const j = (await r.json().catch(() => ({}))) as {
+      error?: string
+      status?: number
+      challengeEndLedger?: number
+      currentLedger?: number
+      amountSats?: number
+      ready?: boolean
+    }
+    if (r.ok && j.ready) {
+      return {
+        challengeEnd: j.challengeEndLedger ?? 0,
+        currentLedger: j.currentLedger ?? 0,
+        amountSats: j.amountSats,
+      }
+    }
+    if (r.ok && j.challengeEndLedger != null && j.currentLedger != null) {
+      const left = Math.max(0, j.challengeEndLedger - j.currentLedger + 1)
+      opts.onStep?.(
+        `Challenge window: ~${left} Falcon ledger(s) left (${j.currentLedger}/${j.challengeEndLedger})…`,
+      )
+    } else {
+      opts.onStep?.(j.error || 'Waiting for withdraw object…')
+    }
+    await new Promise((res) => setTimeout(res, intervalMs))
+  }
+  throw new Error('Timed out waiting for SPV challenge window — try Finalize again shortly')
+}
+
+/**
+ * Full peg-out: burn MPT FBTC → wait challenge → finalize.
+ * BTC payout is completed by ops relay once status is FINAL.
+ */
+export async function spvPegOut(opts: {
+  falconSecret: string
+  account: string
+  networkKey: NetworkKey
+  networkId: number
+  amountSats: number
+  btcPayoutAddress: string
+  btcNetwork?: BtcNetwork
+  onStep?: (msg: string) => void
+}): Promise<{
+  burnHash?: string
+  burnSeq: number
+  finalizeHash?: string
+  preimageHex: string
+  amountSats: number
+}> {
+  opts.onStep?.('Burning FBTC (SPV peg-out)…')
+  const burn = await submitSpvBridgeBurn({
+    falconSecret: opts.falconSecret,
+    account: opts.account,
+    networkKey: opts.networkKey,
+    networkId: opts.networkId,
+    amountSats: opts.amountSats,
+    btcPayoutAddress: opts.btcPayoutAddress,
+    btcNetwork: opts.btcNetwork,
+  })
+  opts.onStep?.(`Burn submitted (seq ${burn.burnSeq}) — waiting challenge window…`)
+  await waitSpvChallengeWindow({
+    account: opts.account,
+    burnSeq: burn.burnSeq,
+    onStep: opts.onStep,
+  })
+  opts.onStep?.('Finalizing withdraw on Falcon…')
+  const fin = await submitSpvWithdrawFinalize({
+    falconSecret: opts.falconSecret,
+    account: opts.account,
+    networkKey: opts.networkKey,
+    networkId: opts.networkId,
+    burnSeq: burn.burnSeq,
+  })
+  opts.onStep?.('Finalize OK — BTC payout relay will send testnet BTC shortly…')
+  return {
+    burnHash: burn.hash,
+    burnSeq: burn.burnSeq,
+    finalizeHash: fin.hash,
+    preimageHex: burn.preimageHex,
+    amountSats: opts.amountSats,
+  }
+}
+
 /** Sign + submit BTCDepositClaim on Falcon. */
 export async function submitSpvDepositClaim(opts: {
   falconSecret: string
