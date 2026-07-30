@@ -72,3 +72,87 @@
     @apply shadow-[0_0_32px_rgba(224,168,74,0.28)];
   }
 }
+
+/* ── Wallet portfolio (phases 1–5) ───────────────────────────────────────── */
+@layer components {
+  .wallet-glass {
+    @apply rounded-2xl border border-slate-800/90 bg-slate-900/60 backdrop-blur-md;
+    box-shadow: 0 0 0 1px rgba(192, 120, 56, 0.04), 0 12px 40px rgba(0, 0, 0, 0.25);
+  }
+  .wallet-asset-row {
+    @apply rounded-xl border border-slate-700/70 bg-slate-800/40 px-3 py-3 transition-all duration-200;
+  }
+  .wallet-asset-row:active {
+    transform: scale(0.985);
+  }
+  .wallet-asset-row:hover {
+    @apply border-brand-500/25 bg-slate-800/60;
+    box-shadow: 0 0 24px rgba(192, 120, 56, 0.06);
+  }
+  .wallet-action-btn {
+    @apply flex-1 min-w-[4.5rem] py-2.5 px-2 rounded-xl text-xs font-semibold transition-all duration-150;
+  }
+  .wallet-tab-pill {
+    @apply flex-1 py-2.5 px-2 text-xs sm:text-sm font-semibold rounded-lg transition-all duration-200;
+  }
+  .wallet-chip {
+    @apply w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 bg-gradient-to-br shadow-inner;
+  }
+  .wallet-skeleton {
+    @apply animate-pulse rounded-lg bg-slate-800/80;
+  }
+}
+
+@keyframes wallet-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wallet-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes wallet-balance-flash {
+  0% {
+    color: rgb(224 168 74);
+  }
+  100% {
+    color: inherit;
+  }
+}
+
+.wallet-row-enter {
+  animation: wallet-row-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.wallet-panel-enter {
+  animation: wallet-fade 0.2s ease both;
+}
+
+.wallet-balance-flash {
+  animation: wallet-balance-flash 0.7s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wallet-row-enter,
+  .wallet-panel-enter,
+  .wallet-balance-flash,
+  .wallet-asset-row:active {
+    animation: none !important;
+    transform: none !important;
+  }
+  .wallet-skeleton {
+    animation: none;
+  }
+}

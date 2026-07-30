@@ -88,6 +88,13 @@ import {
   saveMultiVisibility,
   type MultiChainRowId,
 } from '@/lib/wallet-row-visibility'
+import {
+  falconRowBalance,
+  multiRowBalance,
+  parseFalconBalances,
+  tokenChipClass,
+  shortTokenLabel,
+} from '@/lib/wallet-ui'
 import { fetchSepoliaBalances, sendSepoliaEth } from '@/lib/evm-bridge-client'
 import {
   fetchBnbTestnetBalance,
@@ -376,6 +383,10 @@ export default function WalletPage() {
     btc: true,
     bnb: true,
   })
+  const [hideZeroBalances, setHideZeroBalances] = useState(false)
+  const [assetSearch, setAssetSearch] = useState('')
+  const [balanceFlash, setBalanceFlash] = useState(0)
+  const [panelKey, setPanelKey] = useState(0)
   const [bridgeInitialMode, setBridgeInitialMode] = useState<'deposit' | 'withdraw' | 'send' | 'receive'>('deposit')
   const [bridgeInitialRoute, setBridgeInitialRoute] = useState<
     'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc' | 'fbtc-btc'
@@ -399,6 +410,9 @@ export default function WalletPage() {
   useEffect(() => {
     setFalconVisible(loadFalconVisibility())
     setMultiVisible(loadMultiVisibility())
+    try {
+      if (localStorage.getItem('falcon-wallet-hide-zero-v1') === '1') setHideZeroBalances(true)
+    } catch { /* ignore */ }
   }, [])
 
   // Create-wallet form
@@ -507,6 +521,7 @@ export default function WalletPage() {
         setAccountNameStatus(null)
         cacheAccountName(address, null)
       }
+      setBalanceFlash((n) => n + 1)
 
       if (lendR.ok) {
         const lend = await lendR.json() as {
@@ -1822,43 +1837,64 @@ export default function WalletPage() {
               )}
 
               {view === 'dashboard' && (
-                <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWalletSection('falcon')
-                      refreshBalance(wallet.address)
-                    }}
-                    className={`flex-1 py-2.5 font-medium ${walletSection === 'falcon' ? 'bg-brand-500/10 text-brand-400' : 'text-slate-500'}`}
-                  >
-                    Falcon Wallet
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWalletSection('multichain')
-                      refreshBalance(wallet.address)
-                    }}
-                    className={`flex-1 py-2.5 font-medium ${walletSection === 'multichain' ? 'bg-violet-500/10 text-violet-300' : 'text-slate-500'}`}
-                  >
-                    Multi-chain
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWalletSection('bridge')
-                      setBridgeInitialMode('deposit')
-                      refreshBalance(wallet.address)
-                    }}
-                    className={`flex-1 py-2.5 font-medium ${walletSection === 'bridge' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'}`}
-                  >
-                    Bridge
-                  </button>
+                <div className="wallet-glass p-1.5 flex gap-1">
+                  {(
+                    [
+                      { id: 'falcon' as const, label: 'Falcon' },
+                      { id: 'multichain' as const, label: 'Multi-chain' },
+                      { id: 'bridge' as const, label: 'Bridge' },
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => {
+                        setWalletSection(tab.id)
+                        setPanelKey((k) => k + 1)
+                        if (tab.id === 'bridge') setBridgeInitialMode('deposit')
+                        refreshBalance(wallet.address)
+                      }}
+                      className={`wallet-tab-pill ${
+                        walletSection === tab.id
+                          ? 'bg-brand-500/15 text-brand-400 shadow-[inset_0_0_0_1px_rgba(192,120,56,0.35)]'
+                          : 'text-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Network health */}
+              {view === 'dashboard' && (walletSection === 'falcon' || walletSection === 'multichain') && (
+                <div className="flex items-center justify-between gap-2 px-1 text-[11px] text-slate-500">
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        network.live && account?.exists
+                          ? 'bg-emerald-400 animate-pulse-slow'
+                          : network.live
+                            ? 'bg-amber-400'
+                            : 'bg-slate-600'
+                      }`}
+                    />
+                    {network.live
+                      ? account?.exists
+                        ? 'Network live'
+                        : 'Network live · account not activated'
+                      : 'Network offline'}
+                  </span>
+                  {account?.currentLedger != null && (
+                    <span className="font-mono text-slate-600">
+                      ledger {account.currentLedger.toLocaleString()}
+                    </span>
+                  )}
                 </div>
               )}
 
               {view === 'dashboard' && (walletSection === 'falcon' || walletSection === 'multichain') && (
-              <div className="card p-5 space-y-4">
+              <div key={panelKey} className="wallet-glass p-5 space-y-4 wallet-panel-enter">
                 {/* Identity — Falcon Wallet only */}
                 {walletSection === 'falcon' && (
                 <div className="space-y-2">
@@ -1932,6 +1968,149 @@ export default function WalletPage() {
                   )}
                 </div>
                 )}
+
+                {/* Portfolio total + primary actions */}
+                {(() => {
+                  const fb = parseFalconBalances(account)
+                  const primaryTotal =
+                    walletSection === 'falcon'
+                      ? fb.falcon
+                      : multiRowBalance('eth', {
+                          eth: ethNativeBal != null ? Number(ethNativeBal) : null,
+                          usdc: usdcNativeBal != null ? Number(usdcNativeBal) : null,
+                          btc: btcNativeBal != null ? Number(btcNativeBal.btc) : null,
+                          bnb: bnbNativeBal != null ? Number(bnbNativeBal) : null,
+                        })
+                  const totalLabel =
+                    walletSection === 'falcon'
+                      ? primaryTotal.toLocaleString(undefined, { maximumFractionDigits: 6 })
+                      : primaryTotal == null
+                        ? '—'
+                        : primaryTotal.toLocaleString(undefined, { maximumFractionDigits: 6 })
+                  const totalUnit = walletSection === 'falcon' ? 'FALCON' : 'ETH'
+                  const emptyFalcon =
+                    walletSection === 'falcon' &&
+                    account?.exists &&
+                    fb.falcon <= 0 &&
+                    fb.fusdc <= 0 &&
+                    fb.feth <= 0 &&
+                    fb.fbtc <= 0 &&
+                    fb.fbnb <= 0
+                  return (
+                    <>
+                      <div className="rounded-xl border border-brand-500/15 bg-gradient-to-br from-brand-500/10 via-slate-900/40 to-transparent px-4 py-4">
+                        <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+                          {walletSection === 'falcon' ? 'Native balance' : 'Primary (ETH)'}
+                        </div>
+                        <div
+                          key={balanceFlash}
+                          className={`mt-1 text-3xl font-bold tracking-tight tabular-nums text-white wallet-balance-flash`}
+                        >
+                          {account == null && walletSection === 'falcon' ? (
+                            <span className="wallet-skeleton inline-block h-9 w-36 align-middle" />
+                          ) : (
+                            <>
+                              {totalLabel}{' '}
+                              <span className="text-base font-semibold text-brand-400">{totalUnit}</span>
+                            </>
+                          )}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={copyAddress}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-950/50 px-2.5 py-1 font-mono text-xs text-slate-300 hover:border-brand-500/40 hover:text-brand-300 transition-colors"
+                          >
+                            {copied ? (
+                              <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                            ) : (
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                              </svg>
+                            )}
+                            {copied ? 'Copied' : shortAddr(wallet.address)}
+                          </button>
+                          {wallet.label && (
+                            <span className="text-[11px] text-slate-500 truncate max-w-[8rem]">{wallet.label}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Primary action bar */}
+                      <div className="grid grid-cols-4 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReceiveAssetId(walletSection === 'falcon' ? 'falcon' : 'eth')
+                            setView('receive')
+                          }}
+                          className="wallet-action-btn bg-slate-800/80 hover:bg-slate-700 text-slate-100 border border-slate-700/80"
+                        >
+                          Receive
+                        </button>
+                        <button
+                          type="button"
+                          disabled={walletSection === 'falcon' && (!account?.exists || !network.live)}
+                          onClick={() => {
+                            setSendAsset(walletSection === 'falcon' ? 'falcon' : 'eth')
+                            setSendTo('')
+                            setSendAmount('')
+                            setSendResult(null)
+                            setError(null)
+                            setView('send')
+                          }}
+                          className="wallet-action-btn bg-brand-500/90 hover:bg-brand-400 text-slate-950 disabled:opacity-35"
+                        >
+                          Send
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBridgeInitialMode('deposit')
+                            setBridgeInitialRoute(
+                              walletSection === 'multichain' ? 'feth-sepolia' : 'fusdc-sepolia',
+                            )
+                            setWalletSection('bridge')
+                          }}
+                          className="wallet-action-btn bg-emerald-950/50 hover:bg-emerald-900/40 text-emerald-300 border border-emerald-500/25"
+                        >
+                          Bridge
+                        </button>
+                        <Link
+                          href="/swap"
+                          className="wallet-action-btn bg-slate-800/80 hover:bg-slate-700 text-slate-100 border border-slate-700/80 text-center"
+                        >
+                          Swap
+                        </Link>
+                      </div>
+
+                      {walletSection === 'falcon' && emptyFalcon && (
+                        <div className="rounded-xl border border-brand-500/20 bg-brand-500/5 px-4 py-4 text-center space-y-2">
+                          <p className="text-sm text-slate-300">No balances yet on Falcon.</p>
+                          <Link
+                            href="/faucet"
+                            className="inline-flex items-center justify-center px-4 py-2 rounded-xl text-sm font-semibold bg-brand-500 text-slate-950 hover:bg-brand-400"
+                          >
+                            Get FALCON from faucet
+                          </Link>
+                        </div>
+                      )}
+                      {walletSection === 'falcon' && account && !account.exists && (
+                        <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 px-4 py-3 text-center space-y-2">
+                          <p className="text-sm text-amber-100/90">Account not activated on-chain.</p>
+                          <Link
+                            href="/faucet"
+                            className="inline-flex text-sm font-semibold text-brand-400 hover:text-brand-300"
+                          >
+                            Top up via faucet →
+                          </Link>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
 
                 {/* Remove-name confirm: cooldown explained, then passkey sign */}
                 {showRemoveNameModal && accountName && (
@@ -2040,11 +2219,30 @@ export default function WalletPage() {
                 )}
 
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
-                      {walletSection === 'falcon' ? 'Falcon balances' : 'Native chain wallets'}
+                      {walletSection === 'falcon' ? 'Assets' : 'Chains & tokens'}
                     </div>
-                    {(walletSection === 'falcon' || walletSection === 'multichain') && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHideZeroBalances((v) => {
+                            const next = !v
+                            try {
+                              localStorage.setItem('falcon-wallet-hide-zero-v1', next ? '1' : '0')
+                            } catch { /* ignore */ }
+                            return next
+                          })
+                        }}
+                        className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-colors ${
+                          hideZeroBalances
+                            ? 'border-brand-500/40 bg-brand-500/10 text-brand-400'
+                            : 'border-slate-700 bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Hide zero
+                      </button>
                       <button
                         type="button"
                         onClick={() => setShowRowCustomize((v) => !v)}
@@ -2056,7 +2254,16 @@ export default function WalletPage() {
                       >
                         Customize
                       </button>
-                    )}
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="search"
+                      value={assetSearch}
+                      onChange={(e) => setAssetSearch(e.target.value)}
+                      placeholder={walletSection === 'falcon' ? 'Search assets…' : 'Search chains…'}
+                      className="w-full rounded-xl border border-slate-700/80 bg-slate-950/50 px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/40"
+                    />
                   </div>
                   {showRowCustomize && (walletSection === 'falcon' || walletSection === 'multichain') && (
                     <div className="rounded-xl border border-slate-700/80 bg-slate-900/80 p-3 space-y-2">
@@ -2150,7 +2357,16 @@ export default function WalletPage() {
                   {/* ── Falcon Ledger rows ── */}
                   {walletSection === 'falcon' && (
                   <div className="space-y-2">
-                    {FALCON_WALLET_ASSETS.filter((asset) => falconVisible[asset.id]).map((asset) => {
+                    {FALCON_WALLET_ASSETS.filter((asset) => {
+                      if (!falconVisible[asset.id]) return false
+                      const q = assetSearch.trim().toLowerCase()
+                      if (q && !asset.symbol.toLowerCase().includes(q) && !asset.subtitle.toLowerCase().includes(q)) return false
+                      if (hideZeroBalances) {
+                        const fb = parseFalconBalances(account)
+                        if (falconRowBalance(asset.id, fb) <= 0) return false
+                      }
+                      return true
+                    }).map((asset, assetIdx) => {
                       const isLive = asset.status === 'live'
                       let balanceLabel = '—'
                       let detail: ReactNode = asset.subtitle
@@ -2222,25 +2438,29 @@ export default function WalletPage() {
                       return (
                         <div
                           key={asset.id}
-                          className={`rounded-xl border px-3 py-3 ${
-                            isLive
-                              ? 'bg-slate-800/50 border-slate-700/80'
-                              : 'bg-slate-900/40 border-slate-800 opacity-80'
+                          className={`wallet-asset-row wallet-row-enter ${
+                            !isLive ? 'opacity-70' : ''
                           }`}
+                          style={{ animationDelay: `${assetIdx * 45}ms` }}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-semibold text-white">{asset.symbol}</span>
-                                {!isLive && (
-                                  <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">
-                                    Soon
-                                  </span>
-                                )}
+                            <div className="flex items-start gap-3 min-w-0">
+                              <span className={`wallet-chip ${tokenChipClass(asset.id)}`}>
+                                {shortTokenLabel(asset.id)}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold text-white">{asset.symbol}</span>
+                                  {!isLive && (
+                                    <span className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">
+                                      Soon
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-0.5 leading-snug">{detail}</div>
                               </div>
-                              <div className="text-[10px] text-slate-500 mt-0.5 leading-snug">{detail}</div>
                             </div>
-                            <div className="font-mono text-base font-semibold text-slate-100 shrink-0">
+                            <div className="font-mono text-base font-semibold text-slate-100 shrink-0 tabular-nums">
                               {balanceLabel}
                             </div>
                           </div>
@@ -2330,7 +2550,27 @@ export default function WalletPage() {
                         to create one with your passkey (used for ETH, USDC, and BNB).
                       </div>
                     )}
-                    {NATIVE_CHAIN_WALLETS.filter((chain) => multiVisible[chain.id]).map((chain) => {
+                    {NATIVE_CHAIN_WALLETS.filter((chain) => {
+                      if (!multiVisible[chain.id]) return false
+                      const q = assetSearch.trim().toLowerCase()
+                      if (
+                        q &&
+                        !chain.symbol.toLowerCase().includes(q) &&
+                        !chain.chainLabel.toLowerCase().includes(q) &&
+                        !chain.subtitle.toLowerCase().includes(q)
+                      )
+                        return false
+                      if (hideZeroBalances) {
+                        const bal = multiRowBalance(chain.id, {
+                          eth: ethNativeBal != null ? Number(ethNativeBal) : null,
+                          usdc: usdcNativeBal != null ? Number(usdcNativeBal) : null,
+                          btc: btcNativeBal != null ? Number(btcNativeBal.btc) : null,
+                          bnb: bnbNativeBal != null ? Number(bnbNativeBal) : null,
+                        })
+                        if (bal != null && bal <= 0) return false
+                      }
+                      return true
+                    }).map((chain, assetIdx) => {
                       const isLive = chain.status === 'live'
                       const hasEvmKey = hasBridgeWallet(wallet)
                       const hasBtc = hasBtcWallet(wallet)
@@ -2374,14 +2614,17 @@ export default function WalletPage() {
                       return (
                         <div
                           key={chain.id}
-                          className={`rounded-xl border px-3 py-3 ${
-                            isLive && hasKey
-                              ? 'bg-slate-800/50 border-slate-700/80'
-                              : 'bg-slate-900/40 border-slate-800 opacity-90'
+                          className={`wallet-asset-row wallet-row-enter ${
+                            !(isLive && hasKey) ? 'opacity-80' : ''
                           }`}
+                          style={{ animationDelay: `${assetIdx * 45}ms` }}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
+                            <div className="flex items-start gap-3 min-w-0">
+                              <span className={`wallet-chip ${tokenChipClass(chain.id)}`}>
+                                {shortTokenLabel(chain.id)}
+                              </span>
+                              <div className="min-w-0">
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-semibold text-white">{chain.symbol}</span>
                                 <span className="text-[10px] text-slate-500">{chain.chainLabel}</span>
@@ -2413,7 +2656,8 @@ export default function WalletPage() {
                                 </div>
                               )}
                             </div>
-                            <div className="font-mono text-base font-semibold text-slate-100 shrink-0">
+                            </div>
+                            <div className="font-mono text-base font-semibold text-slate-100 shrink-0 tabular-nums">
                               {balanceLabel}
                             </div>
                           </div>
@@ -3789,11 +4033,14 @@ export default function WalletPage() {
 
               {/* ── Transaction history ── */}
               {view === 'dashboard' && account && account.transactions.length > 0 && (
-                <div className="card divide-y divide-slate-800/60">
-                  <div className="px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Recent Transactions
+                <div className="wallet-glass divide-y divide-slate-800/60 wallet-panel-enter">
+                  <div className="px-4 py-3 flex items-center justify-between">
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                      Activity
+                    </div>
+                    <span className="text-[10px] text-slate-600">Latest {Math.min(5, account.transactions.length)}</span>
                   </div>
-                  {account.transactions.map((tx, i) => {
+                  {account.transactions.slice(0, 5).map((tx, i) => {
                     const incoming = tx.destination === wallet.address
                     const ok  = tx.result === 'tesSUCCESS'
                     const asset = tx.amountAsset ?? 'FALCON'
@@ -3834,7 +4081,8 @@ export default function WalletPage() {
                     return (
                       <div
                         key={tx.hash ?? i}
-                        className="px-4 py-3 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between"
+                        className="px-4 py-3 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between wallet-row-enter"
+                        style={{ animationDelay: `${i * 40}ms` }}
                       >
                         <div className="flex items-start gap-3 min-w-0 flex-1">
                           <div className={`w-7 h-7 flex-shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${
