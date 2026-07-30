@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
   }
 
   const action = body.action || 'proof'
-  if (action !== 'proof') {
+  if (action !== 'proof' && action !== 'status') {
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
   }
 
@@ -206,6 +206,52 @@ export async function POST(req: NextRequest) {
   const vout = Math.max(0, Math.floor(Number(body.vout ?? 0)))
 
   try {
+    const statusR = await explorerGet(`/tx/${txid}`, network)
+    if (!statusR.ok) {
+      if (statusR.status === 404) {
+        return NextResponse.json(
+          { confirmed: false, confirmations: 0, error: 'Tx not found yet' },
+          { status: 404 },
+        )
+      }
+      return NextResponse.json({ error: 'Tx status unavailable' }, { status: 502 })
+    }
+    const status = (await statusR.json()) as {
+      status?: { confirmed?: boolean; block_height?: number; block_hash?: string }
+      vout?: Array<{ value?: number; scriptpubkey_address?: string }>
+    }
+
+    let tip = 0
+    try {
+      const tipR = await explorerGet('/blocks/tip/height', network)
+      if (tipR.ok) tip = parseInt(await tipR.text(), 10) || 0
+    } catch {
+      /* ignore */
+    }
+
+    const blockHeight = status.status?.block_height ?? 0
+    const confirmed = !!status.status?.confirmed && !!status.status?.block_hash
+    const confirmations =
+      confirmed && blockHeight > 0 && tip > 0 ? Math.max(1, tip - blockHeight + 1) : 0
+
+    // Status-only: conf tracking after refresh (no merkle proof required)
+    if (action === 'status') {
+      return NextResponse.json({
+        confirmed,
+        confirmations,
+        blockHeight: confirmed ? blockHeight : undefined,
+        tip: tip || undefined,
+        blockHash: status.status?.block_hash?.replace(/^0x/i, ''),
+      })
+    }
+
+    if (!confirmed || !status.status?.block_hash) {
+      return NextResponse.json(
+        { error: 'BTC tx not confirmed yet', confirmed: false, confirmations: 0 },
+        { status: 409 },
+      )
+    }
+
     const rawR = await explorerGet(`/tx/${txid}/hex`, network)
     if (!rawR.ok) {
       return NextResponse.json(
@@ -214,21 +260,6 @@ export async function POST(req: NextRequest) {
       )
     }
     const rawTxHex = (await rawR.text()).trim().replace(/^0x/i, '')
-
-    const statusR = await explorerGet(`/tx/${txid}`, network)
-    if (!statusR.ok) {
-      return NextResponse.json({ error: 'Tx status unavailable' }, { status: 502 })
-    }
-    const status = (await statusR.json()) as {
-      status?: { confirmed?: boolean; block_height?: number; block_hash?: string }
-      vout?: Array<{ value?: number; scriptpubkey_address?: string }>
-    }
-    if (!status.status?.confirmed || !status.status.block_hash) {
-      return NextResponse.json(
-        { error: 'BTC tx not confirmed yet', confirmed: false },
-        { status: 409 },
-      )
-    }
 
     const proofR = await explorerGet(`/tx/${txid}/merkle-proof`, network)
     if (!proofR.ok) {
@@ -239,20 +270,6 @@ export async function POST(req: NextRequest) {
     const merkleProofHex = siblings.map((h) => h.toLowerCase().replace(/^0x/i, '')).join('')
     const txIndex = proof.pos ?? 0
     const blockHash = status.status.block_hash.replace(/^0x/i, '')
-    const blockHeight = status.status.block_height ?? 0
-
-    let confirmations = 1
-    try {
-      const tipR = await explorerGet('/blocks/tip/height', network)
-      if (tipR.ok) {
-        const tip = parseInt(await tipR.text(), 10)
-        if (Number.isFinite(tip) && blockHeight > 0) {
-          confirmations = Math.max(1, tip - blockHeight + 1)
-        }
-      }
-    } catch {
-      /* ignore */
-    }
 
     return NextResponse.json({
       rawTxHex,
@@ -262,6 +279,7 @@ export async function POST(req: NextRequest) {
       vout,
       confirmations,
       blockHeight,
+      confirmed: true,
     })
   } catch (e: unknown) {
     return NextResponse.json(

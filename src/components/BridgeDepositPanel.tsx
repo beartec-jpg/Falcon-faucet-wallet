@@ -24,7 +24,22 @@ import {
 } from '@/lib/evm-bridge-client'
 import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
 import { sendBtcP2pkh, fetchBtcBalance } from '@/lib/btc-client'
-import { fetchSpvStatus, spvPegIn, type SpvStatus } from '@/lib/btc-spv-client'
+import {
+  fetchSpvClaimMaterials,
+  fetchSpvStatus,
+  spvPegIn,
+  submitSpvDepositClaim,
+  type SpvStatus,
+} from '@/lib/btc-spv-client'
+import {
+  clearSpvPending,
+  createSpvPending,
+  getSpvPending,
+  hasOpenSpvBridge,
+  pollSpvConfirmations,
+  type SpvPendingDeposit,
+  updateSpvPending,
+} from '@/lib/btc-spv-pending'
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
 import {
   signBridgeWithdraw,
@@ -243,6 +258,8 @@ export default function BridgeDepositPanel({
   const [fxrpLive, setFxrpLive] = useState<number | null>(null)
   const [xrplBal, setXrplBal] = useState<string | null>(null)
   const [spvStatus, setSpvStatus] = useState<SpvStatus | null>(null)
+  const [spvPending, setSpvPending] = useState<SpvPendingDeposit | null>(null)
+  const [spvResumeTxid, setSpvResumeTxid] = useState('')
   const [trustLineResult, setTrustLineResult] = useState<{ ok: boolean; msg: string } | null>(null)
   /** Live bridge routes — honour initialRoute from Falcon / Multi-chain buttons */
   const [bridgeRoute, setBridgeRoute] = useState<BridgeRouteId>(() => {
@@ -315,11 +332,15 @@ export default function BridgeDepositPanel({
         : isFethRoute
           ? fethReady
           : bridgeReady
-  const canBridgeIn = isFbtcRoute
-    ? hasBtc && fbtcReady && (spvLive || (hasFbtcTrustLine && !!activeIssuer))
-    : isFxrpRoute
-      ? hasXrpl && fxrpReady && hasFxrpTrustLine && !!activeIssuer
-      : activeTrust && !!activeIssuer && activeLockReady
+  const openSpvBlocksIn =
+    isFbtcRoute && direction === 'deposit' && !!spvPending && spvPending.status !== 'claimed'
+  const canBridgeIn = openSpvBlocksIn
+    ? false
+    : isFbtcRoute
+      ? hasBtc && fbtcReady && (spvLive || (hasFbtcTrustLine && !!activeIssuer))
+      : isFxrpRoute
+        ? hasXrpl && fxrpReady && hasFxrpTrustLine && !!activeIssuer
+        : activeTrust && !!activeIssuer && activeLockReady
   const assetLabel = isFbtcRoute
     ? 'FBTC'
     : isFxrpRoute
@@ -502,6 +523,67 @@ export default function BridgeDepositPanel({
       clearInterval(t)
     }
   }, [bridgeCfg])
+
+  // Restore open SPV job after refresh + seed known in-flight deposit for this wallet
+  useEffect(() => {
+    let p = getSpvPending(wallet.address)
+    // Recover the deposit that already left the wallet (pre-persistence fix)
+    if (!p && wallet.address === 'rKqqPLMJkCqZPXotoGQBjGdZiPYQvCAzcN') {
+      p = createSpvPending({
+        falconAccount: wallet.address,
+        txid: 'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524',
+        watchVout: 0,
+        watchAddress: 'mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik',
+        amountSats: 110_000,
+        minConfirmations: 6,
+        btcNetwork: 'testnet',
+      })
+    }
+    setSpvPending(p)
+  }, [wallet.address])
+
+  // Poll confirmations for open SPV bridge (survives refresh)
+  useEffect(() => {
+    if (!spvPending || spvPending.status === 'claimed') return
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const st = await pollSpvConfirmations(spvPending.txid, spvPending.btcNetwork)
+        if (cancelled) return
+        const conf = st.confirmations
+        let status = spvPending.status
+        if (spvPending.status === 'claimed') return
+        if (conf >= spvPending.minConfirmations) {
+          status = spvPending.status === 'claiming' ? 'claiming' : 'ready_to_claim'
+        } else {
+          status = 'waiting_confs'
+        }
+        const next = updateSpvPending(wallet.address, {
+          confirmations: conf,
+          status,
+          lastError: undefined,
+        })
+        if (next) setSpvPending({ ...next })
+      } catch (e) {
+        if (cancelled) return
+        const msg = e instanceof Error ? e.message : String(e)
+        const next = updateSpvPending(wallet.address, { lastError: msg })
+        if (next) setSpvPending({ ...next })
+      }
+    }
+    void tick()
+    const id = setInterval(() => void tick(), 15_000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [
+    spvPending?.txid,
+    spvPending?.status,
+    spvPending?.minConfirmations,
+    spvPending?.btcNetwork,
+    wallet.address,
+  ])
 
   useEffect(() => {
     if (bridgeRoute !== 'fbtc-btc' || !wallet.btcAddress) return
@@ -950,6 +1032,100 @@ export default function BridgeDepositPanel({
     }
   }
 
+  const handleSpvCompleteClaim = async () => {
+    if (!spvPending || spvPending.status === 'claimed') return
+    if (spvPending.confirmations < spvPending.minConfirmations) {
+      setError(
+        `Need ${spvPending.minConfirmations} confirmations (have ${spvPending.confirmations})`,
+      )
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setStep('Passkey to submit BTCDepositClaim…')
+    updateSpvPending(wallet.address, { status: 'claiming' })
+    setSpvPending((p) => (p ? { ...p, status: 'claiming' } : p))
+    try {
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+      const materials = await fetchSpvClaimMaterials(
+        spvPending.txid,
+        spvPending.btcNetwork,
+        spvPending.watchVout,
+      )
+      const claim = await submitSpvDepositClaim({
+        falconSecret: falcon_secret,
+        account: wallet.address,
+        networkKey,
+        networkId: network.networkId,
+        materials,
+      })
+      const done = updateSpvPending(wallet.address, {
+        status: 'claimed',
+        claimHash: claim.hash,
+        confirmations: materials.confirmations,
+        lastError: undefined,
+      })
+      if (done) setSpvPending({ ...done })
+      setResult({
+        depositHash: spvPending.txid,
+        depositId: claim.hash ? `SPV mint claim ${claim.hash}` : 'SPV claim submitted',
+      })
+      setTimeout(() => {
+        refreshFusdcBalance()
+        onFalconRefresh?.()
+      }, 5_000)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Claim failed'
+      updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: msg })
+      setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: msg } : p))
+      setError(msg)
+    } finally {
+      setBusy(false)
+      setStep(null)
+    }
+  }
+
+  const handleSpvResumeTxid = () => {
+    const txid = spvResumeTxid.trim().toLowerCase()
+    if (!/^[0-9a-f]{64}$/.test(txid)) {
+      setError('Paste a valid 64-char BTC txid')
+      return
+    }
+    if (hasOpenSpvBridge(wallet.address) && getSpvPending(wallet.address)?.txid !== txid) {
+      setError('Finish or clear the open bridge before resuming another txid')
+      return
+    }
+    const minConf = Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6
+    const pending = createSpvPending({
+      falconAccount: wallet.address,
+      txid,
+      watchAddress: spvStatus?.watchAddress || fbtcCustody,
+      amountSats: 0,
+      minConfirmations: minConf,
+      btcNetwork: spvStatus?.btcNetwork || 'testnet',
+    })
+    setSpvPending(pending)
+    setSpvResumeTxid('')
+    setError(null)
+    setBridgeRoute('fbtc-btc')
+    setDirection('deposit')
+  }
+
+  const handleSpvClearPending = () => {
+    if (!spvPending) return
+    if (
+      spvPending.status !== 'claimed' &&
+      !window.confirm(
+        'Clear open SPV bridge tracking? Only do this if the BTC tx failed or you already claimed FBTC.',
+      )
+    ) {
+      return
+    }
+    clearSpvPending(wallet.address)
+    setSpvPending(null)
+  }
+
   const handleTrustLine = async () => {
     if (!activeIssuer || !network.live) return
     setBusy(true)
@@ -1072,6 +1248,11 @@ export default function BridgeDepositPanel({
       }
     }
 
+    if (isFbtcRoute && direction === 'deposit' && hasOpenSpvBridge(wallet.address)) {
+      setError('An SPV bridge is already open — wait for confirmations / claim before starting another')
+      return
+    }
+
     setBusy(true)
     setError(null)
     setResult(null)
@@ -1093,6 +1274,7 @@ export default function BridgeDepositPanel({
         if (spvLive && spvStatus?.watchAddress) {
           setStep('SPV: unlock Falcon key + send BTC deposit…')
           const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+          const minConf = Number(spvStatus.bridge?.minConfirmations ?? 6) || 6
           try {
             const peg = await spvPegIn({
               btcPrivateKeyHex: btcPk,
@@ -1103,17 +1285,34 @@ export default function BridgeDepositPanel({
               networkKey,
               networkId: network.networkId,
               btcNetwork: spvStatus.btcNetwork || 'testnet',
-              minConfirmations: Number(spvStatus.bridge?.minConfirmations ?? 6) || 6,
+              minConfirmations: minConf,
               onStep: (m) => setStep(m),
-              // Show BTC tx immediately so a later claim/fetch glitch never looks like “nothing happened”
               onDepositBroadcast: (d) => {
+                const pending = createSpvPending({
+                  falconAccount: wallet.address,
+                  txid: d.txid,
+                  watchVout: 0,
+                  watchAddress: spvStatus.watchAddress!,
+                  amountSats: d.amountSats,
+                  minConfirmations: minConf,
+                  btcNetwork: spvStatus.btcNetwork || 'testnet',
+                })
+                setSpvPending(pending)
                 setResult({
                   depositHash: d.txid,
-                  depositId: `BTC sent — waiting ${spvStatus.bridge?.minConfirmations ?? 6} confs then auto-claim`,
+                  depositId: `BTC sent — ${minConf} confs required (survives refresh)`,
                 })
                 setAmount('')
               },
             })
+            if (peg.claimHash) {
+              const done = updateSpvPending(wallet.address, {
+                status: 'claimed',
+                claimHash: peg.claimHash,
+                confirmations: minConf,
+              })
+              if (done) setSpvPending({ ...done })
+            }
             setResult({
               depositHash: peg.depositTxid,
               depositId: peg.claimHash
@@ -1122,9 +1321,19 @@ export default function BridgeDepositPanel({
             })
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e)
-            // Prefer structured recovery if BTC already left the wallet
             const txm = msg.match(/\b([0-9a-f]{64})\b/i)
             if (txm) {
+              if (!getSpvPending(wallet.address)) {
+                const pending = createSpvPending({
+                  falconAccount: wallet.address,
+                  txid: txm[1],
+                  watchAddress: spvStatus.watchAddress,
+                  amountSats,
+                  minConfirmations: minConf,
+                  btcNetwork: spvStatus.btcNetwork || 'testnet',
+                })
+                setSpvPending(pending)
+              }
               setResult({
                 depositHash: txm[1],
                 depositId: msg,
@@ -1305,6 +1514,130 @@ export default function BridgeDepositPanel({
           <span className="font-semibold">Testnet · custodial bridge.</span> Mint and release use an off-chain
           relay + multi-sig lock — not fully trustless (SPV path for BTC when enabled).
         </div>
+
+        {/* Open SPV peg-in (survives refresh) */}
+        {spvPending && spvPending.status !== 'claimed' && (
+          <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-4 space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-orange-200">Open SPV bridge (BTC → FBTC)</div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  New Bridge In is blocked until this finishes. State survives page refresh.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleSpvClearPending}
+                className="text-[10px] text-slate-500 hover:text-slate-300 shrink-0"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="text-xs font-mono text-slate-300 break-all">
+              <a
+                href={spvPending.explorerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-brand-400 hover:underline"
+              >
+                {spvPending.txid}
+              </a>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-2 rounded-full bg-slate-800 overflow-hidden">
+                <div
+                  className="h-full bg-orange-400 transition-all duration-500"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      (100 * spvPending.confirmations) / Math.max(1, spvPending.minConfirmations),
+                    )}%`,
+                  }}
+                />
+              </div>
+              <div className="text-sm font-bold tabular-nums text-orange-200 shrink-0">
+                {spvPending.confirmations}/{spvPending.minConfirmations}
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              {spvPending.status === 'waiting_confs' &&
+                `Waiting for Bitcoin confirmations (${spvPending.confirmations} of ${spvPending.minConfirmations})…`}
+              {spvPending.status === 'ready_to_claim' &&
+                'Confirmations reached — complete the Falcon claim (passkey).'}
+              {spvPending.status === 'claiming' && 'Submitting claim…'}
+              {spvPending.status === 'broadcast' && 'Broadcast recorded — polling…'}
+              {spvPending.status === 'failed' && (spvPending.lastError || 'Failed')}
+            </p>
+            {spvPending.lastError && spvPending.status !== 'failed' && (
+              <p className="text-[10px] text-amber-400/90">{spvPending.lastError}</p>
+            )}
+            {spvPending.confirmations >= spvPending.minConfirmations ? (
+              <button
+                type="button"
+                onClick={handleSpvCompleteClaim}
+                disabled={busy || spvPending.status === 'claiming'}
+                className="btn-primary w-full bg-orange-500 hover:bg-orange-400 text-slate-950"
+              >
+                {busy ? (
+                  <>
+                    <Spinner /> {step ?? 'Claiming…'}
+                  </>
+                ) : (
+                  'Complete claim → mint FBTC'
+                )}
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-orange-300/90">
+                <Spinner className="w-3.5 h-3.5" />
+                Tracking confirmations — leave this tab or come back later
+              </div>
+            )}
+          </div>
+        )}
+
+        {spvPending?.status === 'claimed' && (
+          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3 space-y-1">
+            <div className="text-sm font-medium text-emerald-300">SPV bridge complete</div>
+            <p className="text-[11px] text-slate-400 break-all">
+              BTC {spvPending.txid.slice(0, 16)}… · claim {spvPending.claimHash?.slice(0, 16) || 'ok'}…
+            </p>
+            <button
+              type="button"
+              onClick={handleSpvClearPending}
+              className="text-xs text-brand-400"
+            >
+              Dismiss — allow next bridge
+            </button>
+          </div>
+        )}
+
+        {/* Resume tracking if deposit already broadcast (no open job) */}
+        {spvLive && isFbtcRoute && direction === 'deposit' && !spvPending && (
+          <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3 space-y-2">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+              Resume SPV deposit
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Already sent BTC with OP_RETURN? Paste the txid to track confs and claim (blocks a second bridge).
+            </p>
+            <div className="flex gap-2">
+              <input
+                className="input-field font-mono text-xs flex-1"
+                placeholder="BTC txid (64 hex)"
+                value={spvResumeTxid}
+                onChange={(e) => setSpvResumeTxid(e.target.value.trim())}
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                onClick={handleSpvResumeTxid}
+                className="px-3 rounded-xl border border-slate-600 text-xs text-slate-200 shrink-0"
+              >
+                Track
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* 1) Direction */}
         {canUseBridge && (
@@ -1944,8 +2277,14 @@ export default function BridgeDepositPanel({
                     min="0.000001"
                     step="any"
                     className="input-field"
-                    disabled={busy || !activeLockReady || !canBridgeIn}
+                    disabled={busy || !activeLockReady || !canBridgeIn || openSpvBlocksIn}
                   />
+                  {openSpvBlocksIn && (
+                    <p className="text-[11px] text-orange-300/90">
+                      Bridge In locked — open SPV job above ({spvPending?.confirmations}/
+                      {spvPending?.minConfirmations} confs).
+                    </p>
+                  )}
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>
                       {isFbtcRoute
@@ -2005,6 +2344,7 @@ export default function BridgeDepositPanel({
                   onClick={handleDeposit}
                   disabled={
                     busy ||
+                    openSpvBlocksIn ||
                     !activeLockReady ||
                     !canBridgeIn ||
                     amtNum <= 0 ||
@@ -2016,12 +2356,28 @@ export default function BridgeDepositPanel({
                   }
                   className="btn-primary flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500"
                 >
-                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : isFbtcRoute ? 'Bridge BTC → FBTC' : 'Bridge'}
+                  {busy ? (
+                    <>
+                      <Spinner /> {step ?? 'Signing…'}
+                    </>
+                  ) : openSpvBlocksIn ? (
+                    `Waiting confs ${spvPending?.confirmations ?? 0}/${spvPending?.minConfirmations ?? 6}`
+                  ) : isFbtcRoute ? (
+                    'Bridge BTC → FBTC'
+                  ) : (
+                    'Bridge'
+                  )}
                 </button>
-                {!canBridgeIn && (
-                  <p className="text-[10px] text-amber-400/90">
-                    Add the {assetLabel} trust line above to enable Bridge In.
+                {openSpvBlocksIn ? (
+                  <p className="text-[10px] text-orange-300/90">
+                    Finish the open SPV bridge (panel above) before another Bridge In.
                   </p>
+                ) : (
+                  !canBridgeIn && (
+                    <p className="text-[10px] text-amber-400/90">
+                      Add the {assetLabel} trust line above to enable Bridge In.
+                    </p>
+                  )
                 )}
 
                 {activeLockReady && !isFbtcRoute && (

@@ -1,0 +1,150 @@
+/**
+ * Persist open SPV peg-in jobs so confirmations survive page refresh.
+ * One open job per Falcon account (blocks overlapping bridges).
+ */
+
+export type SpvPendingStatus =
+  | 'broadcast'
+  | 'waiting_confs'
+  | 'ready_to_claim'
+  | 'claiming'
+  | 'claimed'
+  | 'failed'
+
+export interface SpvPendingDeposit {
+  v: 1
+  falconAccount: string
+  txid: string
+  watchVout: number
+  watchAddress: string
+  amountSats: number
+  minConfirmations: number
+  btcNetwork: 'testnet' | 'mainnet'
+  explorerUrl: string
+  status: SpvPendingStatus
+  confirmations: number
+  claimHash?: string
+  lastError?: string
+  createdAt: number
+  updatedAt: number
+}
+
+const KEY = 'falcon-spv-pending-v1'
+
+function readAll(): Record<string, SpvPendingDeposit> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(KEY)
+    if (!raw) return {}
+    const j = JSON.parse(raw) as Record<string, SpvPendingDeposit>
+    return j && typeof j === 'object' ? j : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeAll(map: Record<string, SpvPendingDeposit>) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(KEY, JSON.stringify(map))
+}
+
+export function getSpvPending(falconAccount: string): SpvPendingDeposit | null {
+  const p = readAll()[falconAccount]
+  if (!p || p.v !== 1) return null
+  // Drop completed claims after 24h
+  if (p.status === 'claimed' && Date.now() - p.updatedAt > 24 * 3600_000) {
+    clearSpvPending(falconAccount)
+    return null
+  }
+  return p
+}
+
+/** True if this account has an unfinished peg-in (blocks new bridge-in). */
+export function hasOpenSpvBridge(falconAccount: string): boolean {
+  const p = getSpvPending(falconAccount)
+  if (!p) return false
+  return p.status !== 'claimed'
+}
+
+export function saveSpvPending(p: SpvPendingDeposit): void {
+  const map = readAll()
+  map[p.falconAccount] = { ...p, updatedAt: Date.now() }
+  writeAll(map)
+}
+
+export function updateSpvPending(
+  falconAccount: string,
+  patch: Partial<SpvPendingDeposit>,
+): SpvPendingDeposit | null {
+  const cur = getSpvPending(falconAccount)
+  if (!cur) return null
+  const next = { ...cur, ...patch, updatedAt: Date.now() }
+  saveSpvPending(next)
+  return next
+}
+
+export function clearSpvPending(falconAccount: string): void {
+  const map = readAll()
+  delete map[falconAccount]
+  writeAll(map)
+}
+
+export function createSpvPending(input: {
+  falconAccount: string
+  txid: string
+  watchVout?: number
+  watchAddress: string
+  amountSats: number
+  minConfirmations: number
+  btcNetwork?: 'testnet' | 'mainnet'
+}): SpvPendingDeposit {
+  const btcNetwork = input.btcNetwork ?? 'testnet'
+  const now = Date.now()
+  const p: SpvPendingDeposit = {
+    v: 1,
+    falconAccount: input.falconAccount,
+    txid: input.txid.toLowerCase(),
+    watchVout: input.watchVout ?? 0,
+    watchAddress: input.watchAddress,
+    amountSats: input.amountSats,
+    minConfirmations: input.minConfirmations,
+    btcNetwork,
+    explorerUrl:
+      btcNetwork === 'testnet'
+        ? `https://mempool.space/testnet/tx/${input.txid}`
+        : `https://mempool.space/tx/${input.txid}`,
+    status: 'waiting_confs',
+    confirmations: 0,
+    createdAt: now,
+    updatedAt: now,
+  }
+  saveSpvPending(p)
+  return p
+}
+
+/** Poll confirmations (same-origin API). */
+export async function pollSpvConfirmations(
+  txid: string,
+  network: 'testnet' | 'mainnet' = 'testnet',
+): Promise<{ confirmed: boolean; confirmations: number; blockHeight?: number }> {
+  const r = await fetch('/api/bridge/btc-spv', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'status', btc_txid: txid, network }),
+    cache: 'no-store',
+  })
+  const j = (await r.json()) as {
+    confirmed?: boolean
+    confirmations?: number
+    blockHeight?: number
+    error?: string
+  }
+  if (!r.ok && r.status !== 409) {
+    throw new Error(j.error || `Status ${r.status}`)
+  }
+  return {
+    confirmed: !!j.confirmed,
+    confirmations: typeof j.confirmations === 'number' ? j.confirmations : 0,
+    blockHeight: j.blockHeight,
+  }
+}
