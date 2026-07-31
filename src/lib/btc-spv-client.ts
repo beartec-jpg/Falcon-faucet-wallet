@@ -731,6 +731,8 @@ export async function submitSpvDepositClaim(opts: {
   networkId: number
   materials: SpvClaimMaterials
   feeDrops?: string
+  /** BitVM vault witness script hex (required for P2WSH vault deposits) */
+  vaultScriptHex?: string
 }): Promise<{ hash?: string; result?: string }> {
   const fee = opts.feeDrops ?? '1000000'
   const netId = networkIdForTx(opts.networkId)
@@ -757,6 +759,9 @@ export async function submitSpvDepositClaim(opts: {
           BtcTxIndex: opts.materials.txIndex,
           BtcBlockHash: opts.materials.blockHash.toUpperCase(),
           BtcVout: opts.materials.vout,
+        }
+        if (opts.vaultScriptHex) {
+          tx.BtcVaultScript = opts.vaultScriptHex.replace(/^0x/i, '').toUpperCase()
         }
         if (netId !== undefined) tx.NetworkID = netId
         const tx_blob = await signTxJson(tx, opts.falconSecret)

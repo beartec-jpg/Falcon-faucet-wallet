@@ -961,9 +961,10 @@ export default function BridgeDepositPanel({
         const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
         const amountStr = String(Math.round(amt * 1e8) / 1e8)
 
-        // SPV light-client peg-out when bridge is live (MPT FBTC)
+        // SPV non-custodial peg-out (BitVM vault): burn + finalize on Falcon.
+        // BTC is claimed by the USER from a vault UTXO — not paid by ops custody.
         if (spvLive) {
-          setStep('Signing…')
+          setStep('SPV peg-out: burn FBTC (non-custodial)…')
           const peg = await spvPegOut({
             falconSecret: falcon_secret,
             account: wallet.address,
@@ -980,8 +981,24 @@ export default function BridgeDepositPanel({
             sepoliaRecipient: wallet.btcAddress,
           })
           setWithdrawAmount('')
+          try {
+            localStorage.setItem(
+              `falcon-spv-burn-${wallet.address}-${peg.burnSeq}`,
+              JSON.stringify({
+                preimageHex: peg.preimageHex,
+                amountSats: peg.amountSats,
+                burnHash: peg.burnHash,
+                finalizeHash: peg.finalizeHash,
+                payout: wallet.btcAddress,
+              }),
+            )
+          } catch {
+            /* ignore */
+          }
           setReleaseStatus('pending')
-          setStep(null)
+          setStep(
+            'Falcon burn+finalize complete. BTC exit is user vault claim (no custody key) — vault peg-in must back this burn.',
+          )
           setTimeout(() => {
             onFalconRefresh?.()
             refreshFusdcBalance()

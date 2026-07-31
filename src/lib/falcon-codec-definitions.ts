@@ -181,6 +181,7 @@ const QXRP_FIELDS: FieldEntry[] = [
   ['BtcMerkleProof', { isSerialized: true, isSigningField: true, isVLEncoded: true, nth: 40, type: 'Blob' }],
   ['BtcPayoutScript', { isSerialized: true, isSigningField: true, isVLEncoded: true, nth: 41, type: 'Blob' }],
   ['BtcBurnPreimage', { isSerialized: true, isSigningField: true, isVLEncoded: true, nth: 42, type: 'Blob' }],
+  ['BtcVaultScript', { isSerialized: true, isSigningField: true, isVLEncoded: true, nth: 43, type: 'Blob' }],
 ]
 
 const QXRP_TRANSACTION_TYPES: Record<string, number> = {
@@ -268,6 +269,7 @@ const QXRP_TRANSACTION_FORMATS: Record<string, TxFormatEntry[]> = {
     { name: 'BtcTxIndex', optionality: 0 },
     { name: 'BtcBlockHash', optionality: 0 },
     { name: 'BtcVout', optionality: 0 },
+    { name: 'BtcVaultScript', optionality: 1 },
   ],
   BTCBridgeBurn: [
     { name: 'BtcWithdrawAmount', optionality: 0 },
