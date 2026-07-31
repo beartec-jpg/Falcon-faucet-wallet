@@ -1256,7 +1256,7 @@ export default function BridgeDepositPanel({
       !isDead &&
       spvPending.status !== 'claimed' &&
       !window.confirm(
-        'Dismiss this deposit tracker?',
+        'Dismiss this deposit tracker?\n\nThis only hides tracking — it does not cancel the BTC deposit.',
       )
     ) {
       return
