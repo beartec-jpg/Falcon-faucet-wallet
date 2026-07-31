@@ -28,12 +28,12 @@ const SERVER_COMMANDS: CommandRow[] = [
 ]
 
 const STEPS = [
-  { n: 1, title: 'Create a Falcon wallet', body: 'Open the Wallet tab and create a passkey-secured wallet. Back up your falcon_secret.' },
-  { n: 2, title: `Claim ${DRIP_AMOUNT.toLocaleString()} FALCON from the faucet`, body: 'Use the Faucet tab (or Wallet → Top up). One drip per day per IP/account gives enough for bonding.' },
-  { n: 3, title: 'Copy the one-liner', body: 'In Wallet → Run Validator, copy the install command. Your wallet address is auto-filled as --payout.' },
+  { n: 1, title: 'Create a Falcon wallet', body: 'Open Wallet and create a passkey-secured wallet. Back up your falcon_secret.' },
+  { n: 2, title: `Claim ${DRIP_AMOUNT.toLocaleString()} FALCON from the faucet`, body: 'Use Faucet (or Falcon wallet → Top up). One drip per day per IP/account is enough to fund bonding.' },
+  { n: 3, title: 'Copy the one-liner', body: 'Copy the install command below. Put your Falcon wallet address as --payout.' },
   { n: 4, title: 'Run on Ubuntu VPS', body: 'Paste into an Ubuntu 22.04/24.04 server with port 51235/TCP open. Docker installs automatically.' },
   { n: 5, title: 'Fund the validator address', body: 'The installer prints a NEW validator r-address. Send ≥1,100 FALCON there (from your wallet or another drip tomorrow).' },
-  { n: 6, title: 'Auto-bond + rewards', body: 'Installer polls until funded, submits ValidatorRegister + Bond(1000), and sets up hourly ClaimReward cron.' },
+  { n: 6, title: 'Auto-bond + rewards', body: 'Installer polls until funded, submits ValidatorRegister + Bond(1000), and sets up hourly ClaimReward cron. Claim extras from Community → Rewards.' },
 ]
 
 function CopyBtn({ text }: { text: string }) {
@@ -60,10 +60,14 @@ export default function ValidatorGuidePage() {
 
   return (
     <ProductShell intensity={0.4}>
-      <Header current="wallet" subtitle="Validator guide" />
+      <Header current="community" subtitle="Validator guide" />
 
       <main className="flex-1 px-4 py-8 max-w-3xl mx-auto w-full space-y-6">
         <div>
+          <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-slate-500 mb-2">
+            <Link href="/community" className="hover:text-brand-400">Community</Link>
+            {' · '}Validators
+          </p>
           <h1 className="text-2xl font-bold text-white">Run a <span className="text-cyan-400">Validator</span></h1>
           <p className="text-sm text-slate-400 mt-1">
             {NETWORK_NAME} · Network ID 1001 · Bond 1,000 FALCON · Faucet drip {DRIP_AMOUNT.toLocaleString()} FALCON
@@ -88,15 +92,25 @@ export default function ValidatorGuidePage() {
               </li>
             ))}
           </ol>
-          <Link href="/wallet" className="inline-block text-sm text-brand-400 hover:text-brand-300">
-            Open Wallet → Run Validator panel →
-          </Link>
+          <div className="flex flex-wrap gap-3 pt-1">
+            <Link href="/wallet" className="text-sm text-brand-400 hover:text-brand-300">
+              Open Wallet →
+            </Link>
+            <Link href="/faucet" className="text-sm text-brand-400 hover:text-brand-300">
+              Open Faucet →
+            </Link>
+            <Link href="/rewards" className="text-sm text-brand-400 hover:text-brand-300">
+              Claim rewards →
+            </Link>
+          </div>
         </section>
 
         {/* One-liner template */}
         <section className="card p-5 space-y-2">
           <h2 className="text-sm font-semibold text-white uppercase tracking-wide">One-liner template</h2>
-          <p className="text-xs text-slate-500">Replace <code className="text-slate-400">rYourWalletAddress</code> with your Falcon wallet address (auto-filled in the Wallet panel).</p>
+          <p className="text-xs text-slate-500">
+            Replace <code className="text-slate-400">rYourWalletAddress</code> with your Falcon wallet address from Wallet.
+          </p>
           <div className="relative">
             <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-[11px] text-emerald-300 font-mono whitespace-pre-wrap break-all pr-12">{oneLiner}</pre>
             <div className="absolute top-2 right-2"><CopyBtn text={oneLiner} /></div>
@@ -156,7 +170,7 @@ export default function ValidatorGuidePage() {
         </section>
 
         <p className="text-center text-xs text-slate-600 pb-8">
-          <Link href="/wallet" className="hover:text-slate-400">← Back to Wallet</Link>
+          <Link href="/community" className="hover:text-slate-400">← Back to Community</Link>
         </p>
       </main>
     </ProductShell>

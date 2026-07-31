@@ -29,6 +29,30 @@ function SocialIcon({ id }: { id: string }) {
   )
 }
 
+const VALIDATOR_LINKS = [
+  {
+    href: '/validator',
+    title: 'Run a Validator',
+    description: 'Bond FALCON, install the node one-liner, and secure the network.',
+    cta: 'Guide',
+    primary: true,
+  },
+  {
+    href: '/rewards',
+    title: 'Claim validator rewards',
+    description: 'Import validator credentials and claim epoch rewards.',
+    cta: 'Rewards',
+    primary: false,
+  },
+  {
+    href: '/faucet',
+    title: 'Fund with FALCON faucet',
+    description: 'Get testnet FALCON for bonding (≥1,100 needed on the validator address).',
+    cta: 'Faucet',
+    primary: false,
+  },
+] as const
+
 export default function CommunityPage() {
   const socials = activeCommunitySocials()
 
@@ -55,7 +79,7 @@ export default function CommunityPage() {
               Join the Falcon community
             </h1>
             <p className="text-base sm:text-lg text-slate-400 max-w-lg mx-auto leading-relaxed">
-              Connect on socials, or join the network as a validator. Pick a path below.
+              Connect on socials, or run a validator and claim rewards — all in one place.
             </p>
           </div>
         </section>
@@ -100,46 +124,68 @@ export default function CommunityPage() {
           </div>
 
           <div className="mt-8 pt-8 border-t border-slate-800/80">
-            <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-slate-500 mb-4 text-center">
-              Participate
+            <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-slate-500 mb-2 text-center">
+              Validators
             </p>
-            <Link
-              href="/validator"
-              className="group flex items-center gap-4 sm:gap-5 p-5 sm:p-6 rounded-2xl border border-brand-500/30 bg-gradient-to-br from-brand-500/10 via-slate-900/70 to-slate-950/90 backdrop-blur-md hover:border-brand-400/50 transition-all shadow-[0_0_32px_rgba(192,120,56,0.08)] hover:shadow-[0_0_40px_rgba(192,120,56,0.14)]"
-            >
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-brand-500/35 bg-brand-500/15 text-brand-400 group-hover:text-brand-300 transition-colors">
-                <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 12.5V6a2 2 0 012-2h10a2 2 0 012 2v6.5" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 12.5h16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 16.5v2M15 16.5v2M8 20h8" />
-                  <circle cx="12" cy="9" r="1.5" fill="currentColor" stroke="none" />
-                </svg>
-              </span>
-              <span className="min-w-0 flex-1 text-left">
-                <span className="block text-lg font-semibold text-white group-hover:text-brand-400 transition-colors">
-                  Run a Validator
-                </span>
-                <span className="block text-sm text-slate-500 mt-0.5 leading-relaxed">
-                  Secure the network, bond FALCON, and earn epoch rewards. Step-by-step guide for VPS setup.
-                </span>
-              </span>
-              <span className="shrink-0 text-sm font-semibold text-brand-500 group-hover:text-brand-400 flex items-center gap-1.5">
-                Guide
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </span>
-            </Link>
+            <p className="text-sm text-slate-500 text-center mb-4 max-w-md mx-auto">
+              Setup, bond, and rewards live here — not in the wallet.
+            </p>
+            <div className="grid gap-3">
+              {VALIDATOR_LINKS.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={
+                    item.primary
+                      ? 'group flex items-center gap-4 sm:gap-5 p-5 sm:p-6 rounded-2xl border border-brand-500/30 bg-gradient-to-br from-brand-500/10 via-slate-900/70 to-slate-950/90 backdrop-blur-md hover:border-brand-400/50 transition-all shadow-[0_0_32px_rgba(192,120,56,0.08)] hover:shadow-[0_0_40px_rgba(192,120,56,0.14)]'
+                      : 'group flex items-center gap-4 sm:gap-5 p-5 sm:p-6 rounded-2xl border border-slate-800/90 bg-slate-900/60 backdrop-blur-md hover:border-brand-500/40 hover:bg-slate-900/85 transition-all'
+                  }
+                >
+                  <span
+                    className={
+                      item.primary
+                        ? 'flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-brand-500/35 bg-brand-500/15 text-brand-400 group-hover:text-brand-300 transition-colors'
+                        : 'flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-slate-700/80 bg-slate-950/80 text-brand-400 group-hover:border-brand-500/40 group-hover:text-brand-300 transition-colors'
+                    }
+                  >
+                    <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
+                      {item.href === '/validator' ? (
+                        <>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 12.5V6a2 2 0 012-2h10a2 2 0 012 2v6.5" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 12.5h16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 16.5v2M15 16.5v2M8 20h8" />
+                          <circle cx="12" cy="9" r="1.5" fill="currentColor" stroke="none" />
+                        </>
+                      ) : item.href === '/rewards' ? (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      ) : (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      )}
+                    </svg>
+                  </span>
+                  <span className="min-w-0 flex-1 text-left">
+                    <span className="block text-lg font-semibold text-white group-hover:text-brand-400 transition-colors">
+                      {item.title}
+                    </span>
+                    <span className="block text-sm text-slate-500 mt-0.5 leading-relaxed">
+                      {item.description}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-sm font-semibold text-brand-500 group-hover:text-brand-400 flex items-center gap-1.5">
+                    {item.cta}
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </span>
+                </Link>
+              ))}
+            </div>
           </div>
 
           <p className="text-center text-sm text-slate-600 mt-10">
             Prefer to explore the product first?{' '}
             <Link href="/wallet" className="text-brand-400 hover:text-brand-300">
               Open the wallet
-            </Link>
-            {' · '}
-            <Link href="/faucet" className="text-brand-400 hover:text-brand-300">
-              Get testnet FALCON
             </Link>
           </p>
         </div>
