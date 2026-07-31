@@ -963,7 +963,7 @@ export default function BridgeDepositPanel({
 
         // SPV light-client peg-out when bridge is live (MPT FBTC)
         if (spvLive) {
-          setStep('SPV peg-out: burn FBTC…')
+          setStep('Signing…')
           const peg = await spvPegOut({
             falconSecret: falcon_secret,
             account: wallet.address,
@@ -1256,7 +1256,7 @@ export default function BridgeDepositPanel({
       !isDead &&
       spvPending.status !== 'claimed' &&
       !window.confirm(
-        'Clear open SPV bridge tracking? Only if the BTC was refunded, failed, or you already claimed FBTC.',
+        'Dismiss this deposit tracker?',
       )
     ) {
       return
@@ -1396,7 +1396,7 @@ export default function BridgeDepositPanel({
     }
 
     if (isFbtcRoute && direction === 'deposit' && hasOpenSpvBridge(wallet.address)) {
-      setError('An SPV bridge is already open — wait for confirmations / claim before starting another')
+      setError('A BTC deposit is already in progress')
       return
     }
 
@@ -1419,7 +1419,7 @@ export default function BridgeDepositPanel({
 
         // Prefer non-custodial SPV light client when amendment + activate + watch are live
         if (spvLive && spvStatus?.watchAddress) {
-          setStep('SPV: unlock Falcon key + send BTC deposit…')
+          setStep('Sending…')
           const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
           const minConf = Number(spvStatus.bridge?.minConfirmations ?? 6) || 6
           try {
@@ -1627,10 +1627,11 @@ export default function BridgeDepositPanel({
   const usdcAvail = parseFloat(usdcAvailRaw) || 0
   const ethAvail = balances ? parseFloat(balances.eth) : 0
 
-  const routeTitleIn = `Bridge In — ${routeInLabel(bridgeRoute)}`
+  const routeTitleIn = routeInLabel(bridgeRoute)
   const routeTitleOut = ROUTE_SUPPORTS_OUT[bridgeRoute]
-    ? `Bridge Out — ${routeOutLabel(bridgeRoute)}`
-    : `Bridge Out — ${routeOutLabel(bridgeRoute)} (soon)`
+    ? routeOutLabel(bridgeRoute)
+    : `${routeOutLabel(bridgeRoute)} · soon`
+
   const sourceAvailLabel = isFbtcRoute
     ? `${btcBal != null ? Number(btcBal).toLocaleString(undefined, { maximumFractionDigits: 8 }) : '—'} BTC`
     : isFxrpRoute
@@ -1656,54 +1657,41 @@ export default function BridgeDepositPanel({
 
   return (
     <div className="space-y-4">
-      <div className="card p-5 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Bridge</h2>
-          <p className="text-xs text-slate-400 mt-1">
-            <strong className="text-slate-300">In</strong> = multi-chain → Falcon F-asset.{' '}
-            <strong className="text-slate-300">Out</strong> = Falcon F-asset → multi-chain. Deposit wallets live
-            under Multi-chain.
-          </p>
+      <div className="wallet-glass p-5 space-y-5">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-white tracking-tight">Bridge</h2>
+          <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Testnet</span>
         </div>
 
-        <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2.5">
-          <span className="font-semibold">Testnet · custodial bridge.</span> Mint and release use an off-chain
-          relay + multi-sig lock — not fully trustless (SPV path for BTC when enabled).
-        </div>
-
-        {/* Open SPV peg-in (survives refresh) */}
+        {/* Active BTC deposit */}
         {spvPending && spvPending.status !== 'claimed' && (
-          <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-4 space-y-2">
-            <div className="flex items-start justify-between gap-2">
+          <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-orange-200">Open SPV bridge (BTC → FBTC)</div>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Deposit auto-saved on this device — no need to paste the tx id. Refresh is fine.
-                  New Bridge In is blocked until claim finishes.
-                </p>
+                <div className="text-sm font-semibold text-white">BTC → FBTC</div>
+                <p className="text-xs text-slate-500 mt-0.5">Deposit in progress</p>
               </div>
               <button
                 type="button"
                 onClick={handleSpvClearPending}
-                className="text-[11px] font-medium text-orange-200/90 hover:text-white shrink-0 underline underline-offset-2"
+                className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
               >
-                Clear / dismiss
+                Dismiss
               </button>
             </div>
-            <div className="text-xs font-mono text-slate-300 break-all">
-              <a
-                href={spvPending.explorerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-brand-400 hover:underline"
-              >
-                {spvPending.txid}
-              </a>
-            </div>
+            <a
+              href={spvPending.explorerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-[11px] font-mono text-brand-400/90 hover:text-brand-300 truncate"
+              title={spvPending.txid}
+            >
+              {spvPending.txid.slice(0, 10)}…{spvPending.txid.slice(-8)}
+            </a>
             <div className="flex items-center gap-3">
-              <div className="flex-1 h-2 rounded-full bg-slate-800 overflow-hidden">
+              <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
                 <div
-                  className="h-full bg-orange-400 transition-all duration-500"
+                  className="h-full bg-brand-400 transition-all duration-500"
                   style={{
                     width: `${Math.min(
                       100,
@@ -1712,40 +1700,29 @@ export default function BridgeDepositPanel({
                   }}
                 />
               </div>
-              <div className="text-sm font-bold tabular-nums text-orange-200 shrink-0">
+              <div className="text-xs font-semibold tabular-nums text-slate-300 shrink-0">
                 {spvPending.confirmations}/{spvPending.minConfirmations}
               </div>
             </div>
-            <p className="text-[11px] text-slate-400">
-              {spvPending.status === 'waiting_confs' &&
-                `Waiting for Bitcoin confirmations (${spvPending.confirmations} of ${spvPending.minConfirmations})…`}
-              {spvPending.status === 'ready_to_claim' &&
-                'Confirmations reached — complete the Falcon claim (passkey).'}
-              {spvPending.status === 'claiming' && (step || 'Submitting claim…')}
-              {spvPending.status === 'broadcast' && 'Broadcast recorded — polling…'}
+            <p className="text-xs text-slate-500">
+              {spvPending.status === 'waiting_confs' && 'Waiting for confirmations…'}
+              {spvPending.status === 'ready_to_claim' && 'Ready to claim on Falcon'}
+              {spvPending.status === 'claiming' && (step || 'Claiming…')}
+              {spvPending.status === 'broadcast' && 'Confirming…'}
               {spvPending.status === 'failed' && (spvPending.lastError || 'Failed')}
             </p>
-            {/* Soft wait (explorer lag) vs hard claim error */}
-            {spvPending.lastError &&
-              spvPending.status !== 'failed' &&
-              (isSpvWaitMessage(spvPending.lastError) ||
-                /waiting|still need|explorers|mempool|confirmations/i.test(spvPending.lastError)) && (
-                <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90 break-words">
-                  {spvPending.lastError}
-                </div>
-              )}
             {spvPending.lastError &&
               spvPending.status !== 'failed' &&
               !(
                 isSpvWaitMessage(spvPending.lastError) ||
                 /waiting|still need|explorers|mempool|confirmations/i.test(spvPending.lastError)
               ) && (
-                <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
-                  Claim issue: {spvPending.lastError}
+                <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
+                  {spvPending.lastError}
                 </div>
               )}
             {error && !isSpvWaitMessage(error) && !spvPending.lastError && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
+              <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
                 {error}
               </div>
             )}
@@ -1754,57 +1731,53 @@ export default function BridgeDepositPanel({
                 type="button"
                 onClick={handleSpvCompleteClaim}
                 disabled={busy || spvPending.status === 'claiming'}
-                className="btn-primary w-full bg-orange-500 hover:bg-orange-400 text-slate-950"
+                className="btn-primary w-full"
               >
                 {busy ? (
                   <>
                     <Spinner /> {step ?? 'Claiming…'}
                   </>
                 ) : (
-                  'Complete claim → mint FBTC'
+                  'Claim FBTC'
                 )}
               </button>
             ) : (
-              <div className="flex items-center gap-2 text-xs text-orange-300/90">
+              <div className="flex items-center gap-2 text-xs text-slate-500">
                 <Spinner className="w-3.5 h-3.5" />
-                Tracking confirmations — deposit is live; this is not a failed tx
+                Confirming on Bitcoin
               </div>
             )}
           </div>
         )}
 
         {spvPending?.status === 'claimed' && (
-          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3 space-y-1">
-            <div className="text-sm font-medium text-emerald-300">SPV bridge complete</div>
-            <p className="text-[11px] text-slate-400 break-all">
-              BTC {spvPending.txid.slice(0, 16)}… · claim {spvPending.claimHash?.slice(0, 16) || 'ok'}…
-            </p>
+          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-emerald-300">FBTC claimed</div>
+              <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                {spvPending.txid.slice(0, 12)}…
+              </p>
+            </div>
             <button
               type="button"
               onClick={handleSpvClearPending}
-              className="text-xs text-brand-400"
+              className="text-xs font-semibold text-brand-400 hover:text-brand-300"
             >
-              Dismiss — allow next bridge
+              Done
             </button>
           </div>
         )}
 
-        {/* Resume tracking if deposit already broadcast (no open job) */}
         {spvLive && isFbtcRoute && direction === 'deposit' && !spvPending && (
-          <div className="rounded-xl border border-orange-500/25 bg-orange-500/5 p-4 space-y-2">
-            <div className="text-sm font-semibold text-orange-200">
-              Lost the conf bar? Resume claim here
-            </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Your BTC deposit already left the wallet. Mint is <strong className="text-slate-300">not</strong>{' '}
-              fully automatic — after 6 confirmations you click <strong className="text-slate-300">Complete claim</strong>.
-              Paste the <strong className="text-slate-300">Bitcoin transaction ID</strong> (from mempool.space /
-              block explorer — 64 hex characters, not a password). Then Track → wait for 6/6 → Complete claim.
-            </p>
-            <div className="flex gap-2">
+          <details className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 group">
+            <summary className="text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200 list-none flex items-center justify-between">
+              <span>Resume a previous BTC deposit</span>
+              <span className="text-slate-600 group-open:rotate-180 transition-transform">▾</span>
+            </summary>
+            <div className="mt-3 flex gap-2">
               <input
                 className="input-field font-mono text-xs flex-1"
-                placeholder="e.g. 0ac5c315c05858ca… (your deposit tx id)"
+                placeholder="Bitcoin transaction ID"
                 value={spvResumeTxid}
                 onChange={(e) => setSpvResumeTxid(e.target.value.trim())}
                 spellCheck={false}
@@ -1812,28 +1785,24 @@ export default function BridgeDepositPanel({
               <button
                 type="button"
                 onClick={handleSpvResumeTxid}
-                className="px-4 rounded-xl bg-orange-500 hover:bg-orange-400 text-slate-950 text-xs font-bold shrink-0"
+                className="px-4 rounded-xl bg-brand-500 hover:bg-brand-400 text-slate-950 text-xs font-bold shrink-0"
               >
-                Track → claim
+                Track
               </button>
             </div>
-            <p className="text-[10px] text-slate-500">
-              Open your multi-chain BTC explorer history if you lost the id — look for the send to the SPV watch address.
-            </p>
-          </div>
+          </details>
         )}
 
-        {/* 1) Direction */}
+        {/* Direction */}
         {canUseBridge && (
           <div className="space-y-1.5">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">1 · Direction</div>
-            <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
+            <div className="wallet-glass p-1 flex gap-1">
               <button
                 type="button"
                 onClick={() => { setMode('bridge'); setDirection('deposit'); setError(null) }}
-                className={`flex-1 py-2.5 font-semibold ${direction === 'deposit' ? 'bg-emerald-500/15 text-emerald-400' : 'text-slate-500'}`}
+                className={`wallet-tab-pill ${direction === 'deposit' ? 'bg-emerald-500/15 text-emerald-400 shadow-[inset_0_0_0_1px_rgba(52,211,153,0.3)]' : 'text-slate-500 hover:text-slate-300'}`}
               >
-                In
+                Bridge in
               </button>
               <button
                 type="button"
@@ -1851,18 +1820,18 @@ export default function BridgeDepositPanel({
                   setError(null)
                   refreshFusdcBalance()
                 }}
-                className={`flex-1 py-2.5 font-semibold ${direction === 'withdraw' ? 'bg-amber-500/15 text-amber-400' : 'text-slate-500'}`}
+                className={`wallet-tab-pill ${direction === 'withdraw' ? 'bg-brand-500/15 text-brand-400 shadow-[inset_0_0_0_1px_rgba(192,120,56,0.35)]' : 'text-slate-500 hover:text-slate-300'}`}
               >
-                Out
+                Bridge out
               </button>
             </div>
           </div>
         )}
 
-        {/* 2) Asset route — labels always match In/Out */}
+        {/* Asset route */}
         {canUseBridge && (
           <div className="space-y-1.5">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">2 · Asset</div>
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">Asset</div>
             <select
               className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-sm text-slate-100"
               value={bridgeRoute}
@@ -1945,31 +1914,26 @@ export default function BridgeDepositPanel({
                 })}
               </option>
             </select>
-            <p className="text-[10px] text-slate-500">
-              {direction === 'deposit'
-                ? 'Showing lock/mint corridors (source chain → Falcon).'
-                : 'Showing unlock corridors (Falcon → source chain). Routes marked “out soon” switch to In if selected.'}
-            </p>
           </div>
         )}
 
         {canUseBridge && !activeLockReady && (
-          <div className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2.5">
+          <div className="text-xs text-amber-400/90 bg-amber-500/10 rounded-xl px-3 py-2.5">
             {isFxrpRoute
               ? !hasXrpl
-                ? 'Provision classic XRP on Multi-chain, then return here for XRP → FXRP.'
+                ? 'Add XRP under Multi-chain first'
                 : !fxrpReady
-                  ? 'FXRP bridge config missing (issuer + classic custody). Ops must deploy FXRP corridor.'
-                  : 'FXRP bridge not ready.'
+                  ? 'FXRP bridge not configured'
+                  : 'FXRP bridge not ready'
               : isFbtcRoute
               ? !hasBtc
-                ? 'Provision BTC keys on Multi-chain, then return here for BTC → FBTC.'
-                : 'FBTC bridge config missing.'
+                ? 'Add BTC under Multi-chain first'
+                : 'FBTC bridge not configured'
               : isFbnbRoute
-                ? 'FBNB lock is deploying on BSC testnet — fund deployer gas if prompted, then hard-refresh.'
+                ? 'FBNB lock not ready — refresh shortly'
                 : isFethRoute
-                  ? 'FETH lock contract not configured.'
-                  : 'USDC lock contract not configured. Set SEPOLIA_LOCK_CONTRACT in deployment env.'}
+                  ? 'FETH lock not configured'
+                  : 'USDC lock not configured'}
           </div>
         )}
 
@@ -1984,8 +1948,7 @@ export default function BridgeDepositPanel({
                 ← Back
               </button>
               <p className="text-xs text-slate-400">
-                Restore a Sepolia wallet from an encrypted backup file or paste the private key hex.
-                Not a mnemonic phrase — backups store the raw EVM key encrypted with your backup password.
+                Restore from an encrypted backup or paste a private key.
               </p>
               <input
                 ref={restoreFileRef}
@@ -2037,8 +2000,7 @@ export default function BridgeDepositPanel({
           ) : (
             <div className="space-y-3">
               <p className="text-xs text-slate-400">
-                Create a Sepolia wallet secured by your Falcon passkey (random private key — not a mnemonic).
-                You need Sepolia ETH for gas and USDC to bridge in.
+                Create a Sepolia wallet secured by your Falcon passkey.
               </p>
               <button
                 type="button"
@@ -2067,8 +2029,7 @@ export default function BridgeDepositPanel({
               ← Back
             </button>
             <p className="text-xs text-slate-400">
-              Download an encrypted backup of your Sepolia private key. Store the file and password safely —
-              you need both to restore on another device.
+              Download an encrypted backup of your Sepolia key. Keep the file and password safe.
             </p>
             <div className="space-y-1.5">
               <label className="text-xs text-slate-400">Backup password</label>
@@ -2108,8 +2069,8 @@ export default function BridgeDepositPanel({
             >
               ← Back
             </button>
-            <p className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2">
-              Restoring replaces the Sepolia wallet on this device. Back up the current wallet first if it holds funds.
+            <p className="text-xs text-amber-400/90 bg-amber-500/10 rounded-xl px-3 py-2">
+              Restoring replaces the wallet on this device. Back up first if it holds funds.
             </p>
             <input
               ref={restoreFileRef}
@@ -2173,45 +2134,23 @@ export default function BridgeDepositPanel({
                   </button>
                 </div>
                 <div className="text-2xl font-bold text-white font-mono">{sourceAvailLabel}</div>
-                <p className="text-[11px] text-slate-500 leading-snug">
-                  {isFbtcRoute
-                    ? 'One action: passkey sends multi-chain BTC → custody/SPV and mints FBTC on Falcon.'
-                    : isFxrpRoute
-                      ? 'Bridge In: multi-chain classic XRP → FXRP on Falcon (custodial mint).'
-                      : isFbnbRoute
-                        ? 'Available BNB on Multi-chain (wrap + lock on BSC testnet → mint FBNB). Keep ~0.002 BNB for gas.'
-                        : isFethRoute
-                          ? 'Available ETH on Multi-chain (wrap + lock → mint FETH). Keep ~0.001 ETH for gas.'
-                          : 'Available USDC on Multi-chain (lock → mint F-USDC). Needs a little ETH for gas.'}
-                </p>
+                <p className="text-xs text-slate-500">Available on Multi-chain</p>
                 {isFbtcRoute && btcAvail <= 0 && (
-                  <p className="text-xs text-amber-400">
-                    No testnet BTC — Multi-chain → BTC → Receive, fund from a BTC testnet faucet.
-                  </p>
+                  <p className="text-xs text-amber-400/90">No BTC balance</p>
                 )}
                 {isFxrpRoute && (!hasXrpl || xrplAvail <= 0) && (
-                  <p className="text-xs text-amber-400">
-                    {!hasXrpl
-                      ? 'Open Multi-chain → XRP to provision classic XRPL keys, then fund testnet XRP.'
-                      : 'No classic XRP balance — fund Multi-chain XRP from an XRPL testnet faucet.'}
+                  <p className="text-xs text-amber-400/90">
+                    {!hasXrpl ? 'Add XRP under Multi-chain first' : 'No XRP balance'}
                   </p>
                 )}
                 {isFbnbRoute && bnbAvail < 0.002 && (
-                  <p className="text-xs text-amber-400">
-                    Low BSC testnet BNB — fund Multi-chain BNB (Receive) from a testnet faucet.
-                  </p>
+                  <p className="text-xs text-amber-400/90">Low BNB for gas</p>
                 )}
                 {!isFbnbRoute && !isFbtcRoute && !isFxrpRoute && ethAvail < 0.001 && (
-                  <p className="text-xs text-amber-400">
-                    Low gas ETH — fund on Multi-chain or a{' '}
-                    <a href="https://sepoliafaucet.com" target="_blank" rel="noopener noreferrer" className="underline text-brand-400">
-                      Sepolia faucet
-                    </a>
-                    .
-                  </p>
+                  <p className="text-xs text-amber-400/90">Low ETH for gas</p>
                 )}
                 {balanceError && (
-                  <p className="text-xs text-amber-400">Balance lookup failed: {balanceError}</p>
+                  <p className="text-xs text-amber-400/90">Could not load balance</p>
                 )}
               </div>
             )}
@@ -2230,43 +2169,18 @@ export default function BridgeDepositPanel({
                   </button>
                 </div>
                 <div className="text-2xl font-bold text-white font-mono">{falconAvailLabel}</div>
-                <p className="text-[11px] text-slate-500 leading-snug">
-                  {isFbtcRoute
-                    ? spvLive
-                      ? 'SPV peg-out: burn any amount of FBTC (up to balance) → challenge window → finalize → testnet BTC to your multi-chain address.'
-                      : 'Return FBTC IOU to the custody issuer; testnet BTC is paid to your multi-chain BTC address.'
-                    : 'Falcon balance returned to the bridge; USDC is released to your Multi-chain ETH wallet.'}
-                </p>
+                <p className="text-xs text-slate-500">Available on Falcon</p>
                 {fusdcError && (
-                  <p className="text-xs text-amber-400">Falcon balance lookup failed: {fusdcError}</p>
+                  <p className="text-xs text-amber-400/90">Could not load Falcon balance</p>
                 )}
               </div>
             )}
 
             {direction === 'withdraw' && isFbtcRoute && (
               <>
-                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-slate-400 space-y-1">
-                  {spvLive ? (
-                    <>
-                      <p>
-                        <strong className="text-slate-300">SPV peg-out (light client).</strong> Burn any
-                        amount of your FBTC (partial or full). After a short Falcon challenge window (~32
-                        ledgers), finalize, then the payout relay sends matching testnet BTC.
-                      </p>
-                      <p className="text-[10px] text-slate-500">
-                        Not custodial IOU return — uses <code className="text-slate-400">BTCBridgeBurn</code>.
-                      </p>
-                    </>
-                  ) : (
-                    <p>
-                      Custodial unlock for legacy IOU FBTC. Returns tokens to the issuer; custody pays
-                      testnet BTC to your multi-chain address.
-                    </p>
-                  )}
-                </div>
                 <div className="space-y-1.5">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">3 · Amount</div>
-                  <label className="text-xs text-slate-400">FBTC → BTC (any amount ≤ balance)</label>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">Amount</div>
+                  <label className="text-xs text-slate-400">FBTC</label>
                   <input
                     type="number"
                     value={withdrawAmount}
@@ -2294,10 +2208,11 @@ export default function BridgeDepositPanel({
                     )}
                   </div>
                 </div>
-                <p className="text-[10px] text-slate-500 break-all">
-                  BTC payout address:{' '}
-                  <span className="font-mono text-slate-400">{wallet.btcAddress ?? '—'}</span>
-                </p>
+                {wallet.btcAddress && (
+                  <p className="text-[11px] text-slate-500 font-mono truncate" title={wallet.btcAddress}>
+                    → {wallet.btcAddress.slice(0, 10)}…{wallet.btcAddress.slice(-6)}
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={handleBridgeOut}
@@ -2308,16 +2223,14 @@ export default function BridgeDepositPanel({
                     withdrawAmtNum <= 0 ||
                     withdrawAmtNum > (fbtcLive ?? 0)
                   }
-                  className="btn-primary flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-500"
+                  className="btn-primary flex items-center justify-center gap-2"
                 >
                   {busy ? (
                     <>
                       <Spinner /> {step ?? 'Signing…'}
                     </>
-                  ) : spvLive ? (
-                    'SPV burn → BTC'
                   ) : (
-                    'Unlock FBTC → BTC'
+                    'Bridge out'
                   )}
                 </button>
               </>
@@ -2325,13 +2238,9 @@ export default function BridgeDepositPanel({
 
             {direction === 'withdraw' && !isFbtcRoute && (
               <>
-                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 text-xs text-slate-400">
-                  Return F-USDC on Falcon to the bridge issuer. Validators release matching Sepolia USDC
-                  to your Sepolia wallet above (usually within a few minutes).
-                </div>
                 <div className="space-y-1.5">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">3 · Amount</div>
-                  <label className="text-xs text-slate-400">F-USDC to burn (Falcon Wallet) → USDC to ETH wallet</label>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">Amount</div>
+                  <label className="text-xs text-slate-400">F-USDC</label>
                   <input
                     type="number"
                     value={withdrawAmount}
@@ -2351,10 +2260,11 @@ export default function BridgeDepositPanel({
                     )}
                   </div>
                 </div>
-                <p className="text-[10px] text-slate-500">
-                  Release target (multi-chain ETH wallet):{' '}
-                  <span className="font-mono text-slate-400">{wallet.evmAddress}</span>
-                </p>
+                {wallet.evmAddress && (
+                  <p className="text-[11px] text-slate-500 font-mono truncate" title={wallet.evmAddress}>
+                    → {wallet.evmAddress.slice(0, 10)}…{wallet.evmAddress.slice(-6)}
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={handleBridgeOut}
@@ -2365,45 +2275,39 @@ export default function BridgeDepositPanel({
                     withdrawAmtNum <= 0 ||
                     withdrawAmtNum > fusdcAvail
                   }
-                  className="btn-primary flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-500"
+                  className="btn-primary flex items-center justify-center gap-2"
                 >
-                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge'}
+                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge out'}
                 </button>
-                <button
-                  type="button"
-                  onClick={handleReturnFusdcToIssuer}
-                  disabled={
-                    busy ||
-                    !bridgeCfg.falcon?.token_issuer ||
-                    withdrawAmtNum <= 0 ||
-                    withdrawAmtNum > fusdcAvail
-                  }
-                  className="w-full py-2.5 rounded-xl border border-slate-600 text-slate-300 text-sm hover:bg-slate-800/60 disabled:opacity-50"
-                >
-                  {busy ? step ?? 'Working…' : 'Return F-USDC to issuer (legacy cleanup)'}
-                </button>
-                <p className="text-[10px] text-slate-500">
-                  Use legacy cleanup before releasing old Sepolia USDC in the Crypto app. Bridge Out only works
-                  for F-USDC backed by the new lock contract after a fresh bridge-in.
-                </p>
+                <details className="text-xs text-slate-500">
+                  <summary className="cursor-pointer hover:text-slate-300">Advanced</summary>
+                  <button
+                    type="button"
+                    onClick={handleReturnFusdcToIssuer}
+                    disabled={
+                      busy ||
+                      !bridgeCfg.falcon?.token_issuer ||
+                      withdrawAmtNum <= 0 ||
+                      withdrawAmtNum > fusdcAvail
+                    }
+                    className="mt-2 w-full py-2 rounded-xl border border-slate-700 text-slate-400 text-xs hover:bg-slate-800/60 disabled:opacity-50"
+                  >
+                    {busy ? step ?? 'Working…' : 'Return F-USDC to issuer'}
+                  </button>
+                </details>
               </>
             )}
 
             {mode === 'bridge' && direction === 'deposit' && (
               <>
                 {!activeTrust ? (
-                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
+                  <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 space-y-3">
                     <div>
-                      <p className="text-sm font-medium text-amber-200">
-                        Step 1 — {assetLabel} trust line required
+                      <p className="text-sm font-medium text-amber-100">
+                        Enable {assetLabel} on Falcon
                       </p>
-                      <p className="text-xs text-amber-100/80 mt-1">
-                        Bridge In mints {assetLabel} to your Falcon wallet (
-                        {shortFalconAddr(wallet.address)}). Without a trust line to issuer{' '}
-                        <span className="font-mono text-amber-100/90">
-                          {activeIssuer ? `${activeIssuer.slice(0, 8)}…` : '—'}
-                        </span>
-                        , the relay cannot deliver tokens — deposits stay queued.
+                      <p className="text-xs text-slate-400 mt-1">
+                        Required once before first bridge in.
                       </p>
                     </div>
                     <button
@@ -2425,9 +2329,9 @@ export default function BridgeDepositPanel({
                     )}
                   </div>
                 ) : (
-                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">
-                    {assetLabel} trust line active — you can bridge in. Balance:{' '}
-                    <span className="font-mono">
+                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200/90 flex justify-between gap-2">
+                    <span>{assetLabel} ready</span>
+                    <span className="font-mono tabular-nums">
                       {fusdcLoading
                         ? '…'
                         : isFbtcRoute
@@ -2441,41 +2345,18 @@ export default function BridgeDepositPanel({
                   </div>
                 )}
 
-                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 text-xs text-slate-400 space-y-1">
-                  {isFbtcRoute ? (
-                    <>
-                      <p>BTC → FBTC: send from Multi-chain BTC to custody, then mint on Falcon.</p>
-                      <p className="text-slate-500">
-                        Looks like one bridge. Under the hood: native testnet BTC only — no WBTC asset.
-                      </p>
-                    </>
-                  ) : isFbnbRoute ? (
-                    <>
-                      <p>Wrap BSC testnet BNB → WBNB, lock → relay mints FBNB 1:1.</p>
-                      <p className="text-slate-500">Wrap + approve + lock ~1–2 min; mint usually ~30s after.</p>
-                    </>
-                  ) : isFethRoute ? (
-                    <>
-                      <p>Wrap Sepolia ETH → WETH, lock → relay mints FETH 1:1.</p>
-                      <p className="text-slate-500">Wrap + approve + lock ~1–2 min; mint usually ~30s after.</p>
-                    </>
-                  ) : (
-                    <>
-                      <p>Lock Sepolia USDC → relay mints F-USDC 1:1.</p>
-                      <p className="text-slate-500">Approve + lock on Sepolia; mint usually ~30s after.</p>
-                    </>
-                  )}
-                </div>
                 <div className="space-y-1.5">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">3 · Amount</div>
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">Amount</div>
                   <label className="text-xs text-slate-400">
                     {isFbtcRoute
-                      ? 'BTC to bridge (Multi-chain BTC wallet)'
+                      ? 'BTC'
                       : isFbnbRoute
-                        ? 'BNB to wrap + lock (Multi-chain BNB wallet)'
+                        ? 'BNB'
                         : isFethRoute
-                          ? 'ETH to wrap + lock (Multi-chain ETH wallet)'
-                          : 'USDC to lock (Multi-chain ETH wallet)'}
+                          ? 'ETH'
+                          : isFxrpRoute
+                            ? 'XRP'
+                            : 'USDC'}
                   </label>
                   <input
                     type="number"
@@ -2488,21 +2369,21 @@ export default function BridgeDepositPanel({
                     disabled={busy || !activeLockReady || !canBridgeIn || openSpvBlocksIn}
                   />
                   {openSpvBlocksIn && (
-                    <p className="text-[11px] text-orange-300/90">
-                      Bridge In locked — open SPV job above ({spvPending?.confirmations}/
-                      {spvPending?.minConfirmations} confs).
+                    <p className="text-xs text-slate-500">
+                      Finish the deposit above first ({spvPending?.confirmations}/
+                      {spvPending?.minConfirmations})
                     </p>
                   )}
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>
                       {isFbtcRoute
-                        ? `Available: ${btcBal != null ? btcBal : '—'} BTC (leave fee room)`
+                        ? `Available ${btcBal != null ? btcBal : '—'} BTC`
                         : isFbnbRoute
-                          ? `Available: ${bnbBal != null ? fmt(bnbBal, 6) : '—'} BNB (keep ~0.002 gas)`
+                          ? `Available ${bnbBal != null ? fmt(bnbBal, 6) : '—'} BNB`
                           : balances
                             ? isFethRoute
-                              ? `Available: ${fmt(ethAvail, 6)} ETH (keep ~0.001 for gas)`
-                              : `Available: ${usdcAvailRaw} USDC · gas ${fmt(ethAvail, 5)} ETH`
+                              ? `Available ${fmt(ethAvail, 6)} ETH`
+                              : `Available ${usdcAvailRaw} USDC`
                             : ''}
                     </span>
                     {canBridgeIn && (
@@ -2569,77 +2450,68 @@ export default function BridgeDepositPanel({
                       <Spinner /> {step ?? 'Signing…'}
                     </>
                   ) : openSpvBlocksIn ? (
-                    `Waiting confs ${spvPending?.confirmations ?? 0}/${spvPending?.minConfirmations ?? 6}`
-                  ) : isFbtcRoute ? (
-                    'Bridge BTC → FBTC'
+                    `Confirming ${spvPending?.confirmations ?? 0}/${spvPending?.minConfirmations ?? 6}`
                   ) : (
-                    'Bridge'
+                    'Bridge in'
                   )}
                 </button>
-                {openSpvBlocksIn ? (
-                  <p className="text-[10px] text-orange-300/90">
-                    Finish the open SPV bridge (panel above) before another Bridge In.
+                {!openSpvBlocksIn && !canBridgeIn && (
+                  <p className="text-xs text-slate-500">
+                    Enable {assetLabel} above to continue
                   </p>
-                ) : (
-                  !canBridgeIn && (
-                    <p className="text-[10px] text-amber-400/90">
-                      Add the {assetLabel} trust line above to enable Bridge In.
-                    </p>
-                  )
                 )}
 
-                {activeLockReady && !isFbtcRoute && (
-                  <div className="text-[10px] text-slate-500">
-                    Lock contract:{' '}
-                    <a
-                      href={etherscanAddressUrl(
-                        isFbnbRoute
-                          ? (bridgeCfg.bsc_testnet?.explorer_url || 'https://testnet.bscscan.com')
-                          : bridgeCfg.sepolia.explorer_url,
-                        isFbnbRoute
-                          ? (bridgeCfg.bsc_testnet?.lock_contract || '')
-                          : isFethRoute
-                            ? (bridgeCfg.sepolia.weth_lock_contract || '')
-                            : bridgeCfg.sepolia.lock_contract,
-                      )}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-brand-400 hover:text-brand-300 font-mono"
-                    >
-                      {(isFbnbRoute
-                        ? bridgeCfg.bsc_testnet?.lock_contract
-                        : isFethRoute
-                          ? bridgeCfg.sepolia.weth_lock_contract
-                          : bridgeCfg.sepolia.lock_contract
-                      )?.slice(0, 10)}
-                      …
-                    </a>
-                  </div>
-                )}
-                {isFbtcRoute && (
-                  <div className="text-[10px] text-slate-500 space-y-1">
-                    {spvStatus && (
-                      <div className="rounded border border-orange-500/20 bg-orange-500/5 px-2 py-1.5 space-y-0.5">
-                        <div className="text-orange-300/90 font-medium">
-                          BTC SPV light client {spvLive ? '· LIVE' : '· pending'}
+                {(isFbtcRoute || activeLockReady) && (
+                  <details className="text-[10px] text-slate-500">
+                    <summary className="cursor-pointer hover:text-slate-300">Details</summary>
+                    <div className="mt-2 space-y-1.5">
+                      {activeLockReady && !isFbtcRoute && (
+                        <div>
+                          Lock:{' '}
+                          <a
+                            href={etherscanAddressUrl(
+                              isFbnbRoute
+                                ? (bridgeCfg.bsc_testnet?.explorer_url || 'https://testnet.bscscan.com')
+                                : bridgeCfg.sepolia.explorer_url,
+                              isFbnbRoute
+                                ? (bridgeCfg.bsc_testnet?.lock_contract || '')
+                                : isFethRoute
+                                  ? (bridgeCfg.sepolia.weth_lock_contract || '')
+                                  : bridgeCfg.sepolia.lock_contract,
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-brand-400 hover:text-brand-300 font-mono"
+                          >
+                            {(isFbnbRoute
+                              ? bridgeCfg.bsc_testnet?.lock_contract
+                              : isFethRoute
+                                ? bridgeCfg.sepolia.weth_lock_contract
+                                : bridgeCfg.sepolia.lock_contract
+                            )?.slice(0, 10)}
+                            …
+                          </a>
                         </div>
-                        <div className="text-slate-400">{spvStatus.message}</div>
-                        {spvStatus.bridge?.tipHeight != null && (
-                          <div className="font-mono">
-                            tip height {String(spvStatus.bridge.tipHeight)} · min conf{' '}
-                            {String(spvStatus.bridge.minConfirmations ?? '—')}
+                      )}
+                      {isFbtcRoute && (
+                        <>
+                          <div>
+                            SPV {spvLive ? 'live' : 'pending'}
+                            {spvStatus?.bridge?.minConfirmations != null
+                              ? ` · ${String(spvStatus.bridge.minConfirmations)} conf`
+                              : ''}
                           </div>
-                        )}
-                      </div>
-                    )}
-                    {spvLive && spvStatus?.watchAddress ? (
-                      <div className="font-mono break-all">
-                        Watch (SPV): {spvStatus.watchAddress}
-                      </div>
-                    ) : fbtcReady ? (
-                      <div className="font-mono break-all">Custody (relay): {fbtcCustody}</div>
-                    ) : null}
-                  </div>
+                          {spvLive && spvStatus?.watchAddress ? (
+                            <div className="font-mono break-all text-slate-600">
+                              {spvStatus.watchAddress}
+                            </div>
+                          ) : fbtcReady && fbtcCustody ? (
+                            <div className="font-mono break-all text-slate-600">{fbtcCustody}</div>
+                          ) : null}
+                        </>
+                      )}
+                    </div>
+                  </details>
                 )}
               </>
             )}
@@ -2649,66 +2521,65 @@ export default function BridgeDepositPanel({
       </div>
 
       {withdrawResult && (
-        <div className="card p-4 space-y-2 border border-amber-500/20">
-          <div className="text-sm font-medium text-amber-400">Bridge-out submitted on Falcon</div>
+        <div className="wallet-glass p-4 space-y-2 border border-brand-500/20">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-brand-300">Bridge out submitted</div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {withdrawResult.amount}{' '}
+                {isFbtcRoute ? 'FBTC' : 'F-USDC'} · release usually under a few minutes
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setWithdrawResult(null); setReleaseStatus(null) }}
+              className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
+            >
+              Dismiss
+            </button>
+          </div>
           {withdrawResult.falconTxHash && (
-            <div className="text-xs text-slate-400 break-all">Falcon tx: {withdrawResult.falconTxHash}</div>
+            <div className="text-[11px] text-slate-500 font-mono truncate" title={withdrawResult.falconTxHash}>
+              {withdrawResult.falconTxHash.slice(0, 14)}…
+            </div>
           )}
-          <p className="text-xs text-slate-500">
-            {isFbtcRoute ? (
-              <>
-                Returned {withdrawResult.amount} FBTC. Matching testnet BTC is paid to your multi-chain BTC
-                address ({withdrawResult.sepoliaRecipient?.slice(0, 12)}…) — usually under a minute.
-              </>
-            ) : (
-              <>
-                Returned {withdrawResult.amount} F-USDC. Matching USDC is released to your Multi-chain ETH wallet
-                (usually within a few minutes).
-              </>
-            )}
-          </p>
           {releaseStatus === 'pending' && (
-            <div className="flex items-center gap-2 text-xs text-amber-400">
-              <Spinner /> {isFbtcRoute ? 'Custody payout pending…' : 'Watching for release…'}
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <Spinner className="w-3.5 h-3.5" /> Waiting for release…
             </div>
           )}
           {releaseStatus === 'released' && (
             <div className="text-xs text-emerald-400">
-              {isFbtcRoute
-                ? '✓ BTC should be on your multi-chain address — refresh BTC balance.'
-                : '✓ USDC released to your Multi-chain ETH wallet.'}
+              {isFbtcRoute ? 'BTC released — refresh Multi-chain' : 'USDC released — refresh Multi-chain'}
             </div>
           )}
           {releaseStatus === 'unconfirmed' && !isFbtcRoute && (
-            <div className="text-xs text-amber-400">
-              Release not detected yet — check Multi-chain ETH USDC shortly.
-            </div>
+            <div className="text-xs text-amber-400/90">Release not seen yet — check Multi-chain shortly</div>
           )}
-          <button type="button" onClick={() => { setWithdrawResult(null); setReleaseStatus(null) }} className="text-xs text-brand-400">
-            Dismiss
-          </button>
         </div>
       )}
 
       {result && (
-        <div className="card p-4 space-y-2 border border-emerald-500/20">
-          <div className="text-sm font-medium text-emerald-400">
-            {isFbtcRoute ? 'BTC sent — FBTC mint pending' : `${assetLabel} deposit submitted`}
+        <div className="wallet-glass p-4 space-y-2 border border-emerald-500/20">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-emerald-300">
+                {isFbtcRoute ? 'BTC sent' : `${assetLabel} locked`}
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isFbtcRoute
+                  ? 'Mint after confirmations — refresh Falcon when ready'
+                  : `Mint usually ~30s — refresh Falcon for ${assetLabel}`}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setResult(null)}
+              className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
+            >
+              Dismiss
+            </button>
           </div>
-          {result.approveHash && (
-            <div className="text-xs text-slate-400 break-all">Approve: {result.approveHash}</div>
-          )}
-          <div className="text-xs text-slate-400 break-all">
-            {isFbtcRoute ? 'BTC tx' : 'Deposit'}: {result.depositHash}
-          </div>
-          {result.depositId && !isFbtcRoute && (
-            <div className="text-xs text-slate-400 break-all">Deposit ID: {result.depositId}</div>
-          )}
-          <p className="text-xs text-slate-500">
-            {isFbtcRoute
-              ? 'Custody payment registered. Relay mints FBTC after the BTC tx is seen (often under a minute on testnet). Refresh Falcon tab for FBTC.'
-              : `Lock confirmed. Relay mints ${assetLabel} to your Falcon wallet in ~30s — refresh the Falcon tab.`}
-          </p>
           <a
             href={
               isFbtcRoute
@@ -2721,49 +2592,30 @@ export default function BridgeDepositPanel({
             }
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-brand-400 hover:text-brand-300 inline-block"
+            className="block text-[11px] font-mono text-brand-400/90 hover:text-brand-300 truncate"
+            title={result.depositHash}
           >
-            View on explorer →
+            {result.depositHash.slice(0, 10)}…{result.depositHash.slice(-8)}
           </a>
-          <button type="button" onClick={() => setResult(null)} className="text-xs text-brand-400">
-            Dismiss
-          </button>
         </div>
       )}
 
       {error && !isSpvWaitMessage(error) && (
-        <div className="card p-4 border border-red-500/20 text-sm text-red-400">
+        <div className="wallet-glass p-4 border border-red-500/20 text-sm text-red-400">
           {error}
-          <button type="button" onClick={() => setError(null)} className="block text-xs text-slate-500 mt-2">
+          <button type="button" onClick={() => setError(null)} className="block text-xs text-slate-500 mt-2 hover:text-slate-300">
             Dismiss
           </button>
         </div>
       )}
       {error && isSpvWaitMessage(error) && (
-        <div className="card p-4 border border-amber-500/25 bg-amber-500/10 text-sm text-amber-100/90">
+        <div className="wallet-glass p-4 border border-amber-500/20 bg-amber-500/5 text-sm text-amber-100/90">
           {spvWaitUserMessage(error)}
-          <p className="text-[11px] text-slate-400 mt-1">
-            If the orange confirmation bar is open, your BTC deposit is tracking — this is not a failed send.
-          </p>
-          <button type="button" onClick={() => setError(null)} className="block text-xs text-slate-500 mt-2">
+          <button type="button" onClick={() => setError(null)} className="block text-xs text-slate-500 mt-2 hover:text-slate-300">
             Dismiss
           </button>
         </div>
       )}
-
-      <div className="card p-4 text-xs text-slate-500 space-y-1.5">
-        <div className="text-slate-400 font-medium">How it works</div>
-        <ul className="list-disc list-inside space-y-1">
-          <li>Pick <strong className="text-slate-400">In</strong> or <strong className="text-slate-400">Out</strong>, then the asset</li>
-          <li>
-            <strong className="text-slate-400">USDC → F-USDC</strong>,{' '}
-            <strong className="text-slate-400">ETH → FETH</strong>,{' '}
-            <strong className="text-slate-400">BNB → FBNB</strong>,{' '}
-            <strong className="text-slate-400">BTC → FBTC</strong> (no WBTC in UI)
-          </li>
-          <li>Fund / send / receive on the <strong className="text-slate-400">Multi-chain</strong> tab</li>
-        </ul>
-      </div>
     </div>
   )
 }
