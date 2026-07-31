@@ -1222,24 +1222,44 @@ export default function BridgeDepositPanel({
     }
   }
 
-  const handleSpvResumeTxid = () => {
-    const txid = spvResumeTxid.trim().toLowerCase()
-    if (!/^[0-9a-f]{64}$/.test(txid)) {
-      setError('Paste a valid 64-char BTC txid')
+  const handleSpvResumeTxid = async () => {
+    // Full 64-char hex only (partial prefixes from explorers will not work)
+    const raw = spvResumeTxid.trim().toLowerCase().replace(/^0x/, '')
+    if (!/^[0-9a-f]{64}$/.test(raw)) {
+      setError(
+        raw.length > 0 && raw.length < 64
+          ? `Need the full 64-character Bitcoin tx id (you pasted ${raw.length}). Open Multi-chain → BTC explorer history or mempool.space and copy the whole hash.`
+          : 'Paste the full 64-character Bitcoin transaction id',
+      )
       return
     }
-    if (hasOpenSpvBridge(wallet.address) && getSpvPending(wallet.address)?.txid !== txid) {
+    if (hasOpenSpvBridge(wallet.address) && getSpvPending(wallet.address)?.txid !== raw) {
       setError('Finish or clear the open bridge before resuming another txid')
       return
     }
     const minConf = Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6
+    const net = spvStatus?.btcNetwork || 'testnet'
+    let conf = 0
+    try {
+      setBusy(true)
+      setStep('Looking up deposit…')
+      const st = await pollSpvConfirmations(raw, net)
+      conf = st.confirmations
+    } catch {
+      conf = 0
+    } finally {
+      setBusy(false)
+      setStep(null)
+    }
     const pending = createSpvPending({
       falconAccount: wallet.address,
-      txid,
+      txid: raw,
       watchAddress: spvStatus?.watchAddress || fbtcCustody,
       amountSats: 0,
       minConfirmations: minConf,
-      btcNetwork: spvStatus?.btcNetwork || 'testnet',
+      btcNetwork: net,
+      confirmations: conf,
+      status: conf >= minConf ? 'ready_to_claim' : 'waiting_confs',
     })
     setSpvPending(pending)
     setSpvResumeTxid('')
@@ -1660,7 +1680,9 @@ export default function BridgeDepositPanel({
       <div className="wallet-glass p-5 space-y-5">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-base font-semibold text-white tracking-tight">Bridge</h2>
-          <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Testnet</span>
+          <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+            {isFbtcRoute && spvLive ? 'SPV · Testnet' : 'Testnet'}
+          </span>
         </div>
 
         {/* Active BTC deposit */}
@@ -1768,29 +1790,44 @@ export default function BridgeDepositPanel({
           </div>
         )}
 
-        {spvLive && isFbtcRoute && direction === 'deposit' && !spvPending && (
-          <details className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 group">
-            <summary className="text-xs font-medium text-slate-400 cursor-pointer hover:text-slate-200 list-none flex items-center justify-between">
-              <span>Resume a previous BTC deposit</span>
-              <span className="text-slate-600 group-open:rotate-180 transition-transform">▾</span>
-            </summary>
-            <div className="mt-3 flex gap-2">
+        {/* Always visible on BTC Bridge in — claim card only lives in localStorage */}
+        {isFbtcRoute && direction === 'deposit' && !spvPending && (
+          <div className="rounded-xl border border-brand-500/30 bg-brand-500/5 p-4 space-y-3">
+            <div>
+              <div className="text-sm font-semibold text-white">Resume BTC claim</div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Deposit already sent but no claim card? Paste the full 64-character Bitcoin tx id
+                (not a short prefix). Then Track → wait for confs → Claim FBTC.
+              </p>
+            </div>
+            <div className="flex gap-2">
               <input
                 className="input-field font-mono text-xs flex-1"
-                placeholder="Bitcoin transaction ID"
+                placeholder="e.g. 54999c3d08e05e… (full 64 hex chars)"
                 value={spvResumeTxid}
                 onChange={(e) => setSpvResumeTxid(e.target.value.trim())}
                 spellCheck={false}
               />
               <button
                 type="button"
-                onClick={handleSpvResumeTxid}
-                className="px-4 rounded-xl bg-brand-500 hover:bg-brand-400 text-slate-950 text-xs font-bold shrink-0"
+                onClick={() => void handleSpvResumeTxid()}
+                disabled={busy || !spvResumeTxid.trim()}
+                className="px-4 rounded-xl bg-brand-500 hover:bg-brand-400 text-slate-950 text-xs font-bold shrink-0 disabled:opacity-40"
               >
-                Track
+                {busy ? '…' : 'Track'}
               </button>
             </div>
-          </details>
+            {wallet.btcAddress && (
+              <a
+                href={`https://mempool.space/testnet/address/${wallet.btcAddress}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-[11px] text-brand-400/90 hover:text-brand-300"
+              >
+                Open your BTC address on mempool.space to copy the full tx id →
+              </a>
+            )}
+          </div>
         )}
 
         {/* Direction */}
