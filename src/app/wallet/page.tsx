@@ -870,21 +870,29 @@ export default function WalletPage() {
         return
       }
       const payload = await decryptBackupFile(parsed, restorePassphrase)
+      // v1 Falcon-only backups are valid: restore Falcon, mint fresh multi-chain keys.
+      // (Older files pre-date EVM/BTC/classic — do not block recovery of Falcon balances.)
       if (!backupHasBridgeKeys(payload)) {
-        throw new Error(
-          'This backup file only contains Falcon keys. Export a new falcon-backup file from Wallet — current backups include Falcon and Sepolia together.',
+        console.info(
+          '[wallet] Falcon-only backup: restoring Falcon; new multi-chain deposit wallets will be created',
         )
       }
-      await finishRestore(payload.falcon_secret, payload.label || restoreLabel, {
-        evm_private_key: payload.evm_private_key,
-        evm_address: payload.evm_address,
-        btc_private_key: payload.btc_private_key,
-        btc_address: payload.btc_address,
-        btc_address_mainnet: payload.btc_address_mainnet,
-        xrpl_classic_seed: payload.xrpl_classic_seed,
-        xrpl_classic_address: payload.xrpl_classic_address,
-        xrpl_classic_public_key: payload.xrpl_classic_public_key,
-      })
+      await finishRestore(
+        payload.falcon_secret,
+        payload.label || restoreLabel,
+        backupHasBridgeKeys(payload)
+          ? {
+              evm_private_key: payload.evm_private_key,
+              evm_address: payload.evm_address,
+              btc_private_key: payload.btc_private_key,
+              btc_address: payload.btc_address,
+              btc_address_mainnet: payload.btc_address_mainnet,
+              xrpl_classic_seed: payload.xrpl_classic_seed,
+              xrpl_classic_address: payload.xrpl_classic_address,
+              xrpl_classic_public_key: payload.xrpl_classic_public_key,
+            }
+          : undefined,
+      )
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not read backup file')
     } finally {
