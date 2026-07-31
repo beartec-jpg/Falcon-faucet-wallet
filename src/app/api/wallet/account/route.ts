@@ -4,7 +4,7 @@ import {
   serverRpcCall,
 } from '@/lib/network-server'
 import { fetchWalletAssets } from '@/lib/swap/wallet-assets'
-import { parseTxAmount } from '@/lib/tx-display'
+import { parseAccountTxAmount } from '@/lib/tx-display'
 import {
   resolveNamesForAddresses,
   resolveNameForAddress,
@@ -73,23 +73,19 @@ export async function GET(req: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rawTxs: TxRecord[] = ((txR?.transactions ?? []) as any[])
       .map(t => {
-        const tx = t.tx ?? t.tx_json ?? {}
-        // Prefer delivered amount when present (partial payments / bridge mints)
-        const meta = t.meta ?? t.metaData ?? {}
-        const amountField =
-          meta.delivered_amount ??
-          meta.DeliveredAmount ??
-          tx.DeliverMax ??
-          tx.Amount
-        const parsed = parseTxAmount(amountField)
+        const tx = (t.tx ?? t.tx_json ?? {}) as Record<string, unknown>
+        const meta = (t.meta ?? t.metaData ?? {}) as Record<string, unknown>
+        const type = String(tx.TransactionType ?? 'Unknown')
+        // Payments use Amount/DeliveredAmount; BTCDepositClaim / burn use meta BtcAmount / MPT
+        const parsed = parseAccountTxAmount(type, tx, meta)
         return {
-          hash:        (t.hash ?? tx.hash) as string,
-          type:        (tx.TransactionType ?? 'Unknown') as string,
+          hash:        String(t.hash ?? tx.hash ?? ''),
+          type,
           amount:      parsed?.display,
           amountAsset: parsed?.asset,
           destination: tx.Destination as string | undefined,
-          account:     (tx.Account ?? '') as string,
-          result:      (meta.TransactionResult ?? t.meta?.TransactionResult ?? '') as string,
+          account:     String(tx.Account ?? ''),
+          result:      String(meta.TransactionResult ?? (t.meta as { TransactionResult?: string } | undefined)?.TransactionResult ?? ''),
           date:        tx.date as number | undefined,
         }
       })

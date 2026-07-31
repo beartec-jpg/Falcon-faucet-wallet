@@ -3452,13 +3452,31 @@ export default function WalletPage() {
                     <span className="text-[10px] text-slate-600">Latest {Math.min(5, account.transactions.length)}</span>
                   </div>
                   {account.transactions.slice(0, 5).map((tx, i) => {
-                    const incoming = tx.destination === wallet.address
-                    const ok  = tx.result === 'tesSUCCESS'
-                    const asset = tx.amountAsset ?? 'FALCON'
-                    const amt = tx.amount ?? '—'
-                    const amountLabel = tx.type === 'Payment' && tx.amount
-                      ? `${incoming ? '+' : '-'}${amt} ${asset}`
-                      : tx.type
+                    const isDepositClaim = tx.type === 'BTCDepositClaim'
+                    const isBridgeBurn = tx.type === 'BTCBridgeBurn' || tx.type === 'BTCWithdrawFinalize'
+                    const incoming =
+                      isDepositClaim ||
+                      (tx.type === 'Payment' && tx.destination === wallet.address)
+                    const outgoing =
+                      isBridgeBurn ||
+                      (tx.type === 'Payment' && tx.account === wallet.address && !incoming)
+                    const ok = tx.result === 'tesSUCCESS'
+                    const asset = tx.amountAsset ?? (isDepositClaim || isBridgeBurn ? 'FBTC' : 'FALCON')
+                    const amt = tx.amount
+                    let amountLabel: string
+                    if (!ok) {
+                      amountLabel = 'failed'
+                    } else if (amt) {
+                      if (isDepositClaim || (tx.type === 'Payment' && incoming)) {
+                        amountLabel = `+${amt} ${asset}`
+                      } else if (isBridgeBurn || (tx.type === 'Payment' && outgoing)) {
+                        amountLabel = `−${amt} ${asset}`
+                      } else {
+                        amountLabel = `${amt} ${asset}`
+                      }
+                    } else {
+                      amountLabel = '—'
+                    }
 
                     // Name always takes precedence over r-address for counterparty
                     const fromName = tx.accountName?.trim() || null
@@ -3479,6 +3497,17 @@ export default function WalletPage() {
                         party = toLabel
                         partyIsName = !!toName
                       }
+                    } else if (isDepositClaim) {
+                      action = 'BTC deposit claim'
+                      party = 'FBTC minted'
+                      partyIsName = false
+                    } else if (tx.type === 'BTCBridgeBurn') {
+                      action = 'BTC bridge out'
+                      party = 'FBTC burned'
+                      partyIsName = false
+                    } else if (tx.type === 'BTCWithdrawFinalize') {
+                      action = 'BTC withdraw finalize'
+                      party = null
                     } else if (tx.type === 'NameSet') {
                       action = 'Claimed name'
                       party = accountName || null
@@ -3506,8 +3535,8 @@ export default function WalletPage() {
                             {party && (
                               <div
                                 className={`text-sm font-medium break-all ${
-                                  partyIsName ? 'text-emerald-300' : 'text-slate-200 font-mono'
-                                }`}
+                                  partyIsName ? 'text-emerald-300' : 'text-slate-200'
+                                } ${partyIsName || isDepositClaim || isBridgeBurn ? '' : 'font-mono'}`}
                               >
                                 {party}
                               </div>
@@ -3524,7 +3553,7 @@ export default function WalletPage() {
                           <div className={`text-sm font-medium ${
                             !ok ? 'text-red-400' : incoming ? 'text-emerald-400' : 'text-slate-300'
                           }`}>
-                            {!ok ? 'failed' : amountLabel}
+                            {amountLabel}
                           </div>
                           <div className="text-xs text-slate-600">{fmtDate(tx.date)}</div>
                         </div>
