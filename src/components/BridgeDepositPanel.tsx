@@ -1203,6 +1203,13 @@ export default function BridgeDepositPanel({
         return
       }
 
+      let vaultScriptHex: string | undefined
+      try {
+        vaultScriptHex = localStorage.getItem(`falcon-spv-vault-script-${txid}`) || undefined
+      } catch {
+        /* ignore */
+      }
+
       setStep('Submitting BTCDepositClaim on Falcon…')
       const claim = await submitSpvDepositClaim({
         falconSecret: falcon_secret,
@@ -1210,6 +1217,7 @@ export default function BridgeDepositPanel({
         networkKey,
         networkId: network.networkId,
         materials,
+        vaultScriptHex,
       })
       finishSpvClaimSuccess(txid, claim.hash, claim.hash ? `FBTC minted — claim ${claim.hash.slice(0, 12)}…` : undefined)
     } catch (e: unknown) {

@@ -222,6 +222,8 @@ export async function sendSpvDeposit(opts: {
   amountBtc: string
   network?: BtcNetwork
   feeRateSatPerVb?: number
+  /** If set, pay this scriptPubKey instead of P2PKH watchAddress (BitVM vault P2WSH). */
+  paymentScriptHex?: string
 }): Promise<SpvDepositResult> {
   const network = opts.network ?? 'testnet'
   const pk = opts.privateKeyHex.replace(/^0x/i, '').toLowerCase()
@@ -249,11 +251,12 @@ export async function sendSpvDeposit(opts: {
   const opRet = falcOpReturnPayload(opts.falconAccount)
   const opScript = opReturnScript(opRet)
 
-  // Build via extended raw sign (P2PKH in → watch P2PKH + OP_RETURN + change)
+  // Build via extended raw sign (P2PKH in → watch/vault + OP_RETURN + change)
   const built = await buildSpvDepositTx({
     privateKeyHex: pk,
     utxos,
     watchAddress: opts.watchAddress.trim(),
+    paymentScriptHex: opts.paymentScriptHex,
     amountSats,
     opReturnScript: opScript,
     network,
@@ -273,6 +276,71 @@ export async function sendSpvDeposit(opts: {
     amountSats,
     watchVout: built.watchVout,
     explorerUrl,
+  }
+}
+
+/**
+ * Non-custodial peg-in: fund BitVM vault P2WSH + OP_RETURN, return vault material for claim/out.
+ */
+export async function sendSpvVaultDeposit(opts: {
+  privateKeyHex: string
+  falconAccount: string
+  amountBtc: string
+  network?: BtcNetwork
+  feeRateSatPerVb?: number
+}): Promise<
+  SpvDepositResult & {
+    vaultScriptHex: string
+    preimageHex: string
+    commitHex: string
+    userPubKeyHex: string
+  }
+> {
+  const { buildBitvmVaultScript, p2wshScriptPubKey, randomPreimageHex, commitOfPreimage, compressedPubFromBtcPriv, bytesToHex, saveVaultDeposit, VAULT_CSV_BLOCKS } =
+    await import('@/lib/btc-vault')
+  const pk = opts.privateKeyHex.replace(/^0x/i, '').toLowerCase()
+  const userPubKeyHex = compressedPubFromBtcPriv(pk)
+  const preimageHex = randomPreimageHex(32)
+  const commitHex = commitOfPreimage(preimageHex)
+  const vaultScript = buildBitvmVaultScript({
+    csvBlocks: VAULT_CSV_BLOCKS,
+    burnCommitHex: commitHex,
+    userPubKeyHex,
+  })
+  const vaultScriptHex = bytesToHex(vaultScript)
+  const paymentScriptHex = bytesToHex(p2wshScriptPubKey(vaultScript))
+
+  const dep = await sendSpvDeposit({
+    privateKeyHex: pk,
+    // unused when paymentScriptHex set; placeholder for API shape
+    watchAddress: 'mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik',
+    falconAccount: opts.falconAccount,
+    amountBtc: opts.amountBtc,
+    network: opts.network,
+    feeRateSatPerVb: opts.feeRateSatPerVb,
+    paymentScriptHex,
+  })
+
+  saveVaultDeposit({
+    v: 1,
+    falconAccount: opts.falconAccount,
+    fundingTxid: dep.txid,
+    fundingVout: dep.watchVout,
+    amountSats: dep.amountSats,
+    vaultScriptHex,
+    preimageHex,
+    commitHex,
+    userPubKeyHex,
+    csvBlocks: VAULT_CSV_BLOCKS,
+    createdAt: Date.now(),
+  })
+
+  return {
+    ...dep,
+    vaultScriptHex,
+    preimageHex,
+    commitHex,
+    userPubKeyHex,
   }
 }
 
@@ -309,6 +377,8 @@ async function buildSpvDepositTx(opts: {
   privateKeyHex: string
   utxos: Array<{ txid: string; vout: number; value: number }>
   watchAddress: string
+  /** Override payment script (e.g. P2WSH vault); else P2PKH(watchAddress) */
+  paymentScriptHex?: string
   amountSats: number
   opReturnScript: Uint8Array
   network: BtcNetwork
@@ -318,9 +388,10 @@ async function buildSpvDepositTx(opts: {
   const pubHex = wallet.signingKey.compressedPublicKey
   const fromAddr = btcP2pkhFromCompressedPub(pubHex, opts.network)
   const fromHash = decodeP2pkhAddress(fromAddr, opts.network)
-  const toHash = decodeP2pkhAddress(opts.watchAddress, opts.network)
   const scriptFrom = p2pkhScript(fromHash)
-  const scriptTo = p2pkhScript(toHash)
+  const scriptTo = opts.paymentScriptHex
+    ? hexToBytes(opts.paymentScriptHex)
+    : p2pkhScript(decodeP2pkhAddress(opts.watchAddress, opts.network))
 
   const sorted = [...opts.utxos].sort((a, b) => b.value - a.value)
   const selected: typeof sorted = []
@@ -690,6 +761,15 @@ export async function spvPegOut(opts: {
   amountSats: number
 }> {
   opts.onStep?.('Burning FBTC (SPV peg-out)…')
+  // Prefer preimage from a matching vault deposit (non-custodial binding)
+  let burnPreimage: string | undefined
+  try {
+    const { findVaultDepositForBurn } = await import('@/lib/btc-vault')
+    const vault = findVaultDepositForBurn(opts.account, opts.amountSats)
+    if (vault?.preimageHex) burnPreimage = vault.preimageHex
+  } catch {
+    /* ignore */
+  }
   const burn = await submitSpvBridgeBurn({
     falconSecret: opts.falconSecret,
     account: opts.account,
@@ -698,6 +778,7 @@ export async function spvPegOut(opts: {
     amountSats: opts.amountSats,
     btcPayoutAddress: opts.btcPayoutAddress,
     btcNetwork: opts.btcNetwork,
+    burnPreimageHex: burnPreimage,
   })
   opts.onStep?.(`Burn submitted (seq ${burn.burnSeq}) — waiting challenge window…`)
   await waitSpvChallengeWindow({
@@ -798,6 +879,8 @@ export async function spvPegIn(opts: {
   networkId: number
   btcNetwork?: BtcNetwork
   minConfirmations?: number
+  /** Prefer BitVM vault deposit (non-custodial out). Default true when binary supports it. */
+  useVault?: boolean
   onStep?: (msg: string) => void
   /** Fired as soon as BTC is broadcast — UI can show success before claim. */
   onDepositBroadcast?: (dep: {
@@ -808,14 +891,34 @@ export async function spvPegIn(opts: {
 }): Promise<{ depositTxid: string; claimHash?: string; explorerUrl: string }> {
   const btcNet = opts.btcNetwork ?? 'testnet'
   const minConf = opts.minConfirmations ?? 1
-  opts.onStep?.('Broadcasting BTC deposit (watch + OP_RETURN)…')
-  const dep = await sendSpvDeposit({
-    privateKeyHex: opts.btcPrivateKeyHex,
-    watchAddress: opts.watchAddress,
-    falconAccount: opts.falconAccount,
-    amountBtc: opts.amountBtc,
-    network: btcNet,
-  })
+  const useVault = opts.useVault !== false
+
+  opts.onStep?.(
+    useVault
+      ? 'Broadcasting BTC vault deposit (P2WSH + OP_RETURN)…'
+      : 'Broadcasting BTC deposit (watch + OP_RETURN)…',
+  )
+
+  let vaultScriptHex: string | undefined
+  let dep: SpvDepositResult
+  if (useVault) {
+    const vdep = await sendSpvVaultDeposit({
+      privateKeyHex: opts.btcPrivateKeyHex,
+      falconAccount: opts.falconAccount,
+      amountBtc: opts.amountBtc,
+      network: btcNet,
+    })
+    dep = vdep
+    vaultScriptHex = vdep.vaultScriptHex
+  } else {
+    dep = await sendSpvDeposit({
+      privateKeyHex: opts.btcPrivateKeyHex,
+      watchAddress: opts.watchAddress,
+      falconAccount: opts.falconAccount,
+      amountBtc: opts.amountBtc,
+      network: btcNet,
+    })
+  }
 
   // Persist txid immediately (localStorage + session) so claim UI survives refresh
   try {
@@ -824,12 +927,15 @@ export async function spvPegIn(opts: {
       falconAccount: opts.falconAccount,
       txid: dep.txid,
       watchVout: dep.watchVout,
-      watchAddress: opts.watchAddress,
+      watchAddress: useVault ? `vault:${dep.txid}` : opts.watchAddress,
       amountSats: dep.amountSats,
       minConfirmations: minConf,
       btcNetwork: btcNet,
       status: 'waiting_confs',
     })
+    if (vaultScriptHex) {
+      localStorage.setItem(`falcon-spv-vault-script-${dep.txid}`, vaultScriptHex)
+    }
   } catch {
     /* non-browser / storage blocked */
   }
@@ -872,12 +978,20 @@ export async function spvPegIn(opts: {
 
   opts.onStep?.('Submitting BTCDepositClaim on Falcon…')
   try {
+    if (!vaultScriptHex) {
+      try {
+        vaultScriptHex = localStorage.getItem(`falcon-spv-vault-script-${dep.txid}`) || undefined
+      } catch {
+        /* ignore */
+      }
+    }
     const claim = await submitSpvDepositClaim({
       falconSecret: opts.falconSecret,
       account: opts.falconAccount,
       networkKey: opts.networkKey,
       networkId: opts.networkId,
       materials,
+      vaultScriptHex,
     })
     return {
       depositTxid: dep.txid,
@@ -888,7 +1002,8 @@ export async function spvPegIn(opts: {
     const msg = e instanceof Error ? e.message : String(e)
     throw new Error(
       `BTC deposit OK: ${dep.txid} (${dep.explorerUrl}) but Falcon claim failed: ${msg}. ` +
-        `Your BTC is at the bridge watch address — do not re-send. Retry claim with this txid.`,
+        `Do not re-send. Retry claim with this txid` +
+        (vaultScriptHex ? ' (vault script saved on this device).' : '.'),
     )
   }
 }
