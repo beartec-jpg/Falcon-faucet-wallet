@@ -35,14 +35,16 @@ const BOND_STATUS: Record<number, ValidatorEntry['bond_status']> = {
 /** Public path: bonded validators live on-ledger (admin `validators` RPC is 403 on :6005). */
 async function fetchBondedValidators(): Promise<ValidatorEntry[]> {
   const out: ValidatorEntry[] = []
+  const seen = new Set<string>()
   let marker: unknown
 
-  // Paginate in case the validator set grows beyond one page.
-  for (let page = 0; page < 16; page++) {
+  // ledger_data returns sparse pages for type=validator_bond — use a large limit
+  // and keep paging until the marker is gone (old cap of 16×32 missed new bonds).
+  for (let page = 0; page < 64; page++) {
     const params: Record<string, unknown> = {
       ledger_index: 'validated',
       type:         'validator_bond',
-      limit:        32,
+      limit:        400,
     }
     if (marker !== undefined && marker !== null) params.marker = marker
 
@@ -53,11 +55,14 @@ async function fetchBondedValidators(): Promise<ValidatorEntry[]> {
 
     for (const entry of data.state ?? []) {
       if (entry.LedgerEntryType !== 'ValidatorBond') continue
+      const account = String(entry.Account ?? '')
+      if (!account || seen.has(account)) continue
+      seen.add(account)
       const statusRaw = entry.BondStatus
       const statusNum = typeof statusRaw === 'number' ? statusRaw : Number(statusRaw)
       const pubkey = String(entry.PublicKey ?? entry.ConsensusKey ?? '')
       out.push({
-        account:         String(entry.Account ?? ''),
+        account,
         pubkey,
         bond_status:     BOND_STATUS[statusNum] ?? String(statusRaw ?? 'unknown'),
         bonded_amount:   String(entry.BondedAmount ?? '0'),
