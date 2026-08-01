@@ -49,7 +49,7 @@ function CopyBtn({ text }: { text: string }) {
 
 // Pin install script to a known-good commit so raw.githubusercontent CDN
 // cannot serve a stale develop blob mid-install (was aborting after smoke).
-const INSTALL_SCRIPT_COMMIT = '0c5540cd98b9970da7aba9ceea49353b7ca61ac1'
+const INSTALL_SCRIPT_COMMIT = 'c47f3d02fc05cb691ebe26a4a9b2de6347dd90da'
 const INSTALL_SCRIPT_URL =
   `https://raw.githubusercontent.com/beartec-jpg/FalconLedger/${INSTALL_SCRIPT_COMMIT}/bin/install/install-qxrp-validator.sh`
 
@@ -177,8 +177,10 @@ export default function ValidatorGuidePage() {
           </div>
           {hasWallet && (
             <p className="text-[10px] text-slate-600">
-              Copy &amp; paste as-is on your server. Optional: change{' '}
-              <code className="text-slate-500">--node-name</code> (e.g. falcon2).
+              Copy &amp; paste as-is. If install waits on 0 drops after you already
+              sent FALCON, run on the server: 
+              <code className="text-slate-400 break-all">curl -fsSL https://raw.githubusercontent.com/beartec-jpg/FalconLedger/c47f3d02fc05cb691ebe26a4a9b2de6347dd90da/bin/install/finish-qxrp-bond.sh | bash -s -- --node-name my-falcon-node</code>
+              . Use <code className="text-slate-400">newgrp docker</code> or prefix docker with sudo if socket denied.
             </p>
           )}
         </section>
