@@ -442,13 +442,15 @@ export default function ScanPage() {
               />
               <ClickableStatCard label="Peers" value={d.peers} chartKey="peers" onChart={setChartMetric} />
               <ClickableStatCard
-                label="Validators"
+                label="Total bonded"
                 value={d.validators.filter(v => v.bond_status === 'bonded').length || d.validators.length}
-                sub={
-                  d.proposers > 0
-                    ? `${d.proposers} proposing · ${d.validators.length} on ledger`
-                    : `${d.validators.length} on ledger`
-                }
+                sub="on-ledger stake (includes offline)"
+              />
+              <ClickableStatCard
+                label="Active proposing"
+                value={d.proposers}
+                sub="in last consensus close"
+                accent={d.proposers > 0 ? 'text-emerald-400' : 'text-amber-400'}
               />
               <ClickableStatCard
                 label="State"
@@ -566,12 +568,17 @@ export default function ScanPage() {
             <div>
               <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
                 Bonded Validators
-                {d.proposers > 0 && (
-                  <span className="ml-2 font-normal normal-case tracking-normal text-slate-600">
-                    · {d.proposers} proposing last close
-                  </span>
-                )}
+                <span className="ml-2 font-normal normal-case tracking-normal text-slate-600">
+                  · {d.validators.filter(v => v.bond_status === 'bonded').length || d.validators.length} bonded total
+                  {d.proposers > 0
+                    ? ` · ${d.proposers} active (proposing last close)`
+                    : ' · active count from last close unavailable'}
+                </span>
               </h2>
+              <p className="text-[11px] text-slate-600 mb-2 leading-snug">
+                Bonded = stake on ledger (still listed if the machine is powered off).
+                Active = validators that proposed in the last consensus round.
+              </p>
               <div className="card overflow-hidden overflow-x-auto">
                 {d.validators.length === 0 ? (
                   <div className="px-4 py-8 text-center text-slate-600 text-sm">No bonded validators on ledger</div>
