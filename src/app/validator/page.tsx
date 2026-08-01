@@ -49,7 +49,7 @@ function CopyBtn({ text }: { text: string }) {
 
 // Pin install script to a known-good commit so raw.githubusercontent CDN
 // cannot serve a stale develop blob mid-install (was aborting after smoke).
-const INSTALL_SCRIPT_COMMIT = '126243d9af7d04f7f71fe3c901df97d0b9304561'
+const INSTALL_SCRIPT_COMMIT = '473894d3ae29b961be8c2dfef000372d90ba6564'
 const INSTALL_SCRIPT_URL =
   `https://raw.githubusercontent.com/beartec-jpg/FalconLedger/${INSTALL_SCRIPT_COMMIT}/bin/install/install-qxrp-validator.sh`
 
