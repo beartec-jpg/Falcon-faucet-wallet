@@ -357,6 +357,77 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Wrong deposit destination → claim always tecNO_ENTRY / temMALFORMED
+    const fileCfg = await loadFileConfig()
+    const watchAddress =
+      (fileCfg.watch_address as string | undefined)?.trim() ||
+      process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
+      null
+    const outAddr = status.vout?.[vout]?.scriptpubkey_address?.trim()
+    if (watchAddress && outAddr && outAddr !== watchAddress) {
+      return NextResponse.json(
+        {
+          error:
+            `This BTC tx (vout ${vout}) paid ${outAddr}, not the live SPV watch address ${watchAddress}. ` +
+            'Claim FBTC only works for deposits to the current protocol hold address. Old mxuam… deposits cannot be claimed on this bridge.',
+          wrongWatchAddress: true,
+          paidTo: outAddr,
+          expectedWatch: watchAddress,
+        },
+        { status: 400 },
+      )
+    }
+
+    // Falcon must already have the Bitcoin header for this block or engine returns tecNO_ENTRY
+    const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
+    const net = getNetwork(networkKey)
+    const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
+    let falconTipHeight = 0
+    let headerReady = false
+    try {
+      const bridgeLe = await falconRpc(
+        'ledger_entry',
+        { btc_bridge_state: true, ledger_index: 'validated' },
+        rpcUrl,
+      )
+      const bnode = bridgeLe.node as Record<string, unknown> | undefined
+      falconTipHeight = Number(bnode?.BtcTipHeight ?? 0) || 0
+      const heightLe = await falconRpc(
+        'ledger_entry',
+        { btc_height: blockHeight, ledger_index: 'validated' },
+        rpcUrl,
+      )
+      headerReady = !heightLe.error && !!heightLe.node
+      // Prefer bridge tip when height object lags
+      if (!headerReady && falconTipHeight > 0 && blockHeight > 0 && blockHeight <= falconTipHeight) {
+        headerReady = true
+      }
+    } catch {
+      /* RPC flaky — still return proof; claim may fail with tecNO_ENTRY */
+    }
+
+    if (!headerReady) {
+      const gap =
+        falconTipHeight > 0 && blockHeight > falconTipHeight
+          ? blockHeight - falconTipHeight
+          : undefined
+      return NextResponse.json(
+        {
+          error:
+            `Falcon SPV headers have not indexed Bitcoin block ${blockHeight} yet` +
+            (falconTipHeight ? ` (Falcon tip ~${falconTipHeight}` + (gap ? `, ~${gap} blocks behind` : '') + ')' : '') +
+            '. Wait for the header submitter, then Claim FBTC again — do not re-send BTC.',
+          waiting: true,
+          headerReady: false,
+          falconTipHeight: falconTipHeight || undefined,
+          depositHeight: blockHeight,
+          confirmations,
+          confirmed: true,
+        },
+        { status: 409 },
+      )
+    }
+
     const rawR = await explorerGet(`/tx/${txid}/hex`, network)
     if (!rawR.ok) {
       return NextResponse.json(
@@ -393,6 +464,8 @@ export async function POST(req: NextRequest) {
       confirmations,
       blockHeight,
       confirmed: true,
+      headerReady: true,
+      falconTipHeight: falconTipHeight || undefined,
     })
   } catch (e: unknown) {
     return NextResponse.json(

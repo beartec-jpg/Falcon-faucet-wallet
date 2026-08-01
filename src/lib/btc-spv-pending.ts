@@ -262,7 +262,8 @@ export function isSpvWaitMessage(msg: string): boolean {
     ) ||
     /tx not found|not found yet|not confirmed yet|wait for|mempool|indexer|unavailable|raw tx not found|merkle proof unavailable|status \d+|502|503|504|404|409/i.test(
       m,
-    )
+    ) ||
+    /headers have not|header submitter|falcon tip|blocks behind|still catching up/i.test(m)
   )
 }
 
@@ -270,6 +271,9 @@ export function isSpvWaitMessage(msg: string): boolean {
 export function spvWaitUserMessage(msg?: string): string {
   if (!msg) return 'Waiting for Bitcoin explorers to index your deposit…'
   const m = msg.toLowerCase()
+  if (/headers have not|header submitter|falcon tip|blocks behind/i.test(m)) {
+    return 'Bitcoin confirmations are OK, but Falcon has not imported this block header yet. Wait, then Claim FBTC again — do not re-send BTC.'
+  }
   if (/not confirmed|wait for a block|need \d+ confirmation/i.test(m)) {
     return 'BTC is in the mempool or a recent block — waiting for more confirmations…'
   }

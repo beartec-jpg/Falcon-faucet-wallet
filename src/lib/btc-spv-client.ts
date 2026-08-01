@@ -521,6 +521,8 @@ export async function fetchSpvClaimMaterials(
     if (r.status === 404 || r.status === 409) {
       throw new Error(j.error || 'BTC tx not confirmed yet — wait for a block')
     }
+    // 400 wrong watch address / bad deposit — hard error, do not fall back to raw explorer
+    if (r.status === 400 && j.error) throw new Error(j.error)
     if (!r.ok && j.error) throw new Error(j.error)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -930,12 +932,19 @@ export async function submitSpvDepositClaim(opts: {
       // Deposit already claimed / tombstone exists — treat as success upstream
       throw new Error('tecDUPLICATE — Ledger object already exists.')
     }
-    if (/^temMALFORMED/i.test(msg) || msg === 'temMALFORMED') {
+    if (/tecNO_ENTRY/i.test(msg)) {
       throw new Error(
-        'temMALFORMED — SPV proof rejected (merkle/raw tx/OP_RETURN). Hard-refresh and retry claim.',
+        'tecNO_ENTRY on Claim FBTC — Falcon has no BTC header (or matching deposit) for this tx. ' +
+          'Usually Falcon SPV headers lag Bitcoin — wait until Falcon tip passes your deposit block, then Claim again. ' +
+          'Or the BTC went to an old watch address (not the current tb1q… protocol hold). Do not re-send BTC.',
       )
     }
-    if (/^tecTOO_SOON/i.test(msg)) {
+    if (/^temMALFORMED/i.test(msg) || msg === 'temMALFORMED' || /temMALFORMED/i.test(msg)) {
+      throw new Error(
+        'temMALFORMED — SPV proof rejected (merkle/raw tx/OP_RETURN/watch). Hard-refresh and retry Claim FBTC.',
+      )
+    }
+    if (/tecTOO_SOON/i.test(msg)) {
       throw new Error('tecTOO_SOON — need more Falcon-side confirmations (headers still catching up)')
     }
     throw e instanceof Error ? e : new Error(msg)
