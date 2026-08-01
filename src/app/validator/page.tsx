@@ -31,7 +31,7 @@ const STEPS = [
   { n: 1, title: 'Create a Falcon wallet', body: 'Open Wallet and create a passkey-secured wallet. Back up your falcon_secret.' },
   { n: 2, title: `Claim ${DRIP_AMOUNT.toLocaleString()} FALCON from the faucet`, body: 'Use Faucet (or Falcon wallet → Top up). One drip per day per IP/account is enough to fund bonding.' },
   { n: 3, title: 'Copy the one-liner', body: 'Copy the install command below. Put your Falcon wallet address as --payout.' },
-  { n: 4, title: 'Run on Ubuntu VPS', body: 'Paste into an Ubuntu 22.04/24.04 server with port 51235/TCP open. Docker installs automatically.' },
+  { n: 4, title: 'Run on Ubuntu 22.04/24.04', body: 'Paste into a VPS or spare PC with port 51235/TCP open (and outbound internet). Docker installs automatically. Image: qxrp/xrpld:btc-spv-v6 (Bitcoin SPV bridge).' },
   { n: 5, title: 'Fund the validator address', body: 'The installer prints a NEW validator r-address. Send ≥1,100 FALCON there (from your wallet or another drip tomorrow).' },
   { n: 6, title: 'Auto-bond + rewards', body: 'Installer polls until funded, submits ValidatorRegister + Bond(1000), and sets up hourly ClaimReward cron. Claim extras from Community → Rewards.' },
 ]
@@ -54,7 +54,9 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 export default function ValidatorGuidePage() {
-  const oneLiner = `curl -fsSL https://raw.githubusercontent.com/beartec-jpg/qXRP/develop/bin/install/bootstrap-qxrp-validator.sh | bash -s -- \\
+  // Live Falcon testnet 1001 SPV fleet — install script + image pin both force btc-spv-v6.
+  const oneLiner = `export QXRP_XRPLD_IMAGE=qxrp/xrpld:btc-spv-v6
+curl -fsSL https://raw.githubusercontent.com/beartec-jpg/FalconLedger/develop/bin/install/install-qxrp-validator.sh | bash -s -- \\
   --payout rYourWalletAddress \\
   --node-name my-falcon-node`
 
