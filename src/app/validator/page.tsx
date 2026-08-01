@@ -1,14 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
+import { loadPrimaryWallet } from '@/lib/wallet-store'
 
 const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
 const DRIP_AMOUNT  = parseInt(process.env.NEXT_PUBLIC_DRIP_AMOUNT_QXRP ?? '2000', 10)
 const PUBLIC_RPC   = process.env.NEXT_PUBLIC_RPC_URL ?? 'http://46.224.0.140:6005'
 const PORTAL_URL   = 'https://falcon-ledger.com'
+const PLACEHOLDER_PAYOUT = 'rYourWalletAddress'
+const DEFAULT_NODE_NAME = 'my-falcon-node'
 
 interface CommandRow {
   label: string
@@ -25,15 +28,6 @@ const SERVER_COMMANDS: CommandRow[] = [
   { label: 'Stop', cmd: 'cd /var/lib/falcon-validator && docker compose down' },
   { label: 'Node info', cmd: "curl -s -X POST http://127.0.0.1:5005 -H 'Content-Type: application/json' -d '{\"method\":\"server_info\",\"params\":[{}]}' | python3 -m json.tool" },
   { label: 'Validator balance', cmd: `curl -s -X POST ${PUBLIC_RPC} -H 'Content-Type: application/json' -d '{"method":"account_info","params":[{"account":"<validator-r-address>","ledger_index":"validated"}]}'` },
-]
-
-const STEPS = [
-  { n: 1, title: 'Create a Falcon wallet', body: 'Open Wallet and create a passkey-secured wallet. Back up your falcon_secret.' },
-  { n: 2, title: `Claim ${DRIP_AMOUNT.toLocaleString()} FALCON from the faucet`, body: 'Use Faucet (or Falcon wallet → Top up). One drip per day per IP/account is enough to fund bonding.' },
-  { n: 3, title: 'Copy the one-liner', body: 'Copy the install command below. Put your Falcon wallet address as --payout.' },
-  { n: 4, title: 'Run on Ubuntu 22.04/24.04', body: 'Paste into a VPS or spare PC with port 51235/TCP open (and outbound internet). Docker installs automatically. Image: qxrp/xrpld:btc-spv-v6 (Bitcoin SPV bridge).' },
-  { n: 5, title: 'Fund the validator address', body: 'The installer prints a NEW validator r-address. Send ≥1,100 FALCON there (from your wallet or another drip tomorrow).' },
-  { n: 6, title: 'Auto-bond + rewards', body: 'Installer polls until funded, submits ValidatorRegister + Bond(1000), and sets up hourly ClaimReward cron. Claim extras from Community → Rewards.' },
 ]
 
 function CopyBtn({ text }: { text: string }) {
@@ -53,13 +47,56 @@ function CopyBtn({ text }: { text: string }) {
   )
 }
 
-export default function ValidatorGuidePage() {
-  // Live Falcon testnet 1001 SPV fleet — install default + explicit pin = btc-spv-v6.
-  // Do not use :latest (still an older Hub tag). Always pin btc-spv-v6.
-  const oneLiner = `export QXRP_XRPLD_IMAGE=qxrp/xrpld:btc-spv-v6
+function buildOneLiner(payout: string, nodeName: string) {
+  // Live Falcon testnet 1001 SPV fleet — always pin btc-spv-v6 (never :latest).
+  return `export QXRP_XRPLD_IMAGE=qxrp/xrpld:btc-spv-v6
 curl -fsSL https://raw.githubusercontent.com/beartec-jpg/FalconLedger/develop/bin/install/install-qxrp-validator.sh | bash -s -- \\
-  --payout rYourWalletAddress \\
-  --node-name my-falcon-node`
+  --payout ${payout} \\
+  --node-name ${nodeName}`
+}
+
+export default function ValidatorGuidePage() {
+  const [payoutAddress, setPayoutAddress] = useState<string | null>(null)
+  const [walletLoading, setWalletLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const w = await loadPrimaryWallet()
+        if (!cancelled) setPayoutAddress(w?.address?.trim() || null)
+      } catch {
+        if (!cancelled) setPayoutAddress(null)
+      } finally {
+        if (!cancelled) setWalletLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const payout = payoutAddress || PLACEHOLDER_PAYOUT
+  const hasWallet = !!payoutAddress
+  const oneLiner = useMemo(
+    () => buildOneLiner(payout, DEFAULT_NODE_NAME),
+    [payout],
+  )
+
+  const steps = [
+    { n: 1, title: 'Create a Falcon wallet', body: 'Open Wallet and create a passkey-secured wallet. Back up your falcon_secret.' },
+    { n: 2, title: `Claim ${DRIP_AMOUNT.toLocaleString()} FALCON from the faucet`, body: 'Use Faucet (or Falcon wallet → Top up). One drip per day per IP/account is enough to fund bonding.' },
+    {
+      n: 3,
+      title: 'Copy the one-liner',
+      body: hasWallet
+        ? `Copy the install command below — --payout is already set to your wallet (${payoutAddress}).`
+        : 'Copy the install command below. Open Wallet first so --payout fills in automatically.',
+    },
+    { n: 4, title: 'Run on Ubuntu 22.04/24.04', body: 'Paste into a VPS or spare PC with port 51235/TCP open (and outbound internet). Docker installs automatically. Image: qxrp/xrpld:btc-spv-v6 (Bitcoin SPV bridge).' },
+    { n: 5, title: 'Fund the validator address', body: 'The installer prints a NEW validator r-address. Send ≥1,100 FALCON there (from your wallet or another drip tomorrow).' },
+    { n: 6, title: 'Auto-bond + rewards', body: 'Installer polls until funded, submits ValidatorRegister + Bond(1000), and sets up hourly ClaimReward cron. Claim extras from Community → Rewards.' },
+  ]
 
   return (
     <ProductShell intensity={0.4}>
@@ -85,7 +122,7 @@ curl -fsSL https://raw.githubusercontent.com/beartec-jpg/FalconLedger/develop/bi
         <section className="card p-5 space-y-3">
           <h2 className="text-sm font-semibold text-white uppercase tracking-wide">Step-by-step</h2>
           <ol className="space-y-3">
-            {STEPS.map(s => (
+            {steps.map(s => (
               <li key={s.n} className="flex gap-3 text-sm">
                 <span className="text-cyan-600 font-mono text-xs w-6 flex-shrink-0 pt-0.5">{String(s.n).padStart(2, '0')}</span>
                 <div>
@@ -111,13 +148,33 @@ curl -fsSL https://raw.githubusercontent.com/beartec-jpg/FalconLedger/develop/bi
         {/* One-liner template */}
         <section className="card p-5 space-y-2">
           <h2 className="text-sm font-semibold text-white uppercase tracking-wide">One-liner template</h2>
-          <p className="text-xs text-slate-500">
-            Replace <code className="text-slate-400">rYourWalletAddress</code> with your Falcon wallet address from Wallet.
-          </p>
+          {walletLoading ? (
+            <p className="text-xs text-slate-500">Loading wallet…</p>
+          ) : hasWallet ? (
+            <p className="text-xs text-emerald-400/90">
+              <span className="text-slate-500">Payout wallet auto-filled:</span>{' '}
+              <code className="text-emerald-300 font-mono break-all">{payoutAddress}</code>
+            </p>
+          ) : (
+            <p className="text-xs text-amber-300/90">
+              No wallet on this device yet —{' '}
+              <Link href="/wallet" className="text-brand-400 hover:underline">
+                open Wallet
+              </Link>{' '}
+              to create one. The command will insert your address as{' '}
+              <code className="text-slate-400">--payout</code> automatically.
+            </p>
+          )}
           <div className="relative">
             <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-[11px] text-emerald-300 font-mono whitespace-pre-wrap break-all pr-12">{oneLiner}</pre>
             <div className="absolute top-2 right-2"><CopyBtn text={oneLiner} /></div>
           </div>
+          {hasWallet && (
+            <p className="text-[10px] text-slate-600">
+              Copy &amp; paste as-is on your server. Optional: change{' '}
+              <code className="text-slate-500">--node-name</code> (e.g. falcon2).
+            </p>
+          )}
         </section>
 
         {/* Requirements */}
