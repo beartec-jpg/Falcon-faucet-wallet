@@ -54,7 +54,8 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 export default function ValidatorGuidePage() {
-  // Live Falcon testnet 1001 SPV fleet — install script + image pin both force btc-spv-v6.
+  // Live Falcon testnet 1001 SPV fleet — install default + explicit pin = btc-spv-v6.
+  // Do not use :latest (still an older Hub tag). Always pin btc-spv-v6.
   const oneLiner = `export QXRP_XRPLD_IMAGE=qxrp/xrpld:btc-spv-v6
 curl -fsSL https://raw.githubusercontent.com/beartec-jpg/FalconLedger/develop/bin/install/install-qxrp-validator.sh | bash -s -- \\
   --payout rYourWalletAddress \\
@@ -167,7 +168,8 @@ curl -fsSL https://raw.githubusercontent.com/beartec-jpg/FalconLedger/develop/bi
             <li><a href={PORTAL_URL} className="text-brand-400 hover:underline">Faucet + Wallet portal</a></li>
             <li><a href={`${PORTAL_URL}/scan`} className="text-brand-400 hover:underline">Block explorer</a></li>
             <li><a href="https://github.com/beartec-jpg/qXRP/blob/develop/docs/validator-onboarding.md" target="_blank" rel="noopener noreferrer" className="text-brand-400 hover:underline">validator-onboarding.md (GitHub)</a></li>
-            <li><a href="https://github.com/beartec-jpg/qXRP/blob/develop/bin/install/install-qxrp-validator.sh" target="_blank" rel="noopener noreferrer" className="text-brand-400 hover:underline">install-qxrp-validator.sh source</a></li>
+            <li><a href="https://github.com/beartec-jpg/FalconLedger/blob/develop/bin/install/install-qxrp-validator.sh" target="_blank" rel="noopener noreferrer" className="text-brand-400 hover:underline">install-qxrp-validator.sh source</a></li>
+            <li>Docker image: <code className="text-emerald-400">qxrp/xrpld:btc-spv-v6</code> (Bitcoin SPV bridge fleet)</li>
           </ul>
         </section>
 

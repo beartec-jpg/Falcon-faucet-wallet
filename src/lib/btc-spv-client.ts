@@ -186,8 +186,17 @@ export interface SpvStatus {
     totalMinted?: string
     chainId?: number
   }
-  /** Deposit destination for live test (P2PKH/P2WSH watch). From config until on-chain maps to address. */
+  /** Bech32 address for protocol hold (or display). Prefer paymentScriptHex for script. */
   watchAddress?: string | null
+  /** Protocol hold scriptPubKey hex (P2WSH) — keyless shared reserve */
+  paymentScriptHex?: string | null
+  watchScriptHash?: string | null
+  protocol?: {
+    model?: string
+    watch_script_hash?: string
+    hold_script_pubkey?: string
+    challenge_csv?: number
+  }
   btcNetwork: BtcNetwork
   ready: boolean
   message: string
@@ -590,24 +599,23 @@ export function randomBurnPreimageHex(bytes = 32): string {
   return bytesToHex(b)
 }
 
-/** Sign + submit BTCBridgeBurn (any sats ≤ MPT balance). */
+/**
+ * Shared-reserve burn: any FBTC holder. Creates withdraw awaiting reverse-SPV prove.
+ * No personal vault / preimage.
+ */
 export async function submitSpvBridgeBurn(opts: {
   falconSecret: string
   account: string
   networkKey: NetworkKey
   networkId: number
-  /** Satoshis to burn / withdraw */
   amountSats: number
-  /** Destination BTC P2PKH address (testnet m/n…) */
   btcPayoutAddress: string
   btcNetwork?: BtcNetwork
-  burnPreimageHex?: string
   feeDrops?: string
-}): Promise<{ hash?: string; result?: string; burnSeq: number; preimageHex: string }> {
+}): Promise<{ hash?: string; result?: string; burnSeq: number }> {
   const fee = opts.feeDrops ?? '1000000'
   const netId = networkIdForTx(opts.networkId)
   const btcNet = opts.btcNetwork ?? 'testnet'
-  const preimageHex = (opts.burnPreimageHex || randomBurnPreimageHex(32)).replace(/^0x/i, '')
   const payoutScript = btcP2pkhScriptHex(opts.btcPayoutAddress, btcNet)
   const amountSats = Math.floor(opts.amountSats)
   if (!Number.isFinite(amountSats) || amountSats < 546) {
@@ -633,14 +641,62 @@ export async function submitSpvBridgeBurn(opts: {
         Flags: 0,
         BtcWithdrawAmount: amountSats,
         BtcPayoutScript: payoutScript.toUpperCase(),
-        BtcBurnPreimage: preimageHex.toUpperCase(),
       }
       if (netId !== undefined) tx.NetworkID = netId
       const tx_blob = await signTxJson(tx, opts.falconSecret)
       return { tx_blob }
     },
   })
-  return { ...res, burnSeq, preimageHex }
+  return { ...res, burnSeq }
+}
+
+/** Reverse-SPV: prove BTC paid the burner (shared reserve redeem). */
+export async function submitSpvWithdrawProve(opts: {
+  falconSecret: string
+  account: string
+  networkKey: NetworkKey
+  networkId: number
+  burnSeq: number
+  materials: SpvClaimMaterials
+  feeDrops?: string
+}): Promise<{ hash?: string; result?: string }> {
+  const fee = opts.feeDrops ?? '1000000'
+  const netId = networkIdForTx(opts.networkId)
+  try {
+    return await submitWithSequenceRetry({
+      networkKey: opts.networkKey,
+      fetchSequence: async () => {
+        const s = await fetchSequenceInfo(opts.account, opts.networkKey)
+        if (!s.exists) throw new Error('Falcon account not funded on ledger')
+        return { sequence: s.sequence, currentLedger: s.currentLedger }
+      },
+      sign: async ({ sequence, lastLedgerSequence }) => {
+        const tx: Record<string, unknown> = {
+          TransactionType: 'BTCWithdrawProve',
+          Account: opts.account,
+          Fee: fee,
+          Sequence: sequence,
+          LastLedgerSequence: lastLedgerSequence,
+          Flags: 0,
+          BtcWithdrawSeq: opts.burnSeq,
+          BtcRawTx: opts.materials.rawTxHex.toUpperCase(),
+          BtcMerkleProof: opts.materials.merkleProofHex.toUpperCase(),
+          BtcTxIndex: opts.materials.txIndex,
+          BtcBlockHash: opts.materials.blockHash.toUpperCase(),
+        }
+        if (netId !== undefined) tx.NetworkID = netId
+        const tx_blob = await signTxJson(tx, opts.falconSecret)
+        return { tx_blob }
+      },
+    })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/tecDUPLICATE/i.test(msg)) return { result: 'tecDUPLICATE' }
+    if (/tecTOO_SOON/i.test(msg)) {
+      throw new Error('Need more BTC confirmations on the redeem payment before prove')
+    }
+    throw e instanceof Error ? e : new Error(msg)
+  }
 }
 
 /** After challenge window: mark withdraw FINAL (user-signed). */
@@ -741,8 +797,12 @@ export async function waitSpvChallengeWindow(opts: {
 }
 
 /**
- * Full peg-out: burn MPT FBTC → wait challenge → finalize.
- * BTC payout is completed by ops relay once status is FINAL.
+ * Shared-reserve peg-out (fungible FBTC):
+ *   1) BTCBridgeBurn — any holder, any amount ≤ balance
+ *   2) Caller / operator pays BTC from shared reserve with OP_RETURN FBTO‖Account‖seq
+ *   3) Optional: submitSpvWithdrawProve when redeem txid known
+ *
+ * Personal vault claim is removed from the product path.
  */
 export async function spvPegOut(opts: {
   falconSecret: string
@@ -752,55 +812,69 @@ export async function spvPegOut(opts: {
   amountSats: number
   btcPayoutAddress: string
   btcNetwork?: BtcNetwork
+  /** If set, reverse-SPV prove this BTC redeem tx after burn */
+  redeemBtcTxid?: string
   onStep?: (msg: string) => void
 }): Promise<{
   burnHash?: string
   burnSeq: number
-  finalizeHash?: string
-  preimageHex: string
   amountSats: number
+  proveHash?: string
+  status: 'awaiting_btc_payment' | 'paid'
 }> {
-  opts.onStep?.('Burning FBTC (SPV peg-out)…')
-  // Prefer preimage from a matching vault deposit (non-custodial binding)
-  let burnPreimage: string | undefined
-  try {
-    const { findVaultDepositForBurn } = await import('@/lib/btc-vault')
-    const vault = findVaultDepositForBurn(opts.account, opts.amountSats)
-    if (vault?.preimageHex) burnPreimage = vault.preimageHex
-  } catch {
-    /* ignore */
-  }
+  const btcNet = opts.btcNetwork ?? 'testnet'
+  const want = Math.floor(opts.amountSats)
+
+  opts.onStep?.(
+    `Burning ${want} sats FBTC (shared reserve path — any holder can redeem)…`,
+  )
   const burn = await submitSpvBridgeBurn({
     falconSecret: opts.falconSecret,
     account: opts.account,
     networkKey: opts.networkKey,
     networkId: opts.networkId,
-    amountSats: opts.amountSats,
+    amountSats: want,
     btcPayoutAddress: opts.btcPayoutAddress,
-    btcNetwork: opts.btcNetwork,
-    burnPreimageHex: burnPreimage,
+    btcNetwork: btcNet,
   })
-  opts.onStep?.(`Burn submitted (seq ${burn.burnSeq}) — waiting challenge window…`)
-  await waitSpvChallengeWindow({
-    account: opts.account,
-    burnSeq: burn.burnSeq,
-    onStep: opts.onStep,
-  })
-  opts.onStep?.('Finalizing withdraw on Falcon…')
-  const fin = await submitSpvWithdrawFinalize({
+
+  opts.onStep?.(
+    `Burn seq ${burn.burnSeq} submitted. Shared reserve must pay your BTC address with OP_RETURN FBTO binding, then prove on Falcon.`,
+  )
+
+  if (!opts.redeemBtcTxid) {
+    return {
+      burnHash: burn.hash,
+      burnSeq: burn.burnSeq,
+      amountSats: want,
+      status: 'awaiting_btc_payment',
+    }
+  }
+
+  opts.onStep?.('Fetching redeem proof materials…')
+  const materials = await fetchSpvClaimMaterials(opts.redeemBtcTxid, btcNet, 0)
+  const minConf = 6
+  if (materials.confirmations < minConf) {
+    throw new Error(
+      `Redeem BTC needs ${minConf} confs (have ${materials.confirmations}). Retry prove later.`,
+    )
+  }
+  opts.onStep?.('Submitting BTCWithdrawProve (reverse SPV)…')
+  const prove = await submitSpvWithdrawProve({
     falconSecret: opts.falconSecret,
     account: opts.account,
     networkKey: opts.networkKey,
     networkId: opts.networkId,
     burnSeq: burn.burnSeq,
+    materials,
   })
-  opts.onStep?.('Finalize OK — BTC payout relay will send testnet BTC shortly…')
+
   return {
     burnHash: burn.hash,
     burnSeq: burn.burnSeq,
-    finalizeHash: fin.hash,
-    preimageHex: burn.preimageHex,
-    amountSats: opts.amountSats,
+    amountSats: want,
+    proveHash: prove.hash,
+    status: 'paid',
   }
 }
 
@@ -874,12 +948,16 @@ export async function spvPegIn(opts: {
   falconSecret: string
   falconAccount: string
   watchAddress: string
+  /** Protocol hold scriptPubKey hex (P2WSH). Preferred over P2PKH watchAddress. */
+  paymentScriptHex?: string
   amountBtc: string
   networkKey: NetworkKey
   networkId: number
   btcNetwork?: BtcNetwork
   minConfirmations?: number
-  /** Prefer BitVM vault deposit (non-custodial out). Default true when binary supports it. */
+  /**
+   * @deprecated Personal vault peg-in is NOT the product. Always false (shared reserve).
+   */
   useVault?: boolean
   onStep?: (msg: string) => void
   /** Fired as soon as BTC is broadcast — UI can show success before claim. */
@@ -891,51 +969,35 @@ export async function spvPegIn(opts: {
 }): Promise<{ depositTxid: string; claimHash?: string; explorerUrl: string }> {
   const btcNet = opts.btcNetwork ?? 'testnet'
   const minConf = opts.minConfirmations ?? 1
-  const useVault = opts.useVault !== false
 
   opts.onStep?.(
-    useVault
-      ? 'Broadcasting BTC vault deposit (P2WSH + OP_RETURN)…'
-      : 'Broadcasting BTC deposit (watch + OP_RETURN)…',
+    opts.paymentScriptHex
+      ? 'Broadcasting BTC deposit to protocol shared reserve (P2WSH hold + OP_RETURN)…'
+      : 'Broadcasting BTC deposit to shared reserve (watch + OP_RETURN)…',
   )
 
-  let vaultScriptHex: string | undefined
-  let dep: SpvDepositResult
-  if (useVault) {
-    const vdep = await sendSpvVaultDeposit({
-      privateKeyHex: opts.btcPrivateKeyHex,
-      falconAccount: opts.falconAccount,
-      amountBtc: opts.amountBtc,
-      network: btcNet,
-    })
-    dep = vdep
-    vaultScriptHex = vdep.vaultScriptHex
-  } else {
-    dep = await sendSpvDeposit({
-      privateKeyHex: opts.btcPrivateKeyHex,
-      watchAddress: opts.watchAddress,
-      falconAccount: opts.falconAccount,
-      amountBtc: opts.amountBtc,
-      network: btcNet,
-    })
-  }
+  const dep: SpvDepositResult = await sendSpvDeposit({
+    privateKeyHex: opts.btcPrivateKeyHex,
+    watchAddress: opts.watchAddress,
+    paymentScriptHex: opts.paymentScriptHex,
+    falconAccount: opts.falconAccount,
+    amountBtc: opts.amountBtc,
+    network: btcNet,
+  })
 
-  // Persist txid immediately (localStorage + session) so claim UI survives refresh
+  // Persist txid immediately so claim UI survives refresh
   try {
     const { createSpvPending } = await import('@/lib/btc-spv-pending')
     createSpvPending({
       falconAccount: opts.falconAccount,
       txid: dep.txid,
       watchVout: dep.watchVout,
-      watchAddress: useVault ? `vault:${dep.txid}` : opts.watchAddress,
+      watchAddress: opts.watchAddress,
       amountSats: dep.amountSats,
       minConfirmations: minConf,
       btcNetwork: btcNet,
       status: 'waiting_confs',
     })
-    if (vaultScriptHex) {
-      localStorage.setItem(`falcon-spv-vault-script-${dep.txid}`, vaultScriptHex)
-    }
   } catch {
     /* non-browser / storage blocked */
   }
@@ -978,20 +1040,12 @@ export async function spvPegIn(opts: {
 
   opts.onStep?.('Submitting BTCDepositClaim on Falcon…')
   try {
-    if (!vaultScriptHex) {
-      try {
-        vaultScriptHex = localStorage.getItem(`falcon-spv-vault-script-${dep.txid}`) || undefined
-      } catch {
-        /* ignore */
-      }
-    }
     const claim = await submitSpvDepositClaim({
       falconSecret: opts.falconSecret,
       account: opts.falconAccount,
       networkKey: opts.networkKey,
       networkId: opts.networkId,
       materials,
-      vaultScriptHex,
     })
     return {
       depositTxid: dep.txid,
@@ -1002,8 +1056,7 @@ export async function spvPegIn(opts: {
     const msg = e instanceof Error ? e.message : String(e)
     throw new Error(
       `BTC deposit OK: ${dep.txid} (${dep.explorerUrl}) but Falcon claim failed: ${msg}. ` +
-        `Do not re-send. Retry claim with this txid` +
-        (vaultScriptHex ? ' (vault script saved on this device).' : '.'),
+        `Do not re-send. Retry claim with this txid.`,
     )
   }
 }

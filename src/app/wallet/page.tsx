@@ -150,6 +150,9 @@ interface WalletAssets {
     currency: string
     issuer: string
     hasTrustLine: boolean
+    /** SPV light-client MPT FBTC (no classic TrustSet) */
+    spvMpt?: boolean
+    mptIssuanceId?: string
   }>
   lp: {
     symbol: string
@@ -1291,8 +1294,14 @@ export default function WalletPage() {
         setError('Insufficient FBNB balance'); return
       }
     } else if (sendAsset === 'fbtc') {
-      if (!fbtcTok?.issuer || fbtcTok.hasTrustLine === false) {
-        setError('Add a FBTC trust line on Bridge before sending'); return
+      // SPV FBTC is MPT (auto-enabled on claim). IOU path still needs TrustSet.
+      if (!fbtcTok?.spvMpt && (!fbtcTok?.issuer || fbtcTok.hasTrustLine === false)) {
+        setError(
+          fbtcTok?.spvMpt === false
+            ? 'Add a FBTC trust line on Bridge before sending'
+            : 'No FBTC yet — bridge BTC → FBTC first (SPV, no trust line)',
+        )
+        return
       }
       if (amt > fbtcBal) {
         setError('Insufficient FBTC balance'); return
@@ -2364,7 +2373,12 @@ export default function WalletPage() {
                         balanceLabel = (fbtcTok?.balance ?? 0).toLocaleString(undefined, {
                           maximumFractionDigits: 8,
                         })
-                        if (fbtcTok && !fbtcTok.hasTrustLine) {
+                        if (fbtcTok?.spvMpt) {
+                          detail =
+                            (fbtcTok.balance ?? 0) > 0
+                              ? asset.subtitle
+                              : 'SPV ready — Bridge BTC → FBTC (no trust line)'
+                        } else if (fbtcTok && !fbtcTok.hasTrustLine) {
                           detail = (
                             <span>
                               Need trust line — open Bridge · BTC → FBTC
@@ -2774,18 +2788,49 @@ export default function WalletPage() {
 
               {/* ── Receive panel ── */}
               {view === 'receive' && (() => {
-                const isNativeEvm = receiveAssetId === 'eth' || receiveAssetId === 'bnb' || receiveAssetId === 'usdc'
+                // Multi-chain USDC/ETH/BNB always use the EVM 0x key — never Falcon r…
+                const isNativeEvm =
+                  receiveAssetId === 'eth' ||
+                  receiveAssetId === 'bnb' ||
+                  receiveAssetId === 'usdc'
                 const isBtc = receiveAssetId === 'btc'
                 const isXrp = receiveAssetId === 'xrp'
+                const isFalconAsset =
+                  receiveAssetId === 'falcon' ||
+                  receiveAssetId === 'fusdc' ||
+                  receiveAssetId === 'feth' ||
+                  receiveAssetId === 'fbnb' ||
+                  receiveAssetId === 'fbtc'
                 const recvAddr = isNativeEvm
                   ? (wallet.evmAddress || '')
                   : isBtc
                     ? (wallet.btcAddress || '')
                     : isXrp
                       ? (wallet.xrplClassicAddress || '')
-                      : wallet.address
+                      : isFalconAsset
+                        ? wallet.address
+                        : wallet.evmAddress || wallet.address
                 const recvSymbol = multiChainAssetById(receiveAssetId)?.symbol
-                  ?? (receiveAssetId === 'eth' ? 'ETH' : receiveAssetId === 'btc' ? 'BTC' : receiveAssetId === 'bnb' ? 'BNB' : receiveAssetId === 'xrp' ? 'XRP' : 'assets')
+                  ?? (receiveAssetId === 'eth'
+                    ? 'ETH'
+                    : receiveAssetId === 'usdc'
+                      ? 'USDC'
+                      : receiveAssetId === 'btc'
+                        ? 'BTC'
+                        : receiveAssetId === 'bnb'
+                          ? 'BNB'
+                          : receiveAssetId === 'xrp'
+                            ? 'XRP'
+                            : receiveAssetId === 'fusdc'
+                              ? 'F-USDC'
+                              : 'assets')
+                const addrKind = isNativeEvm
+                  ? 'Ethereum 0x'
+                  : isBtc
+                    ? 'Bitcoin'
+                    : isXrp
+                      ? 'Classic XRPL r…'
+                      : 'Falcon r…'
                 return (
                 <div className="card p-5 space-y-4">
                   <div className="flex items-center gap-2">
@@ -2802,11 +2847,14 @@ export default function WalletPage() {
                       Receive {recvSymbol}
                     </h3>
                   </div>
+                  <p className="text-[10px] uppercase tracking-wide text-brand-400/90 font-medium">
+                    {addrKind} address
+                  </p>
                   <p className="text-xs text-slate-500 leading-relaxed">
                     {receiveAssetId === 'eth'
-                      ? 'Native Ethereum address (Sepolia testnet). Fund ETH for gas and for bridging to FETH.'
+                      ? 'Native Ethereum address (Sepolia testnet). Same 0x for USDC. Fund ETH for gas and for bridging to FETH.'
                       : receiveAssetId === 'usdc'
-                        ? 'USDC on Ethereum (Sepolia). Same 0x as ETH — send only USDC here, then Bridge → F-USDC.'
+                        ? 'USDC on Ethereum (Sepolia). Same 0x as your ETH address — only send Sepolia USDC here, then Bridge → F-USDC. Do not use this for Falcon F-USDC (that is an r… address).'
                       : receiveAssetId === 'bnb'
                         ? 'Same 0x as ETH. On BSC testnet this receives BNB. Bridge → FBNB.'
                       : receiveAssetId === 'btc'
@@ -2814,11 +2862,23 @@ export default function WalletPage() {
                       : receiveAssetId === 'xrp'
                         ? 'Classic XRP Ledger (today’s XRPL crypto). Separate r… from Falcon. Fund via XRPL testnet faucet.'
                       : receiveAssetId === 'fusdc'
-                        ? 'F-USDC lives on Falcon. Share your r… address, or Bridge In from Multi-chain USDC.'
+                        ? 'F-USDC on Falcon only (r…). To deposit Ethereum USDC, go back and pick USDC (Ethereum 0x), then Bridge In.'
                         : receiveAssetId === 'falcon'
                           ? 'Only send FALCON / Falcon-network assets to this r… address.'
                             : 'Falcon-wrapped asset — use Falcon r… after minting via Bridge.'}
                   </p>
+                  {receiveAssetId === 'fusdc' && wallet.evmAddress && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceiveAssetId('usdc')
+                        setWalletSection('multichain')
+                      }}
+                      className="w-full text-left text-xs rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2.5 text-sky-200 hover:bg-sky-500/20"
+                    >
+                      Want to receive Ethereum USDC? Use your ETH address instead →
+                    </button>
+                  )}
                   {recvAddr ? (
                     <>
                       <div className="bg-white rounded-xl p-3 mx-auto w-fit">
@@ -2839,7 +2899,9 @@ export default function WalletPage() {
                     <p className="text-sm text-amber-300">
                       {isXrp
                         ? 'No classic XRPL address yet — open Multi-chain to provision keys.'
-                        : 'No deposit address yet — open Bridge to create the ETH wallet.'}
+                        : isNativeEvm
+                          ? 'No ETH/0x address yet — open Multi-chain or Bridge to create the multi-chain wallet.'
+                          : 'No deposit address yet — open Bridge to create the ETH wallet.'}
                     </p>
                   )}
                   <div className="flex gap-2">
@@ -3385,7 +3447,17 @@ export default function WalletPage() {
                   return {
                     id: a.id,
                     symbol: a.symbol,
-                    subtitle: a.subtitle,
+                    // Make Falcon vs native deposit crystal clear in the picker
+                    subtitle:
+                      a.id === 'fusdc'
+                        ? 'Falcon r… address (already-minted F-USDC)'
+                        : a.id === 'feth'
+                          ? 'Falcon r… (already-minted FETH)'
+                          : a.id === 'fbnb'
+                            ? 'Falcon r… (already-minted FBNB)'
+                            : a.id === 'fbtc'
+                              ? 'Falcon r… (already-minted FBTC)'
+                              : a.subtitle,
                     balance: bal,
                     canSend: a.canSend && a.status === 'live',
                     balanceLabel: bal.toLocaleString(undefined, { maximumFractionDigits: 6 }),
@@ -3403,7 +3475,18 @@ export default function WalletPage() {
                   return {
                     id: c.id,
                     symbol: c.symbol,
-                    subtitle: c.chainLabel,
+                    subtitle:
+                      c.id === 'usdc'
+                        ? 'Ethereum 0x — same as ETH · then Bridge → F-USDC'
+                        : c.id === 'eth'
+                          ? 'Ethereum 0x address'
+                          : c.id === 'bnb'
+                            ? 'Same 0x as ETH · BSC testnet'
+                            : c.id === 'btc'
+                              ? 'Bitcoin testnet address'
+                              : c.id === 'xrp'
+                                ? 'Classic XRPL r… (not Falcon)'
+                                : c.chainLabel,
                     balance: bal,
                     canSend: c.canSend && c.status === 'live',
                     balanceLabel:
@@ -3412,12 +3495,15 @@ export default function WalletPage() {
                         : '0',
                   }
                 })
-                // Send: falcon tab → falcon assets with balance; multi → multi with balance
-                // Receive: show all rows for current tab (including zero)
+                // Send: assets for current tab only (with balance filter in picker)
+                // Receive: always list multi-chain deposits + Falcon assets so
+                // "USDC" (0x) is not confused with "F-USDC" (r…)
                 const options =
-                  walletSection === 'multichain' || walletSection === 'bridge'
-                    ? multiOpts
-                    : falconOpts
+                  transferPicker === 'receive'
+                    ? [...multiOpts, ...falconOpts]
+                    : walletSection === 'multichain' || walletSection === 'bridge'
+                      ? multiOpts
+                      : falconOpts
                 return (
                   <WalletAssetPicker
                     mode={transferPicker}
@@ -3441,7 +3527,13 @@ export default function WalletPage() {
                         setTransferPicker(null)
                         setView('send')
                       } else {
+                        // Defensive: never treat native USDC as Falcon r-address
                         setReceiveAssetId(id as MultiChainAssetId)
+                        if (id === 'usdc' || id === 'eth' || id === 'bnb') {
+                          setWalletSection('multichain')
+                        } else if (id === 'fusdc' || id === 'falcon' || id === 'feth' || id === 'fbnb' || id === 'fbtc') {
+                          setWalletSection('falcon')
+                        }
                         setTransferPicker(null)
                         setView('receive')
                       }

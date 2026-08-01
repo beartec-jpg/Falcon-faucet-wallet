@@ -119,40 +119,39 @@ export async function fetchWalletAssets(
       ?.MPTokenIssuanceID
     const spvIssuer = (bridgeR as { node?: { Account?: string } })?.node?.Account
     if (issuanceId) {
+      // SPV FBTC is an MPT. BTCDepositClaim auto-runs authorizeMPToken for the
+      // destination — no classic TrustSet / trust-line step for the holder.
       const mpt = (objsR.account_objects ?? []).find(
         (o) =>
           o.LedgerEntryType === 'MPToken' &&
           String(o.MPTokenIssuanceID || '').toUpperCase() === issuanceId.toUpperCase(),
       )
-      if (mpt) {
-        const sats = parseInt(String(mpt.MPTAmount ?? '0'), 10)
-        const btc = Number.isFinite(sats) ? sats / 1e8 : 0
-        const fbtcIdx = tokens.findIndex(
-          (t) => t.symbol === 'FBTC' || t.currency === 'BTC' || t.id === 'fbtc',
-        )
-        if (fbtcIdx >= 0) {
-          // Prefer SPV MPT; keep IOU if any for display sum (usually 0 after SPV)
-          tokens[fbtcIdx] = {
-            ...tokens[fbtcIdx],
-            balance: tokens[fbtcIdx].balance + btc,
-            hasTrustLine: true,
-            spvMpt: true,
-            mptIssuanceId: issuanceId,
-            // Show SPV pseudo-issuer when MPT holds the balance
-            issuer: spvIssuer || tokens[fbtcIdx].issuer,
-          }
-        } else if (btc > 0) {
-          tokens.push({
-            id: 'fbtc',
-            symbol: 'FBTC',
-            balance: btc,
-            currency: 'BTC',
-            issuer: spvIssuer || '',
-            hasTrustLine: true,
-            spvMpt: true,
-            mptIssuanceId: issuanceId,
-          })
+      const sats = mpt ? parseInt(String(mpt.MPTAmount ?? '0'), 10) : 0
+      const btc = mpt && Number.isFinite(sats) ? sats / 1e8 : 0
+      const fbtcIdx = tokens.findIndex(
+        (t) => t.symbol === 'FBTC' || t.currency === 'BTC' || t.id === 'fbtc',
+      )
+      if (fbtcIdx >= 0) {
+        tokens[fbtcIdx] = {
+          ...tokens[fbtcIdx],
+          balance: tokens[fbtcIdx].balance + btc,
+          // Ready to receive via SPV even before first mint (no TrustSet needed)
+          hasTrustLine: true,
+          spvMpt: true,
+          mptIssuanceId: issuanceId,
+          issuer: spvIssuer || tokens[fbtcIdx].issuer,
         }
+      } else {
+        tokens.push({
+          id: 'fbtc',
+          symbol: 'FBTC',
+          balance: btc,
+          currency: 'BTC',
+          issuer: spvIssuer || '',
+          hasTrustLine: true,
+          spvMpt: true,
+          mptIssuanceId: issuanceId,
+        })
       }
     }
   } catch {

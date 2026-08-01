@@ -160,6 +160,7 @@ const QXRP_FIELDS: FieldEntry[] = [
   ['BtcTotalMinted', { isSerialized: true, isSigningField: true, isVLEncoded: false, nth: 35, type: 'UInt64' }],
   ['BtcAmount', { isSerialized: true, isSigningField: true, isVLEncoded: false, nth: 36, type: 'UInt64' }],
   ['BtcWithdrawAmount', { isSerialized: true, isSigningField: true, isVLEncoded: false, nth: 37, type: 'UInt64' }],
+  ['BtcRedeemed', { isSerialized: true, isSigningField: true, isVLEncoded: false, nth: 38, type: 'UInt64' }],
   // Hash256 / UINT256
   ['BtcBridgeID', { isSerialized: true, isSigningField: true, isVLEncoded: false, nth: 43, type: 'Hash256' }],
   ['BtcAnchorHash', { isSerialized: true, isSigningField: true, isVLEncoded: false, nth: 44, type: 'Hash256' }],
@@ -182,6 +183,7 @@ const QXRP_FIELDS: FieldEntry[] = [
   ['BtcPayoutScript', { isSerialized: true, isSigningField: true, isVLEncoded: true, nth: 41, type: 'Blob' }],
   ['BtcBurnPreimage', { isSerialized: true, isSigningField: true, isVLEncoded: true, nth: 42, type: 'Blob' }],
   ['BtcVaultScript', { isSerialized: true, isSigningField: true, isVLEncoded: true, nth: 43, type: 'Blob' }],
+  ['BtcHoldProgram', { isSerialized: true, isSigningField: true, isVLEncoded: true, nth: 44, type: 'Blob' }],
 ]
 
 const QXRP_TRANSACTION_TYPES: Record<string, number> = {
@@ -203,6 +205,8 @@ const QXRP_TRANSACTION_TYPES: Record<string, number> = {
   BTCDepositClaim: 110,
   BTCBridgeBurn: 111,
   BTCWithdrawFinalize: 112,
+  BTCWithdrawProve: 113,
+  BTCBridgeSetWatch: 114,
   LoanCollateralDeposit: 83,
   VaultClaimCollateral: 79,
 }
@@ -274,9 +278,19 @@ const QXRP_TRANSACTION_FORMATS: Record<string, TxFormatEntry[]> = {
   BTCBridgeBurn: [
     { name: 'BtcWithdrawAmount', optionality: 0 },
     { name: 'BtcPayoutScript', optionality: 0 },
-    { name: 'BtcBurnPreimage', optionality: 0 },
   ],
   BTCWithdrawFinalize: [{ name: 'BtcWithdrawSeq', optionality: 0 }],
+  BTCWithdrawProve: [
+    { name: 'BtcWithdrawSeq', optionality: 0 },
+    { name: 'BtcRawTx', optionality: 0 },
+    { name: 'BtcMerkleProof', optionality: 0 },
+    { name: 'BtcTxIndex', optionality: 0 },
+    { name: 'BtcBlockHash', optionality: 0 },
+  ],
+  BTCBridgeSetWatch: [
+    { name: 'BtcWatchScriptHash', optionality: 0 },
+    { name: 'BtcHoldProgram', optionality: 0 },
+  ],
 }
 
 let cached: XrplDefinitionsBase | null = null

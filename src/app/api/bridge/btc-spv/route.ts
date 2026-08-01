@@ -142,13 +142,38 @@ export async function GET(req: NextRequest) {
       ? 'mainnet'
       : 'testnet') as BtcNetwork
 
+    // Protocol shared reserve (keyless hold SPK) — product deposit target
+    let protocol: Record<string, unknown> | undefined
+    try {
+      const raw = await readFile(
+        path.join(process.cwd(), 'public', 'config', 'protocol-reserve.json'),
+        'utf8',
+      )
+      protocol = JSON.parse(raw) as Record<string, unknown>
+    } catch {
+      protocol = undefined
+    }
+
+    const paymentScriptHex =
+      (fileCfg.payment_script_hex as string | undefined)?.trim() ||
+      (protocol?.hold_script_pubkey as string | undefined)?.trim() ||
+      process.env.BTC_SPV_PAYMENT_SCRIPT_HEX?.trim() ||
+      null
+
     const watchAddress =
       (fileCfg.watch_address as string | undefined)?.trim() ||
+      (protocol?.hold_address as string | undefined)?.trim() ||
       process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
       process.env.NEXT_PUBLIC_BTC_SPV_WATCH_ADDRESS?.trim() ||
       null
 
-    const ready = amendment.enabled && activated && !!watchAddress
+    const watchScriptHash =
+      (bridge?.watchScriptHash as string | undefined) ||
+      (fileCfg.watch_script_hash as string | undefined) ||
+      (protocol?.watch_script_hash as string | undefined) ||
+      null
+
+    const ready = amendment.enabled && activated && !!(watchAddress || paymentScriptHex)
     let message: string
     if (!amendment.supported) {
       message = 'Fleet binary missing BitcoinSPVBridge — upgrade validators first'
@@ -156,10 +181,11 @@ export async function GET(req: NextRequest) {
       message = 'Amendment BitcoinSPVBridge supported but not enabled yet (waiting majority)'
     } else if (!activated) {
       message = 'Amendment on — bridge not activated yet (ops: BTCBridgeActivate)'
-    } else if (!watchAddress) {
-      message = 'Bridge live on Falcon — set watch_address in public/config/btc-spv-bridge.json'
+    } else if (!watchAddress && !paymentScriptHex) {
+      message = 'Bridge live — set protocol-reserve hold SPK in public/config/'
     } else {
-      message = 'SPV peg-in ready (BTC → FBTC via light client)'
+      message =
+        'SPV peg-in ready → protocol shared reserve (keyless hold program)'
     }
 
     return NextResponse.json({
@@ -167,6 +193,16 @@ export async function GET(req: NextRequest) {
       activated,
       bridge,
       watchAddress,
+      paymentScriptHex,
+      watchScriptHash,
+      protocol: protocol
+        ? {
+            model: protocol.model,
+            watch_script_hash: protocol.watch_script_hash,
+            hold_script_pubkey: protocol.hold_script_pubkey,
+            challenge_csv: protocol.challenge_csv,
+          }
+        : undefined,
       btcNetwork,
       ready,
       message,

@@ -2,9 +2,11 @@
   "status": "live",
   "btc_network": "testnet",
   "chain_id": 1,
-  "watch_address": "mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik",
-  "watch_script_hash": "80826940BF64D47291CB48B76FBC7EED0D66C4777279609BBBB1BDBE36261051",
+  "watch_address": "tb1q40fswfaq0e5nvnmayutp7qw3s0r0ctgy62p48w0k4zq79wx6w27s6ulwpv",
+  "payment_script_hex": "0020abd30727a07e69364f7d27161f01d183c6fc2d04d28353b9f6a881e2b8da72bd",
+  "watch_script_hash": "0968E29C64158EA68610AB68CFFF7E33B4AA26DAC448FB4BB3872B196BFBD1E3",
+  "model": "protocol_shared_reserve_v1",
+  "challenge_csv": 6,
   "min_confirmations": 6,
-  "pseudo_issuer": "rhLQHST1dmeq4MjxcQnesd3DC6cYmNrFcj",
-  "notes": "SPV light client live on Falcon 1001. Deposit BTC testnet to watch_address with OP_RETURN FALC||AccountID, wait 6 confs + headers, claim BTCDepositClaim."
+  "notes": "Protocol shared reserve (keyless P2WSH hold). Deposit BTC testnet to watch_address with OP_RETURN FALC||AccountID. Must match on-chain BtcWatchScriptHash from SetWatch. Never use old keyed mxuam… address."
 }
