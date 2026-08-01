@@ -615,6 +615,12 @@ export async function submitSpvWithdrawFinalize(opts: {
     if (/tecDUPLICATE/i.test(msg)) {
       return { result: 'tecDUPLICATE' }
     }
+    if (/tecNO_ENTRY/i.test(msg)) {
+      throw new Error(
+        'tecNO_ENTRY — no open BTC withdrawal for this burn sequence. ' +
+          'If you already finalized, ignore this. After wallet restore, use the open withdraw seq from Activity (not a random number).',
+      )
+    }
     throw e instanceof Error ? e : new Error(msg)
   }
 }
@@ -627,7 +633,14 @@ export async function waitSpvChallengeWindow(opts: {
   /** Max wait ~3 min */
   maxPolls?: number
   intervalMs?: number
-}): Promise<{ challengeEnd: number; currentLedger: number; amountSats?: number }> {
+}): Promise<{
+  challengeEnd: number
+  currentLedger: number
+  amountSats?: number
+  /** 0 = open, 2 = already finalized on Falcon */
+  status?: number
+  alreadyFinal?: boolean
+}> {
   const maxPolls = opts.maxPolls ?? 90
   const intervalMs = opts.intervalMs ?? 2000
   for (let i = 0; i < maxPolls; i++) {
@@ -649,11 +662,23 @@ export async function waitSpvChallengeWindow(opts: {
       amountSats?: number
       ready?: boolean
     }
-    if (r.ok && j.ready) {
+    // Status 2 = already finalized — do not submit BTCWithdrawFinalize again
+    if (r.ok && j.status === 2) {
       return {
         challengeEnd: j.challengeEndLedger ?? 0,
         currentLedger: j.currentLedger ?? 0,
         amountSats: j.amountSats,
+        status: 2,
+        alreadyFinal: true,
+      }
+    }
+    if (r.ok && j.ready && (j.status === 0 || j.status == null)) {
+      return {
+        challengeEnd: j.challengeEndLedger ?? 0,
+        currentLedger: j.currentLedger ?? 0,
+        amountSats: j.amountSats,
+        status: j.status ?? 0,
+        alreadyFinal: false,
       }
     }
     if (r.ok && j.challengeEndLedger != null && j.currentLedger != null) {
@@ -700,11 +725,21 @@ export async function spvPegOut(opts: {
     btcNetwork: opts.btcNetwork,
   })
   opts.onStep?.(`Burn submitted (seq ${burn.burnSeq}) — waiting challenge window…`)
-  await waitSpvChallengeWindow({
+  const waited = await waitSpvChallengeWindow({
     account: opts.account,
     burnSeq: burn.burnSeq,
     onStep: opts.onStep,
   })
+  if (waited.alreadyFinal) {
+    opts.onStep?.('Already finalized on Falcon — waiting for BTC payout relay…')
+    return {
+      burnHash: burn.hash,
+      burnSeq: burn.burnSeq,
+      finalizeHash: undefined,
+      preimageHex: burn.preimageHex,
+      amountSats: opts.amountSats,
+    }
+  }
   opts.onStep?.('Finalizing withdraw on Falcon…')
   const fin = await submitSpvWithdrawFinalize({
     falconSecret: opts.falconSecret,
@@ -770,12 +805,19 @@ export async function submitSpvDepositClaim(opts: {
       // Deposit already claimed / tombstone exists — treat as success upstream
       throw new Error('tecDUPLICATE — Ledger object already exists.')
     }
+    if (/tecNO_ENTRY/i.test(msg)) {
+      throw new Error(
+        'tecNO_ENTRY — Falcon has no matching BTC header or bridge entry for this deposit. ' +
+          'Usually: (1) header submitter has not reached this Bitcoin block yet — wait and retry Claim, ' +
+          'or (2) BTC was sent to the wrong watch address. Check Bridge → Details (SPV live) and do not re-send BTC.',
+      )
+    }
     if (/^temMALFORMED/i.test(msg) || msg === 'temMALFORMED') {
       throw new Error(
         'temMALFORMED — SPV proof rejected (merkle/raw tx/OP_RETURN). Hard-refresh and retry claim.',
       )
     }
-    if (/^tecTOO_SOON/i.test(msg)) {
+    if (/^tecTOO_SOON/i.test(msg) || /tecTOO_SOON/i.test(msg)) {
       throw new Error('tecTOO_SOON — need more Falcon-side confirmations (headers still catching up)')
     }
     throw e instanceof Error ? e : new Error(msg)

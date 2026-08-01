@@ -231,17 +231,30 @@ export async function POST(req: NextRequest) {
       const node = wRes.node as Record<string, unknown>
       const challengeEnd = Number(node.BtcChallengeEndLedger ?? 0)
       const status = Number(node.BtcWithdrawStatus ?? 0)
-      const amountSats = Number(node.BtcWithdrawAmount ?? 0)
+      // Engine often stores sats as hex strings (e.g. "afc8")
+      const rawAmt = node.BtcWithdrawAmount
+      let amountSats = 0
+      if (typeof rawAmt === 'number' && Number.isFinite(rawAmt)) {
+        amountSats = rawAmt
+      } else if (rawAmt != null) {
+        const s = String(rawAmt).trim()
+        if (/^[0-9a-f]+$/i.test(s) && /[a-f]/i.test(s)) amountSats = parseInt(s, 16)
+        else if (/^\d+$/.test(s)) amountSats = parseInt(s, 10)
+      }
       const info = (srv.info || {}) as { validated_ledger?: { seq?: number } }
       const currentLedger = Number(info.validated_ledger?.seq ?? 0)
-      // ready when ledger has advanced past challenge end (same as tecTOO_SOON check)
-      const ready = currentLedger > challengeEnd && (status === 0 || status === 2)
+      // ready to finalize only while status is open (0). Status 2 = already finalized.
+      const pastChallenge = currentLedger > challengeEnd
+      const ready = pastChallenge && status === 0
+      const alreadyFinal = status === 2
       return NextResponse.json({
         status,
         challengeEndLedger: challengeEnd,
         currentLedger,
         amountSats,
         ready,
+        alreadyFinal,
+        pastChallenge,
         payoutScript: node.BtcPayoutScript,
         account: node.Account,
       })
