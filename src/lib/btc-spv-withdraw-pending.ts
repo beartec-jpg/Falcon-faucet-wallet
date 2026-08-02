@@ -1,6 +1,9 @@
 /**
  * Persist open SPV peg-out jobs so Bridge Out status survives refresh
  * (mirrors falcon-spv-pending for peg-in).
+ *
+ * Dismiss is a separate durable set — Hide must never be undone by the
+ * 15s chain poll re-importing BtcWithdrawal objects.
  */
 
 export type SpvWithdrawPhase =
@@ -28,6 +31,8 @@ export interface SpvPendingWithdraw {
 }
 
 const KEY = 'falcon-spv-withdraw-v1'
+/** Permanent Hide list: `${account}:${burnSeq}` — survives poll / refresh */
+const DISMISS_KEY = 'falcon-spv-withdraw-dismissed-v1'
 
 function isBrowser(): boolean {
   return typeof window !== 'undefined'
@@ -50,23 +55,54 @@ function writeMap(map: Record<string, SpvPendingWithdraw[]>) {
   localStorage.setItem(KEY, JSON.stringify(map))
 }
 
+function dismissKey(falconAccount: string, burnSeq: number): string {
+  return `${falconAccount}:${burnSeq}`
+}
+
+function readDismissedSet(): Set<string> {
+  if (!isBrowser()) return new Set()
+  try {
+    const raw = localStorage.getItem(DISMISS_KEY)
+    if (!raw) return new Set()
+    const arr = JSON.parse(raw) as string[]
+    return new Set(Array.isArray(arr) ? arr : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function writeDismissedSet(set: Set<string>) {
+  if (!isBrowser()) return
+  // Cap so localStorage cannot grow forever
+  const arr = Array.from(set).slice(-200)
+  localStorage.setItem(DISMISS_KEY, JSON.stringify(arr))
+}
+
+export function isSpvWithdrawDismissed(falconAccount: string, burnSeq: number): boolean {
+  return readDismissedSet().has(dismissKey(falconAccount, burnSeq))
+}
+
 export function listSpvWithdraws(
   falconAccount: string,
   opts?: { includeDismissed?: boolean },
 ): SpvPendingWithdraw[] {
   const list = readMap()[falconAccount] || []
-  const filtered = opts?.includeDismissed ? list : list.filter((w) => !w.dismissed)
+  const filtered = opts?.includeDismissed
+    ? list
+    : list.filter((w) => !w.dismissed && !isSpvWithdrawDismissed(falconAccount, w.burnSeq))
   return filtered.sort((a, b) => b.burnSeq - a.burnSeq)
 }
 
 export function saveSpvWithdraw(w: SpvPendingWithdraw): void {
+  // Never re-open a user-hidden burn
+  if (isSpvWithdrawDismissed(w.falconAccount, w.burnSeq)) return
+  if (w.phase === 'complete' || w.status === 2 || w.status === 3) return
   const map = readMap()
   const list = map[w.falconAccount] || []
   const i = list.findIndex((x) => x.burnSeq === w.burnSeq)
   const next = { ...w, updatedAt: Date.now() }
   if (i >= 0) list[i] = next
   else list.unshift(next)
-  // keep last 12
   map[w.falconAccount] = list.slice(0, 12)
   writeMap(map)
 }
@@ -86,8 +122,36 @@ export function updateSpvWithdraw(
   return list[i]
 }
 
+/**
+ * Hide this burn forever (poll must not resurrect it).
+ * Works even if the job was never in localStorage (chain-only objects).
+ */
 export function dismissSpvWithdraw(falconAccount: string, burnSeq: number): void {
-  updateSpvWithdraw(falconAccount, burnSeq, { dismissed: true })
+  const set = readDismissedSet()
+  set.add(dismissKey(falconAccount, burnSeq))
+  writeDismissedSet(set)
+
+  const map = readMap()
+  const list = map[falconAccount] || []
+  const i = list.findIndex((x) => x.burnSeq === burnSeq)
+  if (i >= 0) {
+    list[i] = { ...list[i], dismissed: true, updatedAt: Date.now() }
+    map[falconAccount] = list
+    writeMap(map)
+  }
+}
+
+/** True if this object should never appear in the open tracker UI. */
+export function isSpvWithdrawClosed(w: {
+  phase?: string
+  status?: number
+  btcProven?: boolean
+}): boolean {
+  const st = Number(w.status ?? 0)
+  if (st === 2 || st === 3) return true
+  if (w.phase === 'complete' || w.phase === 'btc_proven') return true
+  if (w.btcProven) return true
+  return false
 }
 
 export function createSpvWithdraw(input: {
@@ -125,6 +189,7 @@ export interface SpvWithdrawLive {
   ready: boolean
   btcProven: boolean
   burnCommit?: string
+  btcTxId?: string
   payoutScript?: string
   phase: SpvWithdrawPhase
 }

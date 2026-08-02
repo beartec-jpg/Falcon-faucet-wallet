@@ -50,6 +50,8 @@ import {
   createSpvWithdraw,
   dismissSpvWithdraw,
   fetchSpvWithdrawList,
+  isSpvWithdrawClosed,
+  isSpvWithdrawDismissed,
   listSpvWithdraws,
   PEGOUT_STEPS,
   phaseLabel,
@@ -592,7 +594,7 @@ export default function BridgeDepositPanel({
     setSpvPending(p)
   }, [wallet.address, spvStatus?.watchAddress, spvStatus?.bridge?.minConfirmations, spvStatus?.btcNetwork, fbtcCustody])
 
-  // Load + poll Bridge Out (peg-out) trackers from Falcon + localStorage
+  // Load + poll Bridge Out trackers. Hide is durable — poll must not resurrect.
   useEffect(() => {
     if (!wallet.address) return
     let cancelled = false
@@ -601,20 +603,29 @@ export default function BridgeDepositPanel({
         const live = await fetchSpvWithdrawList(wallet.address)
         if (cancelled) return
         const allLocal = listSpvWithdraws(wallet.address, { includeDismissed: true })
-        const dismissed = new Set(allLocal.filter((w) => w.dismissed).map((w) => w.burnSeq))
-        // Also keep local-only burns not yet on ledger
         const bySeq = new Map<number, SpvPendingWithdraw>()
+
         for (const w of allLocal) {
-          if (!w.dismissed) bySeq.set(w.burnSeq, w)
+          if (isSpvWithdrawDismissed(wallet.address, w.burnSeq) || isSpvWithdrawClosed(w)) {
+            continue
+          }
+          bySeq.set(w.burnSeq, w)
         }
+
         for (const w of live.withdrawals) {
-          // Paid/closed on Falcon (status 2 or 3) — never show as open tracker
-          if (w.phase === 'complete' || w.status === 2 || w.status === 3) {
+          // Finished on Falcon or user clicked Hide — never show again
+          if (isSpvWithdrawDismissed(wallet.address, w.burnSeq)) continue
+          if (isSpvWithdrawClosed(w)) {
             dismissSpvWithdraw(wallet.address, w.burnSeq)
             bySeq.delete(w.burnSeq)
             continue
           }
-          if (dismissed.has(w.burnSeq)) continue
+          // Only open work: pending burn / waiting reserve BTC (not proven)
+          if (w.status !== 0 || w.btcProven) {
+            dismissSpvWithdraw(wallet.address, w.burnSeq)
+            bySeq.delete(w.burnSeq)
+            continue
+          }
           const prev = bySeq.get(w.burnSeq) || allLocal.find((x) => x.burnSeq === w.burnSeq)
           const merged: SpvPendingWithdraw = {
             v: 1,
@@ -635,22 +646,25 @@ export default function BridgeDepositPanel({
           bySeq.set(w.burnSeq, merged)
           saveSpvWithdraw(merged)
         }
-        // Only truly open peg-outs (pending burn / waiting BTC / needs action)
+
         const next = Array.from(bySeq.values())
           .filter(
             (w) =>
-              !w.dismissed &&
-              w.phase !== 'complete' &&
-              w.status !== 2 &&
-              w.status !== 3,
+              !isSpvWithdrawDismissed(wallet.address, w.burnSeq) &&
+              !isSpvWithdrawClosed(w) &&
+              w.status === 0 &&
+              !w.btcProven,
           )
           .sort((a, b) => b.burnSeq - a.burnSeq)
           .slice(0, 2)
         setSpvWithdraws(next)
       } catch {
         if (cancelled) return
-        // Offline: show local only
-        setSpvWithdraws(listSpvWithdraws(wallet.address))
+        setSpvWithdraws(
+          listSpvWithdraws(wallet.address).filter(
+            (w) => !isSpvWithdrawClosed(w) && !isSpvWithdrawDismissed(wallet.address, w.burnSeq),
+          ),
+        )
       }
     }
     void tick()
