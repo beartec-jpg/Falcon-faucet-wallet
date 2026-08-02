@@ -1,11 +1,11 @@
 /**
  * Persist open SPV peg-in jobs so confirmations survive page refresh.
- * One open job per Falcon account (blocks overlapping bridges).
  *
- * Storage is multi-layered so the deposit txid never "goes missing":
- *  1. Account map  falcon-spv-pending-v2
- *  2. Last-open backup falcon-spv-last-open-v1 (full job JSON)
- *  3. sessionStorage mirror of last-open
+ * Layers (newest wins on read):
+ *  1. Per-account key  falcon-spv-job-v3:<account>
+ *  2. Account map      falcon-spv-pending-v2
+ *  3. Last-open backup falcon-spv-last-open-v1 (+ sessionStorage)
+ *  4. Deposit history   falcon-spv-history-v1:<account> (txid list, never blocks)
  */
 
 export type SpvPendingStatus =
@@ -34,20 +34,15 @@ export interface SpvPendingDeposit {
   updatedAt: number
 }
 
-const KEY = 'falcon-spv-pending-v2'
+const MAP_KEY = 'falcon-spv-pending-v2'
 const LAST_OPEN_KEY = 'falcon-spv-last-open-v1'
-/** Legacy key — drop on read so refunded jobs cannot block Bridge forever. */
+const JOB_PREFIX = 'falcon-spv-job-v3:'
+const HISTORY_PREFIX = 'falcon-spv-history-v1:'
 const LEGACY_KEYS = ['falcon-spv-pending-v1'] as const
 
-/**
- * Deposits that must never re-open the claim card:
- * - refunded, or
- * - already successfully claimed (FBTC minted / tecDUPLICATE).
- */
 const DEAD_SPV_TXIDS = new Set([
-  'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524', // refunded
-  '0ac5c315c05858ca284c9587b62acba144a540e97a8f6d2e4f3ddd7aebd3fb2d', // claimed / minted
-  // 65k peg-in spent as vault input on bridge-out COMPLETE (never claimable)
+  'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524',
+  '0ac5c315c05858ca284c9587b62acba144a540e97a8f6d2e4f3ddd7aebd3fb2d',
   '9d02624da5e96706d22c0dcd067454f916841212c0c1dd9486e5680cfe8e246c',
 ])
 
@@ -55,71 +50,12 @@ function isBrowser(): boolean {
   return typeof window !== 'undefined'
 }
 
-function writeAll(map: Record<string, SpvPendingDeposit>) {
-  if (!isBrowser()) return
-  localStorage.setItem(KEY, JSON.stringify(map))
+function jobKey(account: string): string {
+  return `${JOB_PREFIX}${account}`
 }
 
-function writeLastOpen(p: SpvPendingDeposit | null) {
-  if (!isBrowser()) return
-  try {
-    if (!p || p.status === 'claimed' || DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) {
-      localStorage.removeItem(LAST_OPEN_KEY)
-      sessionStorage.removeItem(LAST_OPEN_KEY)
-      return
-    }
-    const json = JSON.stringify(p)
-    localStorage.setItem(LAST_OPEN_KEY, json)
-    sessionStorage.setItem(LAST_OPEN_KEY, json)
-  } catch {
-    /* quota / private mode */
-  }
-}
-
-function readLastOpen(): SpvPendingDeposit | null {
-  if (!isBrowser()) return null
-  try {
-    for (const store of [localStorage, sessionStorage]) {
-      const raw = store.getItem(LAST_OPEN_KEY)
-      if (!raw) continue
-      const p = JSON.parse(raw) as SpvPendingDeposit
-      if (p?.v === 1 && p.txid && p.falconAccount && !DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) {
-        if (p.status === 'claimed') continue
-        return p
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return null
-}
-
-function readAll(): Record<string, SpvPendingDeposit> {
-  if (!isBrowser()) return {}
-  try {
-    for (const k of LEGACY_KEYS) {
-      try {
-        if (localStorage.getItem(k)) localStorage.removeItem(k)
-      } catch {
-        /* ignore */
-      }
-    }
-    const raw = localStorage.getItem(KEY)
-    if (!raw) return {}
-    const j = JSON.parse(raw) as Record<string, SpvPendingDeposit>
-    if (!j || typeof j !== 'object') return {}
-    let dirty = false
-    for (const [acct, p] of Object.entries(j)) {
-      if (p?.txid && DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) {
-        delete j[acct]
-        dirty = true
-      }
-    }
-    if (dirty) writeAll(j)
-    return j
-  } catch {
-    return {}
-  }
+function historyKey(account: string): string {
+  return `${HISTORY_PREFIX}${account}`
 }
 
 function explorerUrlFor(txid: string, btcNetwork: 'testnet' | 'mainnet'): string {
@@ -128,19 +64,167 @@ function explorerUrlFor(txid: string, btcNetwork: 'testnet' | 'mainnet'): string
     : `https://mempool.space/tx/${txid}`
 }
 
-export function getSpvPending(falconAccount: string): SpvPendingDeposit | null {
-  const map = readAll()
-  let p = map[falconAccount]
-  // Restore from last-open backup if map entry missing (refresh / partial wipe)
-  if (!p || p.v !== 1) {
-    const last = readLastOpen()
-    if (last && last.falconAccount === falconAccount && last.status !== 'claimed') {
-      saveSpvPending(last)
-      p = last
-    } else {
-      return null
+function safeSet(store: Storage, key: string, value: string) {
+  try {
+    store.setItem(key, value)
+  } catch {
+    /* private mode / quota */
+  }
+}
+
+function safeGet(store: Storage, key: string): string | null {
+  try {
+    return store.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function safeRemove(store: Storage, key: string) {
+  try {
+    store.removeItem(key)
+  } catch {
+    /* ignore */
+  }
+}
+
+function normalizeJob(p: SpvPendingDeposit | null | undefined): SpvPendingDeposit | null {
+  if (!p || p.v !== 1 || !p.txid || !p.falconAccount) return null
+  const txid = p.txid.toLowerCase().replace(/^0x/, '')
+  if (!/^[0-9a-f]{64}$/.test(txid)) return null
+  if (DEAD_SPV_TXIDS.has(txid)) return null
+  return { ...p, txid }
+}
+
+function writeLastOpen(p: SpvPendingDeposit | null) {
+  if (!isBrowser()) return
+  if (!p || p.status === 'claimed' || DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) {
+    safeRemove(localStorage, LAST_OPEN_KEY)
+    safeRemove(sessionStorage, LAST_OPEN_KEY)
+    return
+  }
+  const json = JSON.stringify(p)
+  safeSet(localStorage, LAST_OPEN_KEY, json)
+  safeSet(sessionStorage, LAST_OPEN_KEY, json)
+}
+
+function readLastOpen(): SpvPendingDeposit | null {
+  if (!isBrowser()) return null
+  for (const store of [localStorage, sessionStorage]) {
+    const raw = safeGet(store, LAST_OPEN_KEY)
+    if (!raw) continue
+    try {
+      const p = normalizeJob(JSON.parse(raw) as SpvPendingDeposit)
+      if (p && p.status !== 'claimed') return p
+    } catch {
+      /* ignore */
     }
   }
+  return null
+}
+
+function readMap(): Record<string, SpvPendingDeposit> {
+  if (!isBrowser()) return {}
+  for (const k of LEGACY_KEYS) {
+    safeRemove(localStorage, k)
+  }
+  const raw = safeGet(localStorage, MAP_KEY)
+  if (!raw) return {}
+  try {
+    const j = JSON.parse(raw) as Record<string, SpvPendingDeposit>
+    if (!j || typeof j !== 'object') return {}
+    let dirty = false
+    for (const [acct, p] of Object.entries(j)) {
+      if (!normalizeJob(p)) {
+        delete j[acct]
+        dirty = true
+      }
+    }
+    if (dirty) safeSet(localStorage, MAP_KEY, JSON.stringify(j))
+    return j
+  } catch {
+    return {}
+  }
+}
+
+function writeMap(map: Record<string, SpvPendingDeposit>) {
+  if (!isBrowser()) return
+  safeSet(localStorage, MAP_KEY, JSON.stringify(map))
+}
+
+function readPerAccount(account: string): SpvPendingDeposit | null {
+  if (!isBrowser()) return null
+  const raw = safeGet(localStorage, jobKey(account)) || safeGet(sessionStorage, jobKey(account))
+  if (!raw) return null
+  try {
+    return normalizeJob(JSON.parse(raw) as SpvPendingDeposit)
+  } catch {
+    return null
+  }
+}
+
+function writePerAccount(p: SpvPendingDeposit) {
+  if (!isBrowser()) return
+  const json = JSON.stringify(p)
+  safeSet(localStorage, jobKey(p.falconAccount), json)
+  safeSet(sessionStorage, jobKey(p.falconAccount), json)
+}
+
+function clearPerAccount(account: string) {
+  if (!isBrowser()) return
+  safeRemove(localStorage, jobKey(account))
+  safeRemove(sessionStorage, jobKey(account))
+}
+
+/** Remember every deposit txid for this account (recover list). */
+export function rememberDepositTxid(falconAccount: string, txid: string, amountSats?: number) {
+  if (!isBrowser()) return
+  const id = txid.toLowerCase().replace(/^0x/, '')
+  if (!/^[0-9a-f]{64}$/.test(id) || DEAD_SPV_TXIDS.has(id)) return
+  try {
+    const key = historyKey(falconAccount)
+    const raw = safeGet(localStorage, key)
+    const list: Array<{ txid: string; amountSats?: number; at: number }> = raw
+      ? (JSON.parse(raw) as Array<{ txid: string; amountSats?: number; at: number }>)
+      : []
+    const next = [{ txid: id, amountSats, at: Date.now() }, ...list.filter((x) => x.txid !== id)].slice(
+      0,
+      20,
+    )
+    safeSet(localStorage, key, JSON.stringify(next))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function listRememberedDepositTxids(falconAccount: string): string[] {
+  if (!isBrowser()) return []
+  try {
+    const raw = safeGet(localStorage, historyKey(falconAccount))
+    if (!raw) return []
+    const list = JSON.parse(raw) as Array<{ txid: string }>
+    return list.map((x) => x.txid).filter((t) => t && !DEAD_SPV_TXIDS.has(t))
+  } catch {
+    return []
+  }
+}
+
+export function getSpvPending(falconAccount: string): SpvPendingDeposit | null {
+  // 1) per-account
+  let p = readPerAccount(falconAccount)
+  // 2) map
+  if (!p) {
+    const map = readMap()
+    p = normalizeJob(map[falconAccount])
+  }
+  // 3) last-open
+  if (!p) {
+    const last = readLastOpen()
+    if (last && last.falconAccount === falconAccount && last.status !== 'claimed') {
+      p = last
+    }
+  }
+  if (!p) return null
   if (DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) {
     clearSpvPending(falconAccount)
     return null
@@ -149,12 +233,13 @@ export function getSpvPending(falconAccount: string): SpvPendingDeposit | null {
     clearSpvPending(falconAccount)
     return null
   }
-  // Keep backup warm
-  if (p.status !== 'claimed') writeLastOpen(p)
+  // Re-persist to all layers so refresh always finds it
+  if (p.status !== 'claimed') {
+    saveSpvPending(p)
+  }
   return p
 }
 
-/** True if this account has an unfinished peg-in (blocks new bridge-in). */
 export function hasOpenSpvBridge(falconAccount: string): boolean {
   const p = getSpvPending(falconAccount)
   if (!p) return false
@@ -162,11 +247,18 @@ export function hasOpenSpvBridge(falconAccount: string): boolean {
 }
 
 export function saveSpvPending(p: SpvPendingDeposit): void {
-  if (DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) return
-  const map = readAll()
-  map[p.falconAccount] = { ...p, updatedAt: Date.now() }
-  writeAll(map)
-  writeLastOpen(map[p.falconAccount])
+  const job = normalizeJob(p)
+  if (!job) return
+  if (job.status === 'claimed') {
+    // keep briefly for success UI, still write
+  }
+  const next = { ...job, updatedAt: Date.now() }
+  const map = readMap()
+  map[next.falconAccount] = next
+  writeMap(map)
+  writePerAccount(next)
+  writeLastOpen(next.status === 'claimed' ? null : next)
+  rememberDepositTxid(next.falconAccount, next.txid, next.amountSats)
 }
 
 export function updateSpvPending(
@@ -181,19 +273,16 @@ export function updateSpvPending(
 }
 
 export function clearSpvPending(falconAccount: string): void {
-  const map = readAll()
+  const map = readMap()
   delete map[falconAccount]
-  writeAll(map)
+  writeMap(map)
+  clearPerAccount(falconAccount)
   const last = readLastOpen()
   if (!last || last.falconAccount === falconAccount) {
     writeLastOpen(null)
   }
 }
 
-/**
- * Create / overwrite open job. Call as soon as BTC is broadcast (before claim).
- * Always dual-writes so the txid survives refresh without paste.
- */
 export function createSpvPending(input: {
   falconAccount: string
   txid: string
@@ -208,7 +297,10 @@ export function createSpvPending(input: {
   const btcNetwork = input.btcNetwork ?? 'testnet'
   const txid = input.txid.toLowerCase().replace(/^0x/, '')
   if (DEAD_SPV_TXIDS.has(txid)) {
-    throw new Error('This deposit was refunded and cannot be claimed')
+    throw new Error('This deposit cannot be claimed (spent or closed)')
+  }
+  if (!/^[0-9a-f]{64}$/.test(txid)) {
+    throw new Error('Invalid Bitcoin transaction id')
   }
   const now = Date.now()
   const p: SpvPendingDeposit = {
@@ -230,10 +322,6 @@ export function createSpvPending(input: {
   return p
 }
 
-/**
- * If this device has no open job, but last-open backup exists for another reason,
- * or caller provides defaults — rehydrate.
- */
 export function ensureSpvPendingTracked(
   falconAccount: string,
   defaults?: {
@@ -249,13 +337,23 @@ export function ensureSpvPendingTracked(
     saveSpvPending(last)
     return last
   }
-  void defaults
+  // Rehydrate from deposit history (most recent open-looking tx)
+  const history = listRememberedDepositTxids(falconAccount)
+  if (history[0] && defaults?.watchAddress) {
+    const pending = createSpvPending({
+      falconAccount,
+      txid: history[0],
+      watchAddress: defaults.watchAddress,
+      amountSats: 0,
+      minConfirmations: defaults.minConfirmations ?? 6,
+      btcNetwork: defaults.btcNetwork ?? 'testnet',
+      status: 'waiting_confs',
+    })
+    return pending
+  }
   return null
 }
 
-/**
- * Explorer / network messages that mean "keep waiting", not "tx failed".
- */
 export function isSpvWaitMessage(msg: string): boolean {
   const m = msg.toLowerCase()
   return (
@@ -269,7 +367,6 @@ export function isSpvWaitMessage(msg: string): boolean {
   )
 }
 
-/** Human copy for wait states (never looks like a failed payment). */
 export function spvWaitUserMessage(msg?: string): string {
   if (!msg) return 'Waiting for Bitcoin explorers to index your deposit…'
   const m = msg.toLowerCase()
@@ -291,7 +388,6 @@ export function spvWaitUserMessage(msg?: string): string {
   return `Still waiting: ${msg}`
 }
 
-/** Poll confirmations (same-origin API). Soft-fails as 0 confs while explorers lag. */
 export async function pollSpvConfirmations(
   txid: string,
   network: 'testnet' | 'mainnet' = 'testnet',
@@ -337,5 +433,40 @@ export async function pollSpvConfirmations(
       return { confirmed: false, confirmations: 0, waiting: spvWaitUserMessage(msg) }
     }
     throw e
+  }
+}
+
+/**
+ * Find open FALC deposits for this Falcon account on the hold (chain-side restore).
+ */
+export async function fetchOpenDepositsForAccount(opts: {
+  falconAccount: string
+  holdAddress: string
+  btcNetwork?: 'testnet' | 'mainnet'
+}): Promise<Array<{ txid: string; vout: number; amountSats: number; confirmations: number }>> {
+  try {
+    const r = await fetch('/api/bridge/btc-spv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'list_deposits',
+        account: opts.falconAccount,
+        network: opts.btcNetwork || 'testnet',
+      }),
+      cache: 'no-store',
+    })
+    const j = (await r.json().catch(() => ({}))) as {
+      deposits?: Array<{
+        txid: string
+        vout: number
+        amountSats: number
+        confirmations: number
+      }>
+      error?: string
+    }
+    if (!r.ok) return []
+    return j.deposits || []
+  } catch {
+    return []
   }
 }

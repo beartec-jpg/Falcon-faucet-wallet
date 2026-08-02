@@ -307,9 +307,109 @@ export async function POST(req: NextRequest) {
     action !== 'status' &&
     action !== 'withdraw_status' &&
     action !== 'withdraw_list' &&
-    action !== 'find_redeem'
+    action !== 'find_redeem' &&
+    action !== 'list_deposits'
   ) {
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+  }
+
+  // Open FALC peg-ins for an account (restore tracker if browser storage was lost)
+  if (action === 'list_deposits') {
+    const account = (body.account || '').trim()
+    const network: BtcNetwork = body.network === 'mainnet' ? 'mainnet' : 'testnet'
+    if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account)) {
+      return NextResponse.json({ error: 'Need Falcon account' }, { status: 400 })
+    }
+    try {
+      const { decodeAccountID } = await import('ripple-address-codec')
+      const acc20 = Buffer.from(decodeAccountID(account))
+      const want = Buffer.concat([Buffer.from('FALC'), acc20])
+      const fileCfg = await loadFileConfig()
+      const hold =
+        (fileCfg.watch_address as string | undefined)?.trim() ||
+        process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
+        ''
+      if (!hold) {
+        return NextResponse.json({ deposits: [], error: 'No hold address configured' })
+      }
+      const tipR = await explorerGet('/blocks/tip/height', network)
+      const tip = tipR.ok ? parseInt(await tipR.text(), 10) || 0 : 0
+      const txsR = await explorerGet(`/address/${hold}/txs`, network)
+      if (!txsR.ok) {
+        return NextResponse.json({ deposits: [] })
+      }
+      const txs = (await txsR.json()) as Array<{
+        txid: string
+        status?: { confirmed?: boolean; block_height?: number }
+        vout?: Array<{
+          value?: number
+          scriptpubkey?: string
+          scriptpubkey_address?: string
+        }>
+      }>
+      const deposits: Array<{
+        txid: string
+        vout: number
+        amountSats: number
+        confirmations: number
+      }> = []
+      for (const t of txs.slice(0, 40)) {
+        const st = t.status || {}
+        const h = st.block_height || 0
+        const confs =
+          st.confirmed && h && tip ? Math.max(1, tip - h + 1) : st.confirmed ? 1 : 0
+        let falcMatch = false
+        let holdVout = -1
+        let holdVal = 0
+        for (let i = 0; i < (t.vout || []).length; i++) {
+          const o = t.vout![i]
+          const spk = (o.scriptpubkey || '').replace(/^0x/i, '')
+          if (spk.startsWith('6a')) {
+            try {
+              const buf = Buffer.from(spk, 'hex')
+              let payload: Buffer
+              if (buf.length >= 2 && buf[1] <= 75) {
+                payload = buf.subarray(2, 2 + buf[1])
+              } else if (buf.length >= 3 && buf[1] === 0x4c) {
+                payload = buf.subarray(3, 3 + buf[2])
+              } else {
+                payload = buf.subarray(2)
+              }
+              if (payload.equals(want)) falcMatch = true
+            } catch {
+              /* ignore */
+            }
+          }
+          if (o.scriptpubkey_address === hold) {
+            holdVout = i
+            holdVal = Math.floor(Number(o.value || 0))
+          }
+        }
+        if (!falcMatch || holdVout < 0 || holdVal < 546) continue
+        // only unspent
+        try {
+          const osR = await explorerGet(`/tx/${t.txid}/outspend/${holdVout}`, network)
+          if (osR.ok) {
+            const os = (await osR.json()) as { spent?: boolean }
+            if (os.spent) continue
+          }
+        } catch {
+          /* include if outspend check fails */
+        }
+        deposits.push({
+          txid: t.txid,
+          vout: holdVout,
+          amountSats: holdVal,
+          confirmations: confs,
+        })
+      }
+      return NextResponse.json({ deposits, hold, account })
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : 'list_deposits failed', deposits: [] },
+        { status: 500 },
+      )
+    }
   }
 
   // Locate COMPLETE payout: FBTO || AccountID20 || seq_be32 + amount to payout script

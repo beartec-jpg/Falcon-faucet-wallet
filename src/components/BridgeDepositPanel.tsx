@@ -37,10 +37,12 @@ import {
 import {
   clearSpvPending,
   createSpvPending,
+  ensureSpvPendingTracked,
+  fetchOpenDepositsForAccount,
   getSpvPending,
   hasOpenSpvBridge,
-  ensureSpvPendingTracked,
   isSpvWaitMessage,
+  listRememberedDepositTxids,
   pollSpvConfirmations,
   spvWaitUserMessage,
   type SpvPendingDeposit,
@@ -555,45 +557,101 @@ export default function BridgeDepositPanel({
     }
   }, [bridgeCfg])
 
-  // Auto-restore open SPV job (multi-layer storage) — no paste needed.
-  // Never re-seed completed/refunded deposits (DEAD list in btc-spv-pending).
+  // Auto-restore open SPV job: localStorage layers + chain FALC deposits if lost.
   useEffect(() => {
+    let cancelled = false
     try {
       localStorage.removeItem('falcon-spv-pending-v1')
-      localStorage.setItem('falcon-spv-live-0ac5c315', 'claimed')
     } catch {
       /* ignore */
     }
-    const p = ensureSpvPendingTracked(wallet.address, {
-      watchAddress: spvStatus?.watchAddress || fbtcCustody,
-      minConfirmations: Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6,
-      btcNetwork: spvStatus?.btcNetwork || 'testnet',
-    })
-    // Finished / blocked txids come back null from getSpvPending (dead list)
-    if (
-      p &&
-      (p.status === 'claimed' ||
+
+    const minConf = Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6
+    const net = spvStatus?.btcNetwork || 'testnet'
+    const watch = spvStatus?.watchAddress || fbtcCustody
+
+    const applyJob = (p: ReturnType<typeof ensureSpvPendingTracked>) => {
+      if (cancelled || !p) {
+        if (!cancelled && !p) setSpvPending(null)
+        return
+      }
+      if (
+        p.status === 'claimed' ||
         /tecDUPLICATE/i.test(p.lastError || '') ||
         p.txid.startsWith('0ac5c315') ||
-        p.txid.startsWith('c04373f5'))
-    ) {
-      clearSpvPending(wallet.address)
+        p.txid.startsWith('c04373f5') ||
+        p.txid.startsWith('9d02624d')
+      ) {
+        clearSpvPending(wallet.address)
+        setSpvPending(null)
+        return
+      }
+      if (p.status === 'claiming') {
+        const nextStatus =
+          p.confirmations >= p.minConfirmations ? 'ready_to_claim' : 'waiting_confs'
+        const fixed = updateSpvPending(wallet.address, {
+          status: nextStatus,
+          lastError: undefined,
+        })
+        setSpvPending(fixed ?? { ...p, status: nextStatus, lastError: undefined })
+        return
+      }
+      setSpvPending(p)
+    }
+
+    // 1) local multi-layer restore
+    const local = ensureSpvPendingTracked(wallet.address, {
+      watchAddress: watch,
+      minConfirmations: minConf,
+      btcNetwork: net,
+    })
+    if (local) {
+      applyJob(local)
+      return
+    }
+
+    // 2) chain restore — unspent FALC deposits for this account on hold
+    if (!spvStatus?.watchAddress) {
       setSpvPending(null)
       return
     }
-    // Unstick Claim FBTC: "claiming" survives refresh in localStorage even though
-    // the in-flight passkey/submit is gone — leave the button permanently dimmed.
-    if (p && p.status === 'claiming') {
-      const nextStatus =
-        p.confirmations >= p.minConfirmations ? 'ready_to_claim' : 'waiting_confs'
-      const fixed = updateSpvPending(wallet.address, {
-        status: nextStatus,
-        lastError: undefined,
-      })
-      setSpvPending(fixed ?? { ...p, status: nextStatus, lastError: undefined })
-      return
+    void (async () => {
+      try {
+        const open = await fetchOpenDepositsForAccount({
+          falconAccount: wallet.address,
+          holdAddress: spvStatus.watchAddress!,
+          btcNetwork: net,
+        })
+        if (cancelled) return
+        // Prefer newest remembered txid if still open on chain
+        const remembered = listRememberedDepositTxids(wallet.address)
+        const pick =
+          open.find((d) => remembered.includes(d.txid.toLowerCase())) || open[0]
+        if (!pick) {
+          setSpvPending(null)
+          return
+        }
+        const pending = createSpvPending({
+          falconAccount: wallet.address,
+          txid: pick.txid,
+          watchVout: pick.vout,
+          watchAddress: spvStatus.watchAddress!,
+          amountSats: pick.amountSats,
+          minConfirmations: minConf,
+          btcNetwork: net,
+          confirmations: pick.confirmations,
+          status:
+            pick.confirmations >= minConf ? 'ready_to_claim' : 'waiting_confs',
+        })
+        if (!cancelled) setSpvPending(pending)
+      } catch {
+        if (!cancelled) setSpvPending(null)
+      }
+    })()
+
+    return () => {
+      cancelled = true
     }
-    setSpvPending(p)
   }, [wallet.address, spvStatus?.watchAddress, spvStatus?.bridge?.minConfirmations, spvStatus?.btcNetwork, fbtcCustody])
 
   // Load + poll Bridge Out trackers. Hide is durable — poll must not resurrect.
@@ -1554,16 +1612,8 @@ export default function BridgeDepositPanel({
     ) {
       return
     }
+    // clearSpvPending removes per-account + map + last-open for this wallet only
     clearSpvPending(wallet.address)
-    // Wipe all layered keys so Last-open cannot resurrect a ghost tracker
-    try {
-      localStorage.removeItem('falcon-spv-pending-v1')
-      localStorage.removeItem('falcon-spv-pending-v2')
-      localStorage.removeItem('falcon-spv-last-open-v1')
-      sessionStorage.removeItem('falcon-spv-last-open-v1')
-    } catch {
-      /* ignore */
-    }
     setSpvPending(null)
     setError(null)
     setStep(null)
@@ -1732,19 +1782,22 @@ export default function BridgeDepositPanel({
               minConfirmations: minConf,
               onStep: (m) => setStep(m),
               onDepositBroadcast: (d) => {
+                // Persist immediately (multi-layer) so refresh cannot lose the bar
                 const pending = createSpvPending({
                   falconAccount: wallet.address,
                   txid: d.txid,
-                  watchVout: 0,
+                  watchVout: d.watchVout ?? 0,
                   watchAddress: spvStatus.watchAddress || 'protocol-hold',
                   amountSats: d.amountSats,
                   minConfirmations: minConf,
                   btcNetwork: spvStatus.btcNetwork || 'testnet',
+                  status: 'waiting_confs',
+                  confirmations: 0,
                 })
                 setSpvPending(pending)
                 setResult({
                   depositHash: d.txid,
-                  depositId: `BTC sent — ${minConf} confs required (survives refresh)`,
+                  depositId: `BTC sent — progress bar saved on this browser (refresh-safe)`,
                 })
                 setAmount('')
               },
