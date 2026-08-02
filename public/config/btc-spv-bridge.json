@@ -2,11 +2,11 @@
   "status": "live",
   "btc_network": "testnet",
   "chain_id": 1,
-  "watch_address": "tb1qqxf9h0ytl0valyrmfqq53ws48mq88n8rzxcnkcvt2wg98kh8uj5qtzhm5f",
-  "payment_script_hex": "002001925bbc8bfbd9df907b480148ba153ec073cce311b13b618b539053dae7e4a8",
-  "watch_script_hash": "D826DB3317A1F76F828DD5EBD595581146F6BCC63489F90E77486F1DB15D91B5",
-  "model": "protocol_shared_reserve_v2",
+  "watch_address": "tb1q7dnlzumm50hke3yl75rywds3gtfu2swqwu4xa08kx0ctxs00rv4q8hrkwu",
+  "payment_script_hex": "0020f367f1737ba3ef6cc49ff50647361142d3c541c0772a6ebcf633f0b341ef1b2a",
+  "watch_script_hash": "44AB2A45523D1AD05A6A855AEBF05AA2672CBF4DA529B64EAC246CDB180C22F1",
+  "model": "protocol_shared_reserve_v3",
   "challenge_csv": 16,
   "min_confirmations": 6,
-  "notes": "v2 clean slate: CSV=16, new setup_id. Deposit to watch_address + FALC OP_RETURN. Secure redeemer: solvent gate, fee wallet pays fees, full burn amount only."
+  "notes": "WP4 v3 cutover. Deposit to watch_address + FALC OP_RETURN. Fee wallet pays fees; solvent redeemer. Previous v2 hold retired (funds migrated)."
 }

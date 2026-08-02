@@ -1,0 +1,17 @@
+{
+  "model": "protocol_shared_reserve_v1",
+  "security": "v2 clean slate: new setup_id, CSV=16, public COMPLETE preimage published at ceremony. Output shape enforced by Falcon prove + challenger + solvent redeemer (fee wallet). Full BitVM covenants = future upgrade.",
+  "setup_id": "5ed431ce2c4bd8fd85d3af60981c0ad928cdf342e9d7d3c24eb3c59ed3a60b1c",
+  "challenge_csv": 16,
+  "hold_program": "63a820000000000000000000000000000000000000000000000000000000000000000088516760b275a820c25f002d9afa802a4d8b5b303e4afe7c9c92f846266c2dad654696f19ab47513885168",
+  "hold_script_pubkey": "002001925bbc8bfbd9df907b480148ba153ec073cce311b13b618b539053dae7e4a8",
+  "watch_script_hash": "D826DB3317A1F76F828DD5EBD595581146F6BCC63489F90E77486F1DB15D91B5",
+  "fraud_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "hold_complete_preimage": "5ed431ce2c4bd8fd85d3af60981c0ad928cdf342e9d7d3c24eb3c59ed3a60b1c484f4c44",
+  "network": "testnet",
+  "hold_address": "tb1qqxf9h0ytl0valyrmfqq53ws48mq88n8rzxcnkcvt2wg98kh8uj5qtzhm5f",
+  "hold_address_regtest": "bcrt1qqxf9h0ytl0valyrmfqq53ws48mq88n8rzxcnkcvt2wg98kh8uj5qxmaapn",
+  "hold_address_mainnet": "bc1qqxf9h0ytl0valyrmfqq53ws48mq88n8rzxcnkcvt2wg98kh8uj5qu2p5wx",
+  "version": 2,
+  "previous_watch_script_hash": "0968E29C64158EA68610AB68CFFF7E33B4AA26DAC448FB4BB3872B196BFBD1E3"
+}
