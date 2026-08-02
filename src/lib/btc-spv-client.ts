@@ -799,12 +799,12 @@ export async function waitSpvChallengeWindow(opts: {
 }
 
 /**
- * Shared-reserve peg-out (fungible FBTC):
- *   1) BTCBridgeBurn — any holder, any amount ≤ balance
- *   2) Caller / operator pays BTC from shared reserve with OP_RETURN FBTO‖Account‖seq
- *   3) Optional: submitSpvWithdrawProve when redeem txid known
+ * Shared-reserve peg-out (fungible FBTC) — full path:
+ *   1) BTCBridgeBurn
+ *   2) Shared-hold COMPLETE (permissionless public preimage + FBTO) — fleet redeemer
+ *   3) BTCWithdrawProve after ≥6 BTC confs
  *
- * Personal vault claim is removed from the product path.
+ * If redeemBtcTxid is omitted, polls for FBTO-matched payout then proves.
  */
 export async function spvPegOut(opts: {
   falconSecret: string
@@ -816,12 +816,15 @@ export async function spvPegOut(opts: {
   btcNetwork?: BtcNetwork
   /** If set, reverse-SPV prove this BTC redeem tx after burn */
   redeemBtcTxid?: string
+  /** Wait for fleet redeemer + prove (default true) */
+  waitForRedeem?: boolean
   onStep?: (msg: string) => void
 }): Promise<{
   burnHash?: string
   burnSeq: number
   amountSats: number
   proveHash?: string
+  redeemBtcTxid?: string
   status: 'awaiting_btc_payment' | 'paid'
 }> {
   const btcNet = opts.btcNetwork ?? 'testnet'
@@ -841,10 +844,21 @@ export async function spvPegOut(opts: {
   })
 
   opts.onStep?.(
-    `Burn seq ${burn.burnSeq} submitted. Shared reserve must pay your BTC address with OP_RETURN FBTO binding, then prove on Falcon.`,
+    `Burn seq ${burn.burnSeq} submitted. Waiting for shared-reserve COMPLETE (FBTO)…`,
   )
 
-  if (!opts.redeemBtcTxid) {
+  let redeemTxid = opts.redeemBtcTxid
+  if (!redeemTxid && opts.waitForRedeem !== false) {
+    redeemTxid = await waitForSpvRedeemPayment({
+      account: opts.account,
+      burnSeq: burn.burnSeq,
+      amountSats: want,
+      btcNetwork: btcNet,
+      onStep: opts.onStep,
+    })
+  }
+
+  if (!redeemTxid) {
     return {
       burnHash: burn.hash,
       burnSeq: burn.burnSeq,
@@ -854,12 +868,29 @@ export async function spvPegOut(opts: {
   }
 
   opts.onStep?.('Fetching redeem proof materials…')
-  const materials = await fetchSpvClaimMaterials(opts.redeemBtcTxid, btcNet, 0)
-  const minConf = 6
-  if (materials.confirmations < minConf) {
-    throw new Error(
-      `Redeem BTC needs ${minConf} confs (have ${materials.confirmations}). Retry prove later.`,
-    )
+  // Wait for 6 confs (explorers lag)
+  let materials: SpvClaimMaterials | null = null
+  for (let i = 0; i < 90; i++) {
+    try {
+      materials = await fetchSpvClaimMaterials(redeemTxid, btcNet, 0)
+      if (materials.confirmations >= 6) break
+      opts.onStep?.(
+        `Redeem BTC confirming ${materials.confirmations}/6 (txid ${redeemTxid.slice(0, 12)}…)`,
+      )
+    } catch (e) {
+      opts.onStep?.(e instanceof Error ? e.message : 'Waiting for redeem index…')
+    }
+    materials = null
+    await new Promise((r) => setTimeout(r, 10_000))
+  }
+  if (!materials || materials.confirmations < 6) {
+    return {
+      burnHash: burn.hash,
+      burnSeq: burn.burnSeq,
+      amountSats: want,
+      redeemBtcTxid: redeemTxid,
+      status: 'awaiting_btc_payment',
+    }
   }
   opts.onStep?.('Submitting BTCWithdrawProve (reverse SPV)…')
   const prove = await submitSpvWithdrawProve({
@@ -876,8 +907,90 @@ export async function spvPegOut(opts: {
     burnSeq: burn.burnSeq,
     amountSats: want,
     proveHash: prove.hash,
+    redeemBtcTxid: redeemTxid,
     status: 'paid',
   }
+}
+
+/** Poll API / explorers for FBTO-bound redeem paying this burn. */
+export async function waitForSpvRedeemPayment(opts: {
+  account: string
+  burnSeq: number
+  amountSats: number
+  btcNetwork?: BtcNetwork
+  /** ~15 min */
+  maxPolls?: number
+  intervalMs?: number
+  onStep?: (msg: string) => void
+}): Promise<string | undefined> {
+  const maxPolls = opts.maxPolls ?? 90
+  const intervalMs = opts.intervalMs ?? 10_000
+  for (let i = 0; i < maxPolls; i++) {
+    try {
+      const r = await fetch('/api/bridge/btc-spv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'find_redeem',
+          account: opts.account,
+          seq: opts.burnSeq,
+          amount_sats: opts.amountSats,
+          network: opts.btcNetwork ?? 'testnet',
+        }),
+        cache: 'no-store',
+      })
+      const j = (await r.json().catch(() => ({}))) as {
+        txid?: string
+        confirmations?: number
+        error?: string
+      }
+      if (r.ok && j.txid) {
+        opts.onStep?.(
+          `Reserve paid BTC ${j.txid.slice(0, 12)}… (${j.confirmations ?? 0} confs)`,
+        )
+        return j.txid
+      }
+      opts.onStep?.(
+        j.error ||
+          `Waiting for reserve COMPLETE payment (try ${i + 1}/${maxPolls})…`,
+      )
+    } catch (e) {
+      opts.onStep?.(e instanceof Error ? e.message : 'Redeem poll error')
+    }
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
+  return undefined
+}
+
+/** Prove an already-paid redeem (resume after refresh). */
+export async function spvProveRedeem(opts: {
+  falconSecret: string
+  account: string
+  networkKey: NetworkKey
+  networkId: number
+  burnSeq: number
+  redeemBtcTxid: string
+  btcNetwork?: BtcNetwork
+  onStep?: (msg: string) => void
+}): Promise<{ hash?: string; confirmations: number }> {
+  const btcNet = opts.btcNetwork ?? 'testnet'
+  opts.onStep?.('Fetching redeem merkle proof…')
+  const materials = await fetchSpvClaimMaterials(opts.redeemBtcTxid, btcNet, 0)
+  if (materials.confirmations < 6) {
+    throw new Error(
+      `Need 6 BTC confs on redeem (have ${materials.confirmations}). Wait and retry Prove.`,
+    )
+  }
+  opts.onStep?.('Submitting BTCWithdrawProve…')
+  const prove = await submitSpvWithdrawProve({
+    falconSecret: opts.falconSecret,
+    account: opts.account,
+    networkKey: opts.networkKey,
+    networkId: opts.networkId,
+    burnSeq: opts.burnSeq,
+    materials,
+  })
+  return { hash: prove.hash, confirmations: materials.confirmations }
 }
 
 /** Sign + submit BTCDepositClaim on Falcon. */

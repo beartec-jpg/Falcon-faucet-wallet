@@ -280,6 +280,7 @@ export async function POST(req: NextRequest) {
     vout?: number
     account?: string
     seq?: number
+    amount_sats?: number
   }
   try {
     body = (await req.json()) as typeof body
@@ -292,9 +293,115 @@ export async function POST(req: NextRequest) {
     action !== 'proof' &&
     action !== 'status' &&
     action !== 'withdraw_status' &&
-    action !== 'withdraw_list'
+    action !== 'withdraw_list' &&
+    action !== 'find_redeem'
   ) {
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+  }
+
+  // Locate COMPLETE payout: FBTO || AccountID20 || seq_be32 + amount to payout script
+  if (action === 'find_redeem') {
+    const account = (body.account || '').trim()
+    const seq = Math.floor(Number(body.seq ?? 0))
+    const amountSats = Math.floor(Number((body as { amount_sats?: number }).amount_sats ?? 0))
+    const network: BtcNetwork = body.network === 'mainnet' ? 'mainnet' : 'testnet'
+    if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account) || seq < 1) {
+      return NextResponse.json({ error: 'Need account + seq' }, { status: 400 })
+    }
+    try {
+      // classic → account id 20
+      const { decodeAccountID } = await import('ripple-address-codec')
+      const acc20 = Buffer.from(decodeAccountID(account))
+      const fbto = Buffer.concat([
+        Buffer.from('FBTO'),
+        acc20,
+        Buffer.from([(seq >>> 24) & 0xff, (seq >>> 16) & 0xff, (seq >>> 8) & 0xff, seq & 0xff]),
+      ])
+      const fbtoHex = fbto.toString('hex')
+
+      // Prefer payout address from live withdraw object
+      let payoutAddr: string | null = null
+      let payoutScript = ''
+      try {
+        const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
+        const net = getNetwork(networkKey)
+        const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
+        const wRes = await falconRpc(
+          'ledger_entry',
+          { btc_withdrawal: { account, seq }, ledger_index: 'validated' },
+          rpcUrl,
+        )
+        const node = (wRes.node || {}) as Record<string, unknown>
+        payoutScript = String(node.BtcPayoutScript || '')
+          .replace(/^0x/i, '')
+          .toLowerCase()
+      } catch {
+        /* ignore */
+      }
+
+      const fileCfg = await loadFileConfig()
+      const hold =
+        (fileCfg.watch_address as string | undefined) ||
+        process.env.BTC_SPV_WATCH_ADDRESS ||
+        'tb1q40fswfaq0e5nvnmayutp7qw3s0r0ctgy62p48w0k4zq79wx6w27s6ulwpv'
+
+      // Scan recent spend txs from hold address (COMPLETE spends hold UTXOs)
+      const txsR = await explorerGet(`/address/${hold}/txs`, network)
+      if (!txsR.ok) {
+        return NextResponse.json({ error: 'Explorer unavailable' }, { status: 502 })
+      }
+      const txs = (await txsR.json()) as Array<{
+        txid: string
+        status?: { confirmed?: boolean; block_height?: number }
+        vout?: Array<{ value?: number; scriptpubkey?: string; scriptpubkey_address?: string }>
+        vin?: Array<{ prevout?: { scriptpubkey_address?: string } }>
+      }>
+
+      let tip = 0
+      try {
+        const tipR = await explorerGet('/blocks/tip/height', network)
+        if (tipR.ok) tip = parseInt(await tipR.text(), 10) || 0
+      } catch {
+        /* ignore */
+      }
+
+      for (const t of txs) {
+        const vouts = t.vout || []
+        let hasFbto = false
+        let hasPay = false
+        for (const v of vouts) {
+          const spk = (v.scriptpubkey || '').toLowerCase()
+          if (spk.includes(fbtoHex)) hasFbto = true
+          if (payoutScript && spk === payoutScript && (v.value || 0) >= (amountSats || 0)) {
+            hasPay = true
+          }
+          // if no payout script, accept any non-hold output matching amount
+          if (!payoutScript && amountSats > 0 && (v.value || 0) === amountSats && !spk.startsWith('6a')) {
+            hasPay = true
+          }
+        }
+        if (hasFbto && (hasPay || !payoutScript)) {
+          const bh = t.status?.block_height
+          const confs =
+            t.status?.confirmed && bh && tip ? Math.max(1, tip - bh + 1) : t.status?.confirmed ? 1 : 0
+          return NextResponse.json({
+            txid: t.txid,
+            confirmations: confs,
+            blockHeight: bh,
+            matched: { fbto: true, amount: hasPay },
+          })
+        }
+      }
+      return NextResponse.json(
+        { error: 'Redeem not found yet — fleet redeemer pays after burn' },
+        { status: 404 },
+      )
+    } catch (e: unknown) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : 'find_redeem failed' },
+        { status: 502 },
+      )
+    }
   }
 
   // SPV peg-out: list open/recent BtcWithdrawal objects for tracker UI
