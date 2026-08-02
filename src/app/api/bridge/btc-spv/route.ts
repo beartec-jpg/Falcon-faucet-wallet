@@ -507,7 +507,17 @@ export async function POST(req: NextRequest) {
         }
       }
       return NextResponse.json(
-        { error: 'Redeem not found yet — fleet redeemer pays after burn' },
+        {
+          error:
+            'Redeem not found yet — fleet redeemer has not paid BTC for this burn (FBTO + amount). Burn remains safe on Falcon.',
+          pending: true,
+          account,
+          seq,
+          amountSats: amountSats || undefined,
+          hold,
+          // true when we loaded a live BtcWithdrawal object
+          withdrawOnLedger: !!payoutScript,
+        },
         { status: 404 },
       )
     } catch (e: unknown) {
