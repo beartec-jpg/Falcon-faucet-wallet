@@ -1,9 +1,11 @@
 # Falcon Ledger Portal — Roadmap
 
-**Last updated:** July 2026  
+**Last updated:** August 2026  
 **Testnet:** Network ID 1001 · RPC `http://46.224.0.140:6005`
 
 This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integration with the Falcon Ledger protocol. Protocol-level milestones (consensus, treasury, slashing) are also tracked in the [whitepaper](/whitepaper) §10.
+
+**Bridge & custody hardening (next wave):** see [BRIDGE-AND-CUSTODY-HARDENING-PLAN.md](./BRIDGE-AND-CUSTODY-HARDENING-PLAN.md) — multi-party headers, lag alerts, value-tiered confs, challenge/CSV, WebAuthn/cold keygen, bonds/watchers/audit/soak.
 
 ---
 
