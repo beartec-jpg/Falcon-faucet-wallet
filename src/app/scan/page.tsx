@@ -10,6 +10,7 @@ import OrderBookPanel from '@/components/OrderBookPanel'
 import ClickableStatCard from '@/components/explorer/ClickableStatCard'
 import EpochEmissionsCard from '@/components/explorer/EpochEmissionsCard'
 import MetricChartModal from '@/components/explorer/MetricChartModal'
+import BtcBridgeSuite from '@/components/explorer/BtcBridgeSuite'
 import type { MetricKey, MetricPoint } from '@/lib/metric-history'
 
 const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_NAME ?? 'Falcon Ledger Testnet'
@@ -333,12 +334,15 @@ function ScanOrderBookSection() {
 
 // ─── Main explorer page ───────────────────────────────────────────────────────
 
+type ScanTab = 'network' | 'btc-bridge'
+
 export default function ScanPage() {
   const [data, setData]       = useState<ScanData | null>(null)
   const [error, setError]     = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [chartMetric, setChartMetric] = useState<MetricKey | null>(null)
   const [chartSeries, setChartSeries] = useState<Partial<Record<MetricKey, MetricPoint[]>>>({})
+  const [tab, setTab] = useState<ScanTab>('network')
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const historyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -391,7 +395,7 @@ export default function ScanPage() {
     <ProductShell intensity={0.4} className="bg-slate-950 text-slate-100">
 
       {/* ── Ticker ───────────────────────────────────────────────────────── */}
-      {d && (
+      {tab === 'network' && d && (
         <TickerStrip
           ledger={d.validated_ledger}
           tps={d.tps_estimate}
@@ -408,19 +412,61 @@ export default function ScanPage() {
         {/* Logo */}
         <Logo />
 
-        {error && (
+        {/* ── Explorer tabs ───────────────────────────────────────────────── */}
+        <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-3">
+          {(
+            [
+              { id: 'network' as const, label: 'Network' },
+              { id: 'btc-bridge' as const, label: 'Bitcoin Bridge' },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                tab === t.id
+                  ? 'bg-brand-500/15 text-brand-300 border border-brand-500/30'
+                  : 'text-slate-500 hover:text-slate-300 border border-transparent'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+          {lastUpdate && tab === 'network' && (
+            <span className="ml-auto self-center text-[10px] text-slate-600 font-mono">
+              live · {lastUpdate.toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+
+        {tab === 'btc-bridge' && (
+          <section>
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">
+              Bitcoin Bridge suite
+            </h2>
+            <p className="text-[10px] text-slate-600 mb-4">
+              SPV peg-in/out health: value locked, solvency, Falcon ↔ Bitcoin headers, challenge windows, peg-out activity.
+            </p>
+            <BtcBridgeSuite />
+          </section>
+        )}
+
+        {tab === 'network' && error && (
           <div className="card p-4 border-red-900 bg-red-950/30 text-red-400 text-sm">
             Node unavailable: {error}
           </div>
         )}
 
         {/* ── Search ──────────────────────────────────────────────────────── */}
+        {tab === 'network' && (
         <section>
           <SearchBar data={d} />
         </section>
+        )}
 
         {/* ── KPI grid (click metrics for 24h chart) ─────────────────────── */}
-        {d && (
+        {tab === 'network' && d && (
           <section>
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Network Overview</h2>
             <p className="text-[10px] text-slate-600 mb-3">Click TPS, close time, fee, or queue tiles for a 24h chart.</p>
@@ -477,10 +523,10 @@ export default function ScanPage() {
           </section>
         )}
 
-        {d && <EpochEmissionsCard epoch={d.epoch} />}
+        {tab === 'network' && d && <EpochEmissionsCard epoch={d.epoch} />}
 
         {/* ── Load / fee ──────────────────────────────────────────────────── */}
-        {d && (
+        {tab === 'network' && d && (
           <section>
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">Fee & Load</h2>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -527,12 +573,12 @@ export default function ScanPage() {
         )}
 
         {/* ── DEX order book (FALCON-paired F-assets) ─────────────────────── */}
-        {d && (
+        {tab === 'network' && d && (
           <ScanOrderBookSection />
         )}
 
         {/* ── Two-column: ledgers + validators ────────────────────────────── */}
-        {d && (
+        {tab === 'network' && d && (
           <section className="grid lg:grid-cols-2 gap-6">
 
             {/* Recent Ledgers */}
@@ -626,7 +672,7 @@ export default function ScanPage() {
         )}
 
         {/* ── Recent Transactions ──────────────────────────────────────────── */}
-        {d && d.recent_txs.length > 0 && (
+        {tab === 'network' && d && d.recent_txs.length > 0 && (
           <section>
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
               Latest Transactions — Ledger #{d.validated_ledger.toLocaleString()}
@@ -667,7 +713,7 @@ export default function ScanPage() {
         )}
 
         {/* ── Server info ─────────────────────────────────────────────────── */}
-        {d && (
+        {tab === 'network' && d && (
           <section>
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">Node</h2>
             <div className="card p-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
@@ -679,7 +725,7 @@ export default function ScanPage() {
           </section>
         )}
 
-        {!d && !error && (
+        {tab === 'network' && !d && !error && (
           <div className="text-center text-slate-600 py-20 text-sm animate-pulse">Loading explorer data…</div>
         )}
       </main>
