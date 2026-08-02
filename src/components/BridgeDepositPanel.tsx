@@ -2085,9 +2085,9 @@ export default function BridgeDepositPanel({
                     <div>
                       <div className="text-sm font-semibold text-white">Bridge out in progress</div>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        You burned <span className="text-slate-300 font-mono">{btcAmt} FBTC</span>
+                        Burned <span className="text-slate-300 font-mono">{btcAmt} FBTC</span>
                         {' · '}
-                        BTC should be on your multi-chain address
+                        coins move on Bitcoin first, then Falcon records the proof
                       </p>
                     </div>
                     <button
@@ -2102,20 +2102,22 @@ export default function BridgeDepositPanel({
                     </button>
                   </div>
 
-                  {/* Labeled steps — not a mystery “2/4” bar */}
+                  {/* Protocol order: burn → BTC on Bitcoin → reverse-SPV on Falcon */}
                   <ol className="space-y-1.5">
                     {PEGOUT_STEPS.map((label, i) => {
                       const n = i + 1
-                      // 1 burn always done; 2 BTC paid once past challenge; 3 prove closes
+                      // 1 burn always done; 2 BTC on chain once past challenge; 3 prove closes books
                       const isDone =
                         n === 1 ||
                         (n === 2 && w.phase !== 'challenge') ||
                         (n === 3 && (w.phase === 'btc_proven' || w.phase === 'complete'))
-                      const isActive = n === 3 && w.phase === 'awaiting_btc'
+                      const isActive =
+                        (n === 2 && w.phase === 'challenge') ||
+                        (n === 3 && w.phase === 'awaiting_btc')
                       return (
                         <li
                           key={label}
-                          className={`flex items-center gap-2 text-xs ${
+                          className={`flex items-start gap-2 text-xs leading-snug ${
                             isDone && !isActive
                               ? 'text-emerald-400/90'
                               : isActive
@@ -2123,15 +2125,20 @@ export default function BridgeDepositPanel({
                                 : 'text-slate-500'
                           }`}
                         >
-                          <span className="font-mono w-4 shrink-0">
+                          <span className="font-mono w-4 shrink-0 pt-0.5">
                             {isDone && !isActive ? '✓' : n}
                           </span>
                           <span>{label}</span>
-                          {isActive && <span className="text-slate-500">← you are here</span>}
                         </li>
                       )
                     })}
                   </ol>
+
+                  <p className="text-[11px] text-slate-500 leading-snug border-t border-slate-800/80 pt-2">
+                    Why “prove” is last: Falcon does not send Bitcoin. The reserve pays you on Bitcoin
+                    first; prove is reverse SPV so Falcon can mark the burn paid. Same idea as Bridge
+                    In (BTC first → claim/prove on Falcon).
+                  </p>
 
                   <p className="text-xs text-slate-400 leading-snug">{phaseLabel(w.phase)}</p>
 
@@ -2140,10 +2147,6 @@ export default function BridgeDepositPanel({
                     w.phase === 'btc_proven' ||
                     w.phase === 'unknown') && (
                     <div className="space-y-2">
-                      <p className="text-[11px] text-slate-500 leading-snug">
-                        BTC for this burn should already be on your multi-chain address. Passkey only
-                        closes the Falcon books — it does not re-send BTC.
-                      </p>
                       <button
                         type="button"
                         disabled={busy}
@@ -2155,7 +2158,7 @@ export default function BridgeDepositPanel({
                             <Spinner /> {step ?? 'Working…'}
                           </>
                         ) : (
-                          'Finish on Falcon (passkey)'
+                          'Prove BTC payment on Falcon (passkey)'
                         )}
                       </button>
                       {error && (
