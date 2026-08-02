@@ -1142,8 +1142,13 @@ export default function BridgeDepositPanel({
         redeemTxid = 'd14978b6b779fcbc554bd65c7fd3e17e4fcb7aa662a11788312ee4d2921f787f'
       }
       if (!redeemTxid) {
+        const btc = (w.amountSats / 1e8).toFixed(8)
         setError(
-          'Reserve payout not found yet. Redeemer is live — wait ~30s and try again. Your FBTC burn is safe on Falcon.',
+          `No BTC payout yet for burn #${w.burnSeq} (${btc} BTC → ${
+            w.payoutAddress || wallet.btcAddress || 'your address'
+          }). ` +
+            'FBTC is already burned on Falcon and is safe. The fleet redeemer must send testnet BTC with an FBTO memo before Finish/Prove can run. ' +
+            'This is not a lost burn — retry Finish later (can take minutes). If it never appears, redeemer/ops is behind, not your wallet.',
         )
         return
       }
