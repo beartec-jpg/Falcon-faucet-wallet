@@ -316,7 +316,6 @@ export async function POST(req: NextRequest) {
   if (action === 'find_redeem') {
     const account = (body.account || '').trim()
     const seq = Math.floor(Number(body.seq ?? 0))
-    const amountSats = Math.floor(Number((body as { amount_sats?: number }).amount_sats ?? 0))
     const network: BtcNetwork = body.network === 'mainnet' ? 'mainnet' : 'testnet'
     if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account) || seq < 1) {
       return NextResponse.json({ error: 'Need account + seq' }, { status: 400 })
@@ -332,9 +331,9 @@ export async function POST(req: NextRequest) {
       ])
       const fbtoHex = fbto.toString('hex')
 
-      // Prefer payout address from live withdraw object
-      let payoutAddr: string | null = null
+      // Prefer payout script + amount from live withdraw object (hex UInt64)
       let payoutScript = ''
+      let amountSats = Math.floor(Number(body.amount_sats ?? 0))
       try {
         const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
         const net = getNetwork(networkKey)
@@ -345,6 +344,8 @@ export async function POST(req: NextRequest) {
           rpcUrl,
         )
         const node = (wRes.node || {}) as Record<string, unknown>
+        const onChainAmt = parseSatsField(node.BtcWithdrawAmount)
+        if (onChainAmt > 0) amountSats = onChainAmt
         payoutScript = String(node.BtcPayoutScript || '')
           .replace(/^0x/i, '')
           .toLowerCase()
