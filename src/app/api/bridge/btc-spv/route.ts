@@ -40,6 +40,62 @@ async function falconRpc(method: string, params: Record<string, unknown> = {}, r
   return j.result || {}
 }
 
+/** Falcon often encodes sat amounts as hex strings (e.g. "c350" = 50000). */
+function parseSatsField(v: unknown): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.floor(v)
+  if (typeof v === 'string') {
+    const s = v.trim()
+    if (!s) return 0
+    if (/^\d+$/.test(s)) return parseInt(s, 10)
+    if (/^[0-9a-fA-F]+$/.test(s)) return parseInt(s, 16)
+  }
+  return 0
+}
+
+function mapWithdrawNode(
+  node: Record<string, unknown>,
+  currentLedger: number,
+): {
+  account: string
+  burnSeq: number
+  status: number
+  amountSats: number
+  challengeEndLedger: number
+  currentLedger: number
+  ready: boolean
+  btcProven: boolean
+  burnCommit?: string
+  payoutScript?: string
+  phase: 'challenge' | 'awaiting_btc' | 'btc_proven' | 'complete' | 'unknown'
+} {
+  const challengeEnd = Number(node.BtcChallengeEndLedger ?? 0)
+  const status = Number(node.BtcWithdrawStatus ?? 0)
+  const amountSats = parseSatsField(node.BtcWithdrawAmount)
+  const commit = String(node.BtcBurnCommit || '')
+    .replace(/^0x/i, '')
+    .toUpperCase()
+  const btcProven = !!commit && !/^0+$/.test(commit)
+  const ready = currentLedger > challengeEnd && (status === 0 || status === 2)
+  let phase: 'challenge' | 'awaiting_btc' | 'btc_proven' | 'complete' | 'unknown' = 'unknown'
+  if (status === 2) phase = 'complete'
+  else if (currentLedger <= challengeEnd) phase = 'challenge'
+  else if (btcProven) phase = 'btc_proven'
+  else if (status === 0) phase = 'awaiting_btc'
+  return {
+    account: String(node.Account || ''),
+    burnSeq: Number(node.BtcWithdrawSeq ?? 0),
+    status,
+    amountSats,
+    challengeEndLedger: challengeEnd,
+    currentLedger,
+    ready,
+    btcProven,
+    burnCommit: commit || undefined,
+    payoutScript: node.BtcPayoutScript ? String(node.BtcPayoutScript) : undefined,
+    phase,
+  }
+}
+
 async function loadFileConfig(): Promise<Record<string, unknown>> {
   try {
     const raw = await readFile(
@@ -232,8 +288,59 @@ export async function POST(req: NextRequest) {
   }
 
   const action = body.action || 'proof'
-  if (action !== 'proof' && action !== 'status' && action !== 'withdraw_status') {
+  if (
+    action !== 'proof' &&
+    action !== 'status' &&
+    action !== 'withdraw_status' &&
+    action !== 'withdraw_list'
+  ) {
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+  }
+
+  // SPV peg-out: list open/recent BtcWithdrawal objects for tracker UI
+  if (action === 'withdraw_list') {
+    const account = (body.account || '').trim()
+    if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account)) {
+      return NextResponse.json({ error: 'Need Falcon account' }, { status: 400 })
+    }
+    try {
+      const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
+      const net = getNetwork(networkKey)
+      const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
+      const [objRes, srv] = await Promise.all([
+        falconRpc(
+          'account_objects',
+          { account, ledger_index: 'validated', limit: 400, type: 'btc_withdrawal' },
+          rpcUrl,
+        ),
+        falconRpc('server_info', {}, rpcUrl),
+      ])
+      // type filter may be unsupported — fall back to full objects
+      let objects = (objRes.account_objects as Record<string, unknown>[] | undefined) || []
+      if (objRes.error || objects.length === 0) {
+        const all = await falconRpc(
+          'account_objects',
+          { account, ledger_index: 'validated', limit: 400 },
+          rpcUrl,
+        )
+        objects = ((all.account_objects as Record<string, unknown>[]) || []).filter(
+          (o) => o.LedgerEntryType === 'BtcWithdrawal',
+        )
+      } else {
+        objects = objects.filter((o) => o.LedgerEntryType === 'BtcWithdrawal')
+      }
+      const info = (srv.info || {}) as { validated_ledger?: { seq?: number } }
+      const currentLedger = Number(info.validated_ledger?.seq ?? 0)
+      const withdrawals = objects
+        .map((n) => mapWithdrawNode(n, currentLedger))
+        .sort((a, b) => b.burnSeq - a.burnSeq)
+      return NextResponse.json({ account, currentLedger, withdrawals })
+    } catch (e: unknown) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : 'withdraw_list failed' },
+        { status: 502 },
+      )
+    }
   }
 
   // SPV peg-out: poll BtcWithdrawal challenge window
@@ -265,21 +372,21 @@ export async function POST(req: NextRequest) {
         )
       }
       const node = wRes.node as Record<string, unknown>
-      const challengeEnd = Number(node.BtcChallengeEndLedger ?? 0)
-      const status = Number(node.BtcWithdrawStatus ?? 0)
-      const amountSats = Number(node.BtcWithdrawAmount ?? 0)
       const info = (srv.info || {}) as { validated_ledger?: { seq?: number } }
       const currentLedger = Number(info.validated_ledger?.seq ?? 0)
-      // ready when ledger has advanced past challenge end (same as tecTOO_SOON check)
-      const ready = currentLedger > challengeEnd && (status === 0 || status === 2)
+      const mapped = mapWithdrawNode(node, currentLedger)
       return NextResponse.json({
-        status,
-        challengeEndLedger: challengeEnd,
-        currentLedger,
-        amountSats,
-        ready,
-        payoutScript: node.BtcPayoutScript,
-        account: node.Account,
+        status: mapped.status,
+        challengeEndLedger: mapped.challengeEndLedger,
+        currentLedger: mapped.currentLedger,
+        amountSats: mapped.amountSats,
+        ready: mapped.ready,
+        btcProven: mapped.btcProven,
+        burnCommit: mapped.burnCommit,
+        phase: mapped.phase,
+        payoutScript: mapped.payoutScript,
+        account: mapped.account || account,
+        burnSeq: mapped.burnSeq || seq,
       })
     } catch (e: unknown) {
       return NextResponse.json(

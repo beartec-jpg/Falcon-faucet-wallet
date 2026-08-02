@@ -44,6 +44,17 @@ import {
   type SpvPendingDeposit,
   updateSpvPending,
 } from '@/lib/btc-spv-pending'
+import {
+  createSpvWithdraw,
+  dismissSpvWithdraw,
+  fetchSpvWithdrawList,
+  listSpvWithdraws,
+  phaseLabel,
+  phaseStepIndex,
+  saveSpvWithdraw,
+  type SpvPendingWithdraw,
+  type SpvWithdrawPhase,
+} from '@/lib/btc-spv-withdraw-pending'
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
 import {
   signBridgeWithdraw,
@@ -268,6 +279,8 @@ export default function BridgeDepositPanel({
   const [spvStatus, setSpvStatus] = useState<SpvStatus | null>(null)
   const [spvPending, setSpvPending] = useState<SpvPendingDeposit | null>(null)
   const [spvResumeTxid, setSpvResumeTxid] = useState('')
+  /** Open SPV peg-outs (burn → reserve BTC → prove) — survives refresh like Bridge In */
+  const [spvWithdraws, setSpvWithdraws] = useState<SpvPendingWithdraw[]>([])
   const [trustLineResult, setTrustLineResult] = useState<{ ok: boolean; msg: string } | null>(null)
   /** Live bridge routes — honour initialRoute from Falcon / Multi-chain buttons */
   const [bridgeRoute, setBridgeRoute] = useState<BridgeRouteId>(() => {
@@ -575,6 +588,70 @@ export default function BridgeDepositPanel({
     }
     setSpvPending(p)
   }, [wallet.address, spvStatus?.watchAddress, spvStatus?.bridge?.minConfirmations, spvStatus?.btcNetwork, fbtcCustody])
+
+  // Load + poll Bridge Out (peg-out) trackers from Falcon + localStorage
+  useEffect(() => {
+    if (!wallet.address) return
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const live = await fetchSpvWithdrawList(wallet.address)
+        if (cancelled) return
+        const allLocal = listSpvWithdraws(wallet.address, { includeDismissed: true })
+        const dismissed = new Set(allLocal.filter((w) => w.dismissed).map((w) => w.burnSeq))
+        // Also keep local-only burns not yet on ledger
+        const bySeq = new Map<number, SpvPendingWithdraw>()
+        for (const w of allLocal) {
+          if (!w.dismissed) bySeq.set(w.burnSeq, w)
+        }
+        for (const w of live.withdrawals) {
+          // Hide only if user dismissed a completed one
+          if (dismissed.has(w.burnSeq) && w.phase === 'complete') continue
+          // Always show open peg-outs even if previously dismissed by mistake
+          if (dismissed.has(w.burnSeq) && w.phase !== 'complete') {
+            /* re-show open */
+          } else if (dismissed.has(w.burnSeq)) {
+            continue
+          }
+          const prev = bySeq.get(w.burnSeq) || allLocal.find((x) => x.burnSeq === w.burnSeq)
+          const merged: SpvPendingWithdraw = {
+            v: 1,
+            falconAccount: wallet.address,
+            burnSeq: w.burnSeq,
+            burnHash: prev?.burnHash,
+            amountSats: w.amountSats || prev?.amountSats || 0,
+            payoutAddress: prev?.payoutAddress || '',
+            phase: (w.phase || 'unknown') as SpvWithdrawPhase,
+            status: w.status,
+            challengeEndLedger: w.challengeEndLedger,
+            currentLedger: w.currentLedger,
+            btcProven: w.btcProven,
+            dismissed: false,
+            createdAt: prev?.createdAt || Date.now(),
+            updatedAt: Date.now(),
+          }
+          bySeq.set(w.burnSeq, merged)
+          saveSpvWithdraw(merged)
+        }
+        const next = Array.from(bySeq.values())
+          .filter((w) => !w.dismissed)
+          // Open always; complete stay visible for a week
+          .filter((w) => w.phase !== 'complete' || Date.now() - (w.createdAt || 0) < 7 * 24 * 3600_000)
+          .sort((a, b) => b.burnSeq - a.burnSeq)
+        setSpvWithdraws(next)
+      } catch {
+        if (cancelled) return
+        // Offline: show local only
+        setSpvWithdraws(listSpvWithdraws(wallet.address))
+      }
+    }
+    void tick()
+    const id = setInterval(() => void tick(), 15_000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [wallet.address])
 
   // Poll confirmations for open SPV bridge (survives refresh)
   useEffect(() => {
@@ -1007,6 +1084,19 @@ export default function BridgeDepositPanel({
             sepoliaRecipient: wallet.btcAddress,
           })
           setWithdrawAmount('')
+          // Persistent Bridge Out tracker (same role as Bridge In deposit card)
+          const tracked = createSpvWithdraw({
+            falconAccount: wallet.address,
+            burnSeq: peg.burnSeq,
+            burnHash: peg.burnHash,
+            amountSats: peg.amountSats,
+            payoutAddress: wallet.btcAddress!,
+            phase: peg.status === 'paid' ? 'complete' : 'challenge',
+          })
+          setSpvWithdraws((prev) => {
+            const rest = prev.filter((w) => w.burnSeq !== tracked.burnSeq)
+            return [tracked, ...rest]
+          })
           try {
             localStorage.setItem(
               `falcon-spv-burn-${wallet.address}-${peg.burnSeq}`,
@@ -1025,7 +1115,7 @@ export default function BridgeDepositPanel({
           setStep(
             peg.status === 'paid'
               ? 'Complete — reverse SPV prove accepted.'
-              : `Burn seq ${peg.burnSeq}: shared reserve must pay your BTC address (FBTO OP_RETURN), then prove on Falcon. Any FBTC holder can redeem.`,
+              : `Burn seq ${peg.burnSeq}: tracked above — waiting for reserve BTC payment.`,
           )
           setTimeout(() => {
             onFalconRefresh?.()
@@ -1852,6 +1942,96 @@ export default function BridgeDepositPanel({
             </button>
           </div>
         )}
+
+        {/* Bridge Out trackers — loaded from Falcon BtcWithdrawal objects (survives refresh) */}
+        {spvWithdraws.map((w) => {
+          const stepN = phaseStepIndex(w.phase)
+          const pct = Math.min(100, (100 * stepN) / 4)
+          const btcAmt = (w.amountSats / 1e8).toFixed(8)
+          const open = w.phase !== 'complete'
+          return (
+            <div
+              key={`wd-${w.burnSeq}`}
+              className={`rounded-xl border p-4 space-y-3 ${
+                open
+                  ? 'border-amber-500/30 bg-amber-500/5'
+                  : 'border-emerald-500/25 bg-emerald-500/10'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-white">
+                    {open ? 'FBTC → BTC (out)' : 'Bridge out complete'}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {btcAmt} FBTC burned · burn seq {w.burnSeq}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    dismissSpvWithdraw(wallet.address, w.burnSeq)
+                    setSpvWithdraws((prev) => prev.filter((x) => x.burnSeq !== w.burnSeq))
+                  }}
+                  className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
+                >
+                  Dismiss
+                </button>
+              </div>
+              {w.burnHash && (
+                <div className="text-[11px] font-mono text-amber-400/90 truncate" title={w.burnHash}>
+                  Falcon {w.burnHash.slice(0, 12)}…{w.burnHash.slice(-8)}
+                </div>
+              )}
+              {w.payoutAddress && (
+                <div className="text-[11px] font-mono text-slate-500 truncate" title={w.payoutAddress}>
+                  → {w.payoutAddress}
+                </div>
+              )}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-500 ${
+                      open ? 'bg-amber-400' : 'bg-emerald-400'
+                    }`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <div className="text-xs font-semibold tabular-nums text-slate-300 shrink-0">
+                  {stepN}/4
+                </div>
+              </div>
+              <p className="text-xs text-slate-400">{phaseLabel(w.phase)}</p>
+              {w.phase === 'challenge' &&
+                w.challengeEndLedger != null &&
+                w.currentLedger != null && (
+                  <p className="text-[11px] text-slate-500">
+                    Challenge: ledger {w.currentLedger} / ends {w.challengeEndLedger}
+                    {w.currentLedger <= w.challengeEndLedger
+                      ? ` · ~${w.challengeEndLedger - w.currentLedger + 1} left`
+                      : ' · done'}
+                  </p>
+                )}
+              {w.phase === 'awaiting_btc' && (
+                <p className="text-[11px] text-amber-300/90 leading-snug">
+                  FBTC is burned on Falcon. Shared reserve still needs to pay {w.amountSats.toLocaleString()}{' '}
+                  sats to your BTC address (with FBTO memo), then reverse-SPV prove. Your FBTC balance already
+                  dropped — that is expected until BTC arrives.
+                </p>
+              )}
+              {w.phase === 'btc_proven' && (
+                <p className="text-[11px] text-slate-400">
+                  Reserve BTC payment seen on Falcon — withdraw closing out.
+                </p>
+              )}
+              {w.phase === 'complete' && (
+                <p className="text-[11px] text-emerald-400">
+                  Paid out — refresh Multi-chain BTC if balance is not updated yet.
+                </p>
+              )}
+            </div>
+          )
+        })}
 
         {/* Always visible on BTC Bridge in — claim card only lives in localStorage */}
         {isFbtcRoute && direction === 'deposit' && !spvPending && (
