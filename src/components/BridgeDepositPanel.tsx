@@ -250,6 +250,8 @@ export default function BridgeDepositPanel({
   const [showSendScanner, setShowSendScanner] = useState(false)
   const [amount, setAmount] = useState('')
   const [withdrawAmount, setWithdrawAmount] = useState('')
+  /** WP2 F2 scaffolding: preferred BTC network fee (sats). Fleet fee wallet covers until user multi-input lands. */
+  const [userNetworkFeeSats, setUserNetworkFeeSats] = useState('1500')
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -1224,8 +1226,13 @@ export default function BridgeDepositPanel({
                 payout: wallet.btcAddress,
                 status: peg.status,
                 redeemBtcTxid: peg.redeemBtcTxid,
+                // WP2: preferred network fee (sats); fleet fee wallet until user multi-input
+                preferredFeeSats: Math.max(500, parseInt(userNetworkFeeSats, 10) || 1500),
               }),
             )
+            try {
+              localStorage.setItem('falcon-spv-preferred-fee-sats', String(Math.max(500, parseInt(userNetworkFeeSats, 10) || 1500)))
+            } catch { /* ignore */ }
           } catch {
             /* ignore */
           }
@@ -2588,6 +2595,41 @@ export default function BridgeDepositPanel({
                   <p className="text-[11px] text-slate-500 font-mono truncate" title={wallet.btcAddress}>
                     → {wallet.btcAddress.slice(0, 10)}…{wallet.btcAddress.slice(-6)}
                   </p>
+                )}
+                {spvLive && (
+                  <div className="space-y-1.5 rounded-xl border border-slate-700/60 bg-slate-900/40 px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+                        BTC network fee (sats)
+                      </label>
+                      <span className="text-[10px] text-slate-600">WP2 · not from vault</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={userNetworkFeeSats}
+                      onChange={(e) => setUserNetworkFeeSats(e.target.value)}
+                      placeholder="1500"
+                      min="500"
+                      max="100000"
+                      step="100"
+                      className="input-field text-sm"
+                      disabled={busy}
+                    />
+                    <p className="text-[11px] text-slate-500 leading-snug">
+                      You receive the <span className="text-slate-400">full</span> burn amount on BTC.
+                      Network fee is paid by the fee wallet today; this value is preferred fee for the
+                      redeemer (and will attach from your BTC UTXO when user multi-input ships).
+                      {(() => {
+                        const f = parseInt(userNetworkFeeSats, 10)
+                        if (!Number.isFinite(f) || f < 500) return null
+                        return (
+                          <span className="block mt-0.5 text-slate-600">
+                            ≈ {(f / 1e8).toFixed(8)} BTC network fee
+                          </span>
+                        )
+                      })()}
+                    </p>
+                  </div>
                 )}
                 <button
                   type="button"
