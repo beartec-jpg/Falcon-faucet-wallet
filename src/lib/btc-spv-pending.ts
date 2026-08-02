@@ -274,7 +274,10 @@ export function spvWaitUserMessage(msg?: string): string {
   if (/headers have not|header submitter|falcon tip|blocks behind/i.test(m)) {
     return 'Bitcoin confirmations are OK, but Falcon has not imported this block header yet. Wait, then Claim FBTC again — do not re-send BTC.'
   }
-  if (/not confirmed|wait for a block|need \d+ confirmation/i.test(m)) {
+  if (/not confirmed|wait for a block|need \d+ confirmation|reserve payout|redeem/i.test(m)) {
+    if (/reserve|redeem|payout|prove/i.test(m)) {
+      return 'Reserve BTC payout is confirming on Bitcoin — wait for blocks, then Prove. Your burn is safe (not a deposit problem).'
+    }
     return 'BTC is in the mempool or a recent block — waiting for more confirmations…'
   }
   if (/tx not found|not found yet|raw tx not found/i.test(m)) {

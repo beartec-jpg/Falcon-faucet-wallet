@@ -527,7 +527,12 @@ export async function fetchSpvClaimMaterials(
     if (r.ok && j.rawTxHex && j.merkleProofHex) return j
     // Waiting states — never surface as a hard "Failed to fetch" to the user
     if (r.status === 404 || r.status === 409) {
-      throw new Error(j.error || 'BTC tx not confirmed yet — wait for a block')
+      throw new Error(
+        j.error ||
+          (purpose === 'redeem'
+            ? 'Reserve BTC payout not confirmed yet — wait for blocks, then Prove'
+            : 'BTC deposit not confirmed yet — wait for a block'),
+      )
     }
     // 400 wrong watch address / bad deposit — hard error, do not fall back to raw explorer
     if (r.status === 400 && j.error) throw new Error(j.error)
@@ -977,7 +982,7 @@ export async function waitForSpvRedeemPayment(opts: {
   return undefined
 }
 
-/** Prove an already-paid redeem (resume after refresh). */
+/** Prove an already-paid redeem (resume after refresh). Polls until ≥6 BTC confs. */
 export async function spvProveRedeem(opts: {
   falconSecret: string
   account: string
@@ -986,14 +991,43 @@ export async function spvProveRedeem(opts: {
   burnSeq: number
   redeemBtcTxid: string
   btcNetwork?: BtcNetwork
+  /** Min BTC confirmations before prove (default 6) */
+  minConfirmations?: number
   onStep?: (msg: string) => void
 }): Promise<{ hash?: string; confirmations: number }> {
   const btcNet = opts.btcNetwork ?? 'testnet'
-  opts.onStep?.('Fetching redeem merkle proof…')
-  const materials = await fetchSpvClaimMaterials(opts.redeemBtcTxid, btcNet, 0, 'redeem')
-  if (materials.confirmations < 6) {
+  const minConf = opts.minConfirmations ?? 6
+  const txShort = opts.redeemBtcTxid.slice(0, 12)
+  let materials: SpvClaimMaterials | null = null
+  // ~25 min max (90 × 15s) for slow testnet
+  for (let i = 0; i < 90; i++) {
+    try {
+      opts.onStep?.(
+        i === 0
+          ? 'Fetching redeem proof (needs BTC confirmations)…'
+          : `Redeem BTC ${txShort}… confirming…`,
+      )
+      materials = await fetchSpvClaimMaterials(opts.redeemBtcTxid, btcNet, 0, 'redeem')
+      if (materials.confirmations >= minConf) break
+      opts.onStep?.(
+        `Reserve payout confirming ${materials.confirmations}/${minConf} (txid ${txShort}…). ` +
+          'Not a deposit issue — wait for Bitcoin blocks, then prove continues.',
+      )
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      opts.onStep?.(
+        /not confirmed|mempool|wait|indexing/i.test(msg)
+          ? `Waiting for reserve BTC payout to confirm (${txShort}…) — burn is safe on Falcon.`
+          : msg.slice(0, 120),
+      )
+      materials = null
+    }
+    await new Promise((r) => setTimeout(r, 15_000))
+  }
+  if (!materials || materials.confirmations < minConf) {
     throw new Error(
-      `Need 6 BTC confs on redeem (have ${materials.confirmations}). Wait and retry Prove.`,
+      `Need ${minConf} BTC confirmations on the reserve payout (have ${materials?.confirmations ?? 0}). ` +
+        `Tx ${txShort}… — wait for more blocks, then click Prove again. Your FBTC burn is safe.`,
     )
   }
   opts.onStep?.('Submitting BTCWithdrawProve…')

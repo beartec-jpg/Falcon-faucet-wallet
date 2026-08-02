@@ -573,20 +573,24 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // Peg-in only: vout must pay the shared hold. Peg-out COMPLETE pays the user.
+    const purpose = body.purpose === 'redeem' ? 'redeem' : 'deposit'
+
     if (!confirmed || !status.status?.block_hash) {
       return NextResponse.json(
         {
-          error: 'BTC tx not confirmed yet — wait for a block (deposit is fine)',
+          error:
+            purpose === 'redeem'
+              ? 'Reserve BTC payout is in the mempool or a new block — wait for confirmations, then Prove again. Your FBTC burn is safe.'
+              : 'BTC deposit not confirmed yet — wait for a block. Do not re-send BTC.',
           confirmed: false,
           confirmations: 0,
           waiting: true,
+          purpose,
         },
         { status: 409 },
       )
     }
-
-    // Peg-in only: vout must pay the shared hold. Peg-out COMPLETE pays the user.
-    const purpose = body.purpose === 'redeem' ? 'redeem' : 'deposit'
     if (purpose === 'deposit') {
       const fileCfg = await loadFileConfig()
       const watchAddress =
