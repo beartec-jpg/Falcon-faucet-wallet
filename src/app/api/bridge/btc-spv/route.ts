@@ -65,6 +65,7 @@ function mapWithdrawNode(
   ready: boolean
   btcProven: boolean
   burnCommit?: string
+  btcTxId?: string
   payoutScript?: string
   phase: 'challenge' | 'awaiting_btc' | 'btc_proven' | 'complete' | 'unknown'
 } {
