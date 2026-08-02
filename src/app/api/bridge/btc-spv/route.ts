@@ -40,14 +40,16 @@ async function falconRpc(method: string, params: Record<string, unknown> = {}, r
   return j.result || {}
 }
 
-/** Falcon often encodes sat amounts as hex strings (e.g. "c350" = 50000). */
+/**
+ * Falcon JSON encodes custom UInt64 fields as hex (no 0x), e.g. "c350" = 50000
+ * and "2710" = 10000 — never parse digit-only strings as decimal.
+ */
 function parseSatsField(v: unknown): number {
   if (typeof v === 'number' && Number.isFinite(v)) return Math.floor(v)
   if (typeof v === 'string') {
-    const s = v.trim()
+    const s = v.trim().replace(/^0x/i, '')
     if (!s) return 0
-    if (/^\d+$/.test(s)) return parseInt(s, 10)
-    if (/^[0-9a-fA-F]+$/.test(s)) return parseInt(s, 16)
+    if (/^[0-9a-fA-F]+$/i.test(s)) return parseInt(s, 16)
   }
   return 0
 }

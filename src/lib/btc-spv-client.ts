@@ -706,6 +706,12 @@ export async function submitSpvWithdrawProve(opts: {
     if (/tecTOO_SOON/i.test(msg)) {
       throw new Error('Need more BTC confirmations on the redeem payment before prove')
     }
+    if (/temMALFORMED/i.test(msg)) {
+      throw new Error(
+        'temMALFORMED — redeem proof rejected. Usually the BTC payout amount is less than the burn, ' +
+          'FBTO memo is wrong, or merkle proof failed. Wait for the correct payout (full burn amount) then Finish again.',
+      )
+    }
     throw e instanceof Error ? e : new Error(msg)
   }
 }
