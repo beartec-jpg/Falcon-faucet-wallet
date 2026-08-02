@@ -561,6 +561,18 @@ export default function BridgeDepositPanel({
       setSpvPending(null)
       return
     }
+    // Unstick Claim FBTC: "claiming" survives refresh in localStorage even though
+    // the in-flight passkey/submit is gone — leave the button permanently dimmed.
+    if (p && p.status === 'claiming') {
+      const nextStatus =
+        p.confirmations >= p.minConfirmations ? 'ready_to_claim' : 'waiting_confs'
+      const fixed = updateSpvPending(wallet.address, {
+        status: nextStatus,
+        lastError: undefined,
+      })
+      setSpvPending(fixed ?? { ...p, status: nextStatus, lastError: undefined })
+      return
+    }
     setSpvPending(p)
   }, [wallet.address, spvStatus?.watchAddress, spvStatus?.bridge?.minConfirmations, spvStatus?.btcNetwork, fbtcCustody])
 
@@ -574,12 +586,15 @@ export default function BridgeDepositPanel({
         if (cancelled) return
         // Prefer never decreasing confs on transient explorer lag
         const conf = Math.max(spvPending.confirmations, st.confirmations)
-        let status = spvPending.status
         if (spvPending.status === 'claimed') return
-        if (conf >= spvPending.minConfirmations) {
-          status = spvPending.status === 'claiming' ? 'claiming' : 'ready_to_claim'
-        } else {
-          status = 'waiting_confs'
+        // Never keep localStorage "claiming" across polls — that status only
+        // makes sense while handleSpvCompleteClaim has busy=true. Surviving
+        // refresh as claiming permanently greys Claim FBTC.
+        let status: typeof spvPending.status =
+          conf >= spvPending.minConfirmations ? 'ready_to_claim' : 'waiting_confs'
+        // If a claim is actively in flight (busy), preserve claiming label via React only
+        if (busy && spvPending.status === 'claiming') {
+          status = 'claiming'
         }
         const next = updateSpvPending(wallet.address, {
           confirmations: conf,
@@ -619,6 +634,7 @@ export default function BridgeDepositPanel({
     spvPending?.btcNetwork,
     spvPending?.confirmations,
     wallet.address,
+    busy,
   ])
 
   useEffect(() => {
@@ -1171,12 +1187,14 @@ export default function BridgeDepositPanel({
     setBusy(true)
     setError(null)
     setStep('Passkey to submit BTCDepositClaim…')
-    updateSpvPending(wallet.address, { status: 'claiming', lastError: undefined })
-    setSpvPending((p) => (p ? { ...p, status: 'claiming', lastError: undefined } : p))
+    // Do NOT write status=claiming to localStorage until after passkey succeeds.
+    // Cancelled/aborted passkey used to leave "claiming" forever → grey Claim FBTC.
     const txid = spvPending.txid
     try {
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+      updateSpvPending(wallet.address, { status: 'claiming', lastError: undefined })
+      setSpvPending((p) => (p ? { ...p, status: 'claiming', lastError: undefined } : p))
 
       // Retry proof fetch: explorers often lag minutes after the 6th conf
       let materials: Awaited<ReturnType<typeof fetchSpvClaimMaterials>> | null = null
@@ -1793,7 +1811,8 @@ export default function BridgeDepositPanel({
               <button
                 type="button"
                 onClick={handleSpvCompleteClaim}
-                disabled={busy || spvPending.status === 'claiming'}
+                // Only gate on live busy — never localStorage "claiming" (stuck after refresh)
+                disabled={busy}
                 className="btn-primary w-full"
               >
                 {busy ? (
@@ -1808,6 +1827,9 @@ export default function BridgeDepositPanel({
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <Spinner className="w-3.5 h-3.5" />
                 Confirming on Bitcoin
+                <span className="tabular-nums text-slate-400">
+                  ({spvPending.confirmations}/{spvPending.minConfirmations})
+                </span>
               </div>
             )}
           </div>
