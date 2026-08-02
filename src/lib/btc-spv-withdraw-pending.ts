@@ -217,22 +217,22 @@ export async function fetchSpvWithdrawList(account: string): Promise<{
   }
 }
 
+/** One short status line for the progress card */
 export function phaseLabel(phase: SpvWithdrawPhase): string {
   switch (phase) {
     case 'challenge':
-      return 'FBTC burned. Short challenge wait, then the reserve can pay BTC…'
+      return 'Waiting…'
     case 'awaiting_btc':
-      return 'BTC is sent on Bitcoin first. “Finish on Falcon” only proves that payment (does not unlock a second send).'
+      return 'Paying BTC…'
     case 'btc_proven':
-      return 'Falcon has reverse-SPV proof of the BTC payment — done.'
     case 'complete':
-      return 'Done — BTC is in your multi-chain wallet; Falcon books closed.'
+      return 'Done'
     default:
-      return 'Bridge out in progress'
+      return 'In progress'
   }
 }
 
-/** 1–3 for UI steps: Burn → BTC on Bitcoin → reverse-SPV on Falcon */
+/** Progress 0–3: burned → paying → finish on Falcon → done */
 export function phaseStepIndex(phase: SpvWithdrawPhase): number {
   switch (phase) {
     case 'challenge':
@@ -247,14 +247,4 @@ export function phaseStepIndex(phase: SpvWithdrawPhase): number {
   }
 }
 
-/**
- * Protocol order (not “prove then pay”):
- *  1) Burn FBTC on Falcon → open withdraw object
- *  2) Shared hold pays BTC on Bitcoin (+ FBTO memo)  ← real coins move here
- *  3) BTCWithdrawProve on Falcon = reverse SPV of step 2 (accounting close)
- */
-export const PEGOUT_STEPS = [
-  '1 · Burn FBTC on Falcon',
-  '2 · Reserve pays BTC on Bitcoin',
-  '3 · Prove that payment on Falcon',
-] as const
+export const PEGOUT_STEP_TOTAL = 3
