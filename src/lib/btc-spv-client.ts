@@ -701,7 +701,8 @@ export async function submitSpvWithdrawProve(opts: {
     })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
-    if (/tecDUPLICATE/i.test(msg)) return { result: 'tecDUPLICATE' }
+    // Already proven / paid — treat as success so UI can clear the card
+    if (/tecDUPLICATE/i.test(msg)) return { result: 'tecDUPLICATE', hash: undefined }
     if (/tecTOO_SOON/i.test(msg)) {
       throw new Error('Need more BTC confirmations on the redeem payment before prove')
     }

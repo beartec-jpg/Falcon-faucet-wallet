@@ -74,10 +74,17 @@ function mapWithdrawNode(
   const commit = String(node.BtcBurnCommit || '')
     .replace(/^0x/i, '')
     .toUpperCase()
-  const btcProven = !!commit && !/^0+$/.test(commit)
-  const ready = currentLedger > challengeEnd && (status === 0 || status === 2)
+  const btcTxId = String(node.BtcTxID || node.BtcTxId || '')
+    .replace(/^0x/i, '')
+    .toLowerCase()
+  // Proven when reverse-SPV recorded a redeem txid OR burn commit digest
+  const btcProven =
+    (!!commit && !/^0+$/.test(commit)) || (!!btcTxId && !/^0+$/.test(btcTxId))
+  // Engine: 0=pending, 2=finalized, 3=paid after BTCWithdrawProve (tesSUCCESS)
+  const isComplete = status === 2 || status === 3
+  const ready = currentLedger > challengeEnd && (status === 0 || isComplete)
   let phase: 'challenge' | 'awaiting_btc' | 'btc_proven' | 'complete' | 'unknown' = 'unknown'
-  if (status === 2) phase = 'complete'
+  if (isComplete) phase = 'complete'
   else if (currentLedger <= challengeEnd) phase = 'challenge'
   else if (btcProven) phase = 'btc_proven'
   else if (status === 0) phase = 'awaiting_btc'
@@ -91,6 +98,7 @@ function mapWithdrawNode(
     ready,
     btcProven,
     burnCommit: commit || undefined,
+    btcTxId: btcTxId || undefined,
     payoutScript: node.BtcPayoutScript ? String(node.BtcPayoutScript) : undefined,
     phase,
   }

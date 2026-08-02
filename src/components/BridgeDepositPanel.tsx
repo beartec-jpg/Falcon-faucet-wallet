@@ -608,14 +608,13 @@ export default function BridgeDepositPanel({
           if (!w.dismissed) bySeq.set(w.burnSeq, w)
         }
         for (const w of live.withdrawals) {
-          // Hide only if user dismissed a completed one
-          if (dismissed.has(w.burnSeq) && w.phase === 'complete') continue
-          // Always show open peg-outs even if previously dismissed by mistake
-          if (dismissed.has(w.burnSeq) && w.phase !== 'complete') {
-            /* re-show open */
-          } else if (dismissed.has(w.burnSeq)) {
+          // Paid/closed on Falcon (status 2 or 3) — never show as open tracker
+          if (w.phase === 'complete' || w.status === 2 || w.status === 3) {
+            dismissSpvWithdraw(wallet.address, w.burnSeq)
+            bySeq.delete(w.burnSeq)
             continue
           }
+          if (dismissed.has(w.burnSeq)) continue
           const prev = bySeq.get(w.burnSeq) || allLocal.find((x) => x.burnSeq === w.burnSeq)
           const merged: SpvPendingWithdraw = {
             v: 1,
@@ -636,11 +635,16 @@ export default function BridgeDepositPanel({
           bySeq.set(w.burnSeq, merged)
           saveSpvWithdraw(merged)
         }
-        // Only open peg-outs (hide completed noise). Newest first.
+        // Only truly open peg-outs (pending burn / waiting BTC / needs action)
         const next = Array.from(bySeq.values())
-          .filter((w) => !w.dismissed && w.phase !== 'complete')
+          .filter(
+            (w) =>
+              !w.dismissed &&
+              w.phase !== 'complete' &&
+              w.status !== 2 &&
+              w.status !== 3,
+          )
           .sort((a, b) => b.burnSeq - a.burnSeq)
-          // At most 2 open cards — older junk stays dismissible via first card only
           .slice(0, 2)
         setSpvWithdraws(next)
       } catch {
@@ -1086,11 +1090,17 @@ export default function BridgeDepositPanel({
         payoutSats: w.amountSats,
       })
       setReleaseStatus('released')
-      setSpvWithdraws((prev) =>
-        prev.map((x) =>
-          x.burnSeq === w.burnSeq ? { ...x, phase: 'complete', status: 2 } : x,
-        ),
-      )
+      // Persist complete + drop from open list so poll cannot resurrect a dead card
+      saveSpvWithdraw({
+        ...w,
+        phase: 'complete',
+        status: 3,
+        dismissed: true,
+        updatedAt: Date.now(),
+      })
+      dismissSpvWithdraw(wallet.address, w.burnSeq)
+      setSpvWithdraws((prev) => prev.filter((x) => x.burnSeq !== w.burnSeq))
+      setError(null)
       setTimeout(() => {
         onFalconRefresh?.()
         refreshFusdcBalance()
@@ -2125,11 +2135,14 @@ export default function BridgeDepositPanel({
 
                   <p className="text-xs text-slate-400 leading-snug">{phaseLabel(w.phase)}</p>
 
-                  {(w.phase === 'awaiting_btc' || w.phase === 'challenge') && (
+                  {(w.phase === 'awaiting_btc' ||
+                    w.phase === 'challenge' ||
+                    w.phase === 'btc_proven' ||
+                    w.phase === 'unknown') && (
                     <div className="space-y-2">
                       <p className="text-[11px] text-slate-500 leading-snug">
-                        BTC for this burn is already on Bitcoin if the redeemer ran. One passkey finishes
-                        Falcon accounting (does not re-send BTC).
+                        BTC for this burn should already be on your multi-chain address. Passkey only
+                        closes the Falcon books — it does not re-send BTC.
                       </p>
                       <button
                         type="button"
@@ -2151,11 +2164,6 @@ export default function BridgeDepositPanel({
                         </div>
                       )}
                     </div>
-                  )}
-                  {w.phase === 'btc_proven' && (
-                    <p className="text-[11px] text-emerald-400">
-                      Falcon has the proof. You can Hide this card — BTC is already paid.
-                    </p>
                   )}
                 </div>
               )
