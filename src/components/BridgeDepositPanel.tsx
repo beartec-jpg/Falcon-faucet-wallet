@@ -51,6 +51,7 @@ import {
   dismissSpvWithdraw,
   fetchSpvWithdrawList,
   listSpvWithdraws,
+  PEGOUT_STEPS,
   phaseLabel,
   phaseStepIndex,
   saveSpvWithdraw,
@@ -635,11 +636,12 @@ export default function BridgeDepositPanel({
           bySeq.set(w.burnSeq, merged)
           saveSpvWithdraw(merged)
         }
+        // Only open peg-outs (hide completed noise). Newest first.
         const next = Array.from(bySeq.values())
-          .filter((w) => !w.dismissed)
-          // Open always; complete stay visible for a week
-          .filter((w) => w.phase !== 'complete' || Date.now() - (w.createdAt || 0) < 7 * 24 * 3600_000)
+          .filter((w) => !w.dismissed && w.phase !== 'complete')
           .sort((a, b) => b.burnSeq - a.burnSeq)
+          // At most 2 open cards — older junk stays dismissible via first card only
+          .slice(0, 2)
         setSpvWithdraws(next)
       } catch {
         if (cancelled) return
@@ -2034,110 +2036,132 @@ export default function BridgeDepositPanel({
           </div>
         )}
 
-        {/* Bridge Out trackers — loaded from Falcon BtcWithdrawal objects (survives refresh) */}
-        {spvWithdraws.map((w) => {
-          const stepN = phaseStepIndex(w.phase)
-          const pct = Math.min(100, (100 * stepN) / 4)
-          const btcAmt = (w.amountSats / 1e8).toFixed(8)
-          const open = w.phase !== 'complete'
-          return (
-            <div
-              key={`wd-${w.burnSeq}`}
-              className={`rounded-xl border p-4 space-y-3 ${
-                open
-                  ? 'border-amber-500/30 bg-amber-500/5'
-                  : 'border-emerald-500/25 bg-emerald-500/10'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-white">
-                    {open ? 'FBTC → BTC (out)' : 'Bridge out complete'}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {btcAmt} FBTC burned · burn seq {w.burnSeq}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    dismissSpvWithdraw(wallet.address, w.burnSeq)
-                    setSpvWithdraws((prev) => prev.filter((x) => x.burnSeq !== w.burnSeq))
-                  }}
-                  className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
-                >
-                  Dismiss
-                </button>
-              </div>
-              {w.burnHash && (
-                <div className="text-[11px] font-mono text-amber-400/90 truncate" title={w.burnHash}>
-                  Falcon {w.burnHash.slice(0, 12)}…{w.burnHash.slice(-8)}
-                </div>
-              )}
-              {w.payoutAddress && (
-                <div className="text-[11px] font-mono text-slate-500 truncate" title={w.payoutAddress}>
-                  → {w.payoutAddress}
-                </div>
-              )}
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+        {/* Bridge Out — one clear card (newest open). Older leftovers collapsed. */}
+        {spvWithdraws.length > 0 && (
+          <div className="space-y-2">
+            {spvWithdraws.map((w, idx) => {
+              const stepN = phaseStepIndex(w.phase)
+              const btcAmt = (w.amountSats / 1e8).toFixed(8)
+              const isPrimary = idx === 0
+              // Secondary cards = old unfinished junk — keep quiet
+              if (!isPrimary) {
+                return (
                   <div
-                    className={`h-full transition-all duration-500 ${
-                      open ? 'bg-amber-400' : 'bg-emerald-400'
-                    }`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                <div className="text-xs font-semibold tabular-nums text-slate-300 shrink-0">
-                  {stepN}/4
-                </div>
-              </div>
-              <p className="text-xs text-slate-400">{phaseLabel(w.phase)}</p>
-              {w.phase === 'challenge' &&
-                w.challengeEndLedger != null &&
-                w.currentLedger != null && (
-                  <p className="text-[11px] text-slate-500">
-                    Challenge: ledger {w.currentLedger} / ends {w.challengeEndLedger}
-                    {w.currentLedger <= w.challengeEndLedger
-                      ? ` · ~${w.challengeEndLedger - w.currentLedger + 1} left`
-                      : ' · done'}
-                  </p>
-                )}
-              {w.phase === 'awaiting_btc' && (
-                <div className="space-y-2">
-                  <p className="text-[11px] text-amber-300/90 leading-snug">
-                    FBTC burned. Fleet redeemer pays your BTC address from the shared hold (FBTO memo). When
-                    that tx has 6 confs, press Prove to close on Falcon.
-                  </p>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void handleSpvProveWithdraw(w)}
-                    className="btn-primary w-full text-sm py-2.5"
+                    key={`wd-${w.burnSeq}`}
+                    className="rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 flex items-center justify-between gap-2"
                   >
-                    {busy ? (
-                      <>
-                        <Spinner /> {step ?? 'Working…'}
-                      </>
-                    ) : (
-                      'Find payout & Prove on Falcon'
-                    )}
-                  </button>
+                    <p className="text-[11px] text-slate-500">
+                      Old peg-out · {btcAmt} FBTC · seq {w.burnSeq} · {phaseLabel(w.phase)}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        dismissSpvWithdraw(wallet.address, w.burnSeq)
+                        setSpvWithdraws((prev) => prev.filter((x) => x.burnSeq !== w.burnSeq))
+                      }}
+                      className="text-[11px] text-slate-500 hover:text-slate-300 shrink-0"
+                    >
+                      Hide
+                    </button>
+                  </div>
+                )
+              }
+              return (
+                <div
+                  key={`wd-${w.burnSeq}`}
+                  className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-white">Bridge out in progress</div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        You burned <span className="text-slate-300 font-mono">{btcAmt} FBTC</span>
+                        {' · '}
+                        BTC should be on your multi-chain address
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        dismissSpvWithdraw(wallet.address, w.burnSeq)
+                        setSpvWithdraws((prev) => prev.filter((x) => x.burnSeq !== w.burnSeq))
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
+                    >
+                      Hide
+                    </button>
+                  </div>
+
+                  {/* Labeled steps — not a mystery “2/4” bar */}
+                  <ol className="space-y-1.5">
+                    {PEGOUT_STEPS.map((label, i) => {
+                      const n = i + 1
+                      // 1 burn always done; 2 BTC paid once past challenge; 3 prove closes
+                      const isDone =
+                        n === 1 ||
+                        (n === 2 && w.phase !== 'challenge') ||
+                        (n === 3 && (w.phase === 'btc_proven' || w.phase === 'complete'))
+                      const isActive = n === 3 && w.phase === 'awaiting_btc'
+                      return (
+                        <li
+                          key={label}
+                          className={`flex items-center gap-2 text-xs ${
+                            isDone && !isActive
+                              ? 'text-emerald-400/90'
+                              : isActive
+                                ? 'text-amber-300'
+                                : 'text-slate-500'
+                          }`}
+                        >
+                          <span className="font-mono w-4 shrink-0">
+                            {isDone && !isActive ? '✓' : n}
+                          </span>
+                          <span>{label}</span>
+                          {isActive && <span className="text-slate-500">← you are here</span>}
+                        </li>
+                      )
+                    })}
+                  </ol>
+
+                  <p className="text-xs text-slate-400 leading-snug">{phaseLabel(w.phase)}</p>
+
+                  {(w.phase === 'awaiting_btc' || w.phase === 'challenge') && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-slate-500 leading-snug">
+                        BTC for this burn is already on Bitcoin if the redeemer ran. One passkey finishes
+                        Falcon accounting (does not re-send BTC).
+                      </p>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void handleSpvProveWithdraw(w)}
+                        className="btn-primary w-full text-sm py-2.5"
+                      >
+                        {busy ? (
+                          <>
+                            <Spinner /> {step ?? 'Working…'}
+                          </>
+                        ) : (
+                          'Finish on Falcon (passkey)'
+                        )}
+                      </button>
+                      {error && (
+                        <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
+                          {error}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {w.phase === 'btc_proven' && (
+                    <p className="text-[11px] text-emerald-400">
+                      Falcon has the proof. You can Hide this card — BTC is already paid.
+                    </p>
+                  )}
                 </div>
-              )}
-              {w.phase === 'btc_proven' && (
-                <p className="text-[11px] text-slate-400">
-                  Reserve BTC payment proven on Falcon — withdraw closing out.
-                </p>
-              )}
-              {w.phase === 'complete' && (
-                <p className="text-[11px] text-emerald-400">
-                  Paid out — refresh Multi-chain BTC if balance is not updated yet.
-                </p>
-              )}
-            </div>
-          )
-        })}
+              )
+            })}
+          </div>
+        )}
 
         {/* Always visible on BTC Bridge in — claim card only lives in localStorage */}
         {isFbtcRoute && direction === 'deposit' && !spvPending && (

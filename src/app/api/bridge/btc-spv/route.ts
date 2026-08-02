@@ -281,6 +281,8 @@ export async function POST(req: NextRequest) {
     account?: string
     seq?: number
     amount_sats?: number
+    /** "deposit" (default) requires vout → watch address; "redeem" is peg-out COMPLETE */
+    purpose?: 'deposit' | 'redeem'
   }
   try {
     body = (await req.json()) as typeof body
@@ -571,25 +573,28 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Wrong deposit destination → claim always tecNO_ENTRY / temMALFORMED
-    const fileCfg = await loadFileConfig()
-    const watchAddress =
-      (fileCfg.watch_address as string | undefined)?.trim() ||
-      process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
-      null
-    const outAddr = status.vout?.[vout]?.scriptpubkey_address?.trim()
-    if (watchAddress && outAddr && outAddr !== watchAddress) {
-      return NextResponse.json(
-        {
-          error:
-            `This BTC tx (vout ${vout}) paid ${outAddr}, not the live SPV watch address ${watchAddress}. ` +
-            'Claim FBTC only works for deposits to the current protocol hold address. Old mxuam… deposits cannot be claimed on this bridge.',
-          wrongWatchAddress: true,
-          paidTo: outAddr,
-          expectedWatch: watchAddress,
-        },
-        { status: 400 },
-      )
+    // Peg-in only: vout must pay the shared hold. Peg-out COMPLETE pays the user.
+    const purpose = body.purpose === 'redeem' ? 'redeem' : 'deposit'
+    if (purpose === 'deposit') {
+      const fileCfg = await loadFileConfig()
+      const watchAddress =
+        (fileCfg.watch_address as string | undefined)?.trim() ||
+        process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
+        null
+      const outAddr = status.vout?.[vout]?.scriptpubkey_address?.trim()
+      if (watchAddress && outAddr && outAddr !== watchAddress) {
+        return NextResponse.json(
+          {
+            error:
+              `This BTC tx (vout ${vout}) paid ${outAddr}, not the live SPV watch address ${watchAddress}. ` +
+              'Claim FBTC only works for deposits to the current protocol hold address. Old mxuam… deposits cannot be claimed on this bridge.',
+            wrongWatchAddress: true,
+            paidTo: outAddr,
+            expectedWatch: watchAddress,
+          },
+          { status: 400 },
+        )
+      }
     }
 
     // Falcon must already have the Bitcoin header for this block or engine returns tecNO_ENTRY

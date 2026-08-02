@@ -155,18 +155,19 @@ export async function fetchSpvWithdrawList(account: string): Promise<{
 export function phaseLabel(phase: SpvWithdrawPhase): string {
   switch (phase) {
     case 'challenge':
-      return 'Challenge window…'
+      return 'Step 1/3 done: FBTC burned — short wait…'
     case 'awaiting_btc':
-      return 'Waiting for reserve BTC payment'
+      return 'Step 2/3: BTC is paid (or paying) — prove on Falcon to finish'
     case 'btc_proven':
-      return 'BTC paid — closing on Falcon'
+      return 'Almost done — Falcon has the BTC proof'
     case 'complete':
-      return 'Complete — BTC paid out'
+      return 'Done — BTC is yours'
     default:
       return 'Bridge out in progress'
   }
 }
 
+/** 0–3 for UI steps: Burn → BTC paid → Prove done */
 export function phaseStepIndex(phase: SpvWithdrawPhase): number {
   switch (phase) {
     case 'challenge':
@@ -174,10 +175,11 @@ export function phaseStepIndex(phase: SpvWithdrawPhase): number {
     case 'awaiting_btc':
       return 2
     case 'btc_proven':
-      return 3
     case 'complete':
-      return 4
+      return 3
     default:
       return 1
   }
 }
+
+export const PEGOUT_STEPS = ['Burn FBTC', 'BTC paid to you', 'Prove on Falcon'] as const

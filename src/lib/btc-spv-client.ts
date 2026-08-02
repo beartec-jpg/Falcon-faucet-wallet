@@ -503,13 +503,21 @@ export async function fetchSpvClaimMaterials(
   txid: string,
   network: BtcNetwork = 'testnet',
   watchVout = 0,
+  /** Peg-out COMPLETE pays user, not the hold — skip watch-address check */
+  purpose: 'deposit' | 'redeem' = 'deposit',
 ): Promise<SpvClaimMaterials> {
   // Prefer same-origin API (CSP-safe)
   try {
     const r = await fetch('/api/bridge/btc-spv', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'proof', btc_txid: txid, network, vout: watchVout }),
+      body: JSON.stringify({
+        action: 'proof',
+        btc_txid: txid,
+        network,
+        vout: watchVout,
+        purpose,
+      }),
     })
     const j = (await r.json().catch(() => ({}))) as SpvClaimMaterials & {
       error?: string
@@ -872,7 +880,7 @@ export async function spvPegOut(opts: {
   let materials: SpvClaimMaterials | null = null
   for (let i = 0; i < 90; i++) {
     try {
-      materials = await fetchSpvClaimMaterials(redeemTxid, btcNet, 0)
+      materials = await fetchSpvClaimMaterials(redeemTxid, btcNet, 0, 'redeem')
       if (materials.confirmations >= 6) break
       opts.onStep?.(
         `Redeem BTC confirming ${materials.confirmations}/6 (txid ${redeemTxid.slice(0, 12)}…)`,
@@ -975,7 +983,7 @@ export async function spvProveRedeem(opts: {
 }): Promise<{ hash?: string; confirmations: number }> {
   const btcNet = opts.btcNetwork ?? 'testnet'
   opts.onStep?.('Fetching redeem merkle proof…')
-  const materials = await fetchSpvClaimMaterials(opts.redeemBtcTxid, btcNet, 0)
+  const materials = await fetchSpvClaimMaterials(opts.redeemBtcTxid, btcNet, 0, 'redeem')
   if (materials.confirmations < 6) {
     throw new Error(
       `Need 6 BTC confs on redeem (have ${materials.confirmations}). Wait and retry Prove.`,
