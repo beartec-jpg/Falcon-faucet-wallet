@@ -1543,26 +1543,30 @@ export default function BridgeDepositPanel({
   const handleSpvClearPending = () => {
     if (!spvPending) return
     const isDead =
-      spvPending.txid === 'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524'
+      spvPending.txid === 'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524' ||
+      spvPending.txid === '9d02624da5e96706d22c0dcd067454f916841212c0c1dd9486e5680cfe8e246c'
     if (
       !isDead &&
       spvPending.status !== 'claimed' &&
       !window.confirm(
-        'Dismiss this deposit tracker?\n\nThis only hides tracking — it does not cancel the BTC deposit.',
+        'Dismiss this deposit tracker?\n\nThis only clears the browser bar so you can start a new Bridge In.\nIt does not cancel BTC already sent. Paste the full tx id under Resume if you still need to Claim.',
       )
     ) {
       return
     }
     clearSpvPending(wallet.address)
-    // Also wipe any legacy storage key from older portal builds
+    // Wipe all layered keys so Last-open cannot resurrect a ghost tracker
     try {
       localStorage.removeItem('falcon-spv-pending-v1')
       localStorage.removeItem('falcon-spv-pending-v2')
+      localStorage.removeItem('falcon-spv-last-open-v1')
+      sessionStorage.removeItem('falcon-spv-last-open-v1')
     } catch {
       /* ignore */
     }
     setSpvPending(null)
     setError(null)
+    setStep(null)
   }
 
   const handleTrustLine = async () => {
@@ -2136,14 +2140,15 @@ export default function BridgeDepositPanel({
           )
         })()}
 
-        {/* Always visible on BTC Bridge in — claim card only lives in localStorage */}
+        {/* Optional recover — does not block new Bridge In below */}
         {isFbtcRoute && direction === 'deposit' && !spvPending && (
-          <div className="rounded-xl border border-brand-500/30 bg-brand-500/5 p-4 space-y-3">
+          <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 p-4 space-y-3">
             <div>
-              <div className="text-sm font-semibold text-white">Resume BTC claim</div>
+              <div className="text-sm font-semibold text-slate-200">Already deposited? Recover tracker</div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Deposit already sent but no claim card? Paste the full 64-character Bitcoin tx id
-                (not a short prefix). Then Track → wait for confs → Claim FBTC.
+                Only if BTC was already sent to the protocol hold and you lost the progress bar.
+                Paste the full 64-char tx id → Track → Claim. For a <span className="text-slate-400">new</span>{' '}
+                bridge-in, ignore this and use Amount + Bridge in below.
               </p>
             </div>
             <div className="flex gap-2">

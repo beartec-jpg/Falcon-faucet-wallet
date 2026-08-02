@@ -47,6 +47,8 @@ const LEGACY_KEYS = ['falcon-spv-pending-v1'] as const
 const DEAD_SPV_TXIDS = new Set([
   'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524', // refunded
   '0ac5c315c05858ca284c9587b62acba144a540e97a8f6d2e4f3ddd7aebd3fb2d', // claimed / minted
+  // 65k peg-in spent as vault input on bridge-out COMPLETE (never claimable)
+  '9d02624da5e96706d22c0dcd067454f916841212c0c1dd9486e5680cfe8e246c',
 ])
 
 function isBrowser(): boolean {
