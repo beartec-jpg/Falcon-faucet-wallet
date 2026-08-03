@@ -331,63 +331,99 @@ export async function GET(req: NextRequest) {
       (w) => w.status === 0 && !w.btcTxId && !w.hasCommit,
     )
 
-    // Scan hold spends for FBTO‖AccountID‖seq — COMPLETE already paid these on BTC
-    // but Falcon still shows status 0 until the user submits BTCWithdrawProve.
-    // Crediting them avoids false "Short" (same idea as redeemer redeem-state credit).
+    // Ghost liabilities: COMPLETE already paid on BTC but Falcon still status 0
+    // until BTCWithdrawProve. Must NOT count toward solvency "Short".
     let paidUnprovenCreditSats = 0
     const paidUnprovenKeys: string[] = []
-    if (holdAddress && openUnproven.length > 0) {
+
+    const markPaidUnproven = (w: WithdrawRow, txid?: string) => {
+      if (w.paidUnproven) return
+      w.paidUnproven = true
+      w.phase = 'awaiting_prove'
+      w.statusLabel = 'paid (unproven)'
+      if (txid) w.btcTxId = txid.toLowerCase()
+      paidUnprovenCreditSats += w.amountSats
+      paidUnprovenKeys.push(`${w.account}:${w.seq}`)
+    }
+
+    // Ops override + known ghost COMPLETE (paid on BTC, never proved on Falcon).
+    // Format: account:seq:txid or account:seq  (comma-separated)
+    // Env BTC_SPV_PAID_UNPROVEN replaces defaults when set (including empty to disable).
+    const paidOverride = (
+      process.env.BTC_SPV_PAID_UNPROVEN !== undefined
+        ? process.env.BTC_SPV_PAID_UNPROVEN
+        : // 90k r9UxFw#12764 — COMPLETE e6886512… ; exclude until prove closes object
+          'r9UxFwYfFJwhVHHGaCLUVrpTQsaXCqiBkK:12764:e6886512eae4cc7bb6d537b185a60152953626349abcdda7a7dc71f32abbf8be'
+    )
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    for (const entry of paidOverride) {
+      const [acct, seqStr, txid] = entry.split(':')
+      const seq = Math.floor(Number(seqStr))
+      const w = openUnproven.find((x) => x.account === acct && x.seq === seq)
+      if (w) markPaidUnproven(w, txid)
+    }
+
+    // Auto: scan hold spends for FBTO‖AccountID‖seq (paginate — COMPLETE can be deep)
+    if (holdAddress && openUnproven.some((w) => !w.paidUnproven)) {
       try {
         const { decodeAccountID } = await import('ripple-address-codec')
-        const txsR = await explorerGet(`/address/${holdAddress}/txs`, btcNetwork)
-        if (txsR.ok) {
-          const txs = (await txsR.json()) as Array<{
-            txid: string
-            vout?: Array<{ scriptpubkey?: string; value?: number }>
-          }>
-          for (const w of openUnproven) {
-            let acc20: Buffer
-            try {
-              acc20 = Buffer.from(decodeAccountID(w.account))
-            } catch {
-              continue
-            }
-            const seq = w.seq >>> 0
-            const fbto = Buffer.concat([
-              Buffer.from('FBTO'),
-              acc20,
-              Buffer.from([
-                (seq >>> 24) & 0xff,
-                (seq >>> 16) & 0xff,
-                (seq >>> 8) & 0xff,
-                seq & 0xff,
-              ]),
-            ])
-              .toString('hex')
-              .toLowerCase()
-            for (const t of txs.slice(0, 50)) {
-              let matched = false
-              for (const v of t.vout || []) {
-                const spk = (v.scriptpubkey || '').toLowerCase()
-                if (spk.includes(fbto)) {
-                  matched = true
-                  break
-                }
-              }
-              if (matched) {
-                w.btcTxId = t.txid.toLowerCase()
-                w.paidUnproven = true
-                w.phase = 'awaiting_prove'
-                w.statusLabel = 'paid (unproven)'
-                paidUnprovenCreditSats += w.amountSats
-                paidUnprovenKeys.push(`${w.account}:${w.seq}`)
-                break
-              }
+        type TxRow = {
+          txid: string
+          vout?: Array<{ scriptpubkey?: string; value?: number }>
+        }
+        const allTxs: TxRow[] = []
+        let page = await explorerGet(`/address/${holdAddress}/txs`, btcNetwork)
+        if (page.ok) {
+          let batch = (await page.json()) as TxRow[]
+          allTxs.push(...batch)
+          // up to ~5 pages (~125 txs) of hold history
+          for (let p = 0; p < 4 && batch.length >= 25; p++) {
+            const last = batch[batch.length - 1]?.txid
+            if (!last) break
+            const next = await explorerGet(
+              `/address/${holdAddress}/txs/chain/${last}`,
+              btcNetwork,
+            )
+            if (!next.ok) break
+            batch = (await next.json()) as TxRow[]
+            allTxs.push(...batch)
+          }
+        }
+        for (const w of openUnproven) {
+          if (w.paidUnproven) continue
+          let acc20: Buffer
+          try {
+            acc20 = Buffer.from(decodeAccountID(w.account))
+          } catch {
+            continue
+          }
+          const seq = w.seq >>> 0
+          const fbto = Buffer.concat([
+            Buffer.from('FBTO'),
+            acc20,
+            Buffer.from([
+              (seq >>> 24) & 0xff,
+              (seq >>> 16) & 0xff,
+              (seq >>> 8) & 0xff,
+              seq & 0xff,
+            ]),
+          ])
+            .toString('hex')
+            .toLowerCase()
+          for (const t of allTxs) {
+            const matched = (t.vout || []).some((v) =>
+              (v.scriptpubkey || '').toLowerCase().includes(fbto),
+            )
+            if (matched) {
+              markPaidUnproven(w, t.txid)
+              break
             }
           }
         }
       } catch {
-        /* explorer flaky — leave raw unpaid */
+        /* explorer flaky — still apply env overrides above */
       }
     }
 
