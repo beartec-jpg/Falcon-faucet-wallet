@@ -339,6 +339,19 @@ Update whitepaper / marketing only after W1 lag SLO and W3 challenge e2e pass.
 | Date | Note |
 |------|------|
 | 2026-08-02 | Initial plan document created and pushed |
+| 2026-08-02 | **Portal-only slice shipped (no node SSH):** W1.3 Merkle verify (server+client), W1.4 dual explorers (existing + root check), W1.5 lag banner + `headers` on SPV status API, W1.7/W2 claim gates (header + tier confs + reorg buffer + retired watch), W3.4 `npm run verify:btc-bridge-config`, W3.6 peg-out card burn#/challenge, W4.7 vault backup hygiene copy, HARDENING.md portal checks |
+
+### Portal-only checklist (no SSH)
+
+- [x] W1.3 Independent Merkle verify (`src/lib/btc-merkle.ts`)
+- [x] W1.5 Lag banner on Bridge BTC + GET `/api/bridge/btc-spv` `headers`
+- [x] W2 value-tier confs / reorg / retired holds (`src/lib/btc-spv-policy.ts` + proof preflight)
+- [x] W3.4 Config equivalence script (`npm run verify:btc-bridge-config`)
+- [x] W3.6 Peg-out card: burn seq, payout, challenge window
+- [x] W4.7 Vault create backup hygiene warning
+- [ ] W4.1 Cold-side keygen (follow-up — larger product change)
+- [ ] W4.2 WebAuthn cold unlock polish (follow-up)
+- [ ] W1.1–W1.2 / W3.1–W3.3 / W5.1–W5.6 still need fleet/protocol/SSH
 
 ---
 

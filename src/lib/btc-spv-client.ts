@@ -200,6 +200,18 @@ export interface SpvStatus {
   btcNetwork: BtcNetwork
   ready: boolean
   message: string
+  /** W1.5 header lag monitoring */
+  headers?: {
+    falconTipHeight?: number | null
+    bitcoinTipHeight?: number | null
+    bitcoinTipHash?: string | null
+    lagBlocks?: number | null
+    lagLevel?: 'ok' | 'warn' | 'critical' | 'unknown'
+    claimSafe?: boolean
+    lagWarnBlocks?: number
+    lagCriticalBlocks?: number
+  }
+  watchMatchesConfig?: boolean | null
 }
 
 export async function fetchSpvStatus(): Promise<SpvStatus> {
@@ -523,8 +535,25 @@ export async function fetchSpvClaimMaterials(
       error?: string
       confirmed?: boolean
       confirmations?: number
+      merkleRoot?: string
+      merkleVerified?: boolean
     }
-    if (r.ok && j.rawTxHex && j.merkleProofHex) return j
+    if (r.ok && j.rawTxHex && j.merkleProofHex) {
+      // Client-side independent check when root available (W1.3)
+      if (j.merkleRoot) {
+        const { verifyBitcoinMerkleProof } = await import('@/lib/btc-merkle')
+        const v = verifyBitcoinMerkleProof({
+          txidDisplay: txid,
+          merkleProofHex: j.merkleProofHex,
+          txIndex: j.txIndex,
+          merkleRootDisplay: j.merkleRoot,
+        })
+        if (!v.ok) {
+          throw new Error(v.error || 'Client Merkle verify failed')
+        }
+      }
+      return j
+    }
     // Waiting states — never surface as a hard "Failed to fetch" to the user
     if (r.status === 404 || r.status === 409) {
       throw new Error(
