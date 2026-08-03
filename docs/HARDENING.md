@@ -2,6 +2,20 @@
 
 Companion to the security hardening work. **Repos are public; secrets and open ports are not.**
 
+**Bridge & custody plan:** [BRIDGE-AND-CUSTODY-HARDENING-PLAN.md](./BRIDGE-AND-CUSTODY-HARDENING-PLAN.md) (W1–W5).
+
+## Portal-only BTC SPV checks (no node SSH)
+
+| Check | How |
+|-------|-----|
+| Config ↔ on-chain watch hash | `npm run verify:btc-bridge-config` |
+| Header lag banner | Bridge BTC tab (from `/api/bridge/btc-spv` `headers`) |
+| Merkle verify | Server + client before Claim FBTC |
+| Value-tier confs / reorg buffer | `src/lib/btc-spv-policy.ts` + claim preflight |
+| Retired watch addresses | Rejected on deposit claim proof |
+
+**Preimage hygiene:** never log COMPLETE preimages or `falcon_secret` / burn preimages in portal client code. Fleet-only secrets stay on the node.
+
 ## Phase 0 — Vercel Production env (do now)
 
 | Variable | Value |

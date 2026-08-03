@@ -8,5 +8,17 @@
   "model": "protocol_shared_reserve_v3",
   "challenge_csv": 16,
   "min_confirmations": 6,
-  "notes": "WP4 v3 cutover. Deposit to watch_address + FALC OP_RETURN. Fee wallet pays fees; solvent redeemer. Previous v2 hold retired (funds migrated)."
+  "conf_tiers": [
+    { "max_btc": 0.001, "min_confirmations": 3, "reorg_buffer": 1 },
+    { "max_btc": 0.01, "min_confirmations": 6, "reorg_buffer": 2 },
+    { "max_btc": null, "min_confirmations": 12, "reorg_buffer": 3 }
+  ],
+  "lag_warn_blocks": 50,
+  "lag_critical_blocks": 100,
+  "retired_watch_addresses": [
+    "mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik",
+    "tb1qqxf9h0ytl0valyrmfqq53ws48mq88n8rzxcnkcvt2wg98kh8uj5qtzhm5f",
+    "tb1q40fswfaq0e5nvnmayutp7qw3s0r0ctgy62p48w0k4zq79wx6w27s6ulwpv"
+  ],
+  "notes": "WP4 v3 cutover. Deposit to watch_address + FALC OP_RETURN. Fee wallet pays fees; solvent redeemer. Previous v2 hold retired (funds migrated). Portal-only policy fields: conf_tiers, lag_*, retired_watch_addresses."
 }

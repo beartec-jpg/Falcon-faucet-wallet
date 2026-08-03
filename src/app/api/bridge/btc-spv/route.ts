@@ -3,6 +3,12 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { resolveNetworkKey } from '@/lib/network-server'
 import { getNetwork } from '@/lib/networks'
+import { verifyBitcoinMerkleProof } from '@/lib/btc-merkle'
+import {
+  assertLiveWatchAddress,
+  claimAllowedForDeposit,
+  isRetiredWatchAddress,
+} from '@/lib/btc-spv-policy'
 
 /**
  * Bitcoin SPV light-client bridge status + claim proof helper.
@@ -255,6 +261,45 @@ export async function GET(req: NextRequest) {
         'SPV peg-in ready → protocol shared reserve (keyless hold program)'
     }
 
+    // Bitcoin tip + lag (portal-only monitoring — W1.5)
+    let btcTipHeight: number | null = null
+    let btcTipHash: string | null = null
+    try {
+      const tipH = await explorerGet('/blocks/tip/height', btcNetwork)
+      if (tipH.ok) btcTipHeight = parseInt(await tipH.text(), 10) || null
+      const tipHashR = await explorerGet('/blocks/tip/hash', btcNetwork)
+      if (tipHashR.ok) btcTipHash = (await tipHashR.text()).trim() || null
+    } catch {
+      /* explorer lag */
+    }
+    const falconTip =
+      bridge?.tipHeight != null && Number.isFinite(Number(bridge.tipHeight))
+        ? Number(bridge.tipHeight)
+        : null
+    const lagBlocks =
+      falconTip != null && btcTipHeight != null
+        ? Math.max(0, btcTipHeight - falconTip)
+        : null
+    const lagWarn = Number(fileCfg.lag_warn_blocks) || 50
+    const lagCritical = Number(fileCfg.lag_critical_blocks) || 100
+    const lagLevel =
+      lagBlocks == null
+        ? 'unknown'
+        : lagBlocks >= lagCritical
+          ? 'critical'
+          : lagBlocks >= lagWarn
+            ? 'warn'
+            : 'ok'
+    const claimSafe = lagLevel === 'ok' || lagLevel === 'warn'
+    const configWatchHash = String(
+      fileCfg.watch_script_hash || protocol?.watch_script_hash || '',
+    ).toUpperCase()
+    const onChainWatchHash = String(bridge?.watchScriptHash || '').toUpperCase()
+    const watchMatchesConfig =
+      !configWatchHash || !onChainWatchHash
+        ? null
+        : configWatchHash === onChainWatchHash
+
     return NextResponse.json({
       amendment,
       activated,
@@ -274,6 +319,19 @@ export async function GET(req: NextRequest) {
       ready,
       message,
       mode: ready ? 'spv' : amendment.enabled ? 'spv-pending-ops' : 'waiting-amendment',
+      headers: {
+        falconTipHeight: falconTip,
+        bitcoinTipHeight: btcTipHeight,
+        bitcoinTipHash: btcTipHash,
+        lagBlocks,
+        lagLevel,
+        claimSafe,
+        lagWarnBlocks: lagWarn,
+        lagCriticalBlocks: lagCritical,
+      },
+      watchMatchesConfig,
+      confTiers: fileCfg.conf_tiers ?? null,
+      retiredWatchAddresses: fileCfg.retired_watch_addresses ?? null,
     })
   } catch (e: unknown) {
     return NextResponse.json(
@@ -708,12 +766,22 @@ export async function POST(req: NextRequest) {
         process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
         null
       const outAddr = status.vout?.[vout]?.scriptpubkey_address?.trim()
-      if (watchAddress && outAddr && outAddr !== watchAddress) {
+      if (outAddr && isRetiredWatchAddress(outAddr)) {
         return NextResponse.json(
           {
-            error:
-              `This BTC tx (vout ${vout}) paid ${outAddr}, not the live SPV watch address ${watchAddress}. ` +
-              'Claim FBTC only works for deposits to the current protocol hold address. Old mxuam… deposits cannot be claimed on this bridge.',
+            error: `Deposit paid retired watch address ${outAddr}. This bridge no longer claims those deposits.`,
+            wrongWatchAddress: true,
+            paidTo: outAddr,
+            retired: true,
+          },
+          { status: 400 },
+        )
+      }
+      const watchErr = assertLiveWatchAddress(outAddr, watchAddress)
+      if (watchErr) {
+        return NextResponse.json(
+          {
+            error: watchErr,
             wrongWatchAddress: true,
             paidTo: outAddr,
             expectedWatch: watchAddress,
@@ -800,6 +868,63 @@ export async function POST(req: NextRequest) {
     const txIndex = proof.pos ?? 0
     const blockHash = status.status.block_hash.replace(/^0x/i, '')
 
+    // Independent Merkle check vs block header from dual explorers (W1.3 / W1.4)
+    let merkleRoot: string | null = null
+    try {
+      const blockR = await explorerGet(`/block/${blockHash}`, network)
+      if (blockR.ok) {
+        const block = (await blockR.json()) as { merkle_root?: string }
+        merkleRoot = block.merkle_root?.replace(/^0x/i, '').toLowerCase() || null
+      }
+    } catch {
+      /* optional */
+    }
+    if (merkleRoot) {
+      const v = verifyBitcoinMerkleProof({
+        txidDisplay: txid,
+        merkleProofHex,
+        txIndex,
+        merkleRootDisplay: merkleRoot,
+      })
+      if (!v.ok) {
+        return NextResponse.json(
+          {
+            error: `Independent Merkle verify failed: ${v.error || 'mismatch'}. Try again or use another explorer.`,
+            merkleVerified: false,
+          },
+          { status: 502 },
+        )
+      }
+    }
+
+    // Value-tier confs + reorg buffer for deposits (W2)
+    if (purpose === 'deposit') {
+      const amountSats = Math.floor(Number(status.vout?.[vout]?.value ?? 0))
+      const gate = claimAllowedForDeposit({
+        depositHeight: blockHeight,
+        falconTip: falconTipHeight || null,
+        btcTip: tip || null,
+        confirmations,
+        amountSats,
+        protocolMinConf: undefined,
+      })
+      if (!gate.ok) {
+        return NextResponse.json(
+          {
+            error: gate.reason,
+            waiting: true,
+            headerReady: true,
+            falconTipHeight: falconTipHeight || undefined,
+            confirmations,
+            minConfirmations: gate.minConf,
+            reorgBuffer: gate.reorgBuffer,
+            amountSats,
+          },
+          { status: 409 },
+        )
+      }
+    }
+
     return NextResponse.json({
       rawTxHex,
       merkleProofHex,
@@ -811,6 +936,8 @@ export async function POST(req: NextRequest) {
       confirmed: true,
       headerReady: true,
       falconTipHeight: falconTipHeight || undefined,
+      merkleVerified: !!merkleRoot,
+      merkleRoot: merkleRoot || undefined,
     })
   } catch (e: unknown) {
     return NextResponse.json(

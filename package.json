@@ -15,6 +15,7 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "verify:sign": "node scripts/verify-falcon-sign.mjs",
+    "verify:btc-bridge-config": "node scripts/verify-btc-bridge-config.mjs",
     "dev:cold": "cd cold-signer && npm run dev",
     "build:cold": "cd cold-signer && npm install && npm run build && mkdir -p ../public/cold-signer && rm -rf ../public/cold-signer/* && cp -r dist/* ../public/cold-signer/",
     "verify:multi-qr": "node scripts/verify-multi-qr.mjs"

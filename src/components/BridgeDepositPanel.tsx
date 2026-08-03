@@ -2023,6 +2023,65 @@ export default function BridgeDepositPanel({
           </span>
         </div>
 
+        {/* W1.5 — SPV header lag / config mismatch (BTC only) */}
+        {isFbtcRoute && spvStatus?.headers && (
+          <div
+            className={`rounded-xl px-3 py-2.5 text-xs leading-relaxed border ${
+              spvStatus.headers.lagLevel === 'critical'
+                ? 'border-red-500/35 bg-red-500/10 text-red-200'
+                : spvStatus.headers.lagLevel === 'warn'
+                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+                  : spvStatus.watchMatchesConfig === false
+                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+                    : 'border-slate-700/80 bg-slate-900/50 text-slate-400'
+            }`}
+          >
+            {spvStatus.headers.lagLevel === 'critical' || spvStatus.headers.lagLevel === 'warn' ? (
+              <>
+                <span className="font-semibold">
+                  SPV headers {spvStatus.headers.lagLevel === 'critical' ? 'critical lag' : 'lagging'}
+                </span>
+                {': '}
+                Falcon tip{' '}
+                <span className="font-mono tabular-nums">
+                  {spvStatus.headers.falconTipHeight?.toLocaleString() ?? '—'}
+                </span>
+                {' · '}Bitcoin{' '}
+                <span className="font-mono tabular-nums">
+                  {spvStatus.headers.bitcoinTipHeight?.toLocaleString() ?? '—'}
+                </span>
+                {spvStatus.headers.lagBlocks != null && (
+                  <>
+                    {' '}
+                    (gap{' '}
+                    <span className="font-mono tabular-nums">
+                      {spvStatus.headers.lagBlocks.toLocaleString()}
+                    </span>
+                    )
+                  </>
+                )}
+                {spvStatus.headers.lagLevel === 'critical' && (
+                  <span className="block mt-1 text-[11px] opacity-90">
+                    Claim FBTC will fail until headers catch up. Do not re-send BTC.
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                SPV headers OK
+                {spvStatus.headers.lagBlocks != null && (
+                  <span className="font-mono"> · lag {spvStatus.headers.lagBlocks}</span>
+                )}
+              </>
+            )}
+            {spvStatus.watchMatchesConfig === false && (
+              <span className="block mt-1 text-amber-200/90">
+                Portal watch hash does not match on-chain BtcBridgeState — check config cutover.
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Active BTC deposit */}
         {spvPending && spvPending.status !== 'claimed' && (
           <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3">
@@ -2148,7 +2207,9 @@ export default function BridgeDepositPanel({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-white">Bridge out</div>
-                  <p className="text-xs text-slate-400 font-mono mt-0.5">{btcAmt} FBTC</p>
+                  <p className="text-xs text-slate-400 font-mono mt-0.5">
+                    {btcAmt} FBTC · burn #{w.burnSeq}
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -2173,6 +2234,19 @@ export default function BridgeDepositPanel({
                 </div>
               </div>
               <p className="text-xs text-slate-400">{phaseLabel(w.phase)}</p>
+              {w.payoutAddress && (
+                <p className="text-[11px] text-slate-500 font-mono truncate" title={w.payoutAddress}>
+                  → {w.payoutAddress.slice(0, 12)}…{w.payoutAddress.slice(-6)}
+                </p>
+              )}
+              {w.challengeEndLedger != null && w.currentLedger != null && (
+                <p className="text-[11px] text-slate-500">
+                  Challenge end ledger {w.challengeEndLedger}
+                  {w.currentLedger > w.challengeEndLedger
+                    ? ' · window closed — waiting for reserve BTC (FBTO)'
+                    : ` · Falcon ledger ${w.currentLedger}`}
+                </p>
+              )}
               {needsFinish && (
                 <button
                   type="button"

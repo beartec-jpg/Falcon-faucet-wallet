@@ -711,9 +711,14 @@ export default function VaultPage() {
           <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
             <h2 className="text-sm font-semibold text-white">Create vault</h2>
             <p className="text-xs text-slate-400">
-              A new Falcon-512 key is generated here, encrypted into a vault file, then wiped.
-              Store the file offline and load it on the cold signer.
+              A new Falcon-512 key is generated in this browser (CSPRNG), encrypted into a vault file,
+              then wiped from the portal. Store the file offline and load it only on the cold signer.
             </p>
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100/90 leading-relaxed">
+              <strong className="font-semibold">Backup hygiene:</strong> treat the vault JSON like a seed.
+              Use a strong password; never email, Drive, or chat the file. Key is born on this device —
+              for highest security prefer generating offline on the cold signer when that path ships.
+            </div>
             <label className="block text-xs text-slate-400">
               Label
               <input
