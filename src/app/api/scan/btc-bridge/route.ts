@@ -91,6 +91,8 @@ type WithdrawRow = {
   inChallengeWindow: boolean
   btcTxId?: string
   hasCommit: boolean
+  /** COMPLETE found on BTC but BTCWithdrawProve not yet on Falcon */
+  paidUnproven?: boolean
 }
 
 function statusLabel(status: number): string {
@@ -153,7 +155,14 @@ export async function GET(req: NextRequest) {
     const scanAccounts = (
       process.env.BTC_BRIDGE_SCAN_ACCOUNTS ||
       process.env.SCAN_ACCOUNTS ||
-      'r9UxFwYfFJwhVHHGaCLUVrpTQsaXCqiBkK'
+      // Default: historical + E2E/load wallets (override via env in production)
+      [
+        'r9UxFwYfFJwhVHHGaCLUVrpTQsaXCqiBkK',
+        'r9N48DWxgtZgFy59SPrpYvFiGgnqN3JSjf',
+        'rEMFCQQkX1ze4QWYKS3fJR4b5uQLEPf3jk',
+        'r4nUcQkNXnPy4dh85MXjsuwzqufPv5FgQX',
+        'rEH3d71iLJNy7Do2rVSWVJmyDMqiWKzieC',
+      ].join(',')
     )
       .split(',')
       .map((a) => a.trim())
@@ -316,16 +325,88 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Match vault_security open_unproven: status 0, no BtcTxID, no burn commit.
+    // Objects with commit are mid two-phase / already bound — not "unpaid hold BTC".
+    const openUnproven = withdrawals.filter(
+      (w) => w.status === 0 && !w.btcTxId && !w.hasCommit,
+    )
+
+    // Scan hold spends for FBTO‖AccountID‖seq — COMPLETE already paid these on BTC
+    // but Falcon still shows status 0 until the user submits BTCWithdrawProve.
+    // Crediting them avoids false "Short" (same idea as redeemer redeem-state credit).
+    let paidUnprovenCreditSats = 0
+    const paidUnprovenKeys: string[] = []
+    if (holdAddress && openUnproven.length > 0) {
+      try {
+        const { decodeAccountID } = await import('ripple-address-codec')
+        const txsR = await explorerGet(`/address/${holdAddress}/txs`, btcNetwork)
+        if (txsR.ok) {
+          const txs = (await txsR.json()) as Array<{
+            txid: string
+            vout?: Array<{ scriptpubkey?: string; value?: number }>
+          }>
+          for (const w of openUnproven) {
+            let acc20: Buffer
+            try {
+              acc20 = Buffer.from(decodeAccountID(w.account))
+            } catch {
+              continue
+            }
+            const seq = w.seq >>> 0
+            const fbto = Buffer.concat([
+              Buffer.from('FBTO'),
+              acc20,
+              Buffer.from([
+                (seq >>> 24) & 0xff,
+                (seq >>> 16) & 0xff,
+                (seq >>> 8) & 0xff,
+                seq & 0xff,
+              ]),
+            ])
+              .toString('hex')
+              .toLowerCase()
+            for (const t of txs.slice(0, 50)) {
+              let matched = false
+              for (const v of t.vout || []) {
+                const spk = (v.scriptpubkey || '').toLowerCase()
+                if (spk.includes(fbto)) {
+                  matched = true
+                  break
+                }
+              }
+              if (matched) {
+                w.btcTxId = t.txid.toLowerCase()
+                w.paidUnproven = true
+                w.phase = 'awaiting_prove'
+                w.statusLabel = 'paid (unproven)'
+                paidUnprovenCreditSats += w.amountSats
+                paidUnprovenKeys.push(`${w.account}:${w.seq}`)
+                break
+              }
+            }
+          }
+        }
+      } catch {
+        /* explorer flaky — leave raw unpaid */
+      }
+    }
+
     const pending = withdrawals.filter((w) => w.status === 0)
     const paid = withdrawals.filter((w) => w.status === 3 || w.status === 2)
     const inChallenge = withdrawals.filter((w) => w.inChallengeWindow)
-    const awaitingBtc = withdrawals.filter((w) => w.phase === 'awaiting_btc')
-    const pendingSats = pending.reduce((s, w) => s + w.amountSats, 0)
+    const awaitingBtc = withdrawals.filter(
+      (w) => w.phase === 'awaiting_btc' && !w.paidUnproven,
+    )
+    // Solvency liability: open unproven burns not yet paid on BTC
+    const unpaidLiabilitySats = openUnproven
+      .filter((w) => !w.paidUnproven)
+      .reduce((s, w) => s + w.amountSats, 0)
+    const pendingSats = unpaidLiabilitySats
     const paidSats = paid.reduce((s, w) => s + w.amountSats, 0)
 
     const minted = bridge?.totalMintedSats ?? 0
-    // Solvency: hold backs minted + unpaid burns (same as vault_security)
-    const requiredSats = minted + pendingSats
+    // Solvency: hold backs minted + burns not yet paid on BTC (vault_security parity)
+    const requiredSats = minted + unpaidLiabilitySats
     const shortfallSats = Math.max(0, requiredSats - holdConfirmedSats)
     const solvent = holdConfirmedSats >= requiredSats
 
@@ -426,14 +507,21 @@ export async function GET(req: NextRequest) {
         shortfallSats,
         holdConfirmedSats,
         totalMintedSats: minted,
-        openUnpaidBurnsSats: pendingSats,
+        /** Burns still owing hold BTC (excludes paid-unproven COMPLETE) */
+        openUnpaidBurnsSats: unpaidLiabilitySats,
+        /** Status-0 with FBTO COMPLETE on BTC but no Falcon prove yet */
+        paidUnprovenCreditSats,
+        paidUnprovenKeys,
+        note: solvent
+          ? 'Hold covers minted FBTC + unpaid peg-outs (paid-but-unproven credited).'
+          : 'Hold below minted + truly unpaid peg-outs. Redeemer may pause new pays.',
       },
       challenges: {
         // On-ledger challenge windows (Falcon withdraw objects)
         openChallengeWindows: inChallenge.length,
-        pendingPegOuts: pending.length,
+        pendingPegOuts: pending.filter((w) => !w.paidUnproven).length,
         awaitingBtcPayment: awaitingBtc.length,
-        paidOrFinalized: paid.length,
+        paidOrFinalized: paid.length + paidUnprovenKeys.length,
         note:
           'Challenge windows are Falcon BtcWithdrawal challenge periods. Live mempool races run on ops challengers (not counted on-ledger).',
       },
@@ -441,11 +529,13 @@ export async function GET(req: NextRequest) {
         scannedAccounts: scanAccounts,
         totals: {
           withdrawals: withdrawals.length,
-          pending: pending.length,
+          pending: pending.filter((w) => !w.paidUnproven).length,
           paid: paid.length,
+          paidUnproven: paidUnprovenKeys.length,
           inChallengeWindow: inChallenge.length,
-          pendingSats,
+          pendingSats: unpaidLiabilitySats,
           paidSats,
+          paidUnprovenCreditSats,
         },
         recent: activity,
       },
