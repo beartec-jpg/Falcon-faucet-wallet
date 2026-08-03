@@ -243,7 +243,11 @@ export default function BtcBridgeSuite() {
           <Stat
             label="Unpaid peg-outs"
             value={data.solvency.openUnpaidBurnsSats.toLocaleString()}
-            sub="sats pending burn liabilities"
+            sub={
+              (data.solvency as { paidUnprovenCreditSats?: number }).paidUnprovenCreditSats
+                ? `sats still owing · ${(data.solvency as { paidUnprovenCreditSats: number }).paidUnprovenCreditSats.toLocaleString()} paid, unproven`
+                : 'sats still owing hold BTC'
+            }
           />
           <Stat
             label="Hold UTXOs"
