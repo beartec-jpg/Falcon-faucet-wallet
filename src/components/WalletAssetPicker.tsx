@@ -47,7 +47,7 @@ export default function WalletAssetPicker({
             <p className="text-xs text-slate-500 mt-1">
               {mode === 'send'
                 ? 'Choose an asset with a balance to send.'
-                : 'Choose a chain or asset to show a receive address.'}
+                : 'Choose a native chain to show its deposit address.'}
             </p>
           </div>
           <button

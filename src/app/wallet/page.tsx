@@ -290,6 +290,7 @@ export default function WalletPage() {
   const [btcNativeBal, setBtcNativeBal] = useState<BtcBalance | null>(null)
   const [xrplClassicBal, setXrplClassicBal] = useState<string | null>(null)
   const [nativeBalLoading, setNativeBalLoading] = useState(false)
+  const [nativeRefreshKey, setNativeRefreshKey] = useState(0)
   const [bridgeMissing, setBridgeMissing] = useState(false)
   const bridgeAutoProvisioned = useRef(false)
 
@@ -451,6 +452,14 @@ export default function WalletPage() {
     } catch { /* non-fatal */ }
   }, [networkKey])
 
+  /** Falcon ledger + multi-chain native balances (when on those tabs). */
+  const refreshAllBalances = useCallback(() => {
+    if (wallet?.address) void refreshBalance(wallet.address)
+    if (walletSection === 'multichain' || walletSection === 'bridge') {
+      setNativeRefreshKey((k) => k + 1)
+    }
+  }, [wallet?.address, walletSection, refreshBalance])
+
   useEffect(() => {
     if (wallet?.address) {
       refreshBalance(wallet.address)
@@ -467,6 +476,7 @@ export default function WalletPage() {
 
   // Native multi-chain balances — each chain independent so one RPC failure
   // does not wipe the others (previously Promise.all + catch cleared BTC too).
+  // nativeRefreshKey bumps when the user hits Refresh.
   useEffect(() => {
     if (walletSection !== 'multichain' && walletSection !== 'bridge') return
     if (!wallet) return
@@ -499,10 +509,11 @@ export default function WalletPage() {
       setBtcNativeBal(btcB)
       setXrplClassicBal(xrpB)
       setNativeBalLoading(false)
+      setBalanceFlash((n) => n + 1)
     })
 
     return () => { cancelled = true }
-  }, [walletSection, wallet?.evmAddress, wallet?.btcAddress, wallet?.xrplClassicAddress, bridgeCfg, wallet])
+  }, [walletSection, wallet?.evmAddress, wallet?.btcAddress, wallet?.xrplClassicAddress, bridgeCfg, wallet, nativeRefreshKey])
 
   // Auto-provision missing BTC deposit key (same passkey vault)
   useEffect(() => {
@@ -1934,7 +1945,16 @@ export default function WalletPage() {
                     fb.fbnb <= 0
 
                   const openSendPicker = () => setTransferPicker('send')
-                  const openReceivePicker = () => setTransferPicker('receive')
+                  // Falcon Receive: single r-address + name (all F-assets share it).
+                  // Multi-chain Receive: pick a native chain only (no F-assets).
+                  const openReceivePicker = () => {
+                    if (walletSection === 'falcon') {
+                      setReceiveAssetId('falcon')
+                      setView('receive')
+                      return
+                    }
+                    setTransferPicker('receive')
+                  }
                   const openBridge = (route?: typeof bridgeInitialRoute) => {
                     // Falcon tab = bridge out (withdraw); Multi-chain = bridge in (deposit)
                     if (walletSection === 'falcon') {
@@ -1980,7 +2000,7 @@ export default function WalletPage() {
                         )}
                         {walletSection === 'falcon' && (
                           <p className="text-[11px] text-slate-500 mt-1">
-                            Bridged assets listed below · use Send / Receive to pick a token
+                            Bridged assets listed below · Receive shows your Falcon address
                           </p>
                         )}
                         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -2003,6 +2023,28 @@ export default function WalletPage() {
                           {wallet.label && (
                             <span className="text-[11px] text-slate-500 truncate max-w-[8rem]">{wallet.label}</span>
                           )}
+                          <button
+                            type="button"
+                            onClick={refreshAllBalances}
+                            disabled={nativeBalLoading && walletSection === 'multichain'}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-950/50 px-2.5 py-1 text-xs text-slate-300 hover:border-brand-500/40 hover:text-brand-300 transition-colors disabled:opacity-50"
+                            title="Refresh balances"
+                          >
+                            <svg
+                              className={`w-3.5 h-3.5 ${nativeBalLoading && walletSection === 'multichain' ? 'animate-spin' : ''}`}
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                              />
+                            </svg>
+                            {nativeBalLoading && walletSection === 'multichain' ? 'Refreshing…' : 'Refresh'}
+                          </button>
                         </div>
                       </div>
 
@@ -2759,11 +2801,26 @@ export default function WalletPage() {
                     </>
                   )}
                   <button
-                    onClick={() => refreshBalance(wallet.address)}
-                    className="p-2.5 rounded-xl bg-slate-800 text-slate-400"
-                    title="Refresh"
+                    type="button"
+                    onClick={refreshAllBalances}
+                    disabled={nativeBalLoading && walletSection === 'multichain'}
+                    className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium disabled:opacity-50"
+                    title="Refresh balances"
                   >
-                    ↻
+                    <svg
+                      className={`w-4 h-4 ${nativeBalLoading && walletSection === 'multichain' ? 'animate-spin' : ''}`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                    Refresh
                   </button>
                 </div>
               </div>
@@ -2788,30 +2845,122 @@ export default function WalletPage() {
 
               {/* ── Receive panel ── */}
               {view === 'receive' && (() => {
-                // Multi-chain USDC/ETH/BNB always use the EVM 0x key — never Falcon r…
+                // Falcon Receive: one r-address for all Falcon / F-assets + optional name.
+                const isFalconReceive =
+                  receiveAssetId === 'falcon' ||
+                  receiveAssetId === 'fusdc' ||
+                  receiveAssetId === 'feth' ||
+                  receiveAssetId === 'fbnb' ||
+                  receiveAssetId === 'fbtc' ||
+                  walletSection === 'falcon'
+
+                if (isFalconReceive) {
+                  const recvAddr = wallet.address
+                  return (
+                    <div className="card p-5 space-y-4">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setView('dashboard')}
+                          className="text-slate-500 hover:text-slate-300"
+                        >
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                          </svg>
+                        </button>
+                        <h3 className="font-semibold text-white text-sm">Receive on Falcon</h3>
+                      </div>
+
+                      {accountName ? (
+                        <div className="rounded-xl border border-emerald-500/25 bg-emerald-950/20 px-4 py-3 text-center space-y-1">
+                          <p className="text-[10px] uppercase tracking-wide text-emerald-400/80 font-medium">
+                            Falcon name
+                          </p>
+                          <p className="text-xl sm:text-2xl font-semibold text-emerald-300 tracking-tight break-all">
+                            {accountName}
+                            {accountNameStatus === 'releasing' && (
+                              <span className="ml-2 align-middle text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                releasing
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            Others can send to this name on Falcon
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500 text-center">
+                          No Falcon name set — share your address below
+                        </p>
+                      )}
+
+                      <p className="text-[10px] uppercase tracking-wide text-brand-400/90 font-medium text-center">
+                        Falcon address
+                      </p>
+                      <p className="text-xs text-slate-500 leading-relaxed text-center">
+                        One address for FALCON and all F-assets (F-USDC, FETH, FBTC, FBNB). Only send Falcon-network assets here.
+                      </p>
+
+                      {recvAddr ? (
+                        <>
+                          <div className="bg-white rounded-xl p-3 mx-auto w-fit">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(recvAddr)}&size=180x180&margin=0`}
+                              alt="Falcon address QR code"
+                              width={180}
+                              height={180}
+                              className="rounded"
+                            />
+                          </div>
+                          <div className="bg-slate-800 rounded-xl px-3 py-2.5 font-mono text-xs text-slate-300 break-all text-center leading-relaxed">
+                            {recvAddr}
+                          </div>
+                        </>
+                      ) : null}
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!recvAddr) return
+                            await navigator.clipboard.writeText(recvAddr)
+                            setCopied(true)
+                            setTimeout(() => setCopied(false), 2000)
+                          }}
+                          disabled={!recvAddr}
+                          className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors disabled:opacity-40"
+                        >
+                          {copied ? '✓ Copied!' : 'Copy Address'}
+                        </button>
+                        <Link
+                          href={`/?address=${encodeURIComponent(wallet.address)}`}
+                          className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors text-center"
+                        >
+                          Get from Faucet →
+                        </Link>
+                      </div>
+                    </div>
+                  )
+                }
+
+                // Multi-chain: native deposit addresses only (no F-assets)
                 const isNativeEvm =
                   receiveAssetId === 'eth' ||
                   receiveAssetId === 'bnb' ||
                   receiveAssetId === 'usdc'
                 const isBtc = receiveAssetId === 'btc'
                 const isXrp = receiveAssetId === 'xrp'
-                const isFalconAsset =
-                  receiveAssetId === 'falcon' ||
-                  receiveAssetId === 'fusdc' ||
-                  receiveAssetId === 'feth' ||
-                  receiveAssetId === 'fbnb' ||
-                  receiveAssetId === 'fbtc'
                 const recvAddr = isNativeEvm
                   ? (wallet.evmAddress || '')
                   : isBtc
                     ? (wallet.btcAddress || '')
                     : isXrp
                       ? (wallet.xrplClassicAddress || '')
-                      : isFalconAsset
-                        ? wallet.address
-                        : wallet.evmAddress || wallet.address
-                const recvSymbol = multiChainAssetById(receiveAssetId)?.symbol
-                  ?? (receiveAssetId === 'eth'
+                      : wallet.evmAddress || ''
+                const recvSymbol =
+                  multiChainAssetById(receiveAssetId)?.symbol ??
+                  (receiveAssetId === 'eth'
                     ? 'ETH'
                     : receiveAssetId === 'usdc'
                       ? 'USDC'
@@ -2821,16 +2970,14 @@ export default function WalletPage() {
                           ? 'BNB'
                           : receiveAssetId === 'xrp'
                             ? 'XRP'
-                            : receiveAssetId === 'fusdc'
-                              ? 'F-USDC'
-                              : 'assets')
+                            : 'asset')
                 const addrKind = isNativeEvm
                   ? 'Ethereum 0x'
                   : isBtc
                     ? 'Bitcoin'
                     : isXrp
                       ? 'Classic XRPL r…'
-                      : 'Falcon r…'
+                      : 'Deposit'
                 return (
                 <div className="card p-5 space-y-4">
                   <div className="flex items-center gap-2">
@@ -2854,31 +3001,15 @@ export default function WalletPage() {
                     {receiveAssetId === 'eth'
                       ? 'Native Ethereum address (Sepolia testnet). Same 0x for USDC. Fund ETH for gas and for bridging to FETH.'
                       : receiveAssetId === 'usdc'
-                        ? 'USDC on Ethereum (Sepolia). Same 0x as your ETH address — only send Sepolia USDC here, then Bridge → F-USDC. Do not use this for Falcon F-USDC (that is an r… address).'
+                        ? 'USDC on Ethereum (Sepolia). Same 0x as your ETH address — only send Sepolia USDC here, then Bridge → F-USDC.'
                       : receiveAssetId === 'bnb'
                         ? 'Same 0x as ETH. On BSC testnet this receives BNB. Bridge → FBNB.'
                       : receiveAssetId === 'btc'
                         ? 'Native Bitcoin testnet P2PKH address. Only send testnet BTC. Bridge → FBTC.'
                       : receiveAssetId === 'xrp'
-                        ? 'Classic XRP Ledger (today’s XRPL crypto). Separate r… from Falcon. Fund via XRPL testnet faucet.'
-                      : receiveAssetId === 'fusdc'
-                        ? 'F-USDC on Falcon only (r…). To deposit Ethereum USDC, go back and pick USDC (Ethereum 0x), then Bridge In.'
-                        : receiveAssetId === 'falcon'
-                          ? 'Only send FALCON / Falcon-network assets to this r… address.'
-                            : 'Falcon-wrapped asset — use Falcon r… after minting via Bridge.'}
+                        ? 'Classic XRP Ledger (today’s XRPL). Separate r… from Falcon. Fund via XRPL testnet faucet.'
+                        : 'Native multi-chain deposit address.'}
                   </p>
-                  {receiveAssetId === 'fusdc' && wallet.evmAddress && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setReceiveAssetId('usdc')
-                        setWalletSection('multichain')
-                      }}
-                      className="w-full text-left text-xs rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2.5 text-sky-200 hover:bg-sky-500/20"
-                    >
-                      Want to receive Ethereum USDC? Use your ETH address instead →
-                    </button>
-                  )}
                   {recvAddr ? (
                     <>
                       <div className="bg-white rounded-xl p-3 mx-auto w-fit">
@@ -2901,11 +3032,14 @@ export default function WalletPage() {
                         ? 'No classic XRPL address yet — open Multi-chain to provision keys.'
                         : isNativeEvm
                           ? 'No ETH/0x address yet — open Multi-chain or Bridge to create the multi-chain wallet.'
-                          : 'No deposit address yet — open Bridge to create the ETH wallet.'}
+                          : isBtc
+                            ? 'No BTC address yet — open Multi-chain to provision keys.'
+                            : 'No deposit address yet — open Multi-chain or Bridge to create keys.'}
                     </p>
                   )}
                   <div className="flex gap-2">
                     <button
+                      type="button"
                       onClick={async () => {
                         if (!recvAddr) return
                         await navigator.clipboard.writeText(recvAddr)
@@ -2917,14 +3051,6 @@ export default function WalletPage() {
                     >
                       {copied ? '✓ Copied!' : 'Copy Address'}
                     </button>
-                    {receiveAssetId === 'falcon' && (
-                      <Link
-                        href={`/?address=${encodeURIComponent(wallet.address)}`}
-                        className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors text-center"
-                      >
-                        Get from Faucet →
-                      </Link>
-                    )}
                     {isXrp && (
                       <a
                         href="https://xrpl.org/resources/dev-tools/xrp-faucets"
@@ -2935,7 +3061,7 @@ export default function WalletPage() {
                         XRPL faucet →
                       </a>
                     )}
-                    {(receiveAssetId === 'fusdc' || receiveAssetId === 'eth') && (
+                    {(receiveAssetId === 'usdc' || receiveAssetId === 'eth' || receiveAssetId === 'btc' || receiveAssetId === 'bnb') && (
                       <button
                         type="button"
                         onClick={() => {
@@ -3496,18 +3622,22 @@ export default function WalletPage() {
                   }
                 })
                 // Send: assets for current tab only (with balance filter in picker)
-                // Receive: always list multi-chain deposits + Falcon assets so
-                // "USDC" (0x) is not confused with "F-USDC" (r…)
+                // Receive: Multi-chain tab = natives only (ETH/USDC/BTC/BNB/XRP).
+                // Falcon receive skips the picker (address + name only).
                 const options =
                   transferPicker === 'receive'
-                    ? [...multiOpts, ...falconOpts]
+                    ? multiOpts
                     : walletSection === 'multichain' || walletSection === 'bridge'
                       ? multiOpts
                       : falconOpts
                 return (
                   <WalletAssetPicker
                     mode={transferPicker}
-                    title={transferPicker === 'send' ? 'Send' : 'Receive'}
+                    title={
+                      transferPicker === 'send'
+                        ? 'Send'
+                        : 'Receive · Multi-chain'
+                    }
                     options={options}
                     onClose={() => setTransferPicker(null)}
                     onPick={(id) => {
@@ -3527,15 +3657,15 @@ export default function WalletPage() {
                         setTransferPicker(null)
                         setView('send')
                       } else {
-                        // Defensive: never treat native USDC as Falcon r-address
-                        setReceiveAssetId(id as MultiChainAssetId)
-                        if (id === 'usdc' || id === 'eth' || id === 'bnb') {
+                        // Multi-chain receive only: never F-assets
+                        if (id === 'usdc' || id === 'eth' || id === 'bnb' || id === 'btc' || id === 'xrp') {
+                          setReceiveAssetId(id as MultiChainAssetId)
                           setWalletSection('multichain')
-                        } else if (id === 'fusdc' || id === 'falcon' || id === 'feth' || id === 'fbnb' || id === 'fbtc') {
-                          setWalletSection('falcon')
+                          setTransferPicker(null)
+                          setView('receive')
+                        } else {
+                          setTransferPicker(null)
                         }
-                        setTransferPicker(null)
-                        setView('receive')
                       }
                     }}
                   />
