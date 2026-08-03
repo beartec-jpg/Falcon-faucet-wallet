@@ -1165,6 +1165,7 @@ export async function spvPegIn(opts: {
     txid: string
     explorerUrl: string
     amountSats: number
+    watchVout: number
   }) => void
 }): Promise<{ depositTxid: string; claimHash?: string; explorerUrl: string }> {
   const btcNet = opts.btcNetwork ?? 'testnet'
@@ -1206,6 +1207,7 @@ export async function spvPegIn(opts: {
     txid: dep.txid,
     explorerUrl: dep.explorerUrl,
     amountSats: dep.amountSats,
+    watchVout: dep.watchVout,
   })
   opts.onStep?.(
     `BTC sent ${dep.txid.slice(0, 12)}… waiting for ${minConf} confirmations (auto-saved on this device)…`,

@@ -67,6 +67,9 @@ export type BtcBridgeSuiteData = {
     requiredSats: number
     shortfallSats: number
     openUnpaidBurnsSats: number
+    paidUnprovenCreditSats?: number
+    paidUnprovenKeys?: string[]
+    note?: string
   }
   challenges: {
     openChallengeWindows: number
@@ -80,9 +83,11 @@ export type BtcBridgeSuiteData = {
       withdrawals: number
       pending: number
       paid: number
+      paidUnproven?: number
       inChallengeWindow: number
       pendingSats: number
       paidSats: number
+      paidUnprovenCreditSats?: number
     }
     recent: WithdrawRow[]
   }
@@ -244,8 +249,8 @@ export default function BtcBridgeSuite() {
             label="Unpaid peg-outs"
             value={data.solvency.openUnpaidBurnsSats.toLocaleString()}
             sub={
-              (data.solvency as { paidUnprovenCreditSats?: number }).paidUnprovenCreditSats
-                ? `sats still owing · ${(data.solvency as { paidUnprovenCreditSats: number }).paidUnprovenCreditSats.toLocaleString()} paid, unproven`
+              data.solvency.paidUnprovenCreditSats
+                ? `sats still owing · ${data.solvency.paidUnprovenCreditSats.toLocaleString()} paid, unproven`
                 : 'sats still owing hold BTC'
             }
           />
