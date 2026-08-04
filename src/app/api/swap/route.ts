@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
     symbol: req.nextUrl.searchParams.get('symbol'),
     currency: req.nextUrl.searchParams.get('currency'),
     issuer: req.nextUrl.searchParams.get('issuer'),
+    networkKey,
   })
 
   if (direction && amountStr) {
@@ -28,7 +29,17 @@ export async function GET(req: NextRequest) {
     try {
       const quote = await quoteSwap(networkKey, token, direction, amount)
       if (!quote) {
-        return NextResponse.json({ error: 'No liquidity available' }, { status: 404 })
+        return NextResponse.json(
+          {
+            error: 'No liquidity available',
+            token,
+            poolHint:
+              token.mptIssuanceId
+                ? 'SPV FBTC AMM not found — seed FALCON+FBTC pool after MPTokensV2 is enabled.'
+                : undefined,
+          },
+          { status: 404 },
+        )
       }
       return NextResponse.json({ quote, token })
     } catch (e: unknown) {

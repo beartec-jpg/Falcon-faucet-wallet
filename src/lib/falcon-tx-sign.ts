@@ -560,6 +560,30 @@ export const TF_LP_TOKEN = 0x00010000
 /** tfWithdrawAll — redeem entire LP balance. */
 export const TF_WITHDRAW_ALL = 0x00020000
 
+/** IOU or SPV-MPT side of an AMM pair (Amount2 / Asset2). */
+function ammTokenSide(params: {
+  currency: string
+  issuer: string
+  amountToken: string
+  mptIssuanceId?: string
+}): {
+  asset2: Record<string, string>
+  amount2: Record<string, string>
+} {
+  if (params.mptIssuanceId) {
+    const id = params.mptIssuanceId.replace(/^0x/i, '').toUpperCase()
+    // MPT amount is integer units (sats for SPV FBTC)
+    return {
+      asset2: { mpt_issuance_id: id },
+      amount2: { mpt_issuance_id: id, value: params.amountToken },
+    }
+  }
+  return {
+    asset2: { currency: params.currency, issuer: params.issuer },
+    amount2: { currency: params.currency, issuer: params.issuer, value: params.amountToken },
+  }
+}
+
 export async function signAmmCreateTx(
   params: {
     account: string
@@ -567,6 +591,8 @@ export async function signAmmCreateTx(
     issuer: string
     amountXrpDrops: string
     amountToken: string
+    /** SPV FBTC etc. — integer token units (sats), not human BTC */
+    mptIssuanceId?: string
     tradingFee?: number
     sequence: number
     lastLedgerSequence: number
@@ -584,11 +610,12 @@ export async function signAmmCreateTx(
     params.networkId,
     params.fee ?? AMM_CREATE_FEE_DROPS,
   )
+  const { amount2 } = ammTokenSide(params)
   const tx = {
     ...core,
     TransactionType: 'AMMCreate',
     Amount: params.amountXrpDrops,
-    Amount2: { currency: params.currency, issuer: params.issuer, value: params.amountToken },
+    Amount2: amount2,
     TradingFee: params.tradingFee ?? 500,
   }
   return { tx_blob: await signPrepared(tx, decoded) }
@@ -601,6 +628,7 @@ export async function signAmmDepositTx(
     issuer: string
     amountXrpDrops: string
     amountToken: string
+    mptIssuanceId?: string
     sequence: number
     lastLedgerSequence: number
     networkId: number
@@ -617,13 +645,14 @@ export async function signAmmDepositTx(
     params.networkId,
     params.fee,
   )
+  const { asset2, amount2 } = ammTokenSide(params)
   const tx = {
     ...core,
     TransactionType: 'AMMDeposit',
     Asset: { currency: 'XRP' },
-    Asset2: { currency: params.currency, issuer: params.issuer },
+    Asset2: asset2,
     Amount: params.amountXrpDrops,
-    Amount2: { currency: params.currency, issuer: params.issuer, value: params.amountToken },
+    Amount2: amount2,
     Flags: TF_TWO_ASSET,
   }
   return { tx_blob: await signPrepared(tx, decoded) }
@@ -634,6 +663,7 @@ export async function signAmmWithdrawTx(
     account: string
     currency: string
     issuer: string
+    mptIssuanceId?: string
     lpTokenCurrency: string
     lpTokenIssuer: string
     lpTokenAmount: string
@@ -656,11 +686,14 @@ export async function signAmmWithdrawTx(
   )
   // tfLPToken and tfWithdrawAll are mutually exclusive on ledger — burn full balance via LPTokenIn.
   const flags = TF_LP_TOKEN
+  const asset2 = params.mptIssuanceId
+    ? { mpt_issuance_id: params.mptIssuanceId.replace(/^0x/i, '').toUpperCase() }
+    : { currency: params.currency, issuer: params.issuer }
   const tx = {
     ...core,
     TransactionType: 'AMMWithdraw',
     Asset: { currency: 'XRP' },
-    Asset2: { currency: params.currency, issuer: params.issuer },
+    Asset2: asset2,
     LPTokenIn: {
       currency: params.lpTokenCurrency,
       issuer: params.lpTokenIssuer,

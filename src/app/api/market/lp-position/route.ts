@@ -1,8 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
-import { resolveStableToken } from '@/lib/swap/token-config'
+import { isMptToken, resolveStableToken } from '@/lib/swap/token-config'
+import { satsToBtc } from '@/lib/xrpl-amount'
 
 const DROPS = 1_000_000
+
+function asset2ForToken(token: {
+  currency: string
+  issuer: string
+  kind?: 'iou' | 'mpt'
+  mptIssuanceId?: string
+}): Record<string, string> {
+  if (isMptToken(token) && token.mptIssuanceId) {
+    return { mpt_issuance_id: token.mptIssuanceId.toUpperCase() }
+  }
+  return { currency: token.currency, issuer: token.issuer }
+}
+
+function parseTokenPoolAmount(amount2: unknown, mpt: boolean): number {
+  if (amount2 == null) return 0
+  if (typeof amount2 === 'string') {
+    const n = parseInt(amount2, 10)
+    if (!Number.isFinite(n)) return 0
+    return mpt ? satsToBtc(n) : parseFloat(amount2)
+  }
+  if (typeof amount2 === 'object') {
+    const o = amount2 as { value?: string }
+    if (o.value != null) {
+      const n = parseFloat(o.value)
+      if (!Number.isFinite(n)) return 0
+      if (mpt && /^\d+$/.test(String(o.value)) && n > 1e3) return satsToBtc(n)
+      return n
+    }
+  }
+  return 0
+}
 
 export async function GET(req: NextRequest) {
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
@@ -15,17 +47,34 @@ export async function GET(req: NextRequest) {
     symbol: req.nextUrl.searchParams.get('symbol'),
     currency: req.nextUrl.searchParams.get('currency'),
     issuer: req.nextUrl.searchParams.get('issuer'),
+    networkKey,
   })
-  if (!token.issuer) {
+  const mpt = isMptToken(token)
+  if (!mpt && !token.issuer) {
     return NextResponse.json(
       { error: `${token.displaySymbol} issuer not configured` },
       { status: 503 },
     )
   }
+  if (mpt && !token.mptIssuanceId) {
+    return NextResponse.json(
+      { error: 'SPV FBTC MPT issuance not found on bridge' },
+      { status: 503 },
+    )
+  }
+
+  const tokenOut = {
+    symbol: token.displaySymbol,
+    currency: token.currency,
+    issuer: token.issuer,
+    kind: mpt ? ('mpt' as const) : ('iou' as const),
+    mptIssuanceId: token.mptIssuanceId,
+    decimals: token.decimals ?? (mpt ? 8 : 6),
+  }
 
   const ammR = await serverRpcCall<{ amm?: Record<string, unknown> }>(networkKey, 'amm_info', {
     asset: { currency: 'XRP' },
-    asset2: { currency: token.currency, issuer: token.issuer },
+    asset2: asset2ForToken(token),
     ledger_index: 'validated',
   }).catch(() => ({ amm: undefined }))
 
@@ -34,11 +83,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       hasPosition: false,
       pool: null,
-      token: {
-        symbol: token.displaySymbol,
-        currency: token.currency,
-        issuer: token.issuer,
-      },
+      token: tokenOut,
+      poolHint: mpt
+        ? 'SPV FBTC AMM not found — needs MPTokensV2 + FALCON/FBTC seed.'
+        : undefined,
     })
   }
 
@@ -46,7 +94,7 @@ export async function GET(req: NextRequest) {
   const lpMeta = amm.lp_token as { currency?: string; issuer?: string; value?: string } | undefined
   const poolLpTotal = parseFloat(lpMeta?.value ?? '0')
   const poolXrp = typeof amm.amount === 'string' ? parseInt(amm.amount, 10) / DROPS : 0
-  const poolToken = parseFloat(String((amm.amount2 as { value?: string })?.value ?? '0'))
+  const poolToken = parseTokenPoolAmount(amm.amount2, mpt)
 
   let lpBalance = 0
   if (lpMeta?.currency && ammAccount) {
@@ -67,11 +115,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     hasPosition: lpBalance > 0,
-    token: {
-      symbol: token.displaySymbol,
-      currency: token.currency,
-      issuer: token.issuer,
-    },
+    token: tokenOut,
     pool: {
       account: ammAccount,
       xrp: poolXrp,

@@ -20,6 +20,7 @@ import {
   fetchSequenceInfo,
 } from '@/lib/wallet-submit'
 import { applySlippage } from '@/lib/swap/amm-math'
+import { btcToSatsString } from '@/lib/xrpl-amount'
 
 const DROPS_PER_XRP = 1_000_000
 /** Default AMM deposit/withdraw slippage tolerance (basis points); mirrors the swap default. */
@@ -32,6 +33,9 @@ interface SwapToken {
   currency: string
   issuer: string
   configured: boolean
+  kind?: 'iou' | 'mpt'
+  mptIssuanceId?: string
+  decimals?: number
 }
 
 interface LpPosition {
@@ -163,7 +167,14 @@ export default function MarketLiquidityPanel({
       position: d.position ?? null,
       pool: d.pool ? { xrp: d.pool.xrp, usdc: tokenSide } : null,
     }
-  }, [wallet.address, networkKey, token.symbol, token.currency, token.issuer])
+  }, [
+    wallet.address,
+    networkKey,
+    token.symbol,
+    token.currency,
+    token.issuer,
+    token.mptIssuanceId,
+  ])
 
   const loadLpPosition = useCallback(async () => {
     const { position, pool } = await fetchLpPosition()
@@ -176,7 +187,7 @@ export default function MarketLiquidityPanel({
     setLpPosition(null)
     setPoolSnapshot(null)
     if (poolLive) loadLpPosition()
-  }, [loadLpPosition, poolLive, token.currency, token.issuer])
+  }, [loadLpPosition, poolLive, token.currency, token.issuer, token.mptIssuanceId])
 
   /** Sign + submit an AMM tx for this wallet with automatic sequence-race retry. */
   const submitSequenced = (
@@ -197,7 +208,8 @@ export default function MarketLiquidityPanel({
     })
 
   const handleAmmCreate = async () => {
-    if (!token.issuer || !network.live || poolLive) return
+    const isMpt = token.kind === 'mpt' || !!token.mptIssuanceId
+    if ((!token.issuer && !isMpt) || !network.live || poolLive) return
     const x = parseFloat(xrpAmt)
     const u = parseFloat(usdcAmt)
     if (!Number.isFinite(x) || x <= 0 || !Number.isFinite(u) || u <= 0) {
@@ -220,9 +232,10 @@ export default function MarketLiquidityPanel({
         )
       }
       if (usdcBalance != null && usdcBalance < u) {
-        throw new Error(`Need ${fmt(u, 4)} ${token.symbol} — bridge in first if needed`)
+        throw new Error(`Need ${fmtToken(u)} ${token.symbol} — bridge in first if needed`)
       }
 
+      const amountToken = isMpt ? btcToSatsString(u) : String(u)
       const data = await submitSequenced(falcon_secret, ({ sequence, lastLedgerSequence }, secret) =>
         signAmmCreate(
           {
@@ -230,7 +243,8 @@ export default function MarketLiquidityPanel({
             currency: token.currency,
             issuer: token.issuer,
             amountXrpDrops: String(Math.round(x * DROPS_PER_XRP)),
-            amountToken: String(u),
+            amountToken,
+            mptIssuanceId: token.mptIssuanceId,
             fee: AMM_CREATE_FEE_DROPS,
             sequence,
             lastLedgerSequence,
@@ -251,7 +265,8 @@ export default function MarketLiquidityPanel({
   }
 
   const handleAmmDeposit = async () => {
-    if (!token.issuer || !poolLive) return
+    const isMpt = token.kind === 'mpt' || !!token.mptIssuanceId
+    if ((!token.issuer && !isMpt) || !poolLive) return
     const x = parseFloat(xrpAmt)
     const u = parseFloat(usdcAmt)
     if (!Number.isFinite(x) || x <= 0 || !Number.isFinite(u) || u <= 0) {
@@ -298,6 +313,7 @@ export default function MarketLiquidityPanel({
         }
       }
 
+      const amountToken = isMpt ? btcToSatsString(u) : String(u)
       const data = await submitSequenced(falcon_secret, ({ sequence, lastLedgerSequence }, secret) =>
         signAmmDeposit(
           {
@@ -305,7 +321,8 @@ export default function MarketLiquidityPanel({
             currency: token.currency,
             issuer: token.issuer,
             amountXrpDrops: String(Math.round(x * DROPS_PER_XRP)),
-            amountToken: String(u),
+            amountToken,
+            mptIssuanceId: token.mptIssuanceId,
             sequence,
             lastLedgerSequence,
             networkId: network.networkId,
@@ -325,7 +342,8 @@ export default function MarketLiquidityPanel({
   }
 
   const handleAmmWithdraw = async (withdrawAll: boolean) => {
-    if (!token.issuer || !poolLive || !lpPosition) return
+    const isMpt = token.kind === 'mpt' || !!token.mptIssuanceId
+    if ((!token.issuer && !isMpt) || !poolLive || !lpPosition) return
     const pct = withdrawAll ? 100 : parseFloat(withdrawPct)
     if (!withdrawAll && (!Number.isFinite(pct) || pct <= 0 || pct > 100)) {
       setError('Enter a withdraw percentage between 1 and 100')
@@ -381,6 +399,7 @@ export default function MarketLiquidityPanel({
             account: wallet.address,
             currency: token.currency,
             issuer: token.issuer,
+            mptIssuanceId: token.mptIssuanceId,
             lpTokenCurrency: lpPosition.lpToken.currency,
             lpTokenIssuer: lpPosition.lpToken.issuer,
             lpTokenAmount: lpAmt,
@@ -508,6 +527,9 @@ export default function MarketLiquidityPanel({
               No AMM pool exists yet. Bridge {token.symbol} onto Falcon, then create the pool with {token.symbol} + FALCON.
               You set the initial price (ratio of the two amounts). Creating the pool costs a one-time{' '}
               ~{fmt(parseInt(AMM_CREATE_FEE_DROPS, 10) / DROPS_PER_XRP, 0)} FALCON ledger fee on top of your deposit.
+              {(token.kind === 'mpt' || token.mptIssuanceId) && (
+                <> SPV FBTC is MPT — pool create requires MPTokensV2 on the Falcon image.</>
+              )}
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -548,11 +570,20 @@ export default function MarketLiquidityPanel({
             <button
               type="button"
               onClick={handleAmmCreate}
-              disabled={busy || !isPasskeySupported() || !token.issuer}
+              disabled={
+                busy ||
+                !isPasskeySupported() ||
+                (!token.issuer && !(token.kind === 'mpt' || token.mptIssuanceId))
+              }
               className="btn-primary flex items-center justify-center gap-2 w-full bg-purple-600 hover:bg-purple-500"
             >
               {busy ? <><Spinner /> Signing…</> : 'Create AMM Pool'}
             </button>
+            {(token.kind === 'mpt' || token.mptIssuanceId) && (
+              <p className="text-[10px] text-slate-500">
+                SPV FBTC amounts are in BTC (8 dp). Create needs MPTokensV2 enabled on Falcon.
+              </p>
+            )}
           </div>
         )}
 

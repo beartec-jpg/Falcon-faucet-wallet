@@ -1,18 +1,35 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import type { NetworkKey } from '@/lib/networks'
+import { serverRpcCall } from '@/lib/network-server'
+
+export type TokenKind = 'iou' | 'mpt'
 
 export interface StableTokenRef {
   symbol: string
   displaySymbol: string
   currency: string
+  /** IOU issuer; for SPV MPT may be empty or bridge issuer account */
   issuer: string
+  kind?: TokenKind
+  /** Set for SPV light-client FBTC (and other MPT stables) */
+  mptIssuanceId?: string
+  /** Display decimals (8 for BTC sats-as-BTC) */
+  decimals?: number
 }
 
 /** Canonical pool tab order on /pool */
 export const POOL_PAIR_ORDER = ['F-USDC', 'FETH', 'FBNB', 'FBTC'] as const
 export type PoolPairSymbol = (typeof POOL_PAIR_ORDER)[number]
 
-function mapToken(t: { symbol: string; currency: string; issuer: string }): StableTokenRef {
+function mapToken(t: {
+  symbol: string
+  currency: string
+  issuer: string
+  kind?: TokenKind
+  mptIssuanceId?: string
+  decimals?: number
+}): StableTokenRef {
   const sym = t.symbol
   const displaySymbol =
     sym.startsWith('F-') || /^F[A-Z]{2,}$/.test(sym) ? sym : `F-${sym}`
@@ -21,6 +38,9 @@ function mapToken(t: { symbol: string; currency: string; issuer: string }): Stab
     displaySymbol,
     currency: t.currency,
     issuer: t.issuer,
+    kind: t.kind || 'iou',
+    mptIssuanceId: t.mptIssuanceId,
+    decimals: t.decimals,
   }
 }
 
@@ -31,11 +51,51 @@ export async function loadStableTokens(): Promise<StableTokenRef[]> {
       path.join(process.cwd(), 'public', 'config', 'testnet-stables.json'),
       'utf8',
     )
-    const m = JSON.parse(raw) as { tokens?: Array<{ symbol: string; currency: string; issuer: string }> }
+    const m = JSON.parse(raw) as {
+      tokens?: Array<{ symbol: string; currency: string; issuer: string }>
+    }
     const list = (m.tokens ?? []).filter((t) => t?.issuer && t?.currency)
     if (list.length) return list.map(mapToken)
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return []
+}
+
+/**
+ * Live SPV FBTC MPT issuance from BtcBridgeState (preferred over legacy IOU FBTC).
+ */
+export async function loadSpvFbtcToken(
+  networkKey: NetworkKey = 'testnet',
+): Promise<StableTokenRef | null> {
+  try {
+    const r = await serverRpcCall<{
+      node?: {
+        MPTokenIssuanceID?: string
+        Account?: string
+        error?: string
+      }
+      error?: string
+    }>(
+      networkKey,
+      'ledger_entry',
+      { btc_bridge_state: true, ledger_index: 'validated' },
+      { allowError: true },
+    )
+    const id = r?.node?.MPTokenIssuanceID
+    if (!id || r?.error) return null
+    return {
+      symbol: 'FBTC',
+      displaySymbol: 'FBTC',
+      currency: 'BTC',
+      issuer: r.node?.Account || '',
+      kind: 'mpt',
+      mptIssuanceId: String(id).toUpperCase(),
+      decimals: 8,
+    }
+  } catch {
+    return null
+  }
 }
 
 /** Default / first stable (backward compat — usually F-USDC). */
@@ -47,17 +107,29 @@ export async function loadStableToken(): Promise<StableTokenRef> {
 
 /**
  * Resolve a stable by symbol (FETH), currency (ETH), or currency+issuer.
- * Defaults to first configured token when no selector is provided.
+ * FBTC prefers live SPV MPT issuance when bridge is active.
  */
 export async function resolveStableToken(opts?: {
   symbol?: string | null
   currency?: string | null
   issuer?: string | null
+  networkKey?: NetworkKey
 }): Promise<StableTokenRef> {
-  const all = await loadStableTokens()
   const symbol = opts?.symbol?.trim()
   const currency = opts?.currency?.trim()
   const issuer = opts?.issuer?.trim()
+  const networkKey = opts?.networkKey || 'testnet'
+
+  const wantsFbtc =
+    (!!symbol && /^(f-?)?btc$/i.test(symbol)) ||
+    (!!currency && currency.toUpperCase() === 'BTC')
+
+  if (wantsFbtc) {
+    const spv = await loadSpvFbtcToken(networkKey)
+    if (spv?.mptIssuanceId) return spv
+  }
+
+  const all = await loadStableTokens()
 
   if (symbol) {
     const bySym = all.find(
@@ -69,9 +141,7 @@ export async function resolveStableToken(opts?: {
   }
 
   if (currency && issuer) {
-    const byBoth = all.find(
-      (t) => t.currency === currency && t.issuer === issuer,
-    )
+    const byBoth = all.find((t) => t.currency === currency && t.issuer === issuer)
     if (byBoth) return byBoth
   }
 
@@ -88,23 +158,39 @@ export async function resolveStableToken(opts?: {
   return all[0] ?? { symbol: 'F-USDC', displaySymbol: 'F-USDC', currency: 'QUC', issuer: '' }
 }
 
-/** Tokens in pool-tab order (only those present in config). */
-export async function loadPoolPairTokens(): Promise<StableTokenRef[]> {
+/** Tokens in pool-tab order; FBTC uses SPV MPT when available. */
+export async function loadPoolPairTokens(
+  networkKey: NetworkKey = 'testnet',
+): Promise<StableTokenRef[]> {
   const all = await loadStableTokens()
+  const spv = await loadSpvFbtcToken(networkKey)
   const ordered: StableTokenRef[] = []
   for (const sym of POOL_PAIR_ORDER) {
+    if (sym === 'FBTC' && spv?.mptIssuanceId) {
+      ordered.push(spv)
+      continue
+    }
     const t = all.find(
       (x) =>
-        x.symbol.toUpperCase() === sym ||
-        x.displaySymbol.toUpperCase() === sym,
+        x.symbol.toUpperCase() === sym || x.displaySymbol.toUpperCase() === sym,
     )
-    if (t?.issuer) ordered.push(t)
+    if (t?.issuer || t?.mptIssuanceId) ordered.push(t)
   }
-  // Any extra configured tokens not in the canonical list
   for (const t of all) {
-    if (!ordered.some((o) => o.issuer === t.issuer && o.currency === t.currency)) {
+    if (t.symbol === 'FBTC' && spv?.mptIssuanceId) continue
+    if (
+      !ordered.some(
+        (o) =>
+          (o.mptIssuanceId && o.mptIssuanceId === t.mptIssuanceId) ||
+          (o.issuer === t.issuer && o.currency === t.currency),
+      )
+    ) {
       ordered.push(t)
     }
   }
   return ordered
+}
+
+export function isMptToken(t: { kind?: TokenKind; mptIssuanceId?: string }): boolean {
+  return t.kind === 'mpt' || !!t.mptIssuanceId
 }

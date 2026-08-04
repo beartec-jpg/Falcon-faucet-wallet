@@ -140,7 +140,7 @@ export async function signTrustSet(
 
 import type { XrplAmount } from './xrpl-amount'
 
-export type { XrpAmount, IouAmount, XrplAmount } from './xrpl-amount'
+export type { XrpAmount, IouAmount, MptAmount, XrplAmount } from './xrpl-amount'
 
 export interface OfferCreateParams {
   account: string
@@ -213,6 +213,8 @@ export interface AmmCreateParams {
   issuer: string
   amountXrpDrops: string
   amountToken: string
+  /** SPV FBTC MPT issuance — amountToken is integer sats */
+  mptIssuanceId?: string
   tradingFee?: number
   sequence: number
   lastLedgerSequence: number
@@ -234,6 +236,7 @@ export interface AmmDepositParams {
   issuer: string
   amountXrpDrops: string
   amountToken: string
+  mptIssuanceId?: string
   sequence: number
   lastLedgerSequence: number
   networkId: number
@@ -254,6 +257,7 @@ export interface AmmWithdrawParams {
   account: string
   currency: string
   issuer: string
+  mptIssuanceId?: string
   lpTokenCurrency: string
   lpTokenIssuer: string
   lpTokenAmount: string

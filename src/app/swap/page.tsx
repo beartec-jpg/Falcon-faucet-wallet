@@ -16,9 +16,11 @@ import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
 import {
   signTrustSet,
   signPaymentSwap,
-  type IouAmount,
+  type MptAmount,
+  type XrplAmount,
 } from '@/lib/wallet-sign-client'
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
+import { btcToSatsString } from '@/lib/xrpl-amount'
 import DexOrdersPanel from '@/components/DexOrdersPanel'
 import OrderBookPanel from '@/components/OrderBookPanel'
 
@@ -32,6 +34,9 @@ interface PairToken {
   displaySymbol: string
   currency: string
   issuer: string
+  kind?: 'iou' | 'mpt'
+  mptIssuanceId?: string
+  decimals?: number
 }
 
 interface SwapMarket {
@@ -43,9 +48,18 @@ interface SwapMarket {
 }
 
 interface SwapData {
-  token: { symbol: string; currency: string; issuer: string; configured: boolean }
+  token: {
+    symbol: string
+    currency: string
+    issuer: string
+    configured: boolean
+    kind?: 'iou' | 'mpt'
+    mptIssuanceId?: string
+    decimals?: number
+  }
   market: SwapMarket | null
   userBalance: { balance: number; limit: number } | null
+  poolHint?: string
 }
 
 interface SwapQuote {
@@ -82,11 +96,33 @@ function fmtTokenBal(n: number): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: decimals })
 }
 
-function mapConfigToken(t: { symbol: string; currency: string; issuer: string }): PairToken {
+function mapConfigToken(t: {
+  symbol: string
+  currency: string
+  issuer: string
+  kind?: 'iou' | 'mpt'
+  mptIssuanceId?: string
+  decimals?: number
+}): PairToken {
   const sym = t.symbol
   const displaySymbol =
     sym.startsWith('F-') || /^F[A-Z]{2,}$/.test(sym) ? sym : `F-${sym}`
-  return { symbol: t.symbol, displaySymbol, currency: t.currency, issuer: t.issuer }
+  return {
+    symbol: t.symbol,
+    displaySymbol,
+    currency: t.currency,
+    issuer: t.issuer,
+    kind: t.kind,
+    mptIssuanceId: t.mptIssuanceId,
+    decimals: t.decimals,
+  }
+}
+
+function mptTokenAmount(issuanceId: string, btcHuman: number): MptAmount {
+  return {
+    mpt_issuance_id: issuanceId.replace(/^0x/i, '').toUpperCase(),
+    value: btcToSatsString(btcHuman),
+  }
 }
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
@@ -144,35 +180,105 @@ export default function SwapPage() {
     } catch { /* ignore */ }
   }, [])
 
-  // Load pair list from config (order matches SWAP_PAIR_ORDER)
+  // SPV FBTC has no classic DEX book — stay on instant AMM swap
   useEffect(() => {
-    fetch('/config/testnet-stables.json')
-      .then((r) => r.json())
-      .then((m: { tokens?: Array<{ symbol: string; currency: string; issuer: string }> }) => {
-        const list = (m.tokens ?? [])
-          .filter((t) => t.issuer && t.currency)
-          .map(mapConfigToken)
-        const ordered: PairToken[] = []
-        for (const sym of SWAP_PAIR_ORDER) {
-          const hit = list.find(
-            (t) =>
-              t.symbol.toUpperCase() === sym ||
-              t.displaySymbol.toUpperCase() === sym,
-          )
-          if (hit) ordered.push(hit)
-        }
-        for (const t of list) {
-          if (!ordered.some((o) => o.currency === t.currency && o.issuer === t.issuer)) {
-            ordered.push(t)
+    if (
+      selected?.kind === 'mpt' ||
+      selected?.mptIssuanceId ||
+      selected?.symbol === 'FBTC'
+    ) {
+      setTradeMode('instant')
+    }
+  }, [selected?.kind, selected?.mptIssuanceId, selected?.symbol])
+
+  // Load pair list: stables + live SPV FBTC MPT (preferred over legacy IOU FBTC)
+  useEffect(() => {
+    Promise.all([
+      fetch('/config/testnet-stables.json').then((r) => r.json()),
+      fetch(withNetworkQuery('/api/swap?symbol=FBTC', networkKey)).then((r) => r.json()),
+    ])
+      .then(
+        ([m, fbtc]: [
+          { tokens?: Array<{ symbol: string; currency: string; issuer: string }> },
+          {
+            token?: {
+              symbol?: string
+              currency?: string
+              issuer?: string
+              kind?: 'iou' | 'mpt'
+              mptIssuanceId?: string
+              decimals?: number
+              configured?: boolean
+            }
+          },
+        ]) => {
+          const list = (m.tokens ?? [])
+            .filter((t) => t.issuer && t.currency)
+            .map(mapConfigToken)
+
+          if (fbtc?.token?.mptIssuanceId || fbtc?.token?.configured) {
+            const spv: PairToken = {
+              symbol: 'FBTC',
+              displaySymbol: 'FBTC',
+              currency: fbtc.token.currency || 'BTC',
+              issuer: fbtc.token.issuer || '',
+              kind: fbtc.token.kind || (fbtc.token.mptIssuanceId ? 'mpt' : 'iou'),
+              mptIssuanceId: fbtc.token.mptIssuanceId,
+              decimals: fbtc.token.decimals ?? 8,
+            }
+            const withoutLegacy = list.filter(
+              (t) => !(t.symbol === 'FBTC' || t.currency === 'BTC'),
+            )
+            withoutLegacy.push(spv)
+            const ordered: PairToken[] = []
+            for (const sym of SWAP_PAIR_ORDER) {
+              const hit = withoutLegacy.find(
+                (t) =>
+                  t.symbol.toUpperCase() === sym || t.displaySymbol.toUpperCase() === sym,
+              )
+              if (hit) ordered.push(hit)
+            }
+            for (const t of withoutLegacy) {
+              if (
+                !ordered.some(
+                  (o) =>
+                    (o.mptIssuanceId && o.mptIssuanceId === t.mptIssuanceId) ||
+                    (o.currency === t.currency && o.issuer === t.issuer),
+                )
+              ) {
+                ordered.push(t)
+              }
+            }
+            setPairs(ordered)
+            if (
+              ordered[0] &&
+              !ordered.some(
+                (p) => p.displaySymbol === selectedSymbol || p.symbol === selectedSymbol,
+              )
+            ) {
+              setSelectedSymbol(ordered[0].displaySymbol)
+            }
+            return
           }
-        }
-        setPairs(ordered)
-        if (ordered[0] && !ordered.some((p) => p.displaySymbol === selectedSymbol || p.symbol === selectedSymbol)) {
-          setSelectedSymbol(ordered[0].displaySymbol)
-        }
-      })
+
+          const ordered: PairToken[] = []
+          for (const sym of SWAP_PAIR_ORDER) {
+            const hit = list.find(
+              (t) =>
+                t.symbol.toUpperCase() === sym || t.displaySymbol.toUpperCase() === sym,
+            )
+            if (hit) ordered.push(hit)
+          }
+          for (const t of list) {
+            if (!ordered.some((o) => o.currency === t.currency && o.issuer === t.issuer)) {
+              ordered.push(t)
+            }
+          }
+          setPairs(ordered)
+        },
+      )
       .catch(() => setPairs([]))
-  }, [selectedSymbol])
+  }, [selectedSymbol, networkKey])
 
   const setTradeModePersisted = (mode: TradeMode) => {
     setTradeMode(mode)
@@ -183,7 +289,7 @@ export default function SwapPage() {
 
   const refresh = useCallback(
     async (address: string, pair: PairToken | null) => {
-      if (!pair?.issuer) {
+      if (!pair || (!pair.issuer && !pair.mptIssuanceId && pair.kind !== 'mpt')) {
         setSwapData(null)
         setOpenOrderCount(0)
         return
@@ -251,7 +357,15 @@ export default function SwapPage() {
       setBookTick((n) => n + 1)
       void refresh(wallet.address, selected)
     }
-  }, [selected?.currency, selected?.issuer, wallet, refresh, selected])
+  }, [
+    selected?.currency,
+    selected?.issuer,
+    selected?.mptIssuanceId,
+    selected?.kind,
+    wallet,
+    refresh,
+    selected,
+  ])
 
   // Live quote (Falcon-paired only)
   useEffect(() => {
@@ -274,7 +388,17 @@ export default function SwapPage() {
     return () => clearTimeout(t)
   }, [swapAmt, swapDir, networkKey, swapData?.market, pairQ])
 
+  const isMptPair =
+    selected?.kind === 'mpt' ||
+    !!selected?.mptIssuanceId ||
+    swapData?.token?.kind === 'mpt' ||
+    !!swapData?.token?.mptIssuanceId
+
   const handleTrustLine = async () => {
+    if (isMptPair) {
+      setError('SPV FBTC uses MPToken — no trust line. Bridge BTC → FBTC in Wallet first.')
+      return
+    }
     if (!wallet || !swapData?.token.issuer || !network.live) return
     setBusy(true)
     setError(null)
@@ -316,14 +440,20 @@ export default function SwapPage() {
   }
 
   const handleSwap = async () => {
-    if (!wallet || !swapData?.token.issuer || !swapAmt || !network.live) return
+    const tokenReady =
+      !!swapData?.token &&
+      (isMptPair ? !!swapData.token.mptIssuanceId : !!swapData.token.issuer)
+    if (!wallet || !tokenReady || !swapAmt || !network.live) return
     const amt = parseFloat(swapAmt)
     if (!Number.isFinite(amt) || amt <= 0) {
       setError('Invalid amount')
       return
     }
     if (!quote) {
-      setError('Quote unavailable — pool may be empty')
+      setError(
+        swapData?.poolHint ||
+          'Quote unavailable — pool may be empty (SPV FBTC needs MPTokensV2 + AMM seed)',
+      )
       return
     }
 
@@ -347,7 +477,10 @@ export default function SwapPage() {
           freshQuote = qData.quote
           setQuote(qData.quote)
         } else if (qRes.status === 404) {
-          setError('No liquidity available — pool may be empty')
+          setError(
+            qData.poolHint ||
+              'No liquidity available — SPV FBTC AMM not seeded yet',
+          )
           setBusy(false)
           return
         } else if (!qRes.ok) {
@@ -365,26 +498,44 @@ export default function SwapPage() {
       const outAmt = freshQuote.outputAmount
       const minOut = freshQuote.minOutputAmount ?? outAmt * 0.995
       const token = swapData.token
+      const mptId = token.mptIssuanceId
 
-      let amount: string | IouAmount
-      let sendMax: string | IouAmount
-      let deliverMin: string | IouAmount | undefined
+      let amount: XrplAmount
+      let sendMax: XrplAmount
+      let deliverMin: XrplAmount | undefined
 
       if (swapDir === 'sell_falcon') {
         // Sell FALCON → receive F-asset
         sendMax = String(Math.round(amt * DROPS_PER_XRP))
-        amount = { currency: token.currency, issuer: token.issuer, value: fmt(outAmt, 8) }
-        deliverMin = { currency: token.currency, issuer: token.issuer, value: fmt(minOut, 8) }
+        if (mptId) {
+          amount = mptTokenAmount(mptId, outAmt)
+          deliverMin = mptTokenAmount(mptId, minOut)
+        } else {
+          amount = { currency: token.currency, issuer: token.issuer, value: fmt(outAmt, 8) }
+          deliverMin = {
+            currency: token.currency,
+            issuer: token.issuer,
+            value: fmt(minOut, 8),
+          }
+        }
       } else {
         // Buy FALCON → pay F-asset
         if (swapData.userBalance && minOut > swapData.userBalance.balance + 1e-9) {
           setError(
-            `Need ~${fmt(minOut, 4)} ${tokenLabel} for this buy (have ${fmt(swapData.userBalance.balance, 4)})`,
+            `Need ~${fmtTokenBal(minOut)} ${tokenLabel} for this buy (have ${fmtTokenBal(swapData.userBalance.balance)})`,
           )
           setBusy(false)
           return
         }
-        sendMax = { currency: token.currency, issuer: token.issuer, value: fmt(minOut, 8) }
+        if (mptId) {
+          sendMax = mptTokenAmount(mptId, minOut)
+        } else {
+          sendMax = {
+            currency: token.currency,
+            issuer: token.issuer,
+            value: fmt(minOut, 8),
+          }
+        }
         amount = String(Math.round(amt * DROPS_PER_XRP))
         deliverMin = String(Math.round(amt * 0.995 * DROPS_PER_XRP))
       }
@@ -430,6 +581,8 @@ export default function SwapPage() {
         currency: swapData.token.currency,
         issuer: swapData.token.issuer,
         configured: swapData.token.configured,
+        kind: swapData.token.kind,
+        mptIssuanceId: swapData.token.mptIssuanceId,
       }
     : selected
       ? {
@@ -437,6 +590,8 @@ export default function SwapPage() {
           currency: selected.currency,
           issuer: selected.issuer,
           configured: true,
+          kind: selected.kind,
+          mptIssuanceId: selected.mptIssuanceId,
         }
       : null
 
@@ -451,10 +606,19 @@ export default function SwapPage() {
           <div className="flex rounded-xl overflow-hidden border border-slate-700 bg-slate-900/60">
             {pairs.map((p) => {
               const active =
-                selected?.currency === p.currency && selected?.issuer === p.issuer
+                selected?.displaySymbol === p.displaySymbol ||
+                (selected?.mptIssuanceId &&
+                  selected.mptIssuanceId === p.mptIssuanceId) ||
+                (selected?.currency === p.currency &&
+                  selected?.issuer === p.issuer &&
+                  !p.mptIssuanceId)
               return (
                 <button
-                  key={`${p.currency}:${p.issuer}`}
+                  key={
+                    p.mptIssuanceId
+                      ? `mpt:${p.mptIssuanceId}`
+                      : `${p.currency}:${p.issuer}`
+                  }
                   type="button"
                   onClick={() => {
                     setSelectedSymbol(p.displaySymbol)
@@ -517,6 +681,8 @@ export default function SwapPage() {
                     <div className="text-lg font-bold text-white">
                       {fmtTokenBal(swapData.userBalance.balance)}
                     </div>
+                  ) : isMptPair ? (
+                    <div className="text-lg font-bold text-white">0</div>
                   ) : (
                     <div className="text-sm text-slate-500 mt-1">No trust line</div>
                   )}
@@ -539,8 +705,14 @@ export default function SwapPage() {
                   type="button"
                   onClick={() => setTradeModePersisted('limit')}
                   className={`flex-1 py-2 font-medium transition-colors relative ${
-                    tradeMode === 'limit' ? 'bg-cyan-500/10 text-cyan-400' : 'text-slate-500 hover:text-slate-300'
+                    tradeMode === 'limit'
+                      ? 'bg-cyan-500/10 text-cyan-400'
+                      : isMptPair
+                        ? 'text-slate-600 cursor-not-allowed'
+                        : 'text-slate-500 hover:text-slate-300'
                   }`}
+                  disabled={isMptPair}
+                  title={isMptPair ? 'SPV FBTC uses AMM only (no classic DEX book yet)' : undefined}
                 >
                   Limit Orders
                   {openOrderCount > 0 && tradeMode !== 'limit' && (
@@ -563,11 +735,13 @@ export default function SwapPage() {
 
               {!swapData?.token.configured && selected && (
                 <div className="card p-4 text-sm text-amber-400">
-                  {tokenLabel} issuer not configured. Run issue-testnet-stables.py on the coordinator.
+                  {isMptPair
+                    ? 'SPV FBTC MPT issuance not found — is the BTC bridge active?'
+                    : `${tokenLabel} issuer not configured. Run issue-testnet-stables.py on the coordinator.`}
                 </div>
               )}
 
-              {swapData?.token.configured && !swapData.userBalance && (
+              {swapData?.token.configured && !swapData.userBalance && !isMptPair && (
                 <div className="card p-4 flex items-center justify-between gap-3">
                   <div className="text-sm text-slate-400">Add a {tokenLabel} trust line to receive tokens</div>
                   <button
@@ -577,6 +751,18 @@ export default function SwapPage() {
                   >
                     {busy ? <Spinner className="w-3 h-3" /> : 'Add Trust Line'}
                   </button>
+                </div>
+              )}
+
+              {isMptPair && (
+                <p className="text-xs text-slate-500">
+                  SPV FBTC is MPToken (sats on ledger). No trust line — bridge BTC in Wallet, then swap via AMM.
+                </p>
+              )}
+
+              {swapData?.poolHint && !swapData.market && (
+                <div className="card p-4 text-sm text-amber-300/90 border border-amber-500/20">
+                  {swapData.poolHint}
                 </div>
               )}
 
@@ -602,7 +788,9 @@ export default function SwapPage() {
                     </div>
                     <div className="bg-slate-800/60 rounded-lg px-3 py-2">
                       <div className="text-slate-500">{tokenLabel} pool</div>
-                      <div className="text-slate-200 font-mono">{fmt(swapData.market.tokenPool, 0)}</div>
+                      <div className="text-slate-200 font-mono">
+                        {fmtTokenBal(swapData.market.tokenPool)}
+                      </div>
                     </div>
                   </div>
                 </div>
