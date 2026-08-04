@@ -41,8 +41,10 @@ import {
   fetchOpenDepositsForAccount,
   getSpvPending,
   hasOpenSpvBridge,
+  isDepositClaimedLocally,
   isSpvWaitMessage,
   listRememberedDepositTxids,
+  markDepositClaimed,
   pollSpvConfirmations,
   spvWaitUserMessage,
   type SpvPendingDeposit,
@@ -623,10 +625,15 @@ export default function BridgeDepositPanel({
           btcNetwork: net,
         })
         if (cancelled) return
+        // Drop anything we already claimed successfully (local + API should agree)
+        const unclaimed = open.filter(
+          (d) => !isDepositClaimedLocally(wallet.address, d.txid),
+        )
         // Prefer newest remembered txid if still open on chain
         const remembered = listRememberedDepositTxids(wallet.address)
         const pick =
-          open.find((d) => remembered.includes(d.txid.toLowerCase())) || open[0]
+          unclaimed.find((d) => remembered.includes(d.txid.toLowerCase())) ||
+          unclaimed[0]
         if (!pick) {
           setSpvPending(null)
           return
@@ -741,9 +748,19 @@ export default function BridgeDepositPanel({
   // Poll confirmations for open SPV bridge (survives refresh)
   useEffect(() => {
     if (!spvPending || spvPending.status === 'claimed') return
+    if (isDepositClaimedLocally(wallet.address, spvPending.txid)) {
+      clearSpvPending(wallet.address)
+      setSpvPending(null)
+      return
+    }
     let cancelled = false
     const tick = async () => {
       try {
+        if (isDepositClaimedLocally(wallet.address, spvPending.txid)) {
+          clearSpvPending(wallet.address)
+          setSpvPending(null)
+          return
+        }
         const st = await pollSpvConfirmations(spvPending.txid, spvPending.btcNetwork)
         if (cancelled) return
         // Prefer never decreasing confs on transient explorer lag
@@ -1437,6 +1454,8 @@ export default function BridgeDepositPanel({
     } catch {
       /* ignore */
     }
+    // Permanent local tombstone — chain restore must not re-open Claim for this txid
+    markDepositClaimed(wallet.address, txid)
     clearSpvPending(wallet.address)
     setSpvPending(null)
     setError(null)
@@ -2145,7 +2164,10 @@ export default function BridgeDepositPanel({
                 {error}
               </div>
             )}
-            {spvPending.confirmations >= spvPending.minConfirmations ? (
+            {/* Claim only when there is outstanding work — never for completed claims */}
+            {spvPending.status === 'ready_to_claim' ||
+            (spvPending.status === 'claiming' &&
+              spvPending.confirmations >= spvPending.minConfirmations) ? (
               <button
                 type="button"
                 onClick={handleSpvCompleteClaim}
@@ -2161,7 +2183,10 @@ export default function BridgeDepositPanel({
                   'Claim FBTC'
                 )}
               </button>
-            ) : (
+            ) : spvPending.status === 'waiting_confs' ||
+              spvPending.status === 'broadcast' ||
+              (spvPending.confirmations < spvPending.minConfirmations &&
+                spvPending.status !== 'failed') ? (
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <Spinner className="w-3.5 h-3.5" />
                 Confirming on Bitcoin
@@ -2169,10 +2194,11 @@ export default function BridgeDepositPanel({
                   ({spvPending.confirmations}/{spvPending.minConfirmations})
                 </span>
               </div>
-            )}
+            ) : null}
           </div>
         )}
 
+        {/* Success banner only while status is claimed (brief); not a second Claim CTA */}
         {spvPending?.status === 'claimed' && (
           <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 flex items-center justify-between gap-3">
             <div>

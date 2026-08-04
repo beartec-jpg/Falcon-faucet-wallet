@@ -38,6 +38,8 @@ const MAP_KEY = 'falcon-spv-pending-v2'
 const LAST_OPEN_KEY = 'falcon-spv-last-open-v1'
 const JOB_PREFIX = 'falcon-spv-job-v3:'
 const HISTORY_PREFIX = 'falcon-spv-history-v1:'
+/** Successful claims — never re-open Claim UI for these txids */
+const CLAIMED_PREFIX = 'falcon-spv-claimed-v1:'
 const LEGACY_KEYS = ['falcon-spv-pending-v1'] as const
 
 const DEAD_SPV_TXIDS = new Set([
@@ -203,9 +205,46 @@ export function listRememberedDepositTxids(falconAccount: string): string[] {
     const raw = safeGet(localStorage, historyKey(falconAccount))
     if (!raw) return []
     const list = JSON.parse(raw) as Array<{ txid: string }>
-    return list.map((x) => x.txid).filter((t) => t && !DEAD_SPV_TXIDS.has(t))
+    return list
+      .map((x) => x.txid)
+      .filter((t) => t && !DEAD_SPV_TXIDS.has(t) && !isDepositClaimedLocally(falconAccount, t))
   } catch {
     return []
+  }
+}
+
+function claimedKey(falconAccount: string): string {
+  return `${CLAIMED_PREFIX}${falconAccount}`
+}
+
+/** Persist successful claim so restore never re-opens Claim FBTC for this txid. */
+export function markDepositClaimed(falconAccount: string, txid: string): void {
+  if (!isBrowser()) return
+  const id = txid.toLowerCase().replace(/^0x/, '')
+  if (!/^[0-9a-f]{64}$/.test(id)) return
+  try {
+    const key = claimedKey(falconAccount)
+    const raw = safeGet(localStorage, key)
+    const list: string[] = raw ? (JSON.parse(raw) as string[]) : []
+    const next = [id, ...list.filter((x) => x !== id)].slice(0, 50)
+    safeSet(localStorage, key, JSON.stringify(next))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function isDepositClaimedLocally(falconAccount: string, txid: string): boolean {
+  if (!isBrowser()) return false
+  const id = txid.toLowerCase().replace(/^0x/, '')
+  if (!/^[0-9a-f]{64}$/.test(id)) return false
+  if (DEAD_SPV_TXIDS.has(id)) return true
+  try {
+    const raw = safeGet(localStorage, claimedKey(falconAccount))
+    if (!raw) return false
+    const list = JSON.parse(raw) as string[]
+    return list.includes(id)
+  } catch {
+    return false
   }
 }
 
@@ -331,26 +370,28 @@ export function ensureSpvPendingTracked(
   },
 ): SpvPendingDeposit | null {
   const existing = getSpvPending(falconAccount)
-  if (existing && existing.status !== 'claimed') return existing
+  if (existing && existing.status !== 'claimed') {
+    // Never keep an active card for a tx we already claimed successfully
+    if (isDepositClaimedLocally(falconAccount, existing.txid)) {
+      clearSpvPending(falconAccount)
+      return null
+    }
+    return existing
+  }
   const last = readLastOpen()
   if (last && last.falconAccount === falconAccount && last.status !== 'claimed') {
+    if (isDepositClaimedLocally(falconAccount, last.txid)) {
+      writeLastOpen(null)
+      return null
+    }
     saveSpvPending(last)
     return last
   }
-  // Rehydrate from deposit history (most recent open-looking tx)
-  const history = listRememberedDepositTxids(falconAccount)
-  if (history[0] && defaults?.watchAddress) {
-    const pending = createSpvPending({
-      falconAccount,
-      txid: history[0],
-      watchAddress: defaults.watchAddress,
-      amountSats: 0,
-      minConfirmations: defaults.minConfirmations ?? 6,
-      btcNetwork: defaults.btcNetwork ?? 'testnet',
-      status: 'waiting_confs',
-    })
-    return pending
-  }
+  // Do NOT rehydrate a fresh "waiting_confs" job from history alone —
+  // history includes completed peg-ins; chain list_deposits is the restore path
+  // for truly unclaimed deposits. Blind history rehydrate caused Claim FBTC
+  // to reappear after a successful claim.
+  void defaults
   return null
 }
 

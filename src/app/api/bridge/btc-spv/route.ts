@@ -444,7 +444,7 @@ export async function POST(req: NextRequest) {
           }
         }
         if (!falcMatch || holdVout < 0 || holdVal < 546) continue
-        // only unspent
+        // only unspent on Bitcoin (hold keeps the UTXO after claim — that alone ≠ open claim)
         try {
           const osR = await explorerGet(`/tx/${t.txid}/outspend/${holdVout}`, network)
           if (osR.ok) {
@@ -453,6 +453,20 @@ export async function POST(req: NextRequest) {
           }
         } catch {
           /* include if outspend check fails */
+        }
+        // Skip deposits already minted on Falcon (BtcDeposit ledger object)
+        try {
+          const hash = t.txid.replace(/^0x/i, '').toUpperCase()
+          const le = await falconRpc('ledger_entry', {
+            btc_deposit: { hash, vout: holdVout },
+            ledger_index: 'validated',
+          })
+          if (le && !le.error && le.node) {
+            // Already claimed — do not surface Claim FBTC again
+            continue
+          }
+        } catch {
+          /* if RPC blips, still list — client can treat tecDUPLICATE as success */
         }
         deposits.push({
           txid: t.txid,
