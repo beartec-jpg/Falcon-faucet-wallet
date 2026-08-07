@@ -4,10 +4,33 @@ import { loadStableToken, loadStableTokens } from '@/lib/swap/token-config'
 
 const DROPS = 1_000_000
 
+/** Parse MPT / bridge sats: decimal string or hex (engine often returns hex). */
+function parseMptSats(raw: unknown): number {
+  if (raw == null) return 0
+  if (typeof raw === 'number' && Number.isFinite(raw)) return Math.trunc(raw)
+  const s = String(raw).trim()
+  if (!s) return 0
+  if (/^0x[0-9a-f]+$/i.test(s)) {
+    const n = parseInt(s.slice(2), 16)
+    return Number.isFinite(n) ? n : 0
+  }
+  // Hex without 0x when it contains a-f
+  if (/^[0-9a-f]+$/i.test(s) && /[a-f]/i.test(s)) {
+    const n = parseInt(s, 16)
+    return Number.isFinite(n) ? n : 0
+  }
+  if (/^\d+$/.test(s)) {
+    const n = parseInt(s, 10)
+    return Number.isFinite(n) ? n : 0
+  }
+  return 0
+}
+
 /** One Falcon IOU / stable row (multi-asset ready). */
 export interface WalletIouBalance {
   id: string
   symbol: string
+  /** Portfolio total (IOU + SPV MPT for FBTC) */
   balance: number
   currency: string
   issuer: string
@@ -15,6 +38,12 @@ export interface WalletIouBalance {
   /** SPV light-client mint (MPToken); amount already included in balance when set */
   spvMpt?: boolean
   mptIssuanceId?: string
+  /** Classic IOU only (BTC trust line) — not burnable via BTCBridgeBurn */
+  iouBalance?: number
+  /** SPV MPT only (sats/1e8) — burnable via Bridge Out SPV path */
+  spvMptBalance?: number
+  /** Raw MPT sats for SPV FBTC */
+  spvMptSats?: number
 }
 
 export interface WalletAssetBalances {
@@ -126,15 +155,20 @@ export async function fetchWalletAssets(
           o.LedgerEntryType === 'MPToken' &&
           String(o.MPTokenIssuanceID || '').toUpperCase() === issuanceId.toUpperCase(),
       )
-      const sats = mpt ? parseInt(String(mpt.MPTAmount ?? '0'), 10) : 0
-      const btc = mpt && Number.isFinite(sats) ? sats / 1e8 : 0
+      const sats = mpt ? parseMptSats(mpt.MPTAmount) : 0
+      const btc = sats > 0 ? sats / 1e8 : 0
       const fbtcIdx = tokens.findIndex(
         (t) => t.symbol === 'FBTC' || t.currency === 'BTC' || t.id === 'fbtc',
       )
       if (fbtcIdx >= 0) {
+        const iouOnly = tokens[fbtcIdx].balance
         tokens[fbtcIdx] = {
           ...tokens[fbtcIdx],
-          balance: tokens[fbtcIdx].balance + btc,
+          // Portfolio: classic IOU + SPV MPT (different rails — do not burn IOU via SPV)
+          balance: iouOnly + btc,
+          iouBalance: iouOnly,
+          spvMptBalance: btc,
+          spvMptSats: sats,
           // Ready to receive via SPV even before first mint (no TrustSet needed)
           hasTrustLine: true,
           spvMpt: true,
@@ -151,6 +185,9 @@ export async function fetchWalletAssets(
           hasTrustLine: true,
           spvMpt: true,
           mptIssuanceId: issuanceId,
+          iouBalance: 0,
+          spvMptBalance: btc,
+          spvMptSats: sats,
         })
       }
     }

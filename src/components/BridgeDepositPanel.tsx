@@ -279,6 +279,9 @@ export default function BridgeDepositPanel({
   const [bnbBal, setBnbBal] = useState<string | null>(null)
   const [btcBal, setBtcBal] = useState<string | null>(null)
   const [fbtcLive, setFbtcLive] = useState<number | null>(null)
+  /** SPV MPT only — BTCBridgeBurn burns this, not classic IOU */
+  const [fbtcSpvLive, setFbtcSpvLive] = useState<number | null>(null)
+  const [fbtcIouLive, setFbtcIouLive] = useState<number | null>(null)
   const [hasFbtcTrustLine, setHasFbtcTrustLine] = useState(false)
   const [fbtcCustody, setFbtcCustody] = useState('mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik')
   const [fbtcIssuer, setFbtcIssuer] = useState('rnvzCKcBU7G8Kb9JXHwEKTHiK9aTrZAqWT')
@@ -442,10 +445,26 @@ export default function BridgeDepositPanel({
         tokens.find((t) => t.issuer === fbtcIssuer)
       if (fbtcTok) {
         setHasFbtcTrustLine(!!fbtcTok.hasTrustLine)
-        setFbtcLive(fbtcTok.hasTrustLine ? (fbtcTok.balance ?? 0) : 0)
+        const total = fbtcTok.hasTrustLine ? (fbtcTok.balance ?? 0) : 0
+        setFbtcLive(total)
+        // Prefer explicit SPV/IOU split when API provides it (SPV burn only uses MPT)
+        const spv =
+          typeof (fbtcTok as { spvMptBalance?: number }).spvMptBalance === 'number'
+            ? (fbtcTok as { spvMptBalance: number }).spvMptBalance
+            : (fbtcTok as { spvMpt?: boolean }).spvMpt
+              ? total
+              : 0
+        const iou =
+          typeof (fbtcTok as { iouBalance?: number }).iouBalance === 'number'
+            ? (fbtcTok as { iouBalance: number }).iouBalance
+            : Math.max(0, total - spv)
+        setFbtcSpvLive(spv)
+        setFbtcIouLive(iou)
       } else if (fbtcIssuer) {
         setHasFbtcTrustLine(false)
         setFbtcLive(0)
+        setFbtcSpvLive(0)
+        setFbtcIouLive(0)
       }
       const fxrpTok =
         tokens.find((t) => t.currency === 'XRP' || t.symbol === 'FXRP') ||
@@ -1233,8 +1252,21 @@ export default function BridgeDepositPanel({
         setError('Enter a valid FBTC amount (any size up to your balance)')
         return
       }
-      if ((fbtcLive ?? 0) < amt) {
-        setError(`Insufficient FBTC (have ${fmt(fbtcLive ?? 0, 8)})`)
+      // SPV Bridge Out burns MPT only — not classic IOU FBTC (different rail)
+      const spvAvail = fbtcSpvLive ?? 0
+      const iouAvail = fbtcIouLive ?? 0
+      const totalAvail = fbtcLive ?? 0
+      if (spvLive) {
+        if (spvAvail + 1e-12 < amt) {
+          const msg =
+            iouAvail > 0.00000001
+              ? `Bridge Out (SPV) can only burn SPV FBTC (MPT). You have ${fmt(spvAvail, 8)} SPV + ${fmt(iouAvail, 8)} legacy IOU. Max SPV out: ${fmt(spvAvail, 8)} FBTC.`
+              : `Insufficient SPV FBTC (have ${fmt(spvAvail, 8)}; need ${fmt(amt, 8)}).`
+          setError(msg)
+          return
+        }
+      } else if (totalAvail < amt) {
+        setError(`Insufficient FBTC (have ${fmt(totalAvail, 8)})`)
         return
       }
       const amountSats = Math.round(amt * 1e8)
@@ -2019,7 +2051,11 @@ export default function BridgeDepositPanel({
           ? `${balanceLoading ? '…' : balances ? fmt(balances.eth, 6) : '—'} ETH`
           : `${balanceLoading ? '…' : balances ? fmtFloor(usdcAvailRaw, 2) : '—'} USDC`
   const falconAvailLabel = isFbtcRoute
-    ? `${fusdcLoading ? '…' : fmt(fbtcLive ?? 0, 8)} FBTC`
+    ? fusdcLoading
+      ? '… FBTC'
+      : (fbtcIouLive ?? 0) > 1e-10
+        ? `${fmt(fbtcSpvLive ?? 0, 8)} SPV + ${fmt(fbtcIouLive ?? 0, 8)} IOU FBTC`
+        : `${fmt(fbtcSpvLive ?? fbtcLive ?? 0, 8)} FBTC (SPV)`
     : isFxrpRoute
       ? `${fusdcLoading ? '…' : fmt(fxrpLive ?? 0, 6)} FXRP`
       : isFbnbRoute
@@ -2739,14 +2775,25 @@ export default function BridgeDepositPanel({
                   />
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>
-                      {(fbtcLive ?? 0) > 0
-                        ? `Available: ${fmt(fbtcLive ?? 0, 8)} FBTC`
-                        : 'No FBTC balance'}
+                      {spvLive
+                        ? (fbtcSpvLive ?? 0) > 0
+                          ? `SPV available: ${fmt(fbtcSpvLive ?? 0, 8)} FBTC` +
+                            ((fbtcIouLive ?? 0) > 1e-10
+                              ? ` · IOU ${fmt(fbtcIouLive ?? 0, 8)} (not burnable here)`
+                              : '')
+                          : (fbtcIouLive ?? 0) > 0
+                            ? `Only legacy IOU FBTC (${fmt(fbtcIouLive ?? 0, 8)}) — not SPV burnable`
+                            : 'No SPV FBTC balance'
+                        : (fbtcLive ?? 0) > 0
+                          ? `Available: ${fmt(fbtcLive ?? 0, 8)} FBTC`
+                          : 'No FBTC balance'}
                     </span>
-                    {(fbtcLive ?? 0) > 0 && (
+                    {(spvLive ? (fbtcSpvLive ?? 0) : (fbtcLive ?? 0)) > 0 && (
                       <button
                         type="button"
-                        onClick={() => setWithdrawAmount(String(fbtcLive))}
+                        onClick={() =>
+                          setWithdrawAmount(String(spvLive ? fbtcSpvLive : fbtcLive))
+                        }
                         className="text-brand-500"
                       >
                         Max
@@ -2802,7 +2849,7 @@ export default function BridgeDepositPanel({
                     !hasBtc ||
                     (!spvLive && !fbtcIssuer) ||
                     withdrawAmtNum <= 0 ||
-                    withdrawAmtNum > (fbtcLive ?? 0)
+                    withdrawAmtNum > (spvLive ? (fbtcSpvLive ?? 0) : (fbtcLive ?? 0))
                   }
                   className="btn-primary flex items-center justify-center gap-2"
                 >
