@@ -667,31 +667,42 @@ export async function submitSpvBridgeBurn(opts: {
   }
 
   let burnSeq = 0
-  const res = await submitWithSequenceRetry({
-    networkKey: opts.networkKey,
-    fetchSequence: async () => {
-      const s = await fetchSequenceInfo(opts.account, opts.networkKey)
-      if (!s.exists) throw new Error('Falcon account not funded on ledger')
-      return { sequence: s.sequence, currentLedger: s.currentLedger }
-    },
-    sign: async ({ sequence, lastLedgerSequence }) => {
-      burnSeq = sequence
-      const tx: Record<string, unknown> = {
-        TransactionType: 'BTCBridgeBurn',
-        Account: opts.account,
-        Fee: fee,
-        Sequence: sequence,
-        LastLedgerSequence: lastLedgerSequence,
-        Flags: 0,
-        BtcWithdrawAmount: amountSats,
-        BtcPayoutScript: payoutScript.toUpperCase(),
-      }
-      if (netId !== undefined) tx.NetworkID = netId
-      const tx_blob = await signTxJson(tx, opts.falconSecret)
-      return { tx_blob }
-    },
-  })
-  return { ...res, burnSeq }
+  try {
+    const res = await submitWithSequenceRetry({
+      networkKey: opts.networkKey,
+      fetchSequence: async () => {
+        const s = await fetchSequenceInfo(opts.account, opts.networkKey)
+        if (!s.exists) throw new Error('Falcon account not funded on ledger')
+        return { sequence: s.sequence, currentLedger: s.currentLedger }
+      },
+      sign: async ({ sequence, lastLedgerSequence }) => {
+        burnSeq = sequence
+        const tx: Record<string, unknown> = {
+          TransactionType: 'BTCBridgeBurn',
+          Account: opts.account,
+          Fee: fee,
+          Sequence: sequence,
+          LastLedgerSequence: lastLedgerSequence,
+          Flags: 0,
+          BtcWithdrawAmount: amountSats,
+          BtcPayoutScript: payoutScript.toUpperCase(),
+        }
+        if (netId !== undefined) tx.NetworkID = netId
+        const tx_blob = await signTxJson(tx, opts.falconSecret)
+        return { tx_blob }
+      },
+    })
+    return { ...res, burnSeq }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/tecINSUFFICIENT_FUNDS/i.test(msg)) {
+      throw new Error(
+        `tecINSUFFICIENT_FUNDS — not enough SPV FBTC (MPT) to burn ${amountSats} sats. ` +
+          'Bridge Out only burns light-client FBTC, not classic IOU FBTC. Check “SPV” balance / use Max.',
+      )
+    }
+    throw e instanceof Error ? e : new Error(msg)
+  }
 }
 
 /** Reverse-SPV: prove BTC paid the burner (shared reserve redeem). */
