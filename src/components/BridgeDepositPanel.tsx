@@ -441,25 +441,19 @@ export default function BridgeDepositPanel({
         setFbnbLive(0)
       }
       const fbtcTok =
-        tokens.find((t) => t.currency === 'BTC' || t.symbol === 'FBTC') ||
+        tokens.find((t) => (t as { spvMpt?: boolean }).spvMpt) ||
+        tokens.find((t) => t.symbol === 'FBTC' || t.currency === 'BTC') ||
         tokens.find((t) => t.issuer === fbtcIssuer)
       if (fbtcTok) {
         setHasFbtcTrustLine(!!fbtcTok.hasTrustLine)
-        const total = fbtcTok.hasTrustLine ? (fbtcTok.balance ?? 0) : 0
-        setFbtcLive(total)
-        // Prefer explicit SPV/IOU split when API provides it (SPV burn only uses MPT)
+        // Product balance = SPV MPT only (what Claim mints / Bridge Out burns)
         const spv =
           typeof (fbtcTok as { spvMptBalance?: number }).spvMptBalance === 'number'
             ? (fbtcTok as { spvMptBalance: number }).spvMptBalance
-            : (fbtcTok as { spvMpt?: boolean }).spvMpt
-              ? total
-              : 0
-        const iou =
-          typeof (fbtcTok as { iouBalance?: number }).iouBalance === 'number'
-            ? (fbtcTok as { iouBalance: number }).iouBalance
-            : Math.max(0, total - spv)
+            : (fbtcTok.balance ?? 0)
+        setFbtcLive(spv)
         setFbtcSpvLive(spv)
-        setFbtcIouLive(iou)
+        setFbtcIouLive(0)
       } else if (fbtcIssuer) {
         setHasFbtcTrustLine(false)
         setFbtcLive(0)
@@ -1241,7 +1235,7 @@ export default function BridgeDepositPanel({
   }
 
   const handleBridgeOut = async () => {
-    // ── FBTC out: SPV peg-out (MPT burn) preferred; legacy IOU custody fallback ─
+    // ── FBTC → BTC (SPV only): burn MPT, reserve pays BTC, prove ───────────
     if (isFbtcRoute) {
       if (!wallet.btcAddress) {
         setError('Need multi-chain BTC address for payout')
@@ -1249,29 +1243,22 @@ export default function BridgeDepositPanel({
       }
       const amt = parseFloat(withdrawAmount)
       if (!Number.isFinite(amt) || amt <= 0) {
-        setError('Enter a valid FBTC amount (any size up to your balance)')
+        setError('Enter a valid FBTC amount')
         return
       }
-      // SPV Bridge Out burns MPT only — not classic IOU FBTC (different rail)
-      const spvAvail = fbtcSpvLive ?? 0
-      const iouAvail = fbtcIouLive ?? 0
-      const totalAvail = fbtcLive ?? 0
-      if (spvLive) {
-        if (spvAvail + 1e-12 < amt) {
-          const msg =
-            iouAvail > 0.00000001
-              ? `Bridge Out (SPV) can only burn SPV FBTC (MPT). You have ${fmt(spvAvail, 8)} SPV + ${fmt(iouAvail, 8)} legacy IOU. Max SPV out: ${fmt(spvAvail, 8)} FBTC.`
-              : `Insufficient SPV FBTC (have ${fmt(spvAvail, 8)}; need ${fmt(amt, 8)}).`
-          setError(msg)
-          return
-        }
-      } else if (totalAvail < amt) {
-        setError(`Insufficient FBTC (have ${fmt(totalAvail, 8)})`)
+      // FBTC balance for bridge = SPV MPT only (what Claim mint creates)
+      const avail = Math.max(0, fbtcSpvLive ?? fbtcLive ?? 0)
+      if (avail + 1e-12 < amt) {
+        setError(`Insufficient FBTC (have ${fmt(avail, 8)}; need ${fmt(amt, 8)}). Use Max.`)
         return
       }
       const amountSats = Math.round(amt * 1e8)
       if (amountSats < 546) {
         setError('Amount too small (dust)')
+        return
+      }
+      if (!spvLive) {
+        setError('SPV bridge not live — cannot redeem FBTC right now')
         return
       }
 
@@ -1283,117 +1270,67 @@ export default function BridgeDepositPanel({
       try {
         const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
         const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-        if (!wallet.btcAddress) {
-          setError('Need multi-chain BTC address for payout')
-          return
-        }
         const amountStr = String(Math.round(amt * 1e8) / 1e8)
 
-        // Shared-reserve SPV: any-holder burn → reserve pays BTC → reverse SPV prove
-        if (spvLive) {
-          setStep('SPV peg-out: burn → reserve pay → prove…')
-          // Full E2E: burn, wait for fleet COMPLETE redeemer, then BTCWithdrawProve
-          const peg = await spvPegOut({
-            falconSecret: falcon_secret,
-            account: wallet.address,
-            networkKey,
-            networkId: network.networkId,
-            amountSats,
-            btcPayoutAddress: wallet.btcAddress!,
-            btcNetwork: spvStatus?.btcNetwork || 'testnet',
-            waitForRedeem: true,
-            onStep: (m) => setStep(m),
-          })
-          setWithdrawResult({
-            falconTxHash: peg.proveHash || peg.burnHash || `burn-seq-${peg.burnSeq}`,
-            amount: amountStr,
-            sepoliaRecipient: wallet.btcAddress,
-            btcClaimTxid: peg.redeemBtcTxid,
-            btcClaimExplorerUrl: peg.redeemBtcTxid
-              ? `https://mempool.space/testnet/tx/${peg.redeemBtcTxid}`
-              : undefined,
-            payoutSats: peg.amountSats,
-          })
-          setWithdrawAmount('')
-          // Persistent Bridge Out tracker (same role as Bridge In deposit card)
-          const tracked = createSpvWithdraw({
-            falconAccount: wallet.address,
-            burnSeq: peg.burnSeq,
-            burnHash: peg.burnHash,
-            amountSats: peg.amountSats,
-            payoutAddress: wallet.btcAddress!,
-            phase: peg.status === 'paid' ? 'complete' : 'awaiting_btc',
-          })
-          setSpvWithdraws((prev) => {
-            const rest = prev.filter((w) => w.burnSeq !== tracked.burnSeq)
-            return [tracked, ...rest]
-          })
-          try {
-            localStorage.setItem(
-              `falcon-spv-burn-${wallet.address}-${peg.burnSeq}`,
-              JSON.stringify({
-                amountSats: peg.amountSats,
-                burnHash: peg.burnHash,
-                burnSeq: peg.burnSeq,
-                payout: wallet.btcAddress,
-                status: peg.status,
-                redeemBtcTxid: peg.redeemBtcTxid,
-                // WP2: preferred network fee (sats); fleet fee wallet until user multi-input
-                preferredFeeSats: Math.max(500, parseInt(userNetworkFeeSats, 10) || 1500),
-              }),
-            )
-            try {
-              localStorage.setItem('falcon-spv-preferred-fee-sats', String(Math.max(500, parseInt(userNetworkFeeSats, 10) || 1500)))
-            } catch { /* ignore */ }
-          } catch {
-            /* ignore */
-          }
-          setReleaseStatus(peg.status === 'paid' ? 'released' : 'pending')
-          setStep(
-            peg.status === 'paid'
-              ? 'Complete — BTC paid from reserve and proven on Falcon.'
-              : peg.redeemBtcTxid
-                ? `Burn ${peg.burnSeq}: BTC paid (${peg.redeemBtcTxid.slice(0, 12)}…) — waiting 6 confs then Prove on the card above.`
-                : `Burn seq ${peg.burnSeq}: tracker above — redeemer paying from shared hold…`,
-          )
-          setTimeout(() => {
-            onFalconRefresh?.()
-            refreshFusdcBalance()
-            if (wallet.btcAddress) {
-              void fetchBtcBalance(wallet.btcAddress, 'testnet').then((b) => setBtcBal(b?.btc ?? null))
-            }
-          }, 5000)
-          return
-        }
-
-        // Legacy custodial IOU path
-        if (!fbtcIssuer) {
-          setError('FBTC issuer missing and SPV not live')
-          return
-        }
-        setStep('Returning FBTC IOU to custody bridge…')
-        const data = await submitFalconSequenced(({ sequence, lastLedgerSequence }) =>
-          signFbtcBridgeWithdraw(
-            {
-              account: wallet.address,
-              issuer: fbtcIssuer,
-              currency: 'BTC',
-              amount: amountStr,
-              btcRecipient: wallet.btcAddress!,
-              sequence,
-              lastLedgerSequence,
-              networkId: network.networkId,
-            },
-            falcon_secret,
-          ),
-        )
+        setStep('Redeeming FBTC → BTC…')
+        const peg = await spvPegOut({
+          falconSecret: falcon_secret,
+          account: wallet.address,
+          networkKey,
+          networkId: network.networkId,
+          amountSats,
+          btcPayoutAddress: wallet.btcAddress!,
+          btcNetwork: spvStatus?.btcNetwork || 'testnet',
+          waitForRedeem: true,
+          onStep: (m) => setStep(m),
+        })
         setWithdrawResult({
-          falconTxHash: data.hash,
+          falconTxHash: peg.proveHash || peg.burnHash || `burn-seq-${peg.burnSeq}`,
           amount: amountStr,
           sepoliaRecipient: wallet.btcAddress,
+          btcClaimTxid: peg.redeemBtcTxid,
+          btcClaimExplorerUrl: peg.redeemBtcTxid
+            ? `https://mempool.space/testnet/tx/${peg.redeemBtcTxid}`
+            : undefined,
+          payoutSats: peg.amountSats,
         })
         setWithdrawAmount('')
-        setReleaseStatus('pending')
+        const tracked = createSpvWithdraw({
+          falconAccount: wallet.address,
+          burnSeq: peg.burnSeq,
+          burnHash: peg.burnHash,
+          amountSats: peg.amountSats,
+          payoutAddress: wallet.btcAddress!,
+          phase: peg.status === 'paid' ? 'complete' : 'awaiting_btc',
+        })
+        setSpvWithdraws((prev) => {
+          const rest = prev.filter((w) => w.burnSeq !== tracked.burnSeq)
+          return [tracked, ...rest]
+        })
+        try {
+          localStorage.setItem(
+            `falcon-spv-burn-${wallet.address}-${peg.burnSeq}`,
+            JSON.stringify({
+              amountSats: peg.amountSats,
+              burnHash: peg.burnHash,
+              burnSeq: peg.burnSeq,
+              payout: wallet.btcAddress,
+              status: peg.status,
+              redeemBtcTxid: peg.redeemBtcTxid,
+              preferredFeeSats: Math.max(500, parseInt(userNetworkFeeSats, 10) || 1500),
+            }),
+          )
+        } catch {
+          /* ignore */
+        }
+        setReleaseStatus(peg.status === 'paid' ? 'released' : 'pending')
+        setStep(
+          peg.status === 'paid'
+            ? 'Complete — BTC paid and proven on Falcon.'
+            : peg.redeemBtcTxid
+              ? `Burn ${peg.burnSeq}: BTC paid — wait confirmations then Finish if needed.`
+              : `Burn ${peg.burnSeq}: waiting for reserve BTC payout…`,
+        )
         setTimeout(() => {
           onFalconRefresh?.()
           refreshFusdcBalance()
@@ -2051,11 +1988,7 @@ export default function BridgeDepositPanel({
           ? `${balanceLoading ? '…' : balances ? fmt(balances.eth, 6) : '—'} ETH`
           : `${balanceLoading ? '…' : balances ? fmtFloor(usdcAvailRaw, 2) : '—'} USDC`
   const falconAvailLabel = isFbtcRoute
-    ? fusdcLoading
-      ? '… FBTC'
-      : (fbtcIouLive ?? 0) > 1e-10
-        ? `${fmt(fbtcSpvLive ?? 0, 8)} SPV + ${fmt(fbtcIouLive ?? 0, 8)} IOU FBTC`
-        : `${fmt(fbtcSpvLive ?? fbtcLive ?? 0, 8)} FBTC (SPV)`
+    ? `${fusdcLoading ? '…' : fmt(fbtcSpvLive ?? fbtcLive ?? 0, 8)} FBTC`
     : isFxrpRoute
       ? `${fusdcLoading ? '…' : fmt(fxrpLive ?? 0, 6)} FXRP`
       : isFbnbRoute
@@ -2775,24 +2708,15 @@ export default function BridgeDepositPanel({
                   />
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>
-                      {spvLive
-                        ? (fbtcSpvLive ?? 0) > 0
-                          ? `SPV available: ${fmt(fbtcSpvLive ?? 0, 8)} FBTC` +
-                            ((fbtcIouLive ?? 0) > 1e-10
-                              ? ` · IOU ${fmt(fbtcIouLive ?? 0, 8)} (not burnable here)`
-                              : '')
-                          : (fbtcIouLive ?? 0) > 0
-                            ? `Only legacy IOU FBTC (${fmt(fbtcIouLive ?? 0, 8)}) — not SPV burnable`
-                            : 'No SPV FBTC balance'
-                        : (fbtcLive ?? 0) > 0
-                          ? `Available: ${fmt(fbtcLive ?? 0, 8)} FBTC`
-                          : 'No FBTC balance'}
+                      {(fbtcSpvLive ?? fbtcLive ?? 0) > 0
+                        ? `Available: ${fmt(fbtcSpvLive ?? fbtcLive ?? 0, 8)} FBTC`
+                        : 'No FBTC balance'}
                     </span>
-                    {(spvLive ? (fbtcSpvLive ?? 0) : (fbtcLive ?? 0)) > 0 && (
+                    {(fbtcSpvLive ?? fbtcLive ?? 0) > 0 && (
                       <button
                         type="button"
                         onClick={() =>
-                          setWithdrawAmount(String(spvLive ? fbtcSpvLive : fbtcLive))
+                          setWithdrawAmount(String(fbtcSpvLive ?? fbtcLive ?? 0))
                         }
                         className="text-brand-500"
                       >
@@ -2849,7 +2773,7 @@ export default function BridgeDepositPanel({
                     !hasBtc ||
                     (!spvLive && !fbtcIssuer) ||
                     withdrawAmtNum <= 0 ||
-                    withdrawAmtNum > (spvLive ? (fbtcSpvLive ?? 0) : (fbtcLive ?? 0))
+                    withdrawAmtNum > (fbtcSpvLive ?? fbtcLive ?? 0)
                   }
                   className="btn-primary flex items-center justify-center gap-2"
                 >

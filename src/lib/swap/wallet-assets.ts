@@ -160,35 +160,37 @@ export async function fetchWalletAssets(
       const fbtcIdx = tokens.findIndex(
         (t) => t.symbol === 'FBTC' || t.currency === 'BTC' || t.id === 'fbtc',
       )
+      // Product FBTC = SPV MPT only (what Bridge Out can redeem). Do not add classic
+      // BTC trust-line IOU into the FBTC balance — that confuses full SPV e2e tests.
+      const fbtcRow: WalletIouBalance = {
+        id: 'fbtc',
+        symbol: 'FBTC',
+        balance: btc,
+        currency: 'BTC',
+        issuer: spvIssuer || (fbtcIdx >= 0 ? tokens[fbtcIdx].issuer : '') || '',
+        hasTrustLine: true,
+        spvMpt: true,
+        mptIssuanceId: issuanceId,
+        iouBalance: 0,
+        spvMptBalance: btc,
+        spvMptSats: sats,
+      }
       if (fbtcIdx >= 0) {
-        const iouOnly = tokens[fbtcIdx].balance
-        tokens[fbtcIdx] = {
-          ...tokens[fbtcIdx],
-          // Portfolio: classic IOU + SPV MPT (different rails — do not burn IOU via SPV)
-          balance: iouOnly + btc,
-          iouBalance: iouOnly,
-          spvMptBalance: btc,
-          spvMptSats: sats,
-          // Ready to receive via SPV even before first mint (no TrustSet needed)
-          hasTrustLine: true,
-          spvMpt: true,
-          mptIssuanceId: issuanceId,
-          issuer: spvIssuer || tokens[fbtcIdx].issuer,
-        }
+        tokens[fbtcIdx] = { ...tokens[fbtcIdx], ...fbtcRow }
       } else {
-        tokens.push({
-          id: 'fbtc',
-          symbol: 'FBTC',
-          balance: btc,
-          currency: 'BTC',
-          issuer: spvIssuer || '',
-          hasTrustLine: true,
-          spvMpt: true,
-          mptIssuanceId: issuanceId,
-          iouBalance: 0,
-          spvMptBalance: btc,
-          spvMptSats: sats,
-        })
+        tokens.push(fbtcRow)
+      }
+      // Drop any other catalog row that is classic BTC IOU (same currency, non-SPV)
+      for (let i = tokens.length - 1; i >= 0; i--) {
+        if (i === (fbtcIdx >= 0 ? fbtcIdx : tokens.length - 1)) continue
+        const t = tokens[i]
+        if (
+          (t.currency === 'BTC' || t.symbol === 'FBTC') &&
+          !t.spvMpt &&
+          t.id !== 'fbtc'
+        ) {
+          tokens.splice(i, 1)
+        }
       }
     }
   } catch {
