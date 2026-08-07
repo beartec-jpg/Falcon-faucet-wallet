@@ -697,8 +697,7 @@ export async function submitSpvBridgeBurn(opts: {
     const msg = e instanceof Error ? e.message : String(e)
     if (/tecINSUFFICIENT_FUNDS/i.test(msg)) {
       throw new Error(
-        `tecINSUFFICIENT_FUNDS — not enough SPV FBTC (MPT) to burn ${amountSats} sats. ` +
-          'Bridge Out only burns light-client FBTC, not classic IOU FBTC. Check “SPV” balance / use Max.',
+        `Not enough FBTC to redeem ${amountSats} sats. Use Max for your full redeemable balance.`,
       )
     }
     throw e instanceof Error ? e : new Error(msg)
