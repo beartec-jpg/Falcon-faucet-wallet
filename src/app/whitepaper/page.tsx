@@ -144,7 +144,7 @@ function BlockView({ block }: { block: WhitepaperBlock }) {
 export default function WhitepaperPage() {
   return (
     <ProductShell intensity={0.32}>
-      <Header current="whitepaper" subtitle="White paper · v3" />
+      <Header current="whitepaper" subtitle="White paper · v4" />
 
       <main className="flex-1 w-full">
         {/* Cover */}
@@ -152,7 +152,7 @@ export default function WhitepaperPage() {
           <div className="max-w-3xl mx-auto px-4 pt-12 pb-10 sm:pt-16 sm:pb-14 text-center">
             <Image
               src="/falcon-logo.png"
-              alt="Falcon Ledger"
+              alt="Falcon PL"
               width={88}
               height={88}
               className="mx-auto rounded-2xl shadow-[0_0_48px_rgba(192,120,56,0.28)] mb-6 object-cover border border-brand-500/20"
@@ -162,11 +162,12 @@ export default function WhitepaperPage() {
               Technical white paper
             </p>
             <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-3">
-              Falcon Ledger
+              Falcon PL
             </h1>
             <p className="text-base sm:text-lg text-slate-400 max-w-xl mx-auto leading-relaxed">
-              A quantum-safe hub for multi-chain lending and liquidity — with{' '}
-              <span className="text-brand-400 font-medium">FALCON</span> at the centre.
+              A quantum-safe participation ledger —{' '}
+              <span className="text-brand-400 font-medium">Falcon Consensus</span> + Falcon-512, with{' '}
+              <span className="text-brand-400 font-medium">FPL</span> at the centre.
             </p>
             <p className="text-xs text-slate-600 mt-4">
               Version {WHITEPAPER_VERSION} · {WHITEPAPER_DATE}
@@ -204,7 +205,7 @@ export default function WhitepaperPage() {
             {[
               { v: '98%', l: 'Keyless treasury' },
               { v: 'Falcon-512', l: 'From genesis' },
-              { v: '5 rails', l: 'Multi-chain design' },
+              { v: '16.7×', l: 'vs old 30 TPS wall' },
               { v: 'PoPL', l: 'Real participation' },
             ].map((x) => (
               <div key={x.l}>
@@ -328,7 +329,9 @@ export default function WhitepaperPage() {
                       </span>
                       <span className="block text-xs text-slate-500 mt-1 leading-relaxed">{doc.description}</span>
                     </span>
-                    <span className="flex-shrink-0 text-xs font-medium text-brand-500 pt-1">PDF ↓</span>
+                    <span className="flex-shrink-0 text-xs font-medium text-brand-500 pt-1">
+                      {doc.format ?? 'PDF'} ↓
+                    </span>
                   </a>
                 </li>
               ))}
@@ -336,7 +339,7 @@ export default function WhitepaperPage() {
           </section>
 
           <footer className="border-t border-slate-800 pt-8 pb-14 text-center text-sm text-slate-600">
-            <p>© {new Date().getFullYear()} Falcon Ledger · White paper v{WHITEPAPER_VERSION}</p>
+            <p>© {new Date().getFullYear()} Falcon PL · White paper v{WHITEPAPER_VERSION}</p>
             <p className="mt-3 flex flex-wrap justify-center gap-4">
               <Link href="/" className="text-brand-500 hover:text-brand-400">
                 Home
