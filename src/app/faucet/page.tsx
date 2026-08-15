@@ -7,6 +7,7 @@ import Header from '@/components/Header'
 import Logo from '@/components/Logo'
 import NetworkBanner from '@/components/NetworkBanner'
 import ProductShell from '@/components/ProductShell'
+import WatcherPanel from '@/components/WatcherPanel'
 import { useNetwork } from '@/components/NetworkProvider'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -273,6 +274,8 @@ function FaucetPageInner() {
               </div>
             )}
           </div>
+
+          <WatcherPanel />
 
           {/* Network info grid */}
           <div className="grid grid-cols-2 gap-3">
