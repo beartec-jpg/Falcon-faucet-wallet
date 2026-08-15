@@ -7,13 +7,17 @@ import { isOriginAllowed } from '@/lib/origin'
 import { PL_WATCHER_ACCOUNT } from '@/lib/pl-rpc'
 import {
   beatWatcher,
+  claimWatcher,
+  realWatcherTest,
   startWatcher,
   stopWatcher,
   watcherSnapshot,
+  workWatcher,
 } from '@/lib/pl-watcher'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 180
 
 function accountOf(v: unknown): string {
   const s = typeof v === 'string' ? v.trim() : ''
@@ -55,6 +59,18 @@ export async function POST(req: NextRequest) {
     if (action === 'heartbeat') {
       const r = await beatWatcher(account)
       return NextResponse.json({ ok: true, action, txId: r.txId, msg: r.msg, ...r.snapshot })
+    }
+    if (action === 'work') {
+      const snap = await workWatcher(account)
+      return NextResponse.json({ ok: true, action, ...snap })
+    }
+    if (action === 'claim') {
+      const snap = await claimWatcher(account)
+      return NextResponse.json({ ok: true, action, ...snap })
+    }
+    if (action === 'real-test' || action === 'realtest') {
+      const snap = await realWatcherTest(account)
+      return NextResponse.json({ ok: true, action: 'real-test', ...snap })
     }
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
   } catch (e) {

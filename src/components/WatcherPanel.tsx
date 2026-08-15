@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 type WatcherEvent = {
   at: string
-  kind: 'entered' | 'heartbeat' | 'exited' | 'funded' | 'error'
+  kind: 'entered' | 'heartbeat' | 'exited' | 'funded' | 'error' | 'work' | 'paid' | 'claimed'
   detail: string
   slot?: number
   txId?: string
@@ -25,6 +25,11 @@ type WatcherSnap = {
   inSlot: boolean
   slotMs: number
   epoch: number
+  lastSettledEpoch?: number
+  claimable?: number
+  weight?: number
+  treasury?: number
+  railTip?: number
   lastHeartbeatAt: string | null
   lastTxId: string | null
   lastError: string | null
@@ -38,6 +43,9 @@ const KIND_COLOR: Record<WatcherEvent['kind'], string> = {
   exited: 'text-amber-400',
   heartbeat: 'text-slate-300',
   funded: 'text-brand-400',
+  work: 'text-sky-300',
+  paid: 'text-emerald-300',
+  claimed: 'text-brand-300',
   error: 'text-red-400',
 }
 
@@ -133,6 +141,26 @@ export default function WatcherPanel() {
 
   useEffect(() => () => stopLoop(), [])
 
+  const realTest = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      runningRef.current = true
+      const r = await fetch('/api/watcher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'real-test' }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error ?? 'real test failed')
+      setSnap(data)
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const present = Boolean(snap?.present)
   const running = Boolean(snap?.running) || runningRef.current
 
@@ -145,9 +173,9 @@ export default function WatcherPanel() {
           </p>
           <h2 className="text-lg font-semibold text-white mt-1">Start watcher</h2>
           <p className="text-slate-400 text-xs mt-1">
-            Sends a signed <span className="font-mono text-slate-300">WatcherHeartbeat</span> while
-            this tab is open. Presence enters the current slot; closing or Stop exits. Work stays 0
-            until a rail header/deposit — that is the product rule.
+            Heartbeats only fill presence. <span className="text-slate-300">Run real test</span> also
+            submits signed BTC rail headers (countable work), waits for the 30s epoch to settle, then
+            claims. Payday is work × presence — a tab with no rail work still pays zero.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -166,14 +194,26 @@ export default function WatcherPanel() {
         </div>
       </div>
 
-      <button
-        type="button"
-        disabled={busy || (snap !== null && !snap.online && !running)}
-        onClick={running ? stop : start}
-        className="btn-primary"
-      >
-        {busy ? 'Working…' : running ? 'Stop watcher' : 'Start watcher'}
-      </button>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <button
+          type="button"
+          disabled={busy || (snap !== null && !snap.online && !running)}
+          onClick={running ? stop : start}
+          className="btn-primary"
+        >
+          {busy ? 'Working…' : running ? 'Stop watcher' : 'Start watcher'}
+        </button>
+        <button
+          type="button"
+          disabled={busy || (snap !== null && !snap.online)}
+          onClick={realTest}
+          className="w-full py-3.5 px-6 rounded-xl font-semibold text-brand-200
+                     bg-slate-800 hover:bg-slate-700 border border-brand-500/40
+                     disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+        >
+          {busy ? 'Running real test…' : 'Run real test'}
+        </button>
+      </div>
 
       {error && (
         <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
@@ -188,7 +228,11 @@ export default function WatcherPanel() {
           { label: 'Slot', value: snap ? `${snap.currentSlot}${snap.inSlot ? ' · marked' : ''}` : '—' },
           { label: 'Slots filled', value: snap ? String(snap.slots) : '—' },
           { label: 'Work', value: snap ? String(snap.work) : '—' },
+          { label: 'Weight', value: snap ? String(snap.weight ?? 0) : '—' },
+          { label: 'Claimable', value: snap ? `${(snap.claimable ?? 0).toLocaleString()} FPL` : '—' },
           { label: 'Balance', value: snap ? `${snap.balance.toLocaleString()} FPL` : '—' },
+          { label: 'Epoch', value: snap ? `${snap.epoch} / settled ${snap.lastSettledEpoch ?? '—'}` : '—' },
+          { label: 'BTC rail', value: snap ? String(snap.railTip ?? 0) : '—' },
         ].map(({ label, value }) => (
           <div key={label} className="rounded-xl bg-slate-800/60 border border-slate-800 px-3 py-2">
             <div className="text-[11px] text-slate-500">{label}</div>

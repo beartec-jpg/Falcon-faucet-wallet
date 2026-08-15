@@ -103,6 +103,63 @@ export async function ctlFaucet(to: string, amount = 10_000): Promise<{ txId: st
   return { txId: txIdOf(out), raw: out }
 }
 
+export async function ctlWatcherWork(
+  account: string,
+  count = 168,
+  asset = 'BTC',
+): Promise<{ accepted: number; lastTx: string; raw: string }> {
+  const out = mustOk(
+    await runCtl(
+      [
+        'watcher-work',
+        '--account',
+        account,
+        '--asset',
+        asset,
+        '--count',
+        String(count),
+        '--scheme',
+        PL_SCHEME,
+        '--keys-dir',
+        PL_KEYS,
+        '--network-id',
+        String(PL_NETWORK_ID),
+        '--fee',
+        '2',
+      ],
+      { timeoutMs: 180_000 },
+    ),
+    'watcher-work',
+  )
+  const m = out.match(/accepted=(\d+)/)
+  const last = out.match(/last_tx=([0-9a-fA-F]+)/)
+  return {
+    accepted: m ? Number(m[1]) : 0,
+    lastTx: last?.[1] ?? '',
+    raw: out,
+  }
+}
+
+export async function ctlClaim(account: string): Promise<{ txId: string; raw: string }> {
+  const out = mustOk(
+    await runCtl([
+      'claim',
+      '--account',
+      account,
+      '--scheme',
+      PL_SCHEME,
+      '--keys-dir',
+      PL_KEYS,
+      '--network-id',
+      String(PL_NETWORK_ID),
+      '--fee',
+      '2',
+    ]),
+    'claim',
+  )
+  return { txId: txIdOf(out), raw: out }
+}
+
 export async function ctlGenWallet(account: string): Promise<void> {
   mustOk(
     await runCtl(
