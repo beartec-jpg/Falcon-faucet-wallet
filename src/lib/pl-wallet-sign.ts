@@ -27,8 +27,8 @@ async function sha256HexBrowser(data: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** Matches Rust `serde_json::to_string(&TxBody::Pay)` — a JSON string `"Pay"`. */
-const PAY_BODY_JSON = '"Pay"'
+/** Matches Rust `serde_json::{tag:kind, rename_all:snake_case}` for TxBody::Pay. */
+const PAY_BODY_JSON = '{"kind":"pay"}'
 
 export function plPayPayload(opts: {
   account: string

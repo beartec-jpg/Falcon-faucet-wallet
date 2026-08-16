@@ -235,14 +235,14 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                   type="text"
                   value={address}
                   onChange={e => { setAddress(e.target.value); setError(null) }}
-                  placeholder="r… address from your wallet"
+                  placeholder="your.name or r… from wallet"
                   autoComplete="off"
                   spellCheck={false}
                   className="input-field font-mono text-sm"
                   disabled={loading}
                 />
                 <p className="text-[11px] text-slate-500">
-                  Same r… address shown in Wallet → Receive. Opening faucet from the wallet fills this in.
+                  Use the account name you created (or the r… on an older wallet). Opening faucet from Wallet fills this in.
                 </p>
               </div>
 

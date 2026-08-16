@@ -1,29 +1,85 @@
 /**
- * GET /api/wallet/name?name=alice.bob&network=testnet
- *   → { available, name, owner?, status?, bondFalcon? }
+ * GET /api/wallet/name?name=scott
+ * POST { action: reserve|activate, name, publicKey, credentialId? }
  *
- * GET /api/wallet/name?address=r…&network=testnet
- *   → { address, name?, status? }  (best-effort via account root AccountName)
+ * On Falcon PL 2300 the name *is* the account. Short names cost more.
  */
 
+import { existsSync } from 'fs'
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
+import { resolveNetworkKey, serverNetworkConfig, serverRpcCall } from '@/lib/network-server'
 import {
   normalizeAccountName,
   NAME_BOND_FALCON,
   decodeLedgerName,
 } from '@/lib/account-name'
 import { isValidClassicAddress } from 'ripple-address-codec'
+import { isOriginAllowed } from '@/lib/origin'
+import { activateName, reserveName, viewName } from '@/lib/pl-name-store'
+import { activationFeeFpl, normalizePlName } from '@/lib/pl-names'
+import { plAccount } from '@/lib/pl-rpc'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
+const WALLET_API =
+  process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
+
+function useLocalStore() {
+  return existsSync(
+    process.env.FALCON_PL_NAME_STORE?.trim() ||
+      `${process.env.HOME || ''}/falcon-pl-public-testnet-2300/run`,
+  )
+}
+
+async function remoteName(action: string, body: Record<string, unknown>) {
+  const r = await fetch(WALLET_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...body }),
+  })
+  const d = (await r.json()) as Record<string, unknown>
+  if (!r.ok) throw new Error(String(d.error ?? `wallet api ${r.status}`))
+  return d
+}
 
 export async function GET(req: NextRequest) {
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
+  const cfg = serverNetworkConfig(networkKey)
   const nameQ = (req.nextUrl.searchParams.get('name') ?? '').trim()
   const addressQ = (req.nextUrl.searchParams.get('address') ?? '').trim()
+
+  if (cfg.networkId === 2300 && nameQ) {
+    try {
+      const view = useLocalStore()
+        ? viewName(nameQ)
+        : ((await remoteName('name-status', { name: nameQ })) as ReturnType<typeof viewName>)
+      let onChainTaken = false
+      try {
+        const acct = await plAccount(view.name)
+        onChainTaken = Boolean(acct.exists) && String(acct.name_status ?? '') === 'activated'
+      } catch {
+        /* node may not speak name_status yet */
+      }
+      return NextResponse.json({
+        ...view,
+        available: view.available && !onChainTaken,
+        status: onChainTaken ? 'activated' : view.status,
+        network: networkKey,
+      })
+    } catch (e) {
+      const name = normalizePlName(nameQ)
+      return NextResponse.json({
+        name: name ?? nameQ,
+        available: Boolean(name),
+        status: name ? 'free' : 'invalid',
+        fee: name ? activationFeeFpl(name) : 0,
+        error: e instanceof Error ? e.message : String(e),
+        network: networkKey,
+      })
+    }
+  }
 
   try {
     if (nameQ) {
@@ -187,6 +243,50 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Node unavailable' },
       { status: 502 },
+    )
+  }
+}
+
+export async function POST(req: NextRequest) {
+  if (!isOriginAllowed(req)) {
+    return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
+  }
+  let body: {
+    action?: string
+    name?: string
+    publicKey?: string
+    credentialId?: string
+  }
+  try {
+    body = (await req.json()) as typeof body
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+  const action = String(body.action ?? 'reserve')
+  const name = String(body.name ?? '').trim()
+  const publicKey = String(body.publicKey ?? '').trim()
+  const credentialHash = body.credentialId
+    ? String(body.credentialId).slice(0, 64)
+    : undefined
+  try {
+    if (useLocalStore()) {
+      if (action === 'activate') {
+        const rec = activateName(name, publicKey)
+        return NextResponse.json({ ok: true, ...rec })
+      }
+      const rec = reserveName({ name, publicKey, credentialHash })
+      return NextResponse.json({ ok: true, ...rec })
+    }
+    const d = await remoteName(action === 'activate' ? 'name-activate' : 'name-reserve', {
+      name,
+      publicKey,
+      credentialId: credentialHash,
+    })
+    return NextResponse.json(d)
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : String(e) },
+      { status: 400 },
     )
   }
 }

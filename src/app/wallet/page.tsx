@@ -41,6 +41,7 @@ import {
   readCachedAccountName,
 } from '@/lib/account-name'
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
+import { activationFeeFpl, normalizePlName, plAccountId, plNameHint } from '@/lib/pl-names'
 import {
   backupHasBridgeKeys,
   createEncryptedBackup,
@@ -188,6 +189,9 @@ type View = 'loading' | 'no-wallet' | 'restore' | 'backup' | 'dashboard' | 'send
 interface PendingWalletSave {
   credentialId: string
   address:      string
+  accountName:  string
+  nameReservedUntil: number
+  nameActivationFee: number
   publicKey:    string
   label:        string
   encrypted:    StoredWallet['encrypted']
@@ -324,6 +328,11 @@ export default function WalletPage() {
 
   // Create-wallet form
   const [createLabel, setCreateLabel] = useState('')
+  const [createName, setCreateName] = useState('')
+  const [createNameStatus, setCreateNameStatus] = useState<
+    'idle' | 'checking' | 'available' | 'taken' | 'invalid'
+  >('idle')
+  const [createNameFee, setCreateNameFee] = useState(0)
 
   // Send form (Falcon IOUs + native multi-chain)
   const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'feth' | 'fbnb' | 'fbtc' | 'btc' | 'bnb' | 'eth' | 'xrp'>('falcon')
@@ -455,17 +464,17 @@ export default function WalletPage() {
 
   /** Falcon ledger + multi-chain native balances (when on those tabs). */
   const refreshAllBalances = useCallback(() => {
-    if (wallet?.address) void refreshBalance(wallet.address)
+    if (wallet) void refreshBalance(plAccountId(wallet))
     if (walletSection === 'multichain' || walletSection === 'bridge') {
       setNativeRefreshKey((k) => k + 1)
     }
-  }, [wallet?.address, walletSection, refreshBalance])
+  }, [wallet, walletSection, refreshBalance])
 
   useEffect(() => {
-    if (wallet?.address) {
-      refreshBalance(wallet.address)
+    if (wallet) {
+      refreshBalance(plAccountId(wallet))
     }
-  }, [networkKey, wallet?.address, refreshBalance])
+  }, [networkKey, wallet, refreshBalance])
 
   useEffect(() => {
     if (!wallet || view === 'loading' || view === 'no-wallet') return
@@ -583,11 +592,45 @@ export default function WalletPage() {
     })()
   }, [view, wallet, bridgeMissing, busy])
 
+  useEffect(() => {
+    const n = normalizePlName(createName)
+    if (!createName.trim()) {
+      setCreateNameStatus('idle')
+      setCreateNameFee(0)
+      return
+    }
+    if (!n) {
+      setCreateNameStatus('invalid')
+      setCreateNameFee(0)
+      return
+    }
+    setCreateNameFee(activationFeeFpl(n))
+    setCreateNameStatus('checking')
+    const t = setTimeout(() => {
+      void fetch(`/api/wallet/name?name=${encodeURIComponent(n)}`, { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((d: { available?: boolean }) => {
+          setCreateNameStatus(d.available ? 'available' : 'taken')
+        })
+        .catch(() => setCreateNameStatus('available'))
+    }, 350)
+    return () => clearTimeout(t)
+  }, [createName])
+
   // ── Create wallet ─────────────────────────────────────────────────────────
 
   const handleCreate = async () => {
     if (!isPasskeySupported()) {
       setError('Passkeys need a secure context (HTTPS or localhost). Please use the live site.')
+      return
+    }
+    const picked = normalizePlName(createName)
+    if (!picked) {
+      setError(plNameHint(createName) || 'Pick a valid account name')
+      return
+    }
+    if (createNameStatus === 'taken') {
+      setError(`“${picked}” is taken — try a longer name`)
       return
     }
     setBusy(true)
@@ -603,7 +646,19 @@ export default function WalletPage() {
       const label = createLabel.trim() || 'My Falcon Wallet'
 
       const { falcon_secret, address, publicKey } = await generateWallet()
-      const { credentialId, keyBytes, hasPrf } = await registerPasskey(label)
+      const hold = await fetch('/api/wallet/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reserve',
+          name: picked,
+          publicKey,
+          credentialId: 'pending',
+        }),
+      })
+      const holdJ = (await hold.json()) as { error?: string; reservedUntil?: number; fee?: number }
+      if (!hold.ok) throw new Error(holdJ.error ?? 'Could not reserve that name')
+      const { credentialId, keyBytes, hasPrf } = await registerPasskey(picked)
       const encrypted = await encryptSeed(falcon_secret, keyBytes, hasPrf)
       const { address: evmAddress, privateKeyHex: evmPrivateKeyHex } = createRandomEvmWallet()
       const evmEncrypted = await encryptSeed(evmPrivateKeyHex, keyBytes, hasPrf)
@@ -613,8 +668,11 @@ export default function WalletPage() {
       setPendingSave({
         credentialId,
         address,
+        accountName: picked,
+        nameReservedUntil: Number(holdJ.reservedUntil ?? Date.now() + 30 * 60 * 1000),
+        nameActivationFee: Number(holdJ.fee ?? activationFeeFpl(picked)),
         publicKey,
-        label,
+        label: picked,
         encrypted,
         hasPrf,
         falcon_secret,
@@ -659,6 +717,10 @@ export default function WalletPage() {
       } = pendingSave
       const stored: StoredWallet = {
         ...rest,
+        accountName: pendingSave.accountName,
+        nameReservedUntil: pendingSave.nameReservedUntil,
+        nameActivationFee: pendingSave.nameActivationFee,
+        nameActivated: false,
         createdAt: Date.now(),
         evmAddress: pendingSave.evmAddress,
         evmEncrypted: pendingSave.evmEncrypted,
@@ -684,8 +746,8 @@ export default function WalletPage() {
       setBackupAcknowledged(false)
       setWeakEncryptionAck(false)
       setView('dashboard')
-      setWalletSection('bridge')
-      refreshBalance(verified.address)
+      setWalletSection('falcon')
+      refreshBalance(plAccountId(verified))
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save wallet')
     } finally {
@@ -1357,7 +1419,7 @@ export default function WalletPage() {
           ? await (async (): Promise<SubmitResult> => {
               const seq = await fetchSequence()
               const tx = await signPlPay({
-                account: wallet.address,
+                account: plAccountId(wallet),
                 destination: to,
                 amount: amt,
                 sequence: seq.sequence,
@@ -1445,7 +1507,7 @@ export default function WalletPage() {
 
   const copyAddress = () => {
     if (!wallet) return
-    navigator.clipboard.writeText(wallet.address)
+    navigator.clipboard.writeText(plAccountId(wallet))
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -1511,20 +1573,50 @@ export default function WalletPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">Wallet name <span className="text-slate-600">(optional)</span></label>
+                  <label className="text-xs text-slate-400">
+                    Account name <span className="text-slate-600">(required — this is your FPL account)</span>
+                  </label>
                   <input
                     type="text"
-                    value={createLabel}
-                    onChange={e => setCreateLabel(e.target.value)}
+                    value={createName}
+                    onChange={e => { setCreateName(e.target.value); setError(null) }}
                     onKeyDown={e => e.key === 'Enter' && !busy && handleCreate()}
-                    placeholder="My Falcon Wallet"
-                    className="input-field"
+                    placeholder="scott.reynolds.1989"
+                    className="input-field font-mono"
                     disabled={busy}
-                    maxLength={40}
+                    maxLength={32}
+                    spellCheck={false}
+                    autoComplete="off"
                   />
+                  {createName.trim() && (
+                    <p className={`text-[11px] ${
+                      createNameStatus === 'available' ? 'text-emerald-400'
+                        : createNameStatus === 'taken' || createNameStatus === 'invalid' ? 'text-red-400'
+                          : 'text-slate-500'
+                    }`}>
+                      {createNameStatus === 'checking' && 'Checking…'}
+                      {createNameStatus === 'invalid' && (plNameHint(createName) || 'Invalid name')}
+                      {createNameStatus === 'taken' && 'Taken — pick another, or a longer name'}
+                      {createNameStatus === 'available' && (
+                        <>
+                          Available · activate with {createNameFee.toLocaleString()} FPL in 30 minutes
+                          {createNameFee >= 5000 ? ' (short names cost more)' : ''}
+                        </>
+                      )}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-slate-500">
+                    Short names like <span className="font-mono">scott</span> cost more (5,000 FPL).
+                    Longer names like <span className="font-mono">scott.reynolds.1989</span> are 100 FPL.
+                    If you do not pay in 30 minutes the name goes back to the pool.
+                  </p>
                 </div>
 
-                <button onClick={handleCreate} disabled={busy} className="btn-primary flex items-center justify-center gap-2">
+                <button
+                  onClick={handleCreate}
+                  disabled={busy || createNameStatus !== 'available'}
+                  className="btn-primary flex items-center justify-center gap-2"
+                >
                   {busy ? (
                     <><Spinner /> Creating wallet…</>
                   ) : (
@@ -1583,8 +1675,12 @@ export default function WalletPage() {
 
               <div className="card p-5 space-y-4">
                 <div className="space-y-1">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">Falcon address</div>
-                  <div className="font-mono text-xs text-emerald-300 break-all">{pendingSave.address}</div>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">FPL account</div>
+                  <div className="font-mono text-sm text-emerald-300 break-all">{pendingSave.accountName}</div>
+                  <p className="text-[11px] text-slate-500">
+                    Send {pendingSave.nameActivationFee.toLocaleString()} FPL in 30 minutes to activate.
+                    Unpaid names return to the pool.
+                  </p>
                 </div>
                 <div className="space-y-1">
                   <div className="text-[10px] text-slate-500 uppercase tracking-wide">Sepolia bridge address</div>
@@ -1897,15 +1993,15 @@ export default function WalletPage() {
                         </div>
                       )}
                       <div className="text-xs text-slate-500 mt-0.5">
-                        {accountName ? `${wallet.label || 'Wallet'} · Falcon` : 'Falcon'}
+                        Falcon PL account
                       </div>
                       <button
                         type="button"
                         onClick={copyAddress}
-                        className="mt-1 font-mono text-slate-400 text-sm hover:text-slate-200 break-all text-left"
-                        title="Copy full address"
+                        className="mt-1 font-mono text-brand-300 text-sm hover:text-brand-200 break-all text-left"
+                        title="Copy account name"
                       >
-                        {copied ? 'Copied!' : shortAddr(wallet.address)}
+                        {copied ? 'Copied!' : plAccountId(wallet)}
                       </button>
                     </div>
                     <button
@@ -2105,7 +2201,7 @@ export default function WalletPage() {
                         <div className="rounded-xl border border-brand-500/20 bg-brand-500/5 px-4 py-4 text-center space-y-2">
                           <p className="text-sm text-slate-300">No balances yet on Falcon.</p>
                           <Link
-                            href={`/faucet?address=${encodeURIComponent(wallet.address)}`}
+                            href={`/faucet?address=${encodeURIComponent(plAccountId(wallet))}`}
                             className="inline-flex items-center justify-center px-4 py-2 rounded-xl text-sm font-semibold bg-brand-500 text-slate-950 hover:bg-brand-400"
                           >
                             Get FPL from faucet
@@ -2116,12 +2212,48 @@ export default function WalletPage() {
                         <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 px-4 py-3 text-center space-y-2">
                           <p className="text-sm text-amber-100/90">Account not activated on-chain.</p>
                           <Link
-                            href={`/faucet?address=${encodeURIComponent(wallet.address)}`}
+                            href={`/faucet?address=${encodeURIComponent(plAccountId(wallet))}`}
                             className="inline-flex text-sm font-semibold text-brand-400 hover:text-brand-300"
                           >
                             Top up via faucet →
                           </Link>
                         </div>
+                      )}
+                      {wallet.accountName && !wallet.nameActivated && (
+                        <NameActivateCard
+                          wallet={wallet}
+                          balance={account?.balance ?? 0}
+                          busy={busy}
+                          onActivate={async () => {
+                            const fee = wallet.nameActivationFee ?? activationFeeFpl(wallet.accountName!)
+                            if ((account?.balance ?? 0) < fee) {
+                              setError(`Send ${fee.toLocaleString()} FPL to activate ${wallet.accountName}`)
+                              return
+                            }
+                            setBusy(true)
+                            setError(null)
+                            try {
+                              const r = await fetch('/api/wallet/name', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  action: 'activate',
+                                  name: wallet.accountName,
+                                  publicKey: wallet.publicKey,
+                                }),
+                              })
+                              const d = (await r.json()) as { error?: string }
+                              if (!r.ok) throw new Error(d.error ?? 'Activate failed')
+                              const next = { ...wallet, nameActivated: true }
+                              await saveWallet(next)
+                              setWallet(next)
+                            } catch (e) {
+                              setError(e instanceof Error ? e.message : 'Activate failed')
+                            } finally {
+                              setBusy(false)
+                            }
+                          }}
+                        />
                       )}
                     </>
                   )
@@ -2882,7 +3014,7 @@ export default function WalletPage() {
                   walletSection === 'falcon'
 
                 if (isFalconReceive) {
-                  const recvAddr = wallet.address
+                  const recvAddr = plAccountId(wallet)
                   return (
                     <div className="card p-5 space-y-4">
                       <div className="flex items-center gap-2">
@@ -3575,7 +3707,7 @@ export default function WalletPage() {
               {/* ── Faucet shortcut (Falcon wallet only) ── */}
               {view === 'dashboard' && walletSection === 'falcon' && (
                 <Link
-                  href={`/faucet?address=${encodeURIComponent(wallet.address)}`}
+                  href={`/faucet?address=${encodeURIComponent(plAccountId(wallet))}`}
                   className="card px-4 py-3 flex items-center justify-between text-sm hover:border-brand-500/40 transition-all"
                 >
                   <div className="flex items-center gap-2 text-slate-400">
@@ -3913,5 +4045,65 @@ export default function WalletPage() {
         </div>
       </main>
     </ProductShell>
+  )
+}
+
+function NameActivateCard({
+  wallet,
+  balance,
+  busy,
+  onActivate,
+}: {
+  wallet: StoredWallet
+  balance: number
+  busy: boolean
+  onActivate: () => void
+}) {
+  const fee = wallet.nameActivationFee ?? activationFeeFpl(wallet.accountName || '')
+  const until = wallet.nameReservedUntil ?? 0
+  const [left, setLeft] = useState(() => Math.max(0, until - Date.now()))
+  useEffect(() => {
+    const id = setInterval(() => setLeft(Math.max(0, until - Date.now())), 1000)
+    return () => clearInterval(id)
+  }, [until])
+  const expired = until > 0 && left <= 0
+  const m = Math.floor(left / 60000)
+  const s = Math.floor((left % 60000) / 1000)
+  const funded = balance >= fee
+  return (
+    <div className="rounded-xl border border-brand-500/30 bg-brand-500/5 px-4 py-3 space-y-2">
+      <div className="text-xs uppercase tracking-wider text-slate-500">Activate account</div>
+      <p className="text-sm text-slate-200">
+        <span className="font-mono text-brand-300">{wallet.accountName}</span>
+        {' · '}
+        {fee.toLocaleString()} FPL to activate
+      </p>
+      {expired ? (
+        <p className="text-xs text-red-400">
+          Reservation expired — this name is back in the pool. Create a new wallet to reserve again.
+        </p>
+      ) : (
+        <p className="text-xs text-slate-500">
+          Pay within {m}m {s.toString().padStart(2, '0')}s or the name is released.
+          Balance {balance.toLocaleString()} / {fee.toLocaleString()} FPL.
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Link
+          href={`/faucet?address=${encodeURIComponent(wallet.accountName || '')}`}
+          className="flex-1 text-center py-2 rounded-lg text-sm font-semibold bg-slate-800 text-slate-200 hover:bg-slate-700"
+        >
+          Faucet
+        </Link>
+        <button
+          type="button"
+          disabled={busy || expired || !funded}
+          onClick={onActivate}
+          className="flex-1 py-2 rounded-lg text-sm font-semibold bg-brand-500 text-slate-950 hover:bg-brand-400 disabled:opacity-40"
+        >
+          {funded ? 'Activate' : 'Need more FPL'}
+        </button>
+      </div>
+    </div>
   )
 }

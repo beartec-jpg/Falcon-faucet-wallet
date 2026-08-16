@@ -11,7 +11,12 @@ const STORE      = 'wallets'
 
 export interface StoredWallet {
   credentialId: string   // base64url — primary key (WebAuthn credential ID)
-  address:      string   // rXXX… XRPL classic address
+  address:      string   // rXXX… key-derived id (backup only on FPL)
+  /** FPL account id — the on-chain name. */
+  accountName?: string
+  nameReservedUntil?: number
+  nameActivated?: boolean
+  nameActivationFee?: number
   publicKey:    string   // hex public key (for display / verification)
   label:        string   // user-provided name
   encrypted:    EncryptedSeed
