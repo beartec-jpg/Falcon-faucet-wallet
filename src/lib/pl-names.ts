@@ -71,6 +71,14 @@ export function activationFeeFpl(name: string): number {
   return 100
 }
 
-export function plAccountId(wallet: { accountName?: string; address: string }): string {
-  return (wallet.accountName || wallet.address).trim()
+export function plAccountId(wallet: {
+  accountName?: string
+  label?: string
+  address: string
+}): string {
+  const named = (wallet.accountName || '').trim()
+  if (named) return named
+  const fromLabel = normalizePlName(wallet.label || '')
+  if (fromLabel) return fromLabel
+  return (wallet.address || '').trim()
 }

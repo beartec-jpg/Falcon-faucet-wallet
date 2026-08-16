@@ -545,12 +545,17 @@ export default function WalletPage() {
   // ── On mount: load wallet from IndexedDB ──────────────────────────────────
 
   useEffect(() => {
-    loadPrimaryWallet().then(primary => {
+    loadPrimaryWallet().then(async (primary) => {
       if (primary) {
-        setWallet(primary)
-        setBridgeMissing(!hasBridgeWallet(primary))
+        const named = primary.accountName || normalizePlName(primary.label || '') || undefined
+        const hydrated = named && !primary.accountName
+          ? { ...primary, accountName: named }
+          : primary
+        if (hydrated !== primary) await saveWallet(hydrated)
+        setWallet(hydrated)
+        setBridgeMissing(!hasBridgeWallet(hydrated))
         setView('dashboard')
-        refreshBalance(primary.address)
+        refreshBalance(plAccountId(hydrated))
       } else {
         setBridgeMissing(false)
         setView('no-wallet')
@@ -1130,7 +1135,7 @@ export default function WalletPage() {
           setError('Destination must differ from your classic XRPL address')
           return
         }
-        if (to === wallet.address) {
+        if (to === wallet.address || to === plAccountId(wallet)) {
           setError('That is your Falcon r… — classic XRP needs a classic XRPL destination')
           return
         }
@@ -1352,7 +1357,7 @@ export default function WalletPage() {
       setError('Invalid destination — use an r… address or a claimed name (e.g. alice.bob)')
       return
     }
-    if (to === wallet.address) {
+    if (to === wallet.address || to === plAccountId(wallet)) {
       setError('Destination must be a different Falcon address')
       return
     }
@@ -1415,7 +1420,7 @@ export default function WalletPage() {
       //    resubmit automatically if the ledger reports a sequence race (tefPAST_SEQ).
       const fetchSequence = async () => {
         try {
-          const a = await fetchSequenceInfo(wallet.address, networkKey)
+          const a = await fetchSequenceInfo(plAccountId(wallet), networkKey)
           return { sequence: a.sequence, currentLedger: a.currentLedger }
         } catch {
           // Fall back to the cached account snapshot if the node is briefly unreachable.
@@ -1455,7 +1460,7 @@ export default function WalletPage() {
           if (sendAsset === 'falcon') {
             return signPayment(
               {
-                account:            wallet.address,
+                account:            plAccountId(wallet),
                 destination:        to,
                 amountDrops:        qxrpToDrops(amt),
                 sequence,
@@ -1475,7 +1480,7 @@ export default function WalletPage() {
                   : { issuer: fusdc!.issuer, currency: fusdc!.currency }
           return signFusdcPayment(
             {
-              account:            wallet.address,
+              account:            plAccountId(wallet),
               destination:        to,
               issuer:             iou.issuer,
               currency:           iou.currency,
@@ -1502,8 +1507,8 @@ export default function WalletPage() {
         setSendTo('')
         setSendAmount('')
         // Refresh balance immediately then again after confirmation
-        refreshBalance(wallet.address)
-        setTimeout(() => refreshBalance(wallet.address), 4000)
+        refreshBalance(plAccountId(wallet))
+        setTimeout(() => refreshBalance(plAccountId(wallet)), 4000)
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Transaction failed')
@@ -1914,7 +1919,7 @@ export default function WalletPage() {
                         setWalletSection(tab.id)
                         setPanelKey((k) => k + 1)
                         if (tab.id === 'bridge') setBridgeInitialMode('deposit')
-                        refreshBalance(wallet.address)
+                        refreshBalance(plAccountId(wallet))
                       }}
                       className={`wallet-tab-pill ${
                         walletSection === tab.id
@@ -2119,7 +2124,7 @@ export default function WalletPage() {
                         )}
                         {walletSection === 'falcon' && (
                           <p className="text-[11px] text-slate-500 mt-1">
-                            Bridged assets listed below · Receive shows your Falcon address
+                            Bridged assets listed below · Receive shows your FPL account name
                           </p>
                         )}
                         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -2137,7 +2142,7 @@ export default function WalletPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                               </svg>
                             )}
-                            {copied ? 'Copied' : shortAddr(wallet.address)}
+                            {copied ? 'Copied' : plAccountId(wallet)}
                           </button>
                           {wallet.label && (
                             <span className="text-[11px] text-slate-500 truncate max-w-[8rem]">{wallet.label}</span>
@@ -2343,7 +2348,7 @@ export default function WalletPage() {
                                 `Removal started for “${accountName}”. After 1 epoch the bond returns and you can claim a new name.`,
                               )
                               setShowRemoveNameModal(false)
-                              await refreshBalance(wallet.address)
+                              await refreshBalance(plAccountId(wallet))
                             } catch (e: unknown) {
                               const msg = e instanceof Error ? e.message : String(e)
                               setNameMsg(msg)
@@ -2917,7 +2922,7 @@ export default function WalletPage() {
                             setAccountName(n)
                             setAccountNameStatus('active')
                             cacheAccountName(wallet.address, n, 'active')
-                            await refreshBalance(wallet.address)
+                            await refreshBalance(plAccountId(wallet))
                           } catch (e: unknown) {
                             const msg = e instanceof Error ? e.message : String(e)
                             setNameMsg(msg)
@@ -2988,7 +2993,7 @@ export default function WalletPage() {
                   bridgeCfg={bridgeCfg}
                   fusdcBalance={account?.assets?.fusdc?.balance ?? null}
                   onWalletUpdate={setWallet}
-                  onFalconRefresh={() => refreshBalance(wallet.address)}
+                  onFalconRefresh={() => refreshBalance(plAccountId(wallet))}
                   initialMode={bridgeInitialMode}
                   initialRoute={bridgeInitialRoute}
                 />
@@ -3089,7 +3094,7 @@ export default function WalletPage() {
                           {copied ? '✓ Copied!' : 'Copy Address'}
                         </button>
                         <Link
-                          href={`/?address=${encodeURIComponent(wallet.address)}`}
+                          href={`/?address=${encodeURIComponent(plAccountId(wallet))}`}
                           className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors text-center"
                         >
                           Get from Faucet →
