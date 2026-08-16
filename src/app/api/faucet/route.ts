@@ -23,7 +23,23 @@ import {
   serverSignerProxy,
 } from '@/lib/network-server'
 import { clientIp } from '@/lib/security'
-import { ctlFaucet } from '@/lib/pl-ctl'
+import { existsSync } from 'fs'
+import { ctlFaucet, PL_CTL } from '@/lib/pl-ctl'
+
+const WALLET_API =
+  process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
+
+async function faucetViaHttp(to: string, amount: number) {
+  const r = await fetch(WALLET_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'faucet', account: to, amount }),
+  })
+  const d = (await r.json()) as { error?: string; txId?: string; raw?: string }
+  if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
+  const m = String(d.raw ?? '').match(/tx_id=([0-9a-fA-F]+)/)
+  return { txId: d.txId || m?.[1] || '' }
+}
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -38,9 +54,9 @@ function err(msg: string, status = 400, extra?: Record<string, unknown>) {
 
 const PL_DRIP = Number(process.env.FALCON_PL_DRIP ?? '2000') || 2000
 
-function isPlAccountName(name: string): boolean {
-  if (/^r[1-9A-HJ-NP-Za-km-z]{24,}$/.test(name)) return false
-  return /^[A-Za-z0-9._-]{1,64}$/.test(name)
+function isPlAccount(name: string): boolean {
+  if (isValidClassicAddress(name)) return true
+  return /^[A-Za-z0-9._-]{2,64}$/.test(name)
 }
 
 export async function POST(req: NextRequest) {
@@ -83,12 +99,10 @@ export async function POST(req: NextRequest) {
 
   if (!account) return err('Missing "account" field')
 
-  // Falcon PL 2300 — native FPL drip via ctl. Classic r… addresses are the old ledger.
-  if (process.env.FALCON_PL_RPC?.trim()) {
-    if (!isPlAccountName(account)) {
-      return err(
-        'This faucet pays FPL on Falcon PL 2300. Use a PL account name (for example alice), not a classic r… address.',
-      )
+  // Falcon PL 2300 — drip to the same account id the wallet shows (r… or a name).
+  if (cfg.networkId === 2300) {
+    if (!isPlAccount(account)) {
+      return err('Enter the Falcon PL account from your wallet (the r… address).')
     }
 
     const clientIpAddr = ip(req)
@@ -129,7 +143,9 @@ export async function POST(req: NextRequest) {
 
     let paid: { txId: string }
     try {
-      paid = await ctlFaucet(account, PL_DRIP)
+      paid = existsSync(PL_CTL)
+        ? await ctlFaucet(account, PL_DRIP)
+        : await faucetViaHttp(account, PL_DRIP)
     } catch (e) {
       const msg = String(e instanceof Error ? e.message : e)
       console.error('[faucet] PL drip failed:', msg)

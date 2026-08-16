@@ -2105,7 +2105,7 @@ export default function WalletPage() {
                         <div className="rounded-xl border border-brand-500/20 bg-brand-500/5 px-4 py-4 text-center space-y-2">
                           <p className="text-sm text-slate-300">No balances yet on Falcon.</p>
                           <Link
-                            href="/faucet"
+                            href={`/faucet?address=${encodeURIComponent(wallet.address)}`}
                             className="inline-flex items-center justify-center px-4 py-2 rounded-xl text-sm font-semibold bg-brand-500 text-slate-950 hover:bg-brand-400"
                           >
                             Get FPL from faucet
@@ -2116,7 +2116,7 @@ export default function WalletPage() {
                         <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 px-4 py-3 text-center space-y-2">
                           <p className="text-sm text-amber-100/90">Account not activated on-chain.</p>
                           <Link
-                            href="/faucet"
+                            href={`/faucet?address=${encodeURIComponent(wallet.address)}`}
                             className="inline-flex text-sm font-semibold text-brand-400 hover:text-brand-300"
                           >
                             Top up via faucet →

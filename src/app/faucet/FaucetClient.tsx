@@ -88,7 +88,14 @@ const PL_DRIP = 2_000
 
 function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | null }) {
   const searchParams = useSearchParams()
-  const [address, setAddress]   = useState(() => searchParams?.get('address') ?? '')
+  const [address, setAddress] = useState(
+    () => searchParams?.get('address') ?? searchParams?.get('account') ?? '',
+  )
+
+  useEffect(() => {
+    const fromUrl = searchParams?.get('address') ?? searchParams?.get('account') ?? ''
+    if (fromUrl) setAddress(fromUrl)
+  }, [searchParams])
   const [status, setStatus]     = useState<NetworkStatus>({ online: false })
   const [loading, setLoading]   = useState(false)
   const [result, setResult]     = useState<DripResult | null>(null)
@@ -228,12 +235,15 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                   type="text"
                   value={address}
                   onChange={e => { setAddress(e.target.value); setError(null) }}
-                  placeholder="alice"
+                  placeholder="r… address from your wallet"
                   autoComplete="off"
                   spellCheck={false}
-                  className="input-field"
+                  className="input-field font-mono text-sm"
                   disabled={loading}
                 />
+                <p className="text-[11px] text-slate-500">
+                  Same r… address shown in Wallet → Receive. Opening faucet from the wallet fills this in.
+                </p>
               </div>
 
               <button
