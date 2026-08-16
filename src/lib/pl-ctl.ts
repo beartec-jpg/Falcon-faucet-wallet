@@ -160,6 +160,34 @@ export async function ctlClaim(account: string): Promise<{ txId: string; raw: st
   return { txId: txIdOf(out), raw: out }
 }
 
+export async function ctlPay(
+  from: string,
+  to: string,
+  amount: number,
+): Promise<{ txId: string; raw: string }> {
+  const out = mustOk(
+    await runCtl([
+      'pay',
+      '--from',
+      from,
+      '--to',
+      to,
+      '--amount',
+      String(Math.floor(amount)),
+      '--scheme',
+      PL_SCHEME,
+      '--keys-dir',
+      PL_KEYS,
+      '--network-id',
+      String(PL_NETWORK_ID),
+      '--fee',
+      '2',
+    ]),
+    'pay',
+  )
+  return { txId: txIdOf(out), raw: out }
+}
+
 export async function ctlGenWallet(account: string): Promise<void> {
   mustOk(
     await runCtl(

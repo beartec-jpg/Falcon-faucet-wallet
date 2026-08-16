@@ -1,11 +1,5 @@
 /**
- * Falcon Ledger network registry — testnet + mainnet (pre-launch).
- *
- * Launch decisions still required (see .env.example MAINNET LAUNCH section):
- *   - MAINNET_NETWORK_ID (must differ from 1001)
- *   - MAINNET_RPC_URL + genesis validator endpoints
- *   - MAINNET_FAUCET_* funded from genesis circulating tranche
- *   - Mainnet stablecoin issuers after genesis issue script
+ * Falcon PL network registry — pre-public beta 2300 + mainnet (later).
  */
 
 export type NetworkKey = 'testnet' | 'mainnet'
@@ -56,12 +50,12 @@ export function networkIdForTx(networkId: number): number | undefined {
 
 const TESTNET: NetworkConfig = {
   key: 'testnet',
-  name: envStr('NEXT_PUBLIC_TESTNET_NAME', 'Falcon Ledger Testnet'),
+  name: envStr('NEXT_PUBLIC_TESTNET_NAME', 'Falcon PL 2300'),
   shortName: 'Testnet',
-  networkId: envInt('NEXT_PUBLIC_TESTNET_NETWORK_ID', 1001),
+  networkId: envInt('NEXT_PUBLIC_TESTNET_NETWORK_ID', 2300),
   rpcUrl: envStr(
     'NEXT_PUBLIC_TESTNET_RPC_URL',
-    envStr('NEXT_PUBLIC_RPC_URL', 'http://46.224.0.140:6005'),
+    envStr('NEXT_PUBLIC_RPC_URL', '192.241.247.158:19311'),
   ),
   dripAmountQxrp: envInt('NEXT_PUBLIC_TESTNET_DRIP_QXRP', envInt('NEXT_PUBLIC_DRIP_AMOUNT_QXRP', 2000)),
   explorerUrl: envStr('NEXT_PUBLIC_TESTNET_EXPLORER_URL', envStr('NEXT_PUBLIC_EXPLORER_URL', '')),
@@ -78,7 +72,7 @@ const TESTNET: NetworkConfig = {
 
 const MAINNET: NetworkConfig = {
   key: 'mainnet',
-  name: envStr('NEXT_PUBLIC_MAINNET_NAME', 'Falcon Ledger'),
+  name: envStr('NEXT_PUBLIC_MAINNET_NAME', 'Falcon PL'),
   shortName: 'Mainnet',
   networkId: envInt('NEXT_PUBLIC_MAINNET_NETWORK_ID', 1),
   rpcUrl: envStr('NEXT_PUBLIC_MAINNET_RPC_URL', ''),
