@@ -28,15 +28,11 @@ import {
   validateFalconSecret,
   signPayment,
   signFusdcPayment,
-  signNameSet,
-  signNameUnbond,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
 import { signPlPay } from '@/lib/pl-wallet-sign'
 import {
   normalizeAccountName,
-  nameHint,
-  NAME_BOND_FALCON,
   cacheAccountName,
   readCachedAccountName,
 } from '@/lib/account-name'
@@ -345,13 +341,7 @@ export default function WalletPage() {
   // Account name (AccountNames amendment)
   const [accountName, setAccountName] = useState<string | null>(null)
   const [accountNameStatus, setAccountNameStatus] = useState<'active' | 'releasing' | null>(null)
-  const [nameInput, setNameInput] = useState('')
-  const [nameAvailability, setNameAvailability] = useState<
-    'idle' | 'checking' | 'available' | 'taken' | 'invalid'
-  >('idle')
-  const [nameBusy, setNameBusy] = useState(false)
-  const [nameMsg, setNameMsg] = useState<string | null>(null)
-  const [showRemoveNameModal, setShowRemoveNameModal] = useState(false)
+
 
   // Restore form
   const [restoreSeed,  setRestoreSeed]  = useState('')
@@ -1967,32 +1957,9 @@ export default function WalletPage() {
                 <div className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      {accountName ? (
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <div className="text-2xl sm:text-xl font-semibold text-emerald-300 tracking-tight break-all leading-tight">
-                            {accountName}
-                            {accountNameStatus === 'releasing' && (
-                              <span className="ml-2 align-middle text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                                releasing
-                              </span>
-                            )}
-                          </div>
-                          {account?.exists && network.live && accountNameStatus !== 'releasing' && (
-                            <button
-                              type="button"
-                              disabled={nameBusy}
-                              onClick={() => setShowRemoveNameModal(true)}
-                              className="shrink-0 text-[11px] font-medium text-slate-500 hover:text-rose-300 underline underline-offset-2 decoration-slate-600 hover:decoration-rose-400/60 disabled:opacity-40"
-                            >
-                              Remove name from this wallet
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="text-sm font-medium text-slate-200">
-                          {wallet.label || 'Falcon wallet'}
-                        </div>
-                      )}
+                      <div className="text-2xl sm:text-xl font-semibold text-emerald-300 tracking-tight break-all leading-tight">
+                        {plAccountId(wallet)}
+                      </div>
                       <div className="text-xs text-slate-500 mt-0.5">
                         Falcon PL account
                       </div>
@@ -2023,16 +1990,6 @@ export default function WalletPage() {
                     </button>
                   </div>
 
-                  {accountName && accountNameStatus === 'releasing' && (
-                    <div className="w-full rounded-xl border border-amber-500/30 bg-amber-950/25 px-3 py-2 text-xs text-amber-100 leading-relaxed">
-                      <span className="font-mono font-semibold">{accountName}</span> is being removed.
-                      One-epoch cooldown: name stays reserved to you, name payments are off, and your{' '}
-                      {NAME_BOND_FALCON} FPL bond returns when release finishes. You can claim a new name after that.
-                    </div>
-                  )}
-                  {nameMsg && accountName && (
-                    <div className="text-[11px] text-slate-400">{nameMsg}</div>
-                  )}
                 </div>
                 )}
 
@@ -2259,112 +2216,6 @@ export default function WalletPage() {
                     </>
                   )
                 })()}
-
-                {/* Remove-name confirm: cooldown explained, then passkey sign */}
-                {showRemoveNameModal && accountName && (
-                  <div
-                    className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby="remove-name-title"
-                    onClick={(e) => {
-                      if (e.target === e.currentTarget && !nameBusy) setShowRemoveNameModal(false)
-                    }}
-                  >
-                    <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl p-5 space-y-4">
-                      <div>
-                        <h3 id="remove-name-title" className="text-base font-semibold text-white">
-                          Remove name from this wallet?
-                        </h3>
-                        <p className="mt-2 text-sm text-slate-400 leading-relaxed">
-                          You are about to start releasing{' '}
-                          <span className="font-mono text-emerald-300">{accountName}</span>.
-                        </p>
-                      </div>
-                      <ul className="text-[12px] text-slate-400 space-y-2 leading-relaxed list-disc pl-4">
-                        <li>
-                          <strong className="text-slate-300">One name per wallet</strong> — you cannot mint a second name while this one is held.
-                        </li>
-                        <li>
-                          There is a <strong className="text-slate-300">1 epoch cooldown</strong> before you can pick a new name.
-                        </li>
-                        <li>
-                          During the cooldown the name stays reserved to you; payments <em>by name</em> are rejected. Your <span className="font-mono">r…</span> address still works.
-                        </li>
-                        <li>
-                          Your <strong className="text-slate-300">{NAME_BOND_FALCON} FPL</strong> bond stays locked until release finishes, then returns. Claiming a new name locks 100 FPL again.
-                        </li>
-                      </ul>
-                      <p className="text-sm text-slate-300">
-                        Are you sure you want to remove this name from your account?
-                      </p>
-                      <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
-                        <button
-                          type="button"
-                          disabled={nameBusy}
-                          onClick={() => setShowRemoveNameModal(false)}
-                          className="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-40"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          disabled={nameBusy}
-                          onClick={async () => {
-                            if (!wallet || !account || !accountName) return
-                            setNameBusy(true)
-                            setNameMsg(null)
-                            setError(null)
-                            try {
-                              const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-                              const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-                              await submitWithSequenceRetry({
-                                networkKey,
-                                fetchSequence: async () => {
-                                  try {
-                                    return await fetchSequenceInfo(wallet.address, networkKey)
-                                  } catch {
-                                    return {
-                                      sequence: account.sequence,
-                                      currentLedger: account.currentLedger,
-                                    }
-                                  }
-                                },
-                                sign: ({ sequence, lastLedgerSequence }) =>
-                                  signNameUnbond(
-                                    {
-                                      account: wallet.address,
-                                      name: accountName,
-                                      sequence,
-                                      lastLedgerSequence,
-                                      networkId: network.networkId,
-                                    },
-                                    falcon_secret,
-                                  ),
-                              })
-                              setAccountNameStatus('releasing')
-                              cacheAccountName(wallet.address, accountName, 'releasing')
-                              setNameMsg(
-                                `Removal started for “${accountName}”. After 1 epoch the bond returns and you can claim a new name.`,
-                              )
-                              setShowRemoveNameModal(false)
-                              await refreshBalance(plAccountId(wallet))
-                            } catch (e: unknown) {
-                              const msg = e instanceof Error ? e.message : String(e)
-                              setNameMsg(msg)
-                              setError(msg)
-                            } finally {
-                              setNameBusy(false)
-                            }
-                          }}
-                          className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-40"
-                        >
-                          {nameBusy ? 'Signing…' : 'Yes, remove name'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
 
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2825,129 +2676,6 @@ export default function WalletPage() {
                   )}
                 </div>
 
-                {/* Account name claim — Falcon wallet only */}
-                {walletSection === 'falcon' && account?.exists && network.live && !accountName && (
-                  <div className="rounded-xl border border-violet-500/25 bg-violet-950/20 p-3 space-y-2">
-                    <div className="text-sm font-medium text-violet-200">Create named address</div>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Claim a human name for this wallet. Locks <strong className="text-slate-400">{NAME_BOND_FALCON} FPL</strong> until you release the name (1-epoch cooldown).
-                      Settlement still uses your <span className="font-mono">r…</span> address.
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={nameInput}
-                        onChange={(e) => {
-                          const v = e.target.value.toLowerCase()
-                          setNameInput(v)
-                          setNameMsg(null)
-                          const n = normalizeAccountName(v)
-                          if (!v.trim()) setNameAvailability('idle')
-                          else if (!n) setNameAvailability('invalid')
-                          else setNameAvailability('idle')
-                        }}
-                        onBlur={async () => {
-                          const n = normalizeAccountName(nameInput)
-                          if (!n) {
-                            setNameAvailability(nameInput.trim() ? 'invalid' : 'idle')
-                            return
-                          }
-                          setNameAvailability('checking')
-                          try {
-                            const r = await fetch(
-                              withNetworkQuery(`/api/wallet/name?name=${encodeURIComponent(n)}`, networkKey),
-                            )
-                            const j = await r.json()
-                            if (!r.ok && j.error === 'Invalid name') setNameAvailability('invalid')
-                            else if (j.available) setNameAvailability('available')
-                            else setNameAvailability('taken')
-                          } catch {
-                            setNameAvailability('idle')
-                          }
-                        }}
-                        placeholder="alice.bob"
-                        maxLength={32}
-                        className="flex-1 rounded-lg bg-slate-900/80 border border-slate-700 px-3 py-2 text-sm font-mono text-slate-100 placeholder:text-slate-600"
-                        disabled={nameBusy}
-                      />
-                      <button
-                        type="button"
-                        disabled={
-                          nameBusy ||
-                          !normalizeAccountName(nameInput) ||
-                          nameAvailability === 'taken' ||
-                          nameAvailability === 'invalid' ||
-                          (account?.balance ?? 0) < NAME_BOND_FALCON + 1
-                        }
-                        onClick={async () => {
-                          const n = normalizeAccountName(nameInput)
-                          if (!n || !wallet || !account) return
-                          if ((account.balance ?? 0) < NAME_BOND_FALCON + 1) {
-                            setNameMsg(`Need at least ${NAME_BOND_FALCON + 1} FPL (bond + fee). Use the faucet first.`)
-                            return
-                          }
-                          setNameBusy(true)
-                          setNameMsg(null)
-                          setError(null)
-                          try {
-                            const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-                            const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-                            await submitWithSequenceRetry({
-                              networkKey,
-                              fetchSequence: async () => {
-                                try {
-                                  return await fetchSequenceInfo(wallet.address, networkKey)
-                                } catch {
-                                  return {
-                                    sequence: account.sequence,
-                                    currentLedger: account.currentLedger,
-                                  }
-                                }
-                              },
-                              sign: ({ sequence, lastLedgerSequence }) =>
-                                signNameSet(
-                                  {
-                                    account: wallet.address,
-                                    name: n,
-                                    sequence,
-                                    lastLedgerSequence,
-                                    networkId: network.networkId,
-                                  },
-                                  falcon_secret,
-                                ),
-                            })
-                            setNameMsg(`Claimed “${n}”. Bond of ${NAME_BOND_FALCON} FPL locked.`)
-                            setNameInput('')
-                            setNameAvailability('idle')
-                            setAccountName(n)
-                            setAccountNameStatus('active')
-                            cacheAccountName(wallet.address, n, 'active')
-                            await refreshBalance(plAccountId(wallet))
-                          } catch (e: unknown) {
-                            const msg = e instanceof Error ? e.message : String(e)
-                            setNameMsg(msg)
-                            setError(msg)
-                          } finally {
-                            setNameBusy(false)
-                          }
-                        }}
-                        className="px-4 py-2 rounded-lg text-sm font-semibold bg-violet-500 hover:bg-violet-400 disabled:opacity-40 text-slate-950"
-                      >
-                        {nameBusy ? '…' : 'Claim'}
-                      </button>
-                    </div>
-                    <div className="text-[11px] min-h-[1rem]">
-                      {nameAvailability === 'checking' && <span className="text-slate-500">Checking…</span>}
-                      {nameAvailability === 'available' && <span className="text-emerald-400">Available</span>}
-                      {nameAvailability === 'taken' && <span className="text-rose-400">Taken</span>}
-                      {nameAvailability === 'invalid' && (
-                        <span className="text-amber-400">{nameHint(nameInput) ?? 'Invalid name'}</span>
-                      )}
-                      {nameMsg && <span className="text-slate-300">{nameMsg}</span>}
-                    </div>
-                  </div>
-                )}
-
                 <div className="flex gap-2 flex-wrap">
                   {walletSection === 'falcon' && (
                     <>
@@ -3031,34 +2759,20 @@ export default function WalletPage() {
                         <h3 className="font-semibold text-white text-sm">Receive on Falcon</h3>
                       </div>
 
-                      {accountName ? (
-                        <div className="rounded-xl border border-emerald-500/25 bg-emerald-950/20 px-4 py-3 text-center space-y-1">
-                          <p className="text-[10px] uppercase tracking-wide text-emerald-400/80 font-medium">
-                            Falcon name
-                          </p>
-                          <p className="text-xl sm:text-2xl font-semibold text-emerald-300 tracking-tight break-all">
-                            {accountName}
-                            {accountNameStatus === 'releasing' && (
-                              <span className="ml-2 align-middle text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                                releasing
-                              </span>
-                            )}
-                          </p>
-                          <p className="text-[11px] text-slate-500">
-                            Others can send to this name on Falcon
-                          </p>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-500 text-center">
-                          No Falcon name set — share your address below
+                      <div className="rounded-xl border border-emerald-500/25 bg-emerald-950/20 px-4 py-3 text-center space-y-1">
+                        <p className="text-[10px] uppercase tracking-wide text-emerald-400/80 font-medium">
+                          FPL account
                         </p>
-                      )}
+                        <p className="text-xl sm:text-2xl font-semibold text-emerald-300 tracking-tight break-all">
+                          {plAccountId(wallet)}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          This is the only id to receive FPL
+                        </p>
+                      </div>
 
-                      <p className="text-[10px] uppercase tracking-wide text-brand-400/90 font-medium text-center">
-                        Falcon address
-                      </p>
                       <p className="text-xs text-slate-500 leading-relaxed text-center">
-                        One address for FPL and all F-assets (F-USDC, FETH, FBTC, FBNB). Only send Falcon-network assets here.
+                        Share your account name. Only send Falcon PL assets here.
                       </p>
 
                       {recvAddr ? (
