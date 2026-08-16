@@ -27,6 +27,10 @@ export type WatcherSnap = {
   slotMs: number
   epoch: number
   lastSettledEpoch?: number
+  firstClaimEpoch?: number
+  epochEndsInMs?: number
+  firstPaydayInMs?: number
+  canClaim?: boolean
   claimable?: number
   weight?: number
   treasury?: number
@@ -50,6 +54,17 @@ export type WatcherSnap = {
   } | null
 }
 
+function fmtDuration(ms?: number): string {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return '—'
+  const s = Math.floor(ms / 1000)
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (d > 0) return `${d}d ${h}h`
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
+}
+
 const KIND_COLOR: Record<WatcherEvent['kind'], string> = {
   entered: 'text-emerald-400',
   exited: 'text-amber-400',
@@ -69,7 +84,7 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const runningRef = useRef(false)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastBeatSlot = useRef<number | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -88,14 +103,6 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
     return () => clearInterval(id)
   }, [refresh])
 
-  const stopLoop = () => {
-    runningRef.current = false
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-      timerRef.current = null
-    }
-  }
-
   const beat = useCallback(async () => {
     const r = await fetch('/api/watcher', {
       method: 'POST',
@@ -105,7 +112,9 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
     const data = await r.json()
     if (!r.ok) throw new Error(data.error ?? 'heartbeat failed')
     setSnap(data)
+    lastBeatSlot.current = Number(data.currentSlot ?? lastBeatSlot.current)
     setError(null)
+    return data as WatcherSnap
   }, [])
 
   const start = async () => {
@@ -122,12 +131,6 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
       setSnap(data)
       runningRef.current = true
       await beat()
-      stopLoop()
-      const every = Math.max(1_000, Math.min(Number(data.slotMs) || 2_000, 3_000))
-      timerRef.current = setInterval(() => {
-        if (!runningRef.current) return
-        beat().catch((e) => setError(String(e instanceof Error ? e.message : e)))
-      }, every)
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
     } finally {
@@ -137,7 +140,8 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
 
   const stop = async () => {
     setBusy(true)
-    stopLoop()
+    runningRef.current = false
+    lastBeatSlot.current = null
     try {
       const r = await fetch('/api/watcher', {
         method: 'POST',
@@ -154,7 +158,30 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
     }
   }
 
-  useEffect(() => () => stopLoop(), [])
+  useEffect(() => {
+    if (!runningRef.current || snap?.currentSlot == null) return
+    if (lastBeatSlot.current === snap.currentSlot) return
+    beat().catch((e) => setError(String(e instanceof Error ? e.message : e)))
+  }, [snap?.currentSlot, beat])
+
+  const postAction = async (action: string) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await fetch('/api/watcher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error ?? `${action} failed`)
+      setSnap(data)
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const realTest = async () => {
     setBusy(true)
@@ -186,11 +213,10 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
           <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-brand-400/90">
             Pre-public beta · PL 2300
           </p>
-          <h2 className="text-lg font-semibold text-white mt-1">Start watcher</h2>
+          <h2 className="text-lg font-semibold text-white mt-1">Watcher &amp; claims</h2>
           <p className="text-slate-400 text-xs mt-1">
-            Heartbeats only fill presence. <span className="text-slate-300">Run real test</span> submits
-            signed BTC rail headers (countable work). On 2300 payday waits until epoch 8 (7-day epochs).
-            A tab with no rail work still pays zero.
+            Start fills the current hour slot. Rail work is what pays. Claim pulls settled FPL —
+            epochs 1–7 emit nothing, first payday is epoch {snap?.firstClaimEpoch ?? 8}.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -209,7 +235,19 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-2 text-xs text-slate-400">
+        Epoch <span className="text-slate-200 font-mono">{snap?.epoch ?? '—'}</span>
+        {' · '}first claim{' '}
+        <span className="text-slate-200 font-mono">{snap?.firstClaimEpoch ?? 8}</span>
+        {' · '}this epoch ends in{' '}
+        <span className="text-slate-200 font-mono">{fmtDuration(snap?.epochEndsInMs)}</span>
+        {' · '}payday in{' '}
+        <span className="text-slate-200 font-mono">{fmtDuration(snap?.firstPaydayInMs)}</span>
+        {' · '}claimable{' '}
+        <span className="text-slate-200 font-mono">{snap?.claimable ?? 0} FPL</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
         <form
           action="/api/watcher"
           method="post"
@@ -229,10 +267,10 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
           method="post"
           onSubmit={(e) => {
             e.preventDefault()
-            void realTest()
+            void postAction('work')
           }}
         >
-          <input type="hidden" name="action" value="real-test" />
+          <input type="hidden" name="action" value="work" />
           <button
             type="submit"
             disabled={busy}
@@ -240,13 +278,51 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
                        bg-slate-800 hover:bg-slate-700 border border-brand-500/40
                        disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
-            {busy ? 'Running real test…' : 'Run real test'}
+            {busy ? 'Submitting…' : 'Submit rail work'}
+          </button>
+        </form>
+        <form
+          action="/api/watcher"
+          method="post"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void postAction('claim')
+          }}
+        >
+          <input type="hidden" name="action" value="claim" />
+          <button
+            type="submit"
+            disabled={busy || !snap?.canClaim}
+            className="w-full py-3.5 px-6 rounded-xl font-semibold text-emerald-200
+                       bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40
+                       disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            {busy ? 'Claiming…' : `Claim ${snap?.claimable ?? 0} FPL`}
+          </button>
+        </form>
+        <form
+          action="/api/watcher"
+          method="post"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void realTest()
+          }}
+        >
+          <input type="hidden" name="action" value="real-test" />
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full py-3.5 px-6 rounded-xl font-semibold text-slate-300
+                       bg-slate-800 hover:bg-slate-700 border border-slate-600
+                       disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            {busy ? 'Recording work…' : 'Record work now'}
           </button>
         </form>
       </div>
       <p className="text-[11px] text-slate-500">
-        Real test takes 30–60s. The page will reload with the result. Heartbeats need the tab
-        left open after Start.
+        One heartbeat per hour-slot while the tab is open. Claim stays dark until epoch{' '}
+        {snap?.firstClaimEpoch ?? 8} settles a pot. Record work now does not wait a week.
       </p>
 
       {flash && (
@@ -260,9 +336,12 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
           {flash === 'started' && 'Watcher started — presence is on-chain.'}
           {flash === 'stopped' && 'Watcher stopped.'}
           {flash === 'paid' &&
-            `Real test paid ${params?.get('claimable') ?? '0'} FPL · work ${params?.get('work') ?? '0'} · slots ${params?.get('slots') ?? '0'} · BTC rail ${params?.get('rail') ?? '—'}`}
+            `Work recorded · ${params?.get('work') ?? '0'} headers · slots ${params?.get('slots') ?? '0'} · claimable ${params?.get('claimable') ?? '0'} FPL`}
+          {flash === 'claimed' && `Claimed ${params?.get('claimable') ?? '0'} FPL`}
+          {flash === 'worked' && `Submitted rail work · ${params?.get('work') ?? '0'} this epoch`}
           {flash === 'error' && (flashMsg || 'Watcher request failed')}
-          {!['started', 'stopped', 'paid', 'error'].includes(flash) && `Watcher: ${flash}`}
+          {!['started', 'stopped', 'paid', 'claimed', 'worked', 'error'].includes(flash) &&
+            `Watcher: ${flash}`}
         </div>
       )}
       {error && (

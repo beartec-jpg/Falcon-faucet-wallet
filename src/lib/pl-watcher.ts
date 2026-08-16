@@ -1,16 +1,37 @@
 /**
  * Falcon PL browser-watcher session + signed heartbeat.
  *
- * Presence is on-chain (`TxBody::WatcherHeartbeat`). This module only:
+ * Presence is on-chain (`TxBody::WatcherHeartbeat`). This module:
  *   - funds the demo watcher account from the PL faucet if needed
- *   - signs HMAC-dev heartbeats (private 2200)
+ *   - signs Falcon-512 heartbeats (2300)
+ *   - submits rail-header work and pull-claims
  *   - keeps a process-local enter/exit log for the faucet live panel
  *
- * Work still comes only from rail headers/deposits. Heartbeats fill slots.
+ * Work is rail headers/deposits only. Heartbeats fill the current slot.
+ * On 2300, epochs 1–7 emit nothing; first payday is epoch 8.
  */
 
+import { writeFileSync, readFileSync } from 'fs'
 import { ctlClaim, ctlFaucet, ctlHeartbeat, ctlWatcherWork } from '@/lib/pl-ctl'
 import { PL_NETWORK_ID, PL_WATCHER_ACCOUNT, plAccount, plStatus } from '@/lib/pl-rpc'
+
+const LAST_PAY_FILE = '/tmp/falcon-pl-watcher-last.json'
+
+function loadLastPay(): LastPay | null {
+  try {
+    return JSON.parse(readFileSync(LAST_PAY_FILE, 'utf8')) as LastPay
+  } catch {
+    return null
+  }
+}
+
+function saveLastPay(pay: LastPay) {
+  try {
+    writeFileSync(LAST_PAY_FILE, JSON.stringify(pay, null, 2))
+  } catch {
+    /* ignore */
+  }
+}
 
 export type WatcherEvent = {
   at: string
@@ -39,6 +60,12 @@ export type WatcherSnapshot = {
   epoch: number
   epochMs: number
   lastSettledEpoch: number
+  firstClaimEpoch: number
+  genesisMs: number
+  nowMs: number
+  epochEndsInMs: number
+  firstPaydayInMs: number
+  canClaim: boolean
   claimable: number
   weight: number
   treasury: number
@@ -48,6 +75,19 @@ export type WatcherSnapshot = {
   lastError: string | null
   events: WatcherEvent[]
   running: boolean
+  lastPay: LastPay | null
+}
+
+export type LastPay = {
+  at: string
+  epoch: number
+  work: number
+  slots: number
+  weight: number
+  paid: number
+  claimed: boolean
+  railTip: number
+  balance: number
 }
 
 type Session = {
@@ -58,6 +98,7 @@ type Session = {
   lastError: string | null
   enteredSlot: number | null
   events: WatcherEvent[]
+  lastPay: LastPay | null
 }
 
 const sessions = new Map<string, Session>()
@@ -81,6 +122,7 @@ function sessionOf(account: string): Session {
       lastError: null,
       enteredSlot: null,
       events: [],
+      lastPay: loadLastPay(),
     }
     sessions.set(account, s)
   }
@@ -117,6 +159,18 @@ export async function watcherSnapshot(account = PL_WATCHER_ACCOUNT): Promise<Wat
     const weight = slotsPerEpoch > 0 ? Math.floor((work * slots) / slotsPerEpoch) : 0
     const rails = Array.isArray(st.rails) ? (st.rails as Array<Record<string, unknown>>) : []
     const btc = rails.find((r) => String(r.asset ?? '') === 'BTC')
+    const epoch = num(st.epoch)
+    const epochMs = num(st.epoch_ms)
+    const genesisMs = num(st.genesis_ms)
+    const nowMs = num(st.now_ms, Date.now())
+    const firstClaimEpoch = num(st.first_claim_epoch, 8)
+    const intoEpoch = epochMs > 0 ? (nowMs - genesisMs) % epochMs : 0
+    const epochEndsInMs = epochMs > 0 ? Math.max(0, epochMs - intoEpoch) : 0
+    const firstPaydayInMs =
+      firstClaimEpoch > epoch && epochMs > 0
+        ? epochEndsInMs + (firstClaimEpoch - epoch - 1) * epochMs
+        : epochEndsInMs
+    const claimable = num(acct.claimable)
     return {
       online: true,
       product: String(st.product_version ?? st.product ?? ''),
@@ -133,11 +187,16 @@ export async function watcherSnapshot(account = PL_WATCHER_ACCOUNT): Promise<Wat
       inSlot,
       slotMs,
       slotsPerEpoch,
-      epoch: num(st.epoch),
-      epochMs: num(st.epoch_ms),
+      epoch,
+      epochMs,
       lastSettledEpoch: num(st.last_settled_epoch),
-      claimable: num(acct.claimable),
-      weight,
+      firstClaimEpoch,
+      genesisMs,
+      nowMs,
+      epochEndsInMs,
+      firstPaydayInMs,
+      canClaim: claimable > 0,
+      claimable,
       treasury: num(st.treasury),
       railTip: num(btc?.tip_height),
       lastHeartbeatAt: s.lastHeartbeatAt ? nowIso(s.lastHeartbeatAt) : null,
@@ -145,6 +204,7 @@ export async function watcherSnapshot(account = PL_WATCHER_ACCOUNT): Promise<Wat
       lastError: s.lastError,
       events: s.events,
       running: s.running,
+      lastPay: s.lastPay,
     }
   } catch (e) {
     return {
@@ -164,6 +224,12 @@ export async function watcherSnapshot(account = PL_WATCHER_ACCOUNT): Promise<Wat
       epoch: 0,
       epochMs: 0,
       lastSettledEpoch: 0,
+      firstClaimEpoch: 8,
+      genesisMs: 0,
+      nowMs: 0,
+      epochEndsInMs: 0,
+      firstPaydayInMs: 0,
+      canClaim: false,
       claimable: 0,
       weight: 0,
       treasury: 0,
@@ -173,6 +239,7 @@ export async function watcherSnapshot(account = PL_WATCHER_ACCOUNT): Promise<Wat
       lastError: String(e instanceof Error ? e.message : e),
       events: s.events,
       running: s.running,
+      lastPay: s.lastPay,
     }
   }
 }
@@ -298,57 +365,81 @@ export async function workWatcher(
 
 export async function claimWatcher(account = PL_WATCHER_ACCOUNT): Promise<WatcherSnapshot> {
   const s = sessionOf(account)
+  const beforeSnap = await watcherSnapshot(account)
+  if (beforeSnap.claimable <= 0) {
+    const msg =
+      beforeSnap.epoch < beforeSnap.firstClaimEpoch
+        ? `Nothing to claim yet. Epoch ${beforeSnap.epoch}; first payday is epoch ${beforeSnap.firstClaimEpoch}.`
+        : 'Nothing to claim — no settled reward on this account.'
+    pushEvent(s, { kind: 'error', detail: msg })
+    throw new Error(msg)
+  }
   const before = await plAccount(account)
   const r = await ctlClaim(account)
   await waitUntilPacked(account, num(before.sequence), 40)
   const after = await watcherSnapshot(account)
+  if (s.lastPay) {
+    s.lastPay.claimed = true
+    s.lastPay.balance = after.balance
+    saveLastPay(s.lastPay)
+  }
   pushEvent(s, {
     kind: 'claimed',
-    detail: `claim submitted; claimable now ${after.claimable}, balance ${after.balance}`,
+    detail: `claimed ${beforeSnap.claimable} FPL; balance now ${after.balance}`,
     txId: r.txId,
   })
-  return watcherSnapshot(account)
+  return after
 }
 
 export async function realWatcherTest(account = PL_WATCHER_ACCOUNT): Promise<WatcherSnapshot> {
   const s = sessionOf(account)
   await startWatcher(account)
-  const st0 = await plStatus(false)
-  const epochMs = Math.max(1, num(st0.epoch_ms, 30_000))
-  const into =
-    (num(st0.now_ms) - num(st0.genesis_ms)) % epochMs
-  // Land the whole burst in one epoch so settle does not wipe work mid-flight.
-  if (into > epochMs * 0.45) {
-    const waitMs = Math.min(epochMs - into + 800, epochMs)
+  await beatWatcher(account)
+  const st0 = await watcherSnapshot(account)
+  const shortEpoch = st0.epochMs > 0 && st0.epochMs <= 120_000
+  pushEvent(s, {
+    kind: 'work',
+    detail: `submitting ${WORK_COUNT} signed BTC headers in epoch ${st0.epoch} (first payday epoch ${st0.firstClaimEpoch})`,
+  })
+  const mid = await workWatcher(account, WORK_COUNT)
+  if (shortEpoch) {
     pushEvent(s, {
       kind: 'work',
-      detail: `waiting ${Math.ceil(waitMs / 1000)}s for next epoch so work is not settled away`,
+      detail: `waiting for epoch ${st0.epoch} to settle (work=${mid.work} slots=${mid.slots})`,
     })
-    await new Promise((res) => setTimeout(res, waitMs))
-  }
-  const workEpoch = num((await plStatus(false)).epoch)
-  pushEvent(s, {
-    kind: 'work',
-    detail: `submitting ${WORK_COUNT} signed BTC headers in epoch ${workEpoch}`,
-  })
-  await workWatcher(account, WORK_COUNT)
-  pushEvent(s, {
-    kind: 'work',
-    detail: `waiting for epoch ${workEpoch} to settle`,
-  })
-  const deadline = Date.now() + epochMs + 8_000
-  while (Date.now() < deadline) {
-    await new Promise((res) => setTimeout(res, 800))
-    const st = await plStatus(false)
-    if (num(st.last_settled_epoch) >= workEpoch) break
+    const deadline = Date.now() + st0.epochMs + 8_000
+    while (Date.now() < deadline) {
+      await new Promise((res) => setTimeout(res, 800))
+      const st = await plStatus(false)
+      if (num(st.last_settled_epoch) >= st0.epoch) break
+    }
+  } else {
+    pushEvent(s, {
+      kind: 'work',
+      detail: `work recorded. 2300 does not settle for ${Math.round(st0.epochMs / 86_400_000)}d — claim after epoch ${st0.firstClaimEpoch}.`,
+    })
   }
   const paid = await watcherSnapshot(account)
+  s.lastPay = {
+    at: nowIso(),
+    epoch: st0.epoch,
+    work: mid.work,
+    slots: mid.slots,
+    weight: mid.weight,
+    paid: paid.claimable,
+    claimed: false,
+    railTip: mid.railTip || paid.railTip,
+    balance: paid.balance,
+  }
   pushEvent(s, {
     kind: 'paid',
-    detail: `settled; work=${paid.work} slots=${paid.slots} weight=${paid.weight} claimable=${paid.claimable}`,
+    detail: paid.claimable > 0
+      ? `epoch ${st0.epoch} paid ${paid.claimable} FPL (work=${mid.work} slots=${mid.slots})`
+      : `work=${mid.work} slots=${mid.slots} weight=${mid.weight} · claimable 0 until epoch ${paid.firstClaimEpoch}`,
   })
   if (paid.claimable > 0) {
     return claimWatcher(account)
   }
+  saveLastPay(s.lastPay)
   return paid
 }

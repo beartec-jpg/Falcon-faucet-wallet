@@ -22,9 +22,13 @@ export async function GET() {
       product: b.product_version,
       networkId: b.network_id,
       tip: b.tip_height,
+      epoch: b.epoch,
       epochMs: b.epoch_ms,
+      lastSettledEpoch: b.last_settled_epoch,
       firstClaimEpoch: b.first_claim_epoch,
       unbondMs: b.unbond_cooldown_ms,
+      watcherSlot: b.watcher_current_slot,
+      watcherSlotMs: b.watcher_slot_ms,
     })
   } catch (e) {
     return NextResponse.json(

@@ -17,6 +17,8 @@ interface NetworkStatus {
   product?: string
   networkId?: number
   tip?: number
+  epoch?: number
+  firstClaimEpoch?: number
   error?: string
 }
 
@@ -106,6 +108,8 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
         tip: data.tip,
         product: data.product,
         networkId: data.networkId,
+        epoch: data.epoch,
+        firstClaimEpoch: data.firstClaimEpoch,
         error: data.error,
       })
     } catch {
@@ -293,7 +297,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
             {[
               { label: 'Tip', value: (status.tip ?? status.ledger)?.toLocaleString() ?? '—' },
               { label: 'Network', value: status.networkId != null ? String(status.networkId) : '2300' },
-              { label: 'Product', value: status.product ?? '—' },
+              { label: 'Epoch', value: status.epoch != null ? `${status.epoch} / claim ${status.firstClaimEpoch ?? 8}` : '—' },
               { label: 'Mesh', value: status.online ? 'live' : 'offline' },
             ].map(({ label, value }) => (
               <div key={label} className="card px-4 py-3 border-slate-800/80 bg-slate-900/60 backdrop-blur-sm">
