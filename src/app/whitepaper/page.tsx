@@ -205,8 +205,8 @@ export default function WhitepaperPage() {
             {[
               { v: '98%', l: 'Keyless treasury' },
               { v: 'Falcon-512', l: 'From genesis' },
-              { v: '16.7×', l: 'vs old 30 TPS wall' },
-              { v: 'PoPL', l: 'Real participation' },
+              { v: '4-of-6', l: 'Committee commit' },
+              { v: 'PoPL', l: 'Work-weighted pay' },
             ].map((x) => (
               <div key={x.l}>
                 <div className="text-lg font-bold text-brand-400">{x.v}</div>
