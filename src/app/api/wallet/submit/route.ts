@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isOriginAllowed } from '@/lib/origin'
-import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
+import { resolveNetworkKey, serverNetworkConfig, serverRpcCall } from '@/lib/network-server'
 import { peekSubmitRateLimit, consumeSubmitRateLimit } from '@/lib/rate-limit'
+import { plSubmit, type PlTx } from '@/lib/pl-rpc'
 
 function clientIp(req: NextRequest): string {
   return (
@@ -26,11 +27,34 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  let body: { tx_blob?: unknown; network?: string }
+  let body: { tx_blob?: unknown; tx?: unknown; network?: string }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const networkKey = resolveNetworkKey(body.network)
+  const cfg = serverNetworkConfig(networkKey)
+
+  if (cfg.networkId === 2300 && body.tx && typeof body.tx === 'object') {
+    try {
+      await consumeSubmitRateLimit(rlKey)
+      const result = await plSubmit(body.tx as PlTx)
+      return NextResponse.json(
+        {
+          success: result.ok,
+          hash: (body.tx as PlTx).tx_id,
+          result: result.ok ? 'tesSUCCESS' : 'tecFAILED',
+          message: result.msg,
+          network: networkKey,
+        },
+        { status: result.ok ? 200 : 422 },
+      )
+    } catch (err: unknown) {
+      console.error('[wallet/submit] PL error:', err)
+      return NextResponse.json({ error: 'Transaction submission failed' }, { status: 502 })
+    }
   }
 
   if (!body?.tx_blob || typeof body.tx_blob !== 'string') {
@@ -40,8 +64,6 @@ export async function POST(req: NextRequest) {
   if (!/^[0-9A-Fa-f]{10,}$/.test(body.tx_blob)) {
     return NextResponse.json({ error: 'Malformed tx_blob' }, { status: 400 })
   }
-
-  const networkKey = resolveNetworkKey(body.network)
 
   try {
     await consumeSubmitRateLimit(rlKey)

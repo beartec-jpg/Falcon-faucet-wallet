@@ -1,6 +1,6 @@
 /**
  * Wallet catalogs:
- * - Falcon Wallet = native FALCON + Falcon IOUs (F-USDC, FETH, FBTC, FBNB)
+ * - Falcon Wallet = native FPL + Falcon IOUs (F-USDC, FETH, FBTC, FBNB)
  * - Multi-chain = native deposit rows (ETH, USDC, BTC, BNB, classic XRP)
  *   USDC is its own row (Ethereum USDC), not nested under ETH.
  *   XRP is today’s XRPL (secp/ed25519) — separate r… from Falcon-512.
@@ -26,12 +26,12 @@ export interface FalconAssetDef {
   currency?: string
 }
 
-/** Falcon Ledger balances (r…). */
+/** Falcon PL balances (r…). */
 export const FALCON_WALLET_ASSETS: FalconAssetDef[] = [
   {
     id: 'falcon',
-    symbol: 'FALCON',
-    subtitle: 'Native · Falcon Ledger',
+    symbol: 'FPL',
+    subtitle: 'Native · Falcon PL',
     status: 'live',
     canSend: true,
     canReceive: true,

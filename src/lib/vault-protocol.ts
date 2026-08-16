@@ -133,8 +133,8 @@ export interface VaultUnsignedPayment {
      * TrustSet: unused (see limit*).
      */
     amountDrops?: string
-    /** Display asset for Payment; default FALCON for older packages */
-    asset?: 'FALCON' | 'F-USDC'
+    /** Display asset for Payment; default FPL for older packages */
+    asset?: 'FPL' | 'FALCON' | 'F-USDC'
     /** TrustSet limit */
     limitCurrency?: string
     limitIssuer?: string

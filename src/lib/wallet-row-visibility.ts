@@ -1,6 +1,6 @@
 /**
  * Per-wallet-tab asset row visibility (localStorage).
- * Falcon tab: FALCON / F-USDC / FETH / FBTC / FBNB
+ * Falcon tab: FPL / F-USDC / FETH / FBTC / FBNB
  * Multi-chain tab: ETH / USDC / BTC / BNB / XRP (classic)
  */
 
@@ -16,7 +16,7 @@ export const FALCON_ROW_IDS: FalconAssetId[] = ['falcon', 'fusdc', 'feth', 'fbtc
 export const MULTI_ROW_IDS: MultiChainRowId[] = ['eth', 'usdc', 'btc', 'bnb', 'xrp']
 
 export const FALCON_ROW_LABELS: Record<FalconAssetId, string> = {
-  falcon: 'FALCON',
+  falcon: 'FPL',
   fusdc: 'F-USDC',
   feth: 'FETH',
   fbtc: 'FBTC',

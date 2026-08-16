@@ -102,9 +102,9 @@ export default function Header({
   const subtitleText =
     subtitle ||
     (current === 'wallet'
-      ? 'Wallet · Falcon PL 2300'
+      ? 'Wallet · Passkey secured'
       : current === 'vault'
-        ? 'Vault · one nominated payout'
+        ? 'Vault · air-gapped'
         : current === 'swap'
         ? 'Swap · F-USDC'
         : current === 'pool'

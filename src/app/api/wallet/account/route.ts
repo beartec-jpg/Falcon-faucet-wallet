@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   resolveNetworkKey,
+  serverNetworkConfig,
   serverRpcCall,
 } from '@/lib/network-server'
 import { fetchWalletAssets } from '@/lib/swap/wallet-assets'
@@ -9,8 +10,19 @@ import {
   resolveNamesForAddresses,
   resolveNameForAddress,
 } from '@/lib/account-name-server'
+import { plAccount, plStatus } from '@/lib/pl-rpc'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
+const PL_NAME_RE = /^[A-Za-z0-9._-]{2,64}$/
+
+function num(v: unknown, fallback = 0): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string' && v.trim()) {
+    const n = Number(v)
+    if (Number.isFinite(n)) return n
+  }
+  return fallback
+}
 
 export interface TxRecord {
   hash:        string
@@ -32,11 +44,38 @@ export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address') ?? ''
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
 
-  if (!ADDRESS_RE.test(address)) {
+  const cfg = serverNetworkConfig(networkKey)
+  const isPl = cfg.networkId === 2300
+  if (isPl) {
+    if (!ADDRESS_RE.test(address) && !PL_NAME_RE.test(address)) {
+      return NextResponse.json({ error: 'Invalid address' }, { status: 400 })
+    }
+  } else if (!ADDRESS_RE.test(address)) {
     return NextResponse.json({ error: 'Invalid address' }, { status: 400 })
   }
 
   try {
+    if (isPl) {
+      const [st, acct] = await Promise.all([plStatus(false), plAccount(address)])
+      const exists = Boolean(acct.exists)
+      return NextResponse.json({
+        address,
+        balance: num(acct.balance),
+        sequence: num(acct.sequence),
+        exists,
+        transactions: [],
+        currentLedger: num(st.tip_height),
+        network: networkKey,
+        accountType: String(acct.account_type ?? 'hot'),
+        allowlist: Array.isArray(acct.allowlist) ? acct.allowlist : [],
+        vaultLocked: Boolean(acct.vault_locked),
+        assets: {
+          fusdc: { symbol: 'F-USDC', balance: 0, currency: 'QUC', issuer: '', hasTrustLine: false },
+          lp: { symbol: 'LP-TOKENS', balance: 0, currency: '', issuer: '', sharePct: 0, estXrpOut: 0, estUsdcOut: 0 },
+        },
+      })
+    }
+
     const [infoR, txR, srvR] = await Promise.all([
       serverRpcCall<{ error?: string; error_message?: string; account_data?: { Balance: string; Sequence: number } }>(
         networkKey, 'account_info', { account: address, ledger_index: 'validated' }, { allowError: true },

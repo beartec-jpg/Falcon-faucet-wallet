@@ -14,6 +14,8 @@ export interface VaultPublicRecord {
   label: string
   createdAt: number
   fingerprint?: string
+  /** Only address the vault may pay (hot wallet). */
+  payoutAddress?: string
 }
 
 function openDB(): Promise<IDBDatabase> {
