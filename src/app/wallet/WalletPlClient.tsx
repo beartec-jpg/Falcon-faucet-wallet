@@ -9,6 +9,12 @@ import ProductShell from '@/components/ProductShell'
 const STORE = 'fpl-wallet-v1'
 const TEST_ACCOUNTS = ['alice', 'bob', 'carol', 'dave'] as const
 
+type Stored = {
+  account?: string
+  hot?: string
+  createdAt?: number
+}
+
 type Acct = {
   name: string
   exists: boolean
@@ -31,20 +37,25 @@ type Snap = {
   error?: string
 }
 
-function loadStored(): string {
-  if (typeof window === 'undefined') return ''
+function loadStored(): Stored {
+  if (typeof window === 'undefined') return {}
   try {
     const raw = localStorage.getItem(STORE)
-    if (!raw) return ''
-    const j = JSON.parse(raw) as { account?: string }
-    return String(j.account ?? '')
+    if (!raw) return {}
+    const j = JSON.parse(raw) as Stored
+    const account = String(j.account ?? '').trim()
+    const hot = String(j.hot ?? j.account ?? '').trim()
+    return { account, hot }
   } catch {
-    return ''
+    return {}
   }
 }
 
-function saveStored(account: string) {
-  localStorage.setItem(STORE, JSON.stringify({ account, createdAt: Date.now() }))
+function saveStored(next: { account?: string; hot?: string }) {
+  const prev = loadStored()
+  const account = (next.account ?? prev.account ?? '').trim()
+  const hot = (next.hot ?? prev.hot ?? '').trim()
+  localStorage.setItem(STORE, JSON.stringify({ account, hot, createdAt: Date.now() }))
 }
 
 function clearStored() {
@@ -62,6 +73,8 @@ export default function WalletPlClient({ mode = 'wallet' }: { mode?: 'wallet' | 
   const [to, setTo] = useState('')
   const [amount, setAmount] = useState('10')
   const [nominate, setNominate] = useState('')
+  const [hot, setHot] = useState('')
+  const [useHot, setUseHot] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -80,9 +93,10 @@ export default function WalletPlClient({ mode = 'wallet' }: { mode?: 'wallet' | 
 
   useEffect(() => {
     const stored = loadStored()
-    if (stored) setName(stored)
-    void refresh(stored)
-    const id = setInterval(() => void refresh(loadStored()), 5_000)
+    if (stored.hot) setHot(stored.hot)
+    if (stored.account) setName(stored.account)
+    void refresh(stored.account ?? '')
+    const id = setInterval(() => void refresh(loadStored().account ?? ''), 5_000)
     return () => clearInterval(id)
   }, [refresh])
 
@@ -91,10 +105,21 @@ export default function WalletPlClient({ mode = 'wallet' }: { mode?: 'wallet' | 
     setError(null)
     setNotice(null)
     try {
-      saveStored(account)
+      // Wallet page: this account is the hot withdrawal wallet.
+      // Vault page: keep the loaded hot wallet; this account is the vault candidate.
+      if (!isVaultPage || !hot) {
+        setHot(account)
+        saveStored({ account, hot: account })
+      } else {
+        saveStored({ account, hot })
+      }
       setName(account)
       await refresh(account)
-      setNotice(`Opened ${account} on Falcon PL 2300. Old 1001 wallets on this device are ignored.`)
+      setNotice(
+        isVaultPage
+          ? `Opened ${account} as vault candidate. Withdrawals can lock to your hot wallet.`
+          : `Opened ${account} on Falcon PL 2300. This is your hot wallet.`,
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to open')
     } finally {
@@ -102,9 +127,12 @@ export default function WalletPlClient({ mode = 'wallet' }: { mode?: 'wallet' | 
     }
   }
 
+  const destFromHot = hot.trim() && hot.trim() !== (snap?.account?.name ?? '')
+  const payoutDest = useHot && destFromHot ? hot.trim() : nominate.trim()
+
   const activateVault = async () => {
     const account = snap?.account?.name
-    const dest = nominate.trim()
+    const dest = payoutDest
     if (!account || !dest) return
     setBusy(true)
     setError(null)
@@ -118,7 +146,9 @@ export default function WalletPlClient({ mode = 'wallet' }: { mode?: 'wallet' | 
       const d = (await r.json()) as { error?: string; destination?: string }
       if (!r.ok) throw new Error(d.error ?? 'Vault activate failed')
       setNotice(
-        `Vault activated. Protocol will only pay ${d.destination ?? dest} from this account.`,
+        `Vault activated. Protocol will only pay ${d.destination ?? dest}${
+          dest === hot.trim() ? ' (your hot wallet)' : ''
+        } from this account.`,
       )
       await refresh(account)
     } catch (e) {
@@ -160,6 +190,9 @@ export default function WalletPlClient({ mode = 'wallet' }: { mode?: 'wallet' | 
   const reset = () => {
     clearStored()
     setName('')
+    setHot('')
+    setNominate('')
+    setUseHot(true)
     setSnap((s) => (s ? { ...s, account: null } : s))
     setNotice('This device is wiped. Pick a test account to start again.')
   }
@@ -176,7 +209,7 @@ export default function WalletPlClient({ mode = 'wallet' }: { mode?: 'wallet' | 
         <span className="font-medium">Falcon PL</span>
         {' · '}Network ID 2300
         {isVaultPage
-          ? ' · Activate a vault by nominating the only address the protocol may pay'
+          ? ' · Lock a vault so it can only pay the loaded hot wallet'
           : ' · Fresh FPL test wallets — old 1001 passkey wallets are not used'}
       </div>
 
@@ -192,13 +225,30 @@ export default function WalletPlClient({ mode = 'wallet' }: { mode?: 'wallet' | 
             </h1>
             <p className="text-slate-400 text-sm">
               {isVaultPage
-                ? 'Nominate one payout address to activate. After lock the protocol rejects every other destination.'
+                ? 'Open the account that becomes the vault, then use your loaded hot wallet as the only withdrawal address.'
                 : 'Named Falcon-512 accounts already on 2300. Pick one, send FPL, or activate a vault.'}
             </p>
           </div>
 
+          {isVaultPage && hot && (
+            <div className="card px-4 py-3 border-brand-500/20 bg-slate-900/70 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs text-slate-500 uppercase tracking-wider">Hot wallet</div>
+                <div className="font-mono text-brand-300">{hot}</div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Vaults you activate can lock withdrawals to this account.
+                </p>
+              </div>
+              <Link href="/wallet" className="text-xs text-slate-500 hover:text-brand-400 shrink-0">
+                Change
+              </Link>
+            </div>
+          )}
+
           <div className="card p-5 space-y-3 border-brand-500/20 bg-slate-900/70">
-            <div className="text-xs text-slate-500 uppercase tracking-wider">Open a test account</div>
+            <div className="text-xs text-slate-500 uppercase tracking-wider">
+              {isVaultPage ? 'Account to turn into a vault' : 'Open a test account'}
+            </div>
             <div className="grid grid-cols-2 gap-2">
               {TEST_ACCOUNTS.map((id) => (
                 <button
@@ -268,20 +318,74 @@ export default function WalletPlClient({ mode = 'wallet' }: { mode?: 'wallet' | 
                     This address is the only destination the protocol will allow. Activation locks it
                     permanently — it cannot be changed.
                   </p>
-                  <input
-                    className="input-field"
-                    value={nominate}
-                    onChange={(e) => setNominate(e.target.value)}
-                    placeholder="dave"
-                    spellCheck={false}
-                  />
+                  {hot ? (
+                    <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-[11px] uppercase tracking-wider text-slate-500">
+                          Loaded hot wallet
+                        </div>
+                        <div className="font-mono text-sm text-brand-300 truncate">{hot}</div>
+                      </div>
+                      <button
+                        type="button"
+                        className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+                          useHot && destFromHot
+                            ? 'bg-brand-500/20 text-brand-200 border-brand-500/40'
+                            : 'bg-slate-800 text-slate-200 border-slate-700 hover:border-brand-500/40'
+                        } disabled:opacity-40`}
+                        disabled={!destFromHot}
+                        onClick={() => {
+                          setUseHot(true)
+                          setNominate(hot)
+                        }}
+                      >
+                        Use hot wallet
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-200/80">
+                      Open a hot wallet on Wallet first — that account becomes the withdrawal
+                      address.
+                    </p>
+                  )}
+                  {!destFromHot && hot && hot === acct.name && (
+                    <p className="text-xs text-amber-200/80">
+                      {hot} is the loaded hot wallet. Open a different account to turn into a vault
+                      that can only pay {hot}.
+                    </p>
+                  )}
+                  {!(useHot && destFromHot) && (
+                    <input
+                      className="input-field"
+                      value={nominate}
+                      onChange={(e) => {
+                        setUseHot(false)
+                        setNominate(e.target.value)
+                      }}
+                      placeholder={hot && hot !== acct.name ? hot : 'dave'}
+                      spellCheck={false}
+                    />
+                  )}
+                  {useHot && destFromHot && (
+                    <button
+                      type="button"
+                      className="text-xs text-slate-500 hover:text-slate-300"
+                      onClick={() => setUseHot(false)}
+                    >
+                      Or nominate a different address
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="w-full py-3 rounded-xl font-semibold text-brand-200 bg-slate-800 hover:bg-slate-700 border border-brand-500/40 disabled:opacity-50"
-                    disabled={busy || !nominate.trim() || nominate.trim() === acct.name}
+                    disabled={busy || !payoutDest || payoutDest === acct.name}
                     onClick={() => void activateVault()}
                   >
-                    {busy ? 'Activating…' : 'Activate vault'}
+                    {busy
+                      ? 'Activating…'
+                      : payoutDest
+                        ? `Activate vault → ${payoutDest}`
+                        : 'Activate vault'}
                   </button>
                 </div>
               )}
