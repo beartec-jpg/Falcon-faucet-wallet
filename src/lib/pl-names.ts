@@ -71,6 +71,16 @@ export function activationFeeFpl(name: string): number {
   return 100
 }
 
+/** `{hot}.vault`, trimmed to 32 chars if needed. */
+export function linkedVaultName(hotAccount: string): string | null {
+  const base = normalizePlName(hotAccount)
+  if (!base) return null
+  const suffix = '.vault'
+  const maxBase = NAME_MAX_LEN - suffix.length
+  const trimmed = base.length > maxBase ? base.slice(0, maxBase) : base
+  return normalizePlName(`${trimmed}${suffix}`)
+}
+
 export function plAccountId(wallet: {
   accountName?: string
   label?: string

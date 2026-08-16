@@ -18,6 +18,9 @@ export interface VaultInnerPayload {
   publicKey: string
   label: string
   createdAt: number
+  accountName?: string
+  payoutAddress?: string
+  kind?: 'cold' | 'browser'
 }
 
 export interface EncryptedVaultFile {
@@ -28,6 +31,9 @@ export interface EncryptedVaultFile {
   publicKey: string
   label: string
   createdAt: number
+  accountName?: string
+  payoutAddress?: string
+  kind?: 'cold' | 'browser'
   /** Optional short fingerprint for UI display */
   fingerprint?: string
   payload: {
@@ -131,6 +137,9 @@ export async function createEncryptedVaultFile(
     publicKey: inner.publicKey,
     label: inner.label,
     createdAt: inner.createdAt,
+    accountName: inner.accountName,
+    payoutAddress: inner.payoutAddress,
+    kind: inner.kind ?? 'cold',
     fingerprint,
     payload: {
       data: toBase64(enc),
@@ -202,6 +211,9 @@ export function publicFromVaultFile(file: EncryptedVaultFile): {
   label: string
   createdAt: number
   fingerprint?: string
+  accountName?: string
+  payoutAddress?: string
+  kind?: 'cold' | 'browser'
 } {
   return {
     address: file.address,
@@ -209,11 +221,19 @@ export function publicFromVaultFile(file: EncryptedVaultFile): {
     label: file.label || 'Vault',
     createdAt: file.createdAt || Date.now(),
     fingerprint: file.fingerprint,
+    accountName: file.accountName,
+    payoutAddress: file.payoutAddress,
+    kind: file.kind ?? 'cold',
   }
 }
 
-export function vaultFilename(address: string): string {
-  return `falcon-vault-${address.slice(0, 10)}.json`
+export function vaultFilename(file: EncryptedVaultFile | string): string {
+  const slug =
+    typeof file === 'string'
+      ? file
+      : file.accountName || file.label || file.address
+  const safe = slug.replace(/[^a-z0-9._-]+/gi, '-').slice(0, 24) || 'vault'
+  return `falcon-vault-${safe}.json`
 }
 
 export function downloadVaultFile(file: EncryptedVaultFile): void {
@@ -221,7 +241,11 @@ export function downloadVaultFile(file: EncryptedVaultFile): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = vaultFilename(file.address)
+  a.download = vaultFilename(file)
+  a.rel = 'noopener'
+  a.style.display = 'none'
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 4_000)
 }

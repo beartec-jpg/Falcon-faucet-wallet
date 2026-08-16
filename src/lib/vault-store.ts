@@ -1,11 +1,16 @@
 /**
- * IndexedDB storage for Falcon vault PUBLIC records only.
- * Never stores falcon_secret — secrets live only on the cold signer / offline media.
+ * IndexedDB storage for Falcon vault records.
+ * Cold vaults store PUBLIC metadata only — secrets live in the JSON / cold signer.
+ * In-browser vaults keep a passkey-encrypted secret on this device.
  */
+
+import type { EncryptedSeed } from './wallet-crypto'
 
 const DB_NAME = 'falcon-vault'
 const DB_VERSION = 1
 const STORE = 'vaults'
+
+export type VaultKind = 'cold' | 'browser'
 
 export interface VaultPublicRecord {
   vaultId: string
@@ -14,8 +19,22 @@ export interface VaultPublicRecord {
   label: string
   createdAt: number
   fingerprint?: string
-  /** Only address the vault may pay (hot wallet). */
+  /** Only destination this vault may pay (hot account name). */
   payoutAddress?: string
+  kind?: VaultKind
+  /** FPL account name — this is the vault id on-chain. */
+  accountName?: string
+  nameReservedUntil?: number
+  nameActivationFee?: number
+  nameActivated?: boolean
+  /** Browser vault only — passkey-encrypted falcon_secret. */
+  encrypted?: EncryptedSeed
+  credentialId?: string
+  hasPrf?: boolean
+}
+
+export function vaultAccountId(v: Pick<VaultPublicRecord, 'accountName' | 'address'>): string {
+  return (v.accountName || v.address).trim()
 }
 
 function openDB(): Promise<IDBDatabase> {

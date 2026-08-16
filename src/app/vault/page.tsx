@@ -39,6 +39,7 @@ import {
   replacePrimaryVault,
   deleteVault,
   newVaultId,
+  vaultAccountId,
   type VaultPublicRecord,
 } from '@/lib/vault-store'
 import {
@@ -68,7 +69,10 @@ import {
 } from '@/lib/wallet-submit'
 import { isValidFalconAddress, parseFalconAddressFromScan } from '@/lib/parse-falcon-address'
 import { normalizeAccountName } from '@/lib/account-name'
-import { loadPrimaryWallet } from '@/lib/wallet-store'
+import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
+import { authenticatePasskey } from '@/lib/passkey'
+import { encryptSeed, decryptSeed } from '@/lib/wallet-crypto'
+import { activationFeeFpl, linkedVaultName, normalizePlName, plAccountId } from '@/lib/pl-names'
 
 const MultiQrDisplay = dynamic(() => import('@/components/MultiQrDisplay'), { ssr: false })
 const MultiQrScanner = dynamic(() => import('@/components/MultiQrScanner'), { ssr: false })
@@ -77,7 +81,8 @@ const AddressQrScanner = dynamic(() => import('@/components/AddressQrScanner'), 
 type View =
   | 'loading'
   | 'empty'
-  | 'create'
+  | 'create-cold'
+  | 'create-browser'
   | 'locked'
   | 'unlock-chal'
   | 'unlock-scan'
@@ -112,9 +117,12 @@ export default function VaultPage() {
   const [pass, setPass] = useState('')
   const [pass2, setPass2] = useState('')
   const [payout, setPayout] = useState('')
-  const [hotAddress, setHotAddress] = useState('')
+  const [hotWallet, setHotWallet] = useState<StoredWallet | null>(null)
+  const [hotId, setHotId] = useState('')
+  const [coldName, setColdName] = useState('')
   const [downloaded, setDownloaded] = useState(false)
   const [acked, setAcked] = useState(false)
+  const [browserSecret, setBrowserSecret] = useState<string | null>(null)
 
   // Unlock
   const [challenge, setChallenge] = useState<VaultUnlockChallenge | null>(null)
@@ -156,7 +164,13 @@ export default function VaultPage() {
 
   useEffect(() => {
     void loadPrimaryWallet().then((w) => {
-      if (w?.address) setHotAddress(w.address)
+      if (!w) return
+      setHotWallet(w)
+      const id = plAccountId(w)
+      setHotId(id)
+      setPayout(id)
+      const suggested = linkedVaultName(id)
+      if (suggested) setColdName(`${id}.cold`.slice(0, 32))
     })
   }, [])
 
@@ -168,6 +182,7 @@ export default function VaultPage() {
       setSessionLeft(left)
       if (left <= 0 && vault) {
         clearVaultSession()
+        setBrowserSecret(null)
         setView('locked')
         setAccount(null)
       }
@@ -203,12 +218,23 @@ export default function VaultPage() {
   }, [network.key])
 
   useEffect(() => {
-    if ((view === 'unlocked' || view === 'send') && vault) {
-      loadBalance(vault.address)
+    if ((view === 'unlocked' || view === 'send' || view === 'locked' || view === 'receive') && vault) {
+      loadBalance(vaultAccountId(vault))
     }
   }, [view, vault, loadBalance])
 
-  // ── Create vault ────────────────────────────────────────────────────────────
+  async function reserveAccountName(name: string, publicKey: string) {
+    const r = await fetch('/api/wallet/name', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reserve', name, publicKey }),
+    })
+    const d = (await r.json()) as { error?: string; reservedUntil?: number; fee?: number }
+    if (!r.ok) throw new Error(d.error ?? 'Could not reserve vault name')
+    return d
+  }
+
+  // ── Create cold vault ──────────────────────────────────────────────────────
 
   async function handleCreateVault() {
     setError(null)
@@ -221,29 +247,36 @@ export default function VaultPage() {
       setError('Passwords do not match')
       return
     }
-    const dest = payout.trim()
+    const dest = (payout.trim() || hotId).toLowerCase()
     if (!dest) {
-      setError('Nominate a withdrawal address — use your loaded hot wallet')
+      setError('Open a hot wallet first — the vault can only pay that account')
+      return
+    }
+    const name = normalizePlName(coldName) || linkedVaultName(dest)
+    if (!name) {
+      setError('Pick a valid vault account name')
       return
     }
     setBusy(true)
     try {
       const keys = await generateWallet()
+      const hold = await reserveAccountName(name, keys.publicKey)
       const createdAt = Date.now()
       const file = await createEncryptedVaultFile(
         {
           falcon_secret: keys.falcon_secret,
           address: keys.address,
           publicKey: keys.publicKey,
-          label: label.trim() || 'Vault',
+          label: label.trim() || name,
           createdAt,
+          accountName: name,
+          payoutAddress: dest,
+          kind: 'cold',
         },
         pass,
       )
       downloadVaultFile(file)
       setDownloaded(true)
-
-      // Wipe secret reference (string GC only — best effort)
       ;(keys as { falcon_secret?: string }).falcon_secret = undefined
 
       const fingerprint =
@@ -252,18 +285,137 @@ export default function VaultPage() {
         vaultId: newVaultId(),
         address: keys.address,
         publicKey: keys.publicKey,
-        label: label.trim() || 'Vault',
+        label: label.trim() || name,
         createdAt,
         fingerprint,
         payoutAddress: dest,
+        kind: 'cold',
+        accountName: name,
+        nameReservedUntil: Number(hold.reservedUntil ?? Date.now() + 30 * 60 * 1000),
+        nameActivationFee: Number(hold.fee ?? activationFeeFpl(name)),
+        nameActivated: false,
       }
-      // Wait for user ack before saving — store pending in state via download flag
-      sessionStorage.setItem(
-        'falcon-vault-pending-public',
-        JSON.stringify(record),
-      )
+      sessionStorage.setItem('falcon-vault-pending-public', JSON.stringify(record))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Vault creation failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ── Create in-browser vault linked to hot account ──────────────────────────
+
+  async function handleCreateBrowserVault() {
+    setError(null)
+    if (!hotWallet || !hotId) {
+      setError('Open a hot wallet first — this vault links to that account')
+      return
+    }
+    const name = linkedVaultName(hotId)
+    if (!name) {
+      setError('Hot account name is not valid for a linked vault')
+      return
+    }
+    setBusy(true)
+    try {
+      const { keyBytes } = await authenticatePasskey(hotWallet.credentialId, hotWallet.hasPrf)
+      const keys = await generateWallet()
+      const hold = await reserveAccountName(name, keys.publicKey)
+      const encrypted = await encryptSeed(keys.falcon_secret, keyBytes, hotWallet.hasPrf)
+      const createdAt = Date.now()
+      const fingerprint = await vaultFingerprint(keys.address, keys.publicKey)
+      const record: VaultPublicRecord = {
+        vaultId: newVaultId(),
+        address: keys.address,
+        publicKey: keys.publicKey,
+        label: name,
+        createdAt,
+        fingerprint,
+        payoutAddress: hotId,
+        kind: 'browser',
+        accountName: name,
+        nameReservedUntil: Number(hold.reservedUntil ?? Date.now() + 30 * 60 * 1000),
+        nameActivationFee: Number(hold.fee ?? activationFeeFpl(name)),
+        nameActivated: false,
+        encrypted,
+        credentialId: hotWallet.credentialId,
+        hasPrf: hotWallet.hasPrf,
+      }
+      await replacePrimaryVault(record)
+      setVault(record)
+      setView('locked')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not create in-browser vault')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function unlockBrowserVault() {
+    if (!vault?.encrypted || !hotWallet) {
+      setError('Open the linked hot wallet on this device to unlock')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const { keyBytes } = await authenticatePasskey(
+        vault.credentialId || hotWallet.credentialId,
+        vault.hasPrf ?? hotWallet.hasPrf,
+      )
+      const secret = await decryptSeed(vault.encrypted, keyBytes)
+      setBrowserSecret(secret)
+      openVaultSession(vault)
+      setSessionLeft(sessionRemainingMs())
+      setView('unlocked')
+      await loadBalance(vaultAccountId(vault))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unlock failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function activateVaultName() {
+    if (!vault?.accountName) return
+    const fee = vault.nameActivationFee ?? activationFeeFpl(vault.accountName)
+    if ((account?.balance ?? 0) < fee) {
+      setError(`Send ${fee.toLocaleString()} FPL to ${vault.accountName} to activate`)
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await fetch('/api/wallet/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'activate',
+          name: vault.accountName,
+          publicKey: vault.publicKey,
+        }),
+      })
+      const d = (await r.json()) as { error?: string }
+      if (!r.ok) throw new Error(d.error ?? 'Activate failed')
+      const dest = vault.payoutAddress || hotId
+      if (dest) {
+        await fetch('/api/wallet/pl', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'vault-activate',
+            account: vault.accountName,
+            destination: dest,
+          }),
+        }).catch(() => {
+          /* protocol lock is best-effort until the vault key is on-node */
+        })
+      }
+      const next = { ...vault, nameActivated: true }
+      await replacePrimaryVault(next)
+      setVault(next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Activate failed')
     } finally {
       setBusy(false)
     }
@@ -344,7 +496,7 @@ export default function VaultPage() {
       try {
         const res = await fetch(
           withNetworkQuery(
-            `/api/wallet/account?address=${encodeURIComponent(vault.address)}`,
+            `/api/wallet/account?address=${encodeURIComponent(vaultAccountId(vault))}`,
             network.key,
           ),
         )
@@ -371,7 +523,7 @@ export default function VaultPage() {
       } catch {
         /* snapshot optional — unlock still works without it */
       }
-      const chal = createUnlockChallenge(vault.address, 120_000, accountSnap)
+      const chal = createUnlockChallenge(vaultAccountId(vault), 120_000, accountSnap)
       setChallenge(chal)
       const enc = encodeMultiQr(encodeUnlockChallenge(chal), 'vault-unlock-chal')
       setChalEncoded(enc)
@@ -462,11 +614,11 @@ export default function VaultPage() {
     setBusy(true)
     try {
       const resolved = await resolveDestination(vault.payoutAddress || dest)
-      if (resolved.address === vault.address) {
+      if (resolved.address === vaultAccountId(vault)) {
         throw new Error('Destination must be a different Falcon address')
       }
       const destination = resolved.address
-      const seq = await fetchSequenceInfo(vault.address, network.key)
+      const seq = await fetchSequenceInfo(vaultAccountId(vault), network.key)
       if (!seq.exists) {
         throw new Error('Vault address is not funded on-ledger yet — receive FPL first')
       }
@@ -499,7 +651,7 @@ export default function VaultPage() {
         amountDrops = qxrpToDrops(amt)
         asset = 'FPL'
         tx_json = buildPaymentTxJson({
-          account: vault.address,
+          account: vaultAccountId(vault),
           destination,
           amountDrops,
           sequence: seq.sequence,
@@ -514,7 +666,7 @@ export default function VaultPage() {
         amountDrops = amount.trim()
         asset = 'F-USDC'
         tx_json = buildFusdcPaymentTxJson({
-          account: vault.address,
+          account: vaultAccountId(vault),
           destination,
           issuer: fusdc.issuer,
           currency: fusdc.currency,
@@ -534,7 +686,7 @@ export default function VaultPage() {
         networkId: network.networkId,
         display: {
           transactionType: 'Payment',
-          account: vault.address,
+          account: vaultAccountId(vault),
           destination: displayDest,
           amountDrops,
           asset,
@@ -562,7 +714,7 @@ export default function VaultPage() {
     }
     setBusy(true)
     try {
-      const seq = await fetchSequenceInfo(vault.address, network.key)
+      const seq = await fetchSequenceInfo(vaultAccountId(vault), network.key)
       if (!seq.exists) {
         throw new Error('Vault must be funded with FPL before setting a trust line')
       }
@@ -582,7 +734,7 @@ export default function VaultPage() {
       const lastLedgerSequence = seq.currentLedger + DEFAULT_LEDGER_OFFSET
       const limit = '10000000'
       const tx_json = buildTrustSetTxJson({
-        account: vault.address,
+        account: vaultAccountId(vault),
         currency,
         issuer,
         limit,
@@ -599,7 +751,7 @@ export default function VaultPage() {
         networkId: network.networkId,
         display: {
           transactionType: 'TrustSet',
-          account: vault.address,
+          account: vaultAccountId(vault),
           limitCurrency: currency,
           limitIssuer: issuer,
           limitValue: limit,
@@ -629,7 +781,7 @@ export default function VaultPage() {
       setAmount('')
       setDest('')
       setView('unlocked')
-      if (vault) await loadBalance(vault.address)
+      if (vault) await loadBalance(vaultAccountId(vault))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Submit failed')
       setView('unlocked')
@@ -691,21 +843,53 @@ export default function VaultPage() {
 
         {/* Empty */}
         {view === 'empty' && (
-          <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-            <p className="text-sm text-slate-300">
-              No vault on this browser. Create one and move the encrypted file to your cold signer
-              (offline phone / SD card). This browser keeps only the public address.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setView('create')
-                setError(null)
-              }}
-              className="w-full py-3 rounded-xl font-semibold bg-cyan-600 hover:bg-cyan-500 text-white"
-            >
-              Create vault
-            </button>
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-cyan-500/25 bg-slate-900/60 p-5 space-y-3">
+              <h2 className="text-sm font-semibold text-white">Cold vault</h2>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Creates a vault-type account. The key is written to an encrypted JSON file and wiped
+                from this browser. Load that file on the cold signer to unlock and send. Payouts lock
+                to your hot account.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setView('create-cold')
+                  setError(null)
+                }}
+                className="w-full py-3 rounded-xl font-semibold bg-cyan-600 hover:bg-cyan-500 text-white"
+              >
+                Create cold vault
+              </button>
+            </div>
+            <div className="rounded-2xl border border-brand-500/25 bg-slate-900/60 p-5 space-y-3">
+              <h2 className="text-sm font-semibold text-white">In-browser vault</h2>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Links to the hot wallet on this device
+                {hotId ? (
+                  <>
+                    {' '}
+                    (<span className="font-mono text-brand-300">{hotId}</span>
+                    {' → '}
+                    <span className="font-mono text-brand-300">{linkedVaultName(hotId)}</span>)
+                  </>
+                ) : (
+                  ' — open a wallet first'
+                )}
+                . Same passkey. Fund the vault name to activate, like a new wallet.
+              </p>
+              <button
+                type="button"
+                disabled={!hotId || busy}
+                onClick={() => {
+                  setView('create-browser')
+                  setError(null)
+                }}
+                className="w-full py-3 rounded-xl font-semibold bg-brand-500 hover:bg-brand-400 disabled:opacity-40 text-slate-950"
+              >
+                Create in-browser vault
+              </button>
+            </div>
             <label className="block w-full text-center text-sm text-slate-400 hover:text-slate-200 cursor-pointer py-2">
               Import public record from vault file
               <input
@@ -721,19 +905,29 @@ export default function VaultPage() {
           </div>
         )}
 
-        {/* Create */}
-        {view === 'create' && (
+        {/* Create cold */}
+        {view === 'create-cold' && (
           <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-            <h2 className="text-sm font-semibold text-white">Create vault</h2>
+            <h2 className="text-sm font-semibold text-white">Create cold vault</h2>
             <p className="text-xs text-slate-400">
-              A new Falcon-512 key is generated in this browser (CSPRNG), encrypted into a vault file,
-              then wiped from the portal. Store the file offline and load it only on the cold signer.
+              A new Falcon-512 key is generated here, encrypted into a vault JSON, then wiped.
+              Store the file offline and load it only on the cold signer.
             </p>
             <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100/90 leading-relaxed">
               <strong className="font-semibold">Backup hygiene:</strong> treat the vault JSON like a seed.
               Use a strong password; never email, Drive, or chat the file. Key is born on this device —
               for highest security prefer generating offline on the cold signer when that path ships.
             </div>
+            <label className="block text-xs text-slate-400">
+              Vault account name
+              <input
+                value={coldName}
+                onChange={(e) => setColdName(e.target.value)}
+                placeholder="your.account.cold"
+                spellCheck={false}
+                className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-white font-mono"
+              />
+            </label>
             <label className="block text-xs text-slate-400">
               Label
               <input
@@ -744,25 +938,25 @@ export default function VaultPage() {
             </label>
             <div className="space-y-2">
               <label className="block text-xs text-slate-400">
-                Withdrawal address
+                Withdrawal account (hot wallet)
                 <input
-                  value={payout}
+                  value={payout || hotId}
                   onChange={(e) => setPayout(e.target.value)}
-                  placeholder="r… or loaded hot wallet"
+                  placeholder="your.hot.account"
                   spellCheck={false}
                   className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-white font-mono"
                 />
               </label>
               <p className="text-[11px] text-slate-500">
-                The only address this vault may pay. Use your loaded hot wallet.
+                The only account this vault may pay. Defaults to the wallet loaded on this device.
               </p>
               <button
                 type="button"
-                disabled={!hotAddress}
-                onClick={() => setPayout(hotAddress)}
+                disabled={!hotId}
+                onClick={() => setPayout(hotId)}
                 className="w-full py-2 rounded-lg text-xs font-semibold border border-brand-500/40 bg-slate-800 text-brand-200 hover:bg-slate-700 disabled:opacity-40"
               >
-                {hotAddress ? `Use hot wallet · ${hotAddress.slice(0, 8)}…` : 'Open a hot wallet first'}
+                {hotId ? `Use hot wallet · ${hotId}` : 'Open a hot wallet first'}
               </button>
             </div>
             <label className="block text-xs text-slate-400">
@@ -824,30 +1018,99 @@ export default function VaultPage() {
           </div>
         )}
 
+        {view === 'create-browser' && (
+          <div className="space-y-4 rounded-2xl border border-brand-500/25 bg-slate-900/60 p-5">
+            <h2 className="text-sm font-semibold text-white">In-browser vault</h2>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              This vault stays on this device, unlocked with the same passkey as your hot wallet.
+              Payouts can only go to that hot account.
+            </p>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3 space-y-1">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">Hot wallet</div>
+              <div className="font-mono text-sm text-brand-300">{hotId || '—'}</div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500 pt-2">Vault account</div>
+              <div className="font-mono text-sm text-white">{hotId ? linkedVaultName(hotId) : '—'}</div>
+              {hotId && linkedVaultName(hotId) && (
+                <p className="text-[11px] text-slate-500 pt-1">
+                  Activate with {activationFeeFpl(linkedVaultName(hotId)!).toLocaleString()} FPL
+                  within 30 minutes or the name returns to the pool.
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={busy || !hotId}
+              onClick={() => void handleCreateBrowserVault()}
+              className="w-full py-3 rounded-xl font-semibold bg-brand-500 hover:bg-brand-400 disabled:opacity-40 text-slate-950"
+            >
+              {busy ? 'Creating…' : 'Create and link with passkey'}
+            </button>
+            <button
+              type="button"
+              className="w-full text-xs text-slate-500 hover:text-slate-300"
+              onClick={() => setView('empty')}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         {/* Locked */}
         {view === 'locked' && vault && (
           <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
             <div className="flex items-center gap-2">
               <span className="text-2xl">🔒</span>
               <div>
-                <p className="text-sm font-semibold text-white">{vault.label}</p>
-                <p className="text-[11px] font-mono text-slate-500 break-all">{vault.address}</p>
-                {vault.fingerprint && (
-                  <p className="text-[10px] text-slate-600">fp {vault.fingerprint}</p>
+                <p className="text-sm font-semibold text-white">
+                  {vault.kind === 'browser' ? 'In-browser vault' : 'Cold vault'}
+                </p>
+                <p className="text-sm font-mono text-brand-300 break-all">{vaultAccountId(vault)}</p>
+                {vault.payoutAddress && (
+                  <p className="text-[11px] text-slate-500">
+                    Pays only to <span className="font-mono">{vault.payoutAddress}</span>
+                  </p>
                 )}
               </div>
             </div>
+            {vault.accountName && !vault.nameActivated && (
+              <div className="rounded-xl border border-brand-500/30 bg-brand-500/5 px-3 py-3 space-y-2">
+                <p className="text-sm text-slate-200">
+                  Activate with {(vault.nameActivationFee ?? activationFeeFpl(vault.accountName)).toLocaleString()} FPL
+                </p>
+                <p className="text-xs text-slate-500">
+                  Balance {account ? account.balance.toLocaleString() : '—'} FPL. Fund this vault name, then activate.
+                </p>
+                <div className="flex gap-2">
+                  <Link
+                    href={`/faucet?address=${encodeURIComponent(vault.accountName)}`}
+                    className="flex-1 text-center py-2 rounded-lg text-sm font-semibold bg-slate-800 text-slate-200"
+                  >
+                    Faucet
+                  </Link>
+                  <button
+                    type="button"
+                    disabled={busy || (account?.balance ?? 0) < (vault.nameActivationFee ?? 0)}
+                    onClick={() => void activateVaultName()}
+                    className="flex-1 py-2 rounded-lg text-sm font-semibold bg-brand-500 text-slate-950 disabled:opacity-40"
+                  >
+                    Activate
+                  </button>
+                </div>
+              </div>
+            )}
             <p className="text-xs text-slate-400">
-              Vault is locked. Unlock with your cold signer, or receive funds (address only).
+              {vault.kind === 'browser'
+                ? 'Unlock with the same passkey as your hot wallet.'
+                : 'Unlock with your cold signer, or receive to the vault account name.'}
             </p>
             <div className="flex gap-2 flex-wrap">
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void startUnlock()}
+                onClick={() => void (vault.kind === 'browser' ? unlockBrowserVault() : startUnlock())}
                 className="flex-1 min-w-[140px] py-3 rounded-xl font-semibold bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white"
               >
-                {busy ? 'Fetching balance…' : 'Unlock vault'}
+                {busy ? 'Working…' : vault.kind === 'browser' ? 'Unlock with passkey' : 'Unlock vault'}
               </button>
               <button
                 type="button"
@@ -899,9 +1162,13 @@ export default function VaultPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-semibold text-white flex items-center gap-1.5">
-                  <span className="text-emerald-400">🔓</span> {vault.label}
+                  <span className="text-emerald-400">🔓</span> {vaultAccountId(vault)}
                 </p>
-                <p className="text-[11px] font-mono text-slate-500 break-all">{vault.address}</p>
+                {vault.payoutAddress && (
+                  <p className="text-[11px] text-slate-500">
+                    Pays only to <span className="font-mono">{vault.payoutAddress}</span>
+                  </p>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-[10px] text-slate-500">Session</p>
@@ -972,7 +1239,7 @@ export default function VaultPage() {
               </button>
               <button
                 type="button"
-                onClick={() => vault && loadBalance(vault.address)}
+                onClick={() => vault && loadBalance(vaultAccountId(vault))}
                 className="p-2.5 rounded-xl bg-slate-800 text-slate-400"
                 title="Refresh"
               >
@@ -994,17 +1261,17 @@ export default function VaultPage() {
             <div className="inline-block bg-white p-3 rounded-xl">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(vault.address)}&size=180x180&margin=0`}
+                src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(vaultAccountId(vault))}&size=180x180&margin=0`}
                 alt="Vault address QR"
                 width={180}
                 height={180}
               />
             </div>
-            <p className="text-xs font-mono text-slate-300 break-all">{vault.address}</p>
+            <p className="text-xs font-mono text-slate-300 break-all">{vaultAccountId(vault)}</p>
             <button
               type="button"
               className="text-xs text-brand-400"
-              onClick={() => void navigator.clipboard.writeText(vault.address)}
+              onClick={() => void navigator.clipboard.writeText(vaultAccountId(vault))}
             >
               Copy address
             </button>
