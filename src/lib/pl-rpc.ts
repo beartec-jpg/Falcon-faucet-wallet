@@ -1,16 +1,35 @@
 /**
- * Falcon PL (network 2200) wire client.
+ * Falcon PL (network 2300) wire client.
  *
- * Nodes speak newline-JSON `WireMsg` on TCP (default 127.0.0.1:19101), not
- * XRPL JSON-RPC. The faucet API uses this to submit WatcherHeartbeat and
- * poll enter/exit. Gossip on the same socket is skipped, matching ctl.
+ * Nodes speak newline-JSON `WireMsg` on TCP, not XRPL JSON-RPC.
+ * Local seats use 127.0.0.1:19301. Vercel / public deploys fall through to
+ * the droplet TCP proxy (forwards to the falcon1 archive over Tailscale).
  */
 
 import net from 'net'
 import { createHash, createHmac } from 'crypto'
 
 export const PL_NETWORK_ID = Number(process.env.FALCON_PL_NETWORK_ID ?? '2300')
-export const PL_DEFAULT_ADDR = process.env.FALCON_PL_RPC ?? '127.0.0.1:19301'
+/** Public TCP proxy on the droplet → falcon1 :19301 archive. */
+export const PL_PUBLIC_PROXY = '192.241.247.158:19311'
+
+export function plRpcAddrs(): string[] {
+  const fromEnv = [
+    process.env.FALCON_PL_RPC,
+    process.env.FALCON_PL_PUBLIC_RPC,
+  ]
+    .flatMap((v) => (v ?? '').split(','))
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const fallbacks = ['127.0.0.1:19301', PL_PUBLIC_PROXY]
+  const out: string[] = []
+  for (const a of [...fromEnv, ...fallbacks]) {
+    if (!out.includes(a)) out.push(a)
+  }
+  return out
+}
+
+export const PL_DEFAULT_ADDR = plRpcAddrs()[0]
 export const PL_WATCHER_ACCOUNT =
   process.env.FALCON_PL_WATCHER_ACCOUNT?.trim() || 'watcher-browser'
 export const PL_FAUCET_ACCOUNT = process.env.FALCON_PL_FAUCET_ACCOUNT?.trim() || 'faucet'
@@ -102,12 +121,11 @@ export function signPlTx(opts: {
   }
 }
 
-export function plRpc(
+function plRpcOnce(
   msg: Record<string, unknown>,
-  opts?: { addr?: string; timeoutMs?: number },
+  addr: string,
+  timeoutMs: number,
 ): Promise<PlWire> {
-  const addr = opts?.addr ?? PL_DEFAULT_ADDR
-  const timeoutMs = opts?.timeoutMs ?? 8_000
   const { host, port } = parseAddr(addr)
 
   return new Promise((resolve, reject) => {
@@ -152,6 +170,23 @@ export function plRpc(
     })
     sock.on('end', () => finish(new Error('pl rpc closed')))
   })
+}
+
+export async function plRpc(
+  msg: Record<string, unknown>,
+  opts?: { addr?: string; timeoutMs?: number },
+): Promise<PlWire> {
+  const timeoutMs = opts?.timeoutMs ?? 8_000
+  const addrs = opts?.addr ? [opts.addr] : plRpcAddrs()
+  let last: Error | null = null
+  for (const addr of addrs) {
+    try {
+      return await plRpcOnce(msg, addr, timeoutMs)
+    } catch (e) {
+      last = e instanceof Error ? e : new Error(String(e))
+    }
+  }
+  throw last ?? new Error('pl rpc: no endpoints')
 }
 
 export async function plStatus(includeAccounts = false): Promise<Record<string, unknown>> {
