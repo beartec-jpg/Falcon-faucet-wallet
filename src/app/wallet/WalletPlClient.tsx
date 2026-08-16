@@ -15,6 +15,9 @@ type Acct = {
   balance: number
   sequence: number
   claimable: number
+  accountType?: string
+  allowlist?: string[]
+  vaultLocked?: boolean
 }
 
 type Snap = {
@@ -53,14 +56,16 @@ function clearStored() {
   }
 }
 
-export default function WalletPlClient() {
+export default function WalletPlClient({ mode = 'wallet' }: { mode?: 'wallet' | 'vault' }) {
   const [name, setName] = useState('')
   const [snap, setSnap] = useState<Snap | null>(null)
   const [to, setTo] = useState('')
   const [amount, setAmount] = useState('10')
+  const [nominate, setNominate] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const isVaultPage = mode === 'vault'
 
   const refresh = useCallback(async (account: string) => {
     const q = account ? `?account=${encodeURIComponent(account)}` : ''
@@ -97,9 +102,10 @@ export default function WalletPlClient() {
     }
   }
 
-  const send = async () => {
-    const from = snap?.account?.name
-    if (!from) return
+  const activateVault = async () => {
+    const account = snap?.account?.name
+    const dest = nominate.trim()
+    if (!account || !dest) return
     setBusy(true)
     setError(null)
     setNotice(null)
@@ -107,7 +113,37 @@ export default function WalletPlClient() {
       const r = await fetch('/api/wallet/pl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pay', from, to: to.trim(), amount: Number(amount) }),
+        body: JSON.stringify({ action: 'vault-activate', account, destination: dest }),
+      })
+      const d = (await r.json()) as { error?: string; destination?: string }
+      if (!r.ok) throw new Error(d.error ?? 'Vault activate failed')
+      setNotice(
+        `Vault activated. Protocol will only pay ${d.destination ?? dest} from this account.`,
+      )
+      await refresh(account)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Vault activate failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const send = async () => {
+    const from = snap?.account?.name
+    if (!from) return
+    const dest =
+      snap?.account?.accountType === 'vault'
+        ? snap.account.allowlist?.[0] ?? ''
+        : to.trim()
+    if (!dest) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const r = await fetch('/api/wallet/pl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'pay', from, to: dest, amount: Number(amount) }),
       })
       const d = (await r.json()) as { error?: string; txId?: string; amount?: number; to?: string }
       if (!r.ok) throw new Error(d.error ?? 'Send failed')
@@ -132,11 +168,16 @@ export default function WalletPlClient() {
 
   return (
     <ProductShell intensity={0.45}>
-      <Header current="wallet" subtitle="Falcon PL · 2300" />
+      <Header
+        current={isVaultPage ? 'vault' : 'wallet'}
+        subtitle={isVaultPage ? 'Vault · one nominated payout' : 'Falcon PL · 2300'}
+      />
       <div className="bg-amber-950/50 border-b border-amber-800/40 px-4 py-2 text-center text-xs text-amber-200/90">
         <span className="font-medium">Falcon PL</span>
         {' · '}Network ID 2300
-        {' · '}Fresh FPL test wallets — old 1001 passkey wallets are not used
+        {isVaultPage
+          ? ' · Activate a vault by nominating the only address the protocol may pay'
+          : ' · Fresh FPL test wallets — old 1001 passkey wallets are not used'}
       </div>
 
       <main className="flex-1 flex items-center justify-center px-4 py-10">
@@ -144,11 +185,15 @@ export default function WalletPlClient() {
           <Logo />
           <div className="text-center space-y-1">
             <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-brand-400/90">
-              FPL wallet
+              {isVaultPage ? 'FPL vault' : 'FPL wallet'}
             </p>
-            <h1 className="text-3xl font-bold text-white tracking-tight">Test wallet</h1>
+            <h1 className="text-3xl font-bold text-white tracking-tight">
+              {isVaultPage ? 'Destination-locked vault' : 'Test wallet'}
+            </h1>
             <p className="text-slate-400 text-sm">
-              Named Falcon-512 accounts already on 2300. Pick one, send FPL, wipe the device when done.
+              {isVaultPage
+                ? 'Nominate one payout address to activate. After lock the protocol rejects every other destination.'
+                : 'Named Falcon-512 accounts already on 2300. Pick one, send FPL, or activate a vault.'}
             </p>
           </div>
 
@@ -206,18 +251,61 @@ export default function WalletPlClient() {
                 <div className="text-xs text-slate-500 uppercase tracking-wider">Receive</div>
                 <div className="mt-1 font-mono text-lg text-brand-300">{acct.name}</div>
                 <p className="text-xs text-slate-500 mt-1">
-                  Share this name. Faucet drips and payments land here.
+                  Type: {acct.accountType ?? 'hot'}
+                  {acct.vaultLocked ? ' · locked' : ''}
+                  {acct.allowlist && acct.allowlist.length > 0
+                    ? ` · payout only to ${acct.allowlist.join(', ')}`
+                    : ''}
                 </p>
               </div>
+
+              {acct.accountType !== 'vault' && (
+                <div className="space-y-2 rounded-xl border border-brand-500/30 bg-slate-950/40 p-3">
+                  <div className="text-xs text-slate-500 uppercase tracking-wider">
+                    {isVaultPage ? 'Nominate payout address' : 'Activate vault'}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    This address is the only destination the protocol will allow. Activation locks it
+                    permanently — it cannot be changed.
+                  </p>
+                  <input
+                    className="input-field"
+                    value={nominate}
+                    onChange={(e) => setNominate(e.target.value)}
+                    placeholder="dave"
+                    spellCheck={false}
+                  />
+                  <button
+                    type="button"
+                    className="w-full py-3 rounded-xl font-semibold text-brand-200 bg-slate-800 hover:bg-slate-700 border border-brand-500/40 disabled:opacity-50"
+                    disabled={busy || !nominate.trim() || nominate.trim() === acct.name}
+                    onClick={() => void activateVault()}
+                  >
+                    {busy ? 'Activating…' : 'Activate vault'}
+                  </button>
+                </div>
+              )}
+
+              {(acct.accountType === 'vault' || !isVaultPage) && (
               <div className="space-y-2">
-                <div className="text-xs text-slate-500 uppercase tracking-wider">Send FPL</div>
-                <input
-                  className="input-field"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  placeholder="bob"
-                  spellCheck={false}
-                />
+                <div className="text-xs text-slate-500 uppercase tracking-wider">
+                  {acct.accountType === 'vault' ? 'Send to nominated address' : 'Send FPL'}
+                </div>
+                {acct.accountType === 'vault' ? (
+                  <input
+                    className="input-field"
+                    value={acct.allowlist?.[0] ?? ''}
+                    readOnly
+                  />
+                ) : (
+                  <input
+                    className="input-field"
+                    value={to}
+                    onChange={(e) => setTo(e.target.value)}
+                    placeholder="bob"
+                    spellCheck={false}
+                  />
+                )}
                 <input
                   className="input-field"
                   value={amount}
@@ -228,12 +316,17 @@ export default function WalletPlClient() {
                 <button
                   type="button"
                   className="btn-primary"
-                  disabled={busy || !to.trim() || !amount}
+                  disabled={
+                    busy ||
+                    !amount ||
+                    (acct.accountType === 'vault' ? !acct.allowlist?.[0] : !to.trim())
+                  }
                   onClick={() => void send()}
                 >
                   {busy ? 'Sending…' : `Send ${amount || '0'} FPL`}
                 </button>
               </div>
+              )}
             </div>
           )}
 
@@ -252,6 +345,15 @@ export default function WalletPlClient() {
             <Link href="/faucet" className="text-brand-400 hover:text-brand-300">
               Faucet →
             </Link>
+            {isVaultPage ? (
+              <Link href="/wallet" className="text-slate-500 hover:text-brand-400">
+                Wallet
+              </Link>
+            ) : (
+              <Link href="/vault" className="text-slate-500 hover:text-brand-400">
+                Vault
+              </Link>
+            )}
             <Link href="/scan" className="text-slate-500 hover:text-brand-400">
               Explorer
             </Link>

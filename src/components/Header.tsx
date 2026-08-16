@@ -10,6 +10,7 @@ import NetworkSwitcher from '@/components/NetworkSwitcher'
 type NavItem =
   | 'faucet'
   | 'wallet'
+  | 'vault'
   | 'swap'
   | 'pool'
   | 'lend'
@@ -34,6 +35,7 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'faucet', label: 'Faucet', href: '/faucet' },
   { key: 'scan', label: 'Explorer', href: '/scan' },
   { key: 'wallet', label: 'Wallet', href: '/wallet' },
+  { key: 'vault', label: 'Vault', href: '/vault' },
   { key: 'arcade', label: 'Arcade', href: '/arcade' },
   { key: 'swap', label: 'Swap', href: '/swap' },
   { key: 'pool', label: 'Pool', href: '/pool' },
@@ -100,8 +102,10 @@ export default function Header({
   const subtitleText =
     subtitle ||
     (current === 'wallet'
-      ? 'Wallet · Passkey secured'
-      : current === 'swap'
+      ? 'Wallet · Falcon PL 2300'
+      : current === 'vault'
+        ? 'Vault · one nominated payout'
+        : current === 'swap'
         ? 'Swap · F-USDC'
         : current === 'pool'
           ? 'Pool · F-USDC'

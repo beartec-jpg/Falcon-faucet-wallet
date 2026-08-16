@@ -2,7 +2,7 @@ import { existsSync } from 'fs'
 import { NextRequest, NextResponse } from 'next/server'
 import { isOriginAllowed } from '@/lib/origin'
 import { plAccount, plStatus } from '@/lib/pl-rpc'
-import { ctlPay, PL_CTL } from '@/lib/pl-ctl'
+import { ctlPay, ctlVaultLock, ctlVaultOpen, PL_CTL } from '@/lib/pl-ctl'
 
 const WALLET_API =
   process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
@@ -59,6 +59,9 @@ export async function GET(req: NextRequest) {
             balance: num(acct?.balance),
             sequence: num(acct?.sequence),
             claimable: num(acct?.claimable),
+            accountType: String(acct?.account_type ?? 'hot'),
+            allowlist: Array.isArray(acct?.allowlist) ? (acct?.allowlist as string[]) : [],
+            vaultLocked: Boolean(acct?.vault_locked),
           }
         : null,
     })
@@ -74,13 +77,73 @@ export async function POST(req: NextRequest) {
   if (!isOriginAllowed(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
-  let body: { action?: string; from?: string; to?: string; amount?: number }
+  let body: {
+    action?: string
+    from?: string
+    to?: string
+    amount?: number
+    account?: string
+    destination?: string
+  }
   try {
     body = (await req.json()) as typeof body
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
   const action = String(body.action ?? 'pay')
+
+  if (action === 'vault-activate') {
+    const account = String(body.account ?? body.from ?? '').trim()
+    const destination = String(body.destination ?? body.to ?? '').trim()
+    if (!NAME_RE.test(account) || !NAME_RE.test(destination)) {
+      return NextResponse.json({ error: 'account and destination must be PL names' }, { status: 400 })
+    }
+    if (account === destination) {
+      return NextResponse.json({ error: 'Nominate a different address than the vault itself' }, { status: 400 })
+    }
+    try {
+      const cur = await plAccount(account)
+      if (String(cur.account_type ?? 'hot') === 'vault' && cur.vault_locked) {
+        return NextResponse.json({ error: 'Vault already locked' }, { status: 400 })
+      }
+      if (existsSync(PL_CTL)) {
+        const open = await ctlVaultOpen(account, destination)
+        const seq0 = num(cur.sequence)
+        for (let i = 0; i < 40; i++) {
+          await new Promise((r) => setTimeout(r, 250))
+          const mid = await plAccount(account)
+          if (num(mid.sequence) > seq0) break
+        }
+        const lock = await ctlVaultLock(account)
+        const after = await plAccount(account)
+        return NextResponse.json({
+          ok: true,
+          action: 'vault-activate',
+          account,
+          destination,
+          openTx: open.txId,
+          lockTx: lock.txId,
+          accountType: after.account_type,
+          allowlist: after.allowlist,
+          vaultLocked: after.vault_locked,
+        })
+      }
+      const r = await fetch(WALLET_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'vault-activate', account, destination }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
+      return NextResponse.json(d)
+    } catch (e) {
+      return NextResponse.json(
+        { error: String(e instanceof Error ? e.message : e) },
+        { status: 503 },
+      )
+    }
+  }
+
   if (action !== 'pay') {
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
   }
@@ -97,6 +160,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Amount must be at least 1 FPL' }, { status: 400 })
   }
   try {
+    const sender = await plAccount(from)
+    if (String(sender.account_type ?? 'hot') === 'vault') {
+      const allow = Array.isArray(sender.allowlist) ? sender.allowlist.map(String) : []
+      if (!allow.includes(to)) {
+        const only = allow[0] ? ` only ${allow[0]}` : ' the nominated address'
+        return NextResponse.json(
+          { error: `Vault is locked — protocol will only pay${only}` },
+          { status: 400 },
+        )
+      }
+    }
     const paid = existsSync(PL_CTL)
       ? await ctlPay(from, to, amount)
       : await payViaHttp(from, to, amount)

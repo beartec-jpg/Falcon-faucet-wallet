@@ -160,6 +160,51 @@ export async function ctlClaim(account: string): Promise<{ txId: string; raw: st
   return { txId: txIdOf(out), raw: out }
 }
 
+export async function ctlVaultOpen(
+  account: string,
+  destination: string,
+): Promise<{ txId: string; raw: string }> {
+  const out = mustOk(
+    await runCtl([
+      'vault-open',
+      '--account',
+      account,
+      '--destination',
+      destination,
+      '--scheme',
+      PL_SCHEME,
+      '--keys-dir',
+      PL_KEYS,
+      '--network-id',
+      String(PL_NETWORK_ID),
+      '--fee',
+      '2',
+    ]),
+    'vault-open',
+  )
+  return { txId: txIdOf(out), raw: out }
+}
+
+export async function ctlVaultLock(account: string): Promise<{ txId: string; raw: string }> {
+  const out = mustOk(
+    await runCtl([
+      'vault-lock',
+      '--account',
+      account,
+      '--scheme',
+      PL_SCHEME,
+      '--keys-dir',
+      PL_KEYS,
+      '--network-id',
+      String(PL_NETWORK_ID),
+      '--fee',
+      '2',
+    ]),
+    'vault-lock',
+  )
+  return { txId: txIdOf(out), raw: out }
+}
+
 export async function ctlPay(
   from: string,
   to: string,
