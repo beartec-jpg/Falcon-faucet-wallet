@@ -9,13 +9,13 @@ import path from 'path'
 
 export const PL_CTL =
   process.env.FALCON_PL_CTL?.trim() ||
-  path.join(os.homedir(), 'falcon-pl-private-testnet-v22/bin/falcon-pl-ctl')
+  path.join(os.homedir(), 'falcon-pl-public-testnet-2300/bin/falcon-pl-ctl')
 export const PL_KEYS =
   process.env.FALCON_PL_KEYS?.trim() ||
-  path.join(os.homedir(), 'falcon-pl-private-testnet-v22/keys')
+  path.join(os.homedir(), 'falcon-pl-public-testnet-2300/keys')
 export const PL_SCHEME = process.env.FALCON_PL_SCHEME?.trim() || 'falcon-512'
-export const PL_ADDR = process.env.FALCON_PL_RPC?.trim() || '127.0.0.1:19101'
-export const PL_NETWORK_ID = Number(process.env.FALCON_PL_NETWORK_ID ?? '2200')
+export const PL_ADDR = process.env.FALCON_PL_RPC?.trim() || '127.0.0.1:19301'
+export const PL_NETWORK_ID = Number(process.env.FALCON_PL_NETWORK_ID ?? '2300')
 
 export function runCtl(
   args: string[],

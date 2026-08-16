@@ -23,6 +23,7 @@ import {
   serverSignerProxy,
 } from '@/lib/network-server'
 import { clientIp } from '@/lib/security'
+import { ctlFaucet } from '@/lib/pl-ctl'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,6 +36,13 @@ function err(msg: string, status = 400, extra?: Record<string, unknown>) {
   return NextResponse.json({ error: msg, ...extra }, { status })
 }
 
+const PL_DRIP = Number(process.env.FALCON_PL_DRIP ?? '2000') || 2000
+
+function isPlAccountName(name: string): boolean {
+  if (/^r[1-9A-HJ-NP-Za-km-z]{24,}$/.test(name)) return false
+  return /^[A-Za-z0-9._-]{1,64}$/.test(name)
+}
+
 export async function POST(req: NextRequest) {
   if (!isOriginAllowed(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
@@ -43,14 +51,27 @@ export async function POST(req: NextRequest) {
   let account: string
   let networkKey = 'testnet' as ReturnType<typeof resolveNetworkKey>
   let captchaToken: string | undefined
+  const ct = req.headers.get('content-type') ?? ''
+  const isForm =
+    ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')
   try {
-    const body = await req.json()
-    account = (body.account ?? '').toString().trim()
-    networkKey = resolveNetworkKey(body.network)
-    captchaToken =
-      (body.turnstileToken ?? body.captchaToken ?? body.cfTurnstileResponse ?? '')
-        .toString()
-        .trim() || undefined
+    if (isForm) {
+      const form = await req.formData()
+      account = (form.get('account') ?? '').toString().trim()
+      networkKey = resolveNetworkKey(form.get('network')?.toString())
+      captchaToken =
+        (form.get('turnstileToken') ?? form.get('captchaToken') ?? '')
+          .toString()
+          .trim() || undefined
+    } else {
+      const body = await req.json()
+      account = (body.account ?? '').toString().trim()
+      networkKey = resolveNetworkKey(body.network)
+      captchaToken =
+        (body.turnstileToken ?? body.captchaToken ?? body.cfTurnstileResponse ?? '')
+          .toString()
+          .trim() || undefined
+    }
   } catch {
     return err('Invalid JSON body')
   }
@@ -61,6 +82,85 @@ export async function POST(req: NextRequest) {
   }
 
   if (!account) return err('Missing "account" field')
+
+  // Falcon PL 2300 — native FPL drip via ctl. Classic r… addresses are the old ledger.
+  if (process.env.FALCON_PL_RPC?.trim()) {
+    if (!isPlAccountName(account)) {
+      return err(
+        'This faucet pays FPL on Falcon PL 2300. Use a PL account name (for example alice), not a classic r… address.',
+      )
+    }
+
+    const clientIpAddr = ip(req)
+    const ratePrefix = 'pl2300:'
+    const dayCap = claimsPerDayForNetwork('testnet')
+    const cooldownSec = cooldownSecondsForNetwork('testnet')
+    const unlimitedTestnet = process.env.TESTNET_FAUCET_UNLIMITED?.toLowerCase() === 'true'
+    const unlimitedOk = {
+      success: true as const,
+      reason: 'ok' as const,
+      remainingToday: 999_999,
+      claimsToday: 0,
+    }
+    const [ipLimit, acctLimit] = unlimitedTestnet
+      ? [unlimitedOk, unlimitedOk]
+      : await Promise.all([
+          peekFaucetQuota(`${ratePrefix}ip:${clientIpAddr}`),
+          peekFaucetQuota(`${ratePrefix}acct:${account}`),
+        ])
+    if (!ipLimit.success) {
+      return err(
+        ipLimit.reason === 'cooldown'
+          ? `Wait at least ${Math.round(cooldownSec / 60)} minutes between faucet claims (IP).`
+          : `Daily faucet limit reached for your IP.`,
+        429,
+        { reset: ipLimit.reset, limitType: 'ip' },
+      )
+    }
+    if (!acctLimit.success) {
+      return err(
+        acctLimit.reason === 'cooldown'
+          ? `Wait at least ${Math.round(cooldownSec / 60)} minutes between faucet claims.`
+          : `Daily faucet limit reached for this account.`,
+        429,
+        { reset: acctLimit.reset, limitType: 'account' },
+      )
+    }
+
+    let paid: { txId: string }
+    try {
+      paid = await ctlFaucet(account, PL_DRIP)
+    } catch (e) {
+      const msg = String(e instanceof Error ? e.message : e)
+      console.error('[faucet] PL drip failed:', msg)
+      return err('Cannot reach Falcon PL. Try again shortly.', 503)
+    }
+
+    if (!unlimitedTestnet) {
+      await Promise.all([
+        consumeFaucetQuota(`${ratePrefix}ip:${clientIpAddr}`),
+        consumeFaucetQuota(`${ratePrefix}acct:${account}`),
+      ])
+    }
+    const ipHash = await hashIp(clientIpAddr)
+    await logFaucetClaim({
+      network: 'testnet',
+      address: account,
+      amountQxrp: PL_DRIP,
+      txHash: paid.txId || 'pl',
+      ipHash,
+      dayUtc: faucetUtcDay(),
+    })
+    return NextResponse.json({
+      txHash: paid.txId || 'ok',
+      amount: PL_DRIP,
+      account,
+      remainingToday: unlimitedTestnet
+        ? 999_999
+        : Math.max(0, (acctLimit.remainingToday ?? dayCap) - 1),
+    })
+  }
+
   if (!isValidClassicAddress(account)) return err('Invalid Falcon address')
 
   // Anti-Sybil: captcha (if configured), UA block, subnet + global budgets,

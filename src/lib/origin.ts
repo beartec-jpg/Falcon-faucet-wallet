@@ -52,6 +52,13 @@ export function isOriginAllowed(req: NextRequest): boolean {
     return true
   }
 
+  // Mobile / form POST sometimes omits Origin. Same-origin navigations still
+  // send Sec-Fetch-Site.
+  if (!requestOrigin) {
+    const site = req.headers.get('sec-fetch-site')
+    if (site === 'same-origin' || site === 'none') return true
+  }
+
   // Production fallback: allow same-host requests so the faucet keeps working
   // even when ALLOWED_ORIGINS has not been set after a deployment/restart.
   if (!requestOrigin) return false

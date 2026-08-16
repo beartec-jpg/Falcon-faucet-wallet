@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 type WatcherEvent = {
   at: string
@@ -10,7 +11,7 @@ type WatcherEvent = {
   txId?: string
 }
 
-type WatcherSnap = {
+export type WatcherSnap = {
   online: boolean
   product?: string
   tip?: number
@@ -36,6 +37,17 @@ type WatcherSnap = {
   events: WatcherEvent[]
   running: boolean
   error?: string
+  lastPay?: {
+    at: string
+    epoch: number
+    work: number
+    slots: number
+    weight: number
+    paid: number
+    claimed: boolean
+    railTip: number
+    balance: number
+  } | null
 }
 
 const KIND_COLOR: Record<WatcherEvent['kind'], string> = {
@@ -49,8 +61,11 @@ const KIND_COLOR: Record<WatcherEvent['kind'], string> = {
   error: 'text-red-400',
 }
 
-export default function WatcherPanel() {
-  const [snap, setSnap] = useState<WatcherSnap | null>(null)
+export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap | null }) {
+  const params = useSearchParams()
+  const flash = params?.get('watcher')
+  const flashMsg = params?.get('msg')
+  const [snap, setSnap] = useState<WatcherSnap | null>(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const runningRef = useRef(false)
@@ -169,13 +184,13 @@ export default function WatcherPanel() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-brand-400/90">
-            Browser watcher · PL 2200
+            Pre-public beta · PL 2300
           </p>
           <h2 className="text-lg font-semibold text-white mt-1">Start watcher</h2>
           <p className="text-slate-400 text-xs mt-1">
-            Heartbeats only fill presence. <span className="text-slate-300">Run real test</span> also
-            submits signed BTC rail headers (countable work), waits for the 30s epoch to settle, then
-            claims. Payday is work × presence — a tab with no rail work still pays zero.
+            Heartbeats only fill presence. <span className="text-slate-300">Run real test</span> submits
+            signed BTC rail headers (countable work). On 2300 payday waits until epoch 8 (7-day epochs).
+            A tab with no rail work still pays zero.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -195,44 +210,93 @@ export default function WatcherPanel() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <button
-          type="button"
-          disabled={busy || (snap !== null && !snap.online && !running)}
-          onClick={running ? stop : start}
-          className="btn-primary"
+        <form
+          action="/api/watcher"
+          method="post"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (running) void stop()
+            else void start()
+          }}
         >
-          {busy ? 'Working…' : running ? 'Stop watcher' : 'Start watcher'}
-        </button>
-        <button
-          type="button"
-          disabled={busy || (snap !== null && !snap.online)}
-          onClick={realTest}
-          className="w-full py-3.5 px-6 rounded-xl font-semibold text-brand-200
-                     bg-slate-800 hover:bg-slate-700 border border-brand-500/40
-                     disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          <input type="hidden" name="action" value={running ? 'stop' : 'start'} />
+          <button type="submit" className="btn-primary" disabled={busy}>
+            {busy ? 'Working…' : running ? 'Stop watcher' : 'Start watcher'}
+          </button>
+        </form>
+        <form
+          action="/api/watcher"
+          method="post"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void realTest()
+          }}
         >
-          {busy ? 'Running real test…' : 'Run real test'}
-        </button>
+          <input type="hidden" name="action" value="real-test" />
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full py-3.5 px-6 rounded-xl font-semibold text-brand-200
+                       bg-slate-800 hover:bg-slate-700 border border-brand-500/40
+                       disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            {busy ? 'Running real test…' : 'Run real test'}
+          </button>
+        </form>
       </div>
+      <p className="text-[11px] text-slate-500">
+        Real test takes 30–60s. The page will reload with the result. Heartbeats need the tab
+        left open after Start.
+      </p>
 
+      {flash && (
+        <div
+          className={`rounded-xl px-4 py-3 text-sm border ${
+            flash === 'error'
+              ? 'bg-red-500/10 border-red-500/20 text-red-400'
+              : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
+          }`}
+        >
+          {flash === 'started' && 'Watcher started — presence is on-chain.'}
+          {flash === 'stopped' && 'Watcher stopped.'}
+          {flash === 'paid' &&
+            `Real test paid ${params?.get('claimable') ?? '0'} FPL · work ${params?.get('work') ?? '0'} · slots ${params?.get('slots') ?? '0'} · BTC rail ${params?.get('rail') ?? '—'}`}
+          {flash === 'error' && (flashMsg || 'Watcher request failed')}
+          {!['started', 'stopped', 'paid', 'error'].includes(flash) && `Watcher: ${flash}`}
+        </div>
+      )}
       {error && (
         <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
           {error}
         </div>
       )}
 
+      {(() => {
+        const pay = snap?.lastPay
+        const q = (k: string) => {
+          const v = params?.get(k)
+          return v != null && v !== '' ? v : null
+        }
+        const work = snap?.work || pay?.work || Number(q('work') ?? 0)
+        const slots = snap?.slots || pay?.slots || Number(q('slots') ?? 0)
+        const weight = snap?.weight || pay?.weight || Number(q('weight') ?? 0)
+        const rail = snap?.railTip || pay?.railTip || Number(q('rail') ?? 0)
+        const paid = pay?.paid ?? Number(q('claimable') ?? snap?.claimable ?? 0)
+        return (
       <div className="grid grid-cols-2 gap-3">
         {[
-          { label: 'Account', value: snap?.account ?? '—' },
-          { label: 'Tip', value: snap?.tip?.toLocaleString() ?? '—' },
+          { label: 'Account', value: snap?.account || 'watcher-browser' },
+          { label: 'Tip', value: snap?.tip != null ? snap.tip.toLocaleString() : '—' },
           { label: 'Slot', value: snap ? `${snap.currentSlot}${snap.inSlot ? ' · marked' : ''}` : '—' },
-          { label: 'Slots filled', value: snap ? String(snap.slots) : '—' },
-          { label: 'Work', value: snap ? String(snap.work) : '—' },
-          { label: 'Weight', value: snap ? String(snap.weight ?? 0) : '—' },
-          { label: 'Claimable', value: snap ? `${(snap.claimable ?? 0).toLocaleString()} FPL` : '—' },
-          { label: 'Balance', value: snap ? `${snap.balance.toLocaleString()} FPL` : '—' },
-          { label: 'Epoch', value: snap ? `${snap.epoch} / settled ${snap.lastSettledEpoch ?? '—'}` : '—' },
-          { label: 'BTC rail', value: snap ? String(snap.railTip ?? 0) : '—' },
+          { label: 'Slots this epoch', value: String(snap?.slots ?? 0) },
+          { label: 'Work this epoch', value: String(snap?.work ?? 0) },
+          { label: 'Last test work', value: String(work) },
+          { label: 'Last test slots', value: String(slots) },
+          { label: 'Last test weight', value: String(weight) },
+          { label: 'Last payday', value: `${paid} FPL${pay?.claimed ? ' · claimed' : ''}` },
+          { label: 'Balance', value: snap ? `${snap.balance.toLocaleString()} FPL` : q('balance') ? `${q('balance')} FPL` : '—' },
+          { label: 'Epoch', value: snap ? `${snap.epoch} / settled ${snap.lastSettledEpoch ?? '—'}` : q('epoch') ?? '—' },
+          { label: 'BTC rail', value: String(rail) },
         ].map(({ label, value }) => (
           <div key={label} className="rounded-xl bg-slate-800/60 border border-slate-800 px-3 py-2">
             <div className="text-[11px] text-slate-500">{label}</div>
@@ -240,6 +304,8 @@ export default function WatcherPanel() {
           </div>
         ))}
       </div>
+        )
+      })()}
 
       {snap?.lastTxId && (
         <p className="text-[11px] font-mono text-slate-500 break-all">last tx {snap.lastTxId}</p>
@@ -248,8 +314,16 @@ export default function WatcherPanel() {
       <div className="space-y-1.5">
         <div className="text-[11px] uppercase tracking-wider text-slate-500">Live enter / exit</div>
         <ol className="max-h-48 overflow-y-auto space-y-1.5 text-xs">
-          {(snap?.events ?? []).length === 0 && (
+          {(snap?.events ?? []).length === 0 && !snap?.lastPay && !params?.get('work') && (
             <li className="text-slate-600">No beats yet. Press Start watcher.</li>
+          )}
+          {(snap?.events ?? []).length === 0 && (snap?.lastPay || params?.get('work')) && (
+            <li className="text-emerald-400">
+              Last payday {snap?.lastPay?.paid ?? params?.get('claimable')} FPL · work{' '}
+              {snap?.lastPay?.work ?? params?.get('work')} · slots{' '}
+              {snap?.lastPay?.slots ?? params?.get('slots')} · rail{' '}
+              {snap?.lastPay?.railTip ?? params?.get('rail')}
+            </li>
           )}
           {(snap?.events ?? []).map((ev, i) => (
             <li key={`${ev.at}-${i}`} className="flex gap-2">

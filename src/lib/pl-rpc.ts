@@ -9,8 +9,8 @@
 import net from 'net'
 import { createHash, createHmac } from 'crypto'
 
-export const PL_NETWORK_ID = Number(process.env.FALCON_PL_NETWORK_ID ?? '2200')
-export const PL_DEFAULT_ADDR = process.env.FALCON_PL_RPC ?? '127.0.0.1:19101'
+export const PL_NETWORK_ID = Number(process.env.FALCON_PL_NETWORK_ID ?? '2300')
+export const PL_DEFAULT_ADDR = process.env.FALCON_PL_RPC ?? '127.0.0.1:19301'
 export const PL_WATCHER_ACCOUNT =
   process.env.FALCON_PL_WATCHER_ACCOUNT?.trim() || 'watcher-browser'
 export const PL_FAUCET_ACCOUNT = process.env.FALCON_PL_FAUCET_ACCOUNT?.trim() || 'faucet'
