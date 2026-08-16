@@ -73,6 +73,7 @@ import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
 import { authenticatePasskey } from '@/lib/passkey'
 import { encryptSeed, decryptSeed } from '@/lib/wallet-crypto'
 import { activationFeeFpl, linkedVaultName, normalizePlName, plAccountId } from '@/lib/pl-names'
+import { signPlPay } from '@/lib/pl-wallet-sign'
 
 const MultiQrDisplay = dynamic(() => import('@/components/MultiQrDisplay'), { ssr: false })
 const MultiQrScanner = dynamic(() => import('@/components/MultiQrScanner'), { ssr: false })
@@ -558,10 +559,13 @@ export default function VaultPage() {
 
   function lockNow() {
     clearVaultSession()
+    setBrowserSecret(null)
     setSessionLeft(0)
     setAccount(null)
     setView('locked')
   }
+
+  const isBrowserVault = vault?.kind === 'browser'
 
   // ── Send (Payment) ──────────────────────────────────────────────────────────
 
@@ -569,6 +573,9 @@ export default function VaultPage() {
     let to = raw.trim()
     const extracted = parseFalconAddressFromScan(to)
     if (extracted) to = extracted
+
+    const plName = normalizePlName(to)
+    if (plName) return { address: plName, name: plName }
 
     const destNameNorm = !isValidFalconAddress(to) ? normalizeAccountName(to) : null
     if (destNameNorm) {
@@ -599,8 +606,70 @@ export default function VaultPage() {
     return { address: to }
   }
 
+  async function sendBrowserPayment() {
+    if (!vault || vault.kind !== 'browser') return
+    setError(null)
+    const amt = Math.floor(Number(amount))
+    if (!Number.isFinite(amt) || amt < 1) {
+      setError('Enter a whole FPL amount')
+      return
+    }
+    const destination = (vault.payoutAddress || dest).trim()
+    if (!destination) {
+      setError('No payout account linked')
+      return
+    }
+    if (account && amt > account.balance) {
+      setError('Insufficient FPL balance')
+      return
+    }
+    setBusy(true)
+    try {
+      let secret = browserSecret
+      if (!secret) {
+        if (!hotWallet && !vault.encrypted) throw new Error('Unlock this vault with your passkey first')
+        const cred = vault.credentialId || hotWallet?.credentialId
+        if (!cred || !vault.encrypted) throw new Error('Unlock this vault with your passkey first')
+        const { keyBytes } = await authenticatePasskey(cred, vault.hasPrf ?? hotWallet?.hasPrf ?? false)
+        secret = await decryptSeed(vault.encrypted, keyBytes)
+        setBrowserSecret(secret)
+      }
+      const seq = await fetchSequenceInfo(vaultAccountId(vault), network.key)
+      const tx = await signPlPay({
+        account: vaultAccountId(vault),
+        destination,
+        amount: amt,
+        sequence: seq.sequence,
+        fee: 2,
+        networkId: network.networkId,
+        falconSecret: secret,
+      })
+      const res = await fetch('/api/wallet/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tx, network: network.key }),
+      })
+      const out = (await res.json()) as { success?: boolean; hash?: string; error?: string; message?: string }
+      if (!res.ok || out.success === false) {
+        throw new Error(out.error || out.message || 'Send failed')
+      }
+      setSendHash(out.hash ?? tx.tx_id)
+      setAmount('')
+      setView('unlocked')
+      await loadBalance(vaultAccountId(vault))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Send failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function buildUnsignedPayment() {
     if (!vault) return
+    if (vault.kind === 'browser') {
+      await sendBrowserPayment()
+      return
+    }
     setError(null)
     const amt = parseFloat(amount)
     if (!Number.isFinite(amt) || amt <= 0) {
@@ -707,6 +776,10 @@ export default function VaultPage() {
 
   async function buildFusdcTrustSet() {
     if (!vault) return
+    if (vault.kind === 'browser') {
+      setError('F-USDC trust lines are not used on the in-browser FPL vault. Send FPL to your hot account instead.')
+      return
+    }
     setError(null)
     if (!network.live) {
       setError('Network is not live')
@@ -810,17 +883,25 @@ export default function VaultPage() {
 
   return (
     <ProductShell intensity={0.4} className="bg-slate-950">
-      <Header current="wallet" subtitle="Vault (cold)" />
+      <Header
+        current="vault"
+        subtitle={isBrowserVault ? 'Vault · in-browser' : 'Vault · cold'}
+      />
       <NetworkBanner />
 
       <main className="flex-1 max-w-lg mx-auto w-full px-4 py-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-xl font-bold text-white flex items-center gap-2">
-              <span className="text-cyan-400">❄</span> Vault
+              <span className={isBrowserVault ? 'text-brand-400' : 'text-cyan-400'}>
+                {isBrowserVault ? '▣' : '❄'}
+              </span>{' '}
+              {isBrowserVault ? 'In-browser vault' : 'Vault'}
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Air-gapped custody — secrets never stored on this device
+              {isBrowserVault
+                ? 'Passkey on this device — no cold signer'
+                : 'Air-gapped custody — secrets never stored on this device'}
             </p>
           </div>
           <Link href="/wallet" className="text-xs text-slate-400 hover:text-brand-400">
@@ -1131,7 +1212,7 @@ export default function VaultPage() {
         )}
 
         {/* Unlock: show challenge QR */}
-        {view === 'unlock-chal' && chalEncoded && (
+        {view === 'unlock-chal' && chalEncoded && vault?.kind !== 'browser' && (
           <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-2">
             <MultiQrDisplay
               encoded={chalEncoded}
@@ -1143,7 +1224,7 @@ export default function VaultPage() {
           </div>
         )}
 
-        {view === 'unlock-scan' && (
+        {view === 'unlock-scan' && vault?.kind !== 'browser' && (
           <MultiQrScanner
             title="2. Scan unlock response from cold"
             expectedCt="vault-unlock-resp"
@@ -1199,7 +1280,7 @@ export default function VaultPage() {
             {account && !account.exists && (
               <p className="text-[11px] text-amber-400">Unfunded — receive FPL to activate</p>
             )}
-            {account?.exists && account.fusdc?.hasTrustLine === false && (
+            {vault.kind !== 'browser' && account?.exists && account.fusdc?.hasTrustLine === false && (
               <button
                 type="button"
                 disabled={busy || !network.live}
@@ -1288,10 +1369,13 @@ export default function VaultPage() {
         {/* Send form */}
         {view === 'send' && vault && (
           <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-            <h2 className="text-sm font-semibold text-white">Send (cold sign)</h2>
+            <h2 className="text-sm font-semibold text-white">
+              {vault.kind === 'browser' ? 'Send with passkey' : 'Send (cold sign)'}
+            </h2>
             <p className="text-[11px] text-slate-400">
-              Builds an unsigned payment for cold signing. Destination can be an r… address or a
-              claimed name (e.g. alice.bob).
+              {vault.kind === 'browser'
+                ? 'Signs on this device with your passkey. Destination is locked to the linked hot account.'
+                : 'Builds an unsigned payment for cold signing.'}
             </p>
             <div className="flex rounded-xl overflow-hidden border border-slate-700">
               <button
@@ -1307,6 +1391,7 @@ export default function VaultPage() {
               >
                 FPL
               </button>
+              {vault.kind !== 'browser' && (
               <button
                 type="button"
                 onClick={() => {
@@ -1320,6 +1405,7 @@ export default function VaultPage() {
               >
                 F-USDC
               </button>
+              )}
             </div>
             <label className="block text-xs text-slate-400">
               Destination
@@ -1382,10 +1468,16 @@ export default function VaultPage() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => void buildUnsignedPayment()}
+              onClick={() => void (vault.kind === 'browser' ? sendBrowserPayment() : buildUnsignedPayment())}
               className="w-full py-3 rounded-xl font-semibold bg-brand-500 hover:bg-brand-400 disabled:opacity-40 text-slate-950"
             >
-              {busy ? 'Preparing…' : 'Prepare & show QR for cold signer'}
+              {busy
+                ? vault.kind === 'browser'
+                  ? 'Signing…'
+                  : 'Preparing…'
+                : vault.kind === 'browser'
+                  ? 'Send with passkey'
+                  : 'Prepare & show QR for cold signer'}
             </button>
             <button
               type="button"
@@ -1397,7 +1489,7 @@ export default function VaultPage() {
           </div>
         )}
 
-        {view === 'send-unsigned' && unsignedEnc && (
+        {view === 'send-unsigned' && unsignedEnc && vault?.kind !== 'browser' && (
           <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-2">
             <MultiQrDisplay
               encoded={unsignedEnc}
@@ -1409,7 +1501,7 @@ export default function VaultPage() {
           </div>
         )}
 
-        {view === 'send-scan-signed' && (
+        {view === 'send-scan-signed' && vault?.kind !== 'browser' && (
           <MultiQrScanner
             title="Scan signed transaction from cold"
             expectedCt="signed-tx"
@@ -1430,6 +1522,7 @@ export default function VaultPage() {
           />
         )}
 
+        {(!vault || vault.kind !== 'browser') && (
         <div className="mt-8 rounded-xl border border-slate-800/80 bg-slate-900/40 px-3 py-3 text-[11px] text-slate-500 leading-relaxed space-y-2">
           <p className="font-semibold text-slate-400">Cold signer setup</p>
           <p>
@@ -1446,6 +1539,7 @@ export default function VaultPage() {
           </p>
           <p>Never re-import the vault secret into this browser after create.</p>
         </div>
+        )}
       </main>
     </ProductShell>
   )
