@@ -1,5 +1,5 @@
 /**
- * GET /api/wallet/name?name=scott
+ * GET /api/wallet/name?name=example
  * POST { action: reserve|activate, name, publicKey, credentialId? }
  *
  * On Falcon PL 2300 the name *is* the account. Short names cost more.

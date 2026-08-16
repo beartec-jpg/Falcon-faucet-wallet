@@ -332,7 +332,6 @@ export default function WalletPage() {
   const [createNameStatus, setCreateNameStatus] = useState<
     'idle' | 'checking' | 'available' | 'taken' | 'invalid'
   >('idle')
-  const [createNameFee, setCreateNameFee] = useState(0)
 
   // Send form (Falcon IOUs + native multi-chain)
   const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'feth' | 'fbnb' | 'fbtc' | 'btc' | 'bnb' | 'eth' | 'xrp'>('falcon')
@@ -596,15 +595,12 @@ export default function WalletPage() {
     const n = normalizePlName(createName)
     if (!createName.trim()) {
       setCreateNameStatus('idle')
-      setCreateNameFee(0)
       return
     }
     if (!n) {
       setCreateNameStatus('invalid')
-      setCreateNameFee(0)
       return
     }
-    setCreateNameFee(activationFeeFpl(n))
     setCreateNameStatus('checking')
     const t = setTimeout(() => {
       void fetch(`/api/wallet/name?name=${encodeURIComponent(n)}`, { cache: 'no-store' })
@@ -1581,35 +1577,14 @@ export default function WalletPage() {
                     value={createName}
                     onChange={e => { setCreateName(e.target.value); setError(null) }}
                     onKeyDown={e => e.key === 'Enter' && !busy && handleCreate()}
-                    placeholder="scott.reynolds.1989"
+                    placeholder="your.account.name"
                     className="input-field font-mono"
                     disabled={busy}
                     maxLength={32}
                     spellCheck={false}
                     autoComplete="off"
                   />
-                  {createName.trim() && (
-                    <p className={`text-[11px] ${
-                      createNameStatus === 'available' ? 'text-emerald-400'
-                        : createNameStatus === 'taken' || createNameStatus === 'invalid' ? 'text-red-400'
-                          : 'text-slate-500'
-                    }`}>
-                      {createNameStatus === 'checking' && 'Checking…'}
-                      {createNameStatus === 'invalid' && (plNameHint(createName) || 'Invalid name')}
-                      {createNameStatus === 'taken' && 'Taken — pick another, or a longer name'}
-                      {createNameStatus === 'available' && (
-                        <>
-                          Available · activate with {createNameFee.toLocaleString()} FPL in 30 minutes
-                          {createNameFee >= 5000 ? ' (short names cost more)' : ''}
-                        </>
-                      )}
-                    </p>
-                  )}
-                  <p className="text-[11px] text-slate-500">
-                    Short names like <span className="font-mono">scott</span> cost more (5,000 FPL).
-                    Longer names like <span className="font-mono">scott.reynolds.1989</span> are 100 FPL.
-                    If you do not pay in 30 minutes the name goes back to the pool.
-                  </p>
+                  <NameCostMeter raw={createName} status={createNameStatus} />
                 </div>
 
                 <button
@@ -4045,6 +4020,73 @@ export default function WalletPage() {
         </div>
       </main>
     </ProductShell>
+  )
+}
+
+function NameCostMeter({
+  raw,
+  status,
+}: {
+  raw: string
+  status: 'idle' | 'checking' | 'available' | 'taken' | 'invalid'
+}) {
+  const typed = raw.trim().toLowerCase()
+  const letters = typed.replace(/[^a-z0-9]/g, '').length
+  const fee = letters > 0 ? activationFeeFpl(typed) : 0
+  const hint = typed ? plNameHint(typed) : null
+  const max = 50_000
+  const pct = fee > 0 ? Math.min(100, Math.round((fee / max) * 100)) : 0
+  const statusLine =
+    !typed
+      ? 'Type a name to see the activation cost. Shorter names cost more.'
+      : status === 'checking'
+        ? 'Checking availability…'
+        : status === 'taken'
+          ? 'Taken — try another name'
+          : status === 'invalid'
+            ? hint || 'Invalid name'
+            : status === 'available'
+              ? `Available · pay ${fee.toLocaleString()} FPL within 30 minutes or it returns to the pool`
+              : `${letters} character${letters === 1 ? '' : 's'} (dots ignored)`
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3 space-y-2">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500">
+            Estimated activation
+          </div>
+          <div className="text-xl font-semibold tabular-nums text-white">
+            {fee > 0 ? `${fee.toLocaleString()} FPL` : '—'}
+          </div>
+        </div>
+        {letters > 0 && (
+          <div className="text-right text-[11px] text-slate-500">
+            {letters} letter{letters === 1 ? '' : 's'}
+            {typed.includes('.') ? ' · dots free' : ''}
+          </div>
+        )}
+      </div>
+      <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${
+            fee >= 5000 ? 'bg-amber-400' : fee >= 500 ? 'bg-brand-400' : 'bg-emerald-400'
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p
+        className={`text-[11px] ${
+          status === 'taken' || status === 'invalid'
+            ? 'text-red-400'
+            : status === 'available'
+              ? 'text-emerald-400'
+              : 'text-slate-500'
+        }`}
+      >
+        {statusLine}
+      </p>
+    </div>
   )
 }
 
