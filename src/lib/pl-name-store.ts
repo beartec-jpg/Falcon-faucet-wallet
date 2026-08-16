@@ -25,7 +25,7 @@ export type StoredName = {
 export type NameView = {
   name: string
   available: boolean
-  status: 'free' | 'reserved' | 'activated' | 'invalid' | 'reserved_word'
+  status: 'free' | 'reserved' | 'activated' | 'invalid' | 'reserved_word' | 'blocked'
   fee: number
   reservedUntil?: number
   publicKey?: string
