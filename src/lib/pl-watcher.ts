@@ -197,6 +197,7 @@ export async function watcherSnapshot(account = PL_WATCHER_ACCOUNT): Promise<Wat
       firstPaydayInMs,
       canClaim: claimable > 0,
       claimable,
+      weight,
       treasury: num(st.treasury),
       railTip: num(btc?.tip_height),
       lastHeartbeatAt: s.lastHeartbeatAt ? nowIso(s.lastHeartbeatAt) : null,
