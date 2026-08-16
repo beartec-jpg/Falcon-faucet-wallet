@@ -303,7 +303,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'Treasury funds leave only through protocol epoch emission. There is no human withdrawal key. Emission follows Continuous Inflationary Decline: a declining share of remaining treasury (first claimable epoch 30 bps). On public parameters the epoch is **7 days**. Epochs 1–7 emit nothing so the mesh can stabilise. Claims are pull-based.',
+        text: 'Treasury funds leave only through protocol epoch emission. There is no human withdrawal key. Emission follows Continuous Inflationary Decline: a declining share of remaining treasury (first claimable epoch 30 bps). The epoch is **7 days**. Pre-public testnet **2300** pays from **epoch 1**. Mainnet keeps a bootstrap: epochs 1–7 emit nothing, first claim at epoch 8. Claims are pull-based.',
       },
       {
         type: 'table',

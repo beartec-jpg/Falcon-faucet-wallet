@@ -297,7 +297,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
             {[
               { label: 'Tip', value: (status.tip ?? status.ledger)?.toLocaleString() ?? '—' },
               { label: 'Network', value: status.networkId != null ? String(status.networkId) : '2300' },
-              { label: 'Epoch', value: status.epoch != null ? `${status.epoch} / claim ${status.firstClaimEpoch ?? 8}` : '—' },
+              { label: 'Epoch', value: status.epoch != null ? `${status.epoch} / claim ${status.firstClaimEpoch ?? 1}` : '—' },
               { label: 'Mesh', value: status.online ? 'live' : 'offline' },
             ].map(({ label, value }) => (
               <div key={label} className="card px-4 py-3 border-slate-800/80 bg-slate-900/60 backdrop-blur-sm">

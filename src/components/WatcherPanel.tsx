@@ -216,7 +216,7 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
           <h2 className="text-lg font-semibold text-white mt-1">Watcher &amp; claims</h2>
           <p className="text-slate-400 text-xs mt-1">
             Start fills the current hour slot. Rail work is what pays. Claim pulls settled FPL —
-            epochs 1–7 emit nothing, first payday is epoch {snap?.firstClaimEpoch ?? 8}.
+            testnet pays from epoch {snap?.firstClaimEpoch ?? 1}. Mainnet keeps the epoch-8 bootstrap.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -238,7 +238,7 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
       <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-2 text-xs text-slate-400">
         Epoch <span className="text-slate-200 font-mono">{snap?.epoch ?? '—'}</span>
         {' · '}first claim{' '}
-        <span className="text-slate-200 font-mono">{snap?.firstClaimEpoch ?? 8}</span>
+        <span className="text-slate-200 font-mono">{snap?.firstClaimEpoch ?? 1}</span>
         {' · '}this epoch ends in{' '}
         <span className="text-slate-200 font-mono">{fmtDuration(snap?.epochEndsInMs)}</span>
         {' · '}payday in{' '}
@@ -322,7 +322,7 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
       </div>
       <p className="text-[11px] text-slate-500">
         One heartbeat per hour-slot while the tab is open. Claim stays dark until epoch{' '}
-        {snap?.firstClaimEpoch ?? 8} settles a pot. Record work now does not wait a week.
+        {snap?.firstClaimEpoch ?? 1} settles. Record work now; claim after this epoch closes.
       </p>
 
       {flash && (

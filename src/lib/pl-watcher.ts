@@ -8,7 +8,7 @@
  *   - keeps a process-local enter/exit log for the faucet live panel
  *
  * Work is rail headers/deposits only. Heartbeats fill the current slot.
- * On 2300, epochs 1–7 emit nothing; first payday is epoch 8.
+ * On 2300, first claim is epoch 1. Mainnet keeps the epoch-8 bootstrap.
  */
 
 import { writeFileSync, readFileSync } from 'fs'
@@ -163,7 +163,7 @@ export async function watcherSnapshot(account = PL_WATCHER_ACCOUNT): Promise<Wat
     const epochMs = num(st.epoch_ms)
     const genesisMs = num(st.genesis_ms)
     const nowMs = num(st.now_ms, Date.now())
-    const firstClaimEpoch = num(st.first_claim_epoch, 8)
+    const firstClaimEpoch = num(st.first_claim_epoch, 1)
     const intoEpoch = epochMs > 0 ? (nowMs - genesisMs) % epochMs : 0
     const epochEndsInMs = epochMs > 0 ? Math.max(0, epochMs - intoEpoch) : 0
     const firstPaydayInMs =
@@ -224,7 +224,7 @@ export async function watcherSnapshot(account = PL_WATCHER_ACCOUNT): Promise<Wat
       epoch: 0,
       epochMs: 0,
       lastSettledEpoch: 0,
-      firstClaimEpoch: 8,
+      firstClaimEpoch: 1,
       genesisMs: 0,
       nowMs: 0,
       epochEndsInMs: 0,
