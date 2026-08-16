@@ -16,7 +16,7 @@ export type SignedPlPay = {
   public_key: string
   signature: string
   tx_id: string
-  body: 'Pay'
+  body: { kind: 'pay' }
 }
 
 const DEFAULT_NETWORK_ID = 2300
@@ -82,6 +82,6 @@ export async function signPlPay(opts: {
     public_key: publicKey,
     signature: bytesToHex(signature),
     tx_id: txId,
-    body: 'Pay',
+    body: { kind: 'pay' },
   }
 }
