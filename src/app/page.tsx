@@ -5,7 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 
 /**
- * Marketing homepage for Falcon Ledger (.com root).
+ * Marketing homepage for Falcon PL (falcon-ledger.com root).
  * Faucet lives at /faucet; wallet at /wallet.
  */
 export default function MarketingHomePage() {
@@ -43,7 +43,7 @@ export default function MarketingHomePage() {
             <Image
               className="nav-logo"
               src="/assets/images/brand/logo.jpg"
-              alt="Falcon Ledger"
+              alt="Falcon PL"
               width={160}
               height={36}
               priority
@@ -102,14 +102,14 @@ export default function MarketingHomePage() {
           <div className="hero-glow" aria-hidden="true" />
           <div className="hero-content container">
             <h1 className="hero-title reveal-load" data-delay="0">
-              Falcon Ledger
+              Falcon PL
             </h1>
             <p className="hero-subtitle reveal-load" data-delay="200">
               The quantum-safe ledger built for real participation
             </p>
             <p className="hero-support reveal-load" data-delay="400">
-              Post-quantum security. Protocol-controlled treasury. Rewards for those who secure and
-              use the network.
+              Falcon Consensus. Falcon-512 from genesis. Protocol-controlled treasury. Rewards for
+              those who secure and use the network.
             </p>
             <div className="hero-actions reveal-load" data-delay="600">
               <a href="#what-is-falcon" className="btn btn-primary">
@@ -133,8 +133,8 @@ export default function MarketingHomePage() {
               <p className="section-eyebrow">Introduction</p>
               <h2 className="section-title">What is Falcon?</h2>
               <p className="section-intro">
-                Falcon Ledger is a next-generation blockchain designed from the ground up for
-                long-term security and fair participation.
+                Falcon PL is a quantum-safe participation ledger — Falcon Consensus and Falcon-512,
+                designed for long-term security and fair participation.
               </p>
             </div>
             <div className="feature-grid">
@@ -226,7 +226,7 @@ export default function MarketingHomePage() {
               {
                 n: '01',
                 title: 'Multichain Wallet',
-                p1: 'Hold FALCON, XRP, Bitcoin, Ethereum, and BNB in one place.',
+                p1: 'Hold FPL, Bitcoin, Ethereum, BNB, and XRP in one place.',
                 p2: 'One wallet. Multiple chains. Simple and secure.',
                 img: '/assets/images/features/feature-wallet.jpg',
                 replace: 'feature-wallet.png',
@@ -235,7 +235,7 @@ export default function MarketingHomePage() {
               {
                 n: '02',
                 title: 'Permissionless Bridge',
-                p1: 'Move assets onto Falcon with a clean, permissionless bridge.',
+                p1: 'Move assets onto Falcon PL with a clean, permissionless bridge.',
                 p2: 'No complicated steps. No unnecessary middlemen.',
                 img: '/assets/images/features/feature-bridge.jpg',
                 replace: 'feature-bridge.png',
@@ -338,7 +338,7 @@ export default function MarketingHomePage() {
             <div className="cta-content reveal">
               <h2 className="section-title">Ready to explore?</h2>
               <p className="cta-text">
-                Falcon Ledger is live on testnet.
+                Falcon PL is live on testnet.
                 <br />
                 Start using the wallet, bridge assets, provide liquidity, or just look around.
               </p>
@@ -364,7 +364,7 @@ export default function MarketingHomePage() {
             <Image
               className="footer-logo"
               src="/assets/images/brand/logo.jpg"
-              alt="Falcon Ledger"
+              alt="Falcon PL"
               width={140}
               height={32}
               style={{ height: 32, width: 'auto' }}
@@ -382,7 +382,7 @@ export default function MarketingHomePage() {
             </a>
           </nav>
           <p className="footer-copy">
-            &copy; <span id="year"></span> Falcon Ledger. All rights reserved.
+            &copy; <span id="year"></span> Falcon PL. All rights reserved.
           </p>
         </div>
       </footer>

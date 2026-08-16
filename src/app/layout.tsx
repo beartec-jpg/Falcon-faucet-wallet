@@ -7,12 +7,12 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' })
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' })
 
-const NETWORK = process.env.NEXT_PUBLIC_TESTNET_NAME ?? 'Falcon Ledger'
+const NETWORK = process.env.NEXT_PUBLIC_TESTNET_NAME ?? 'Falcon PL'
 
 export const metadata: Metadata = {
   title: `${NETWORK} — Quantum-Safe Ledger for Real Participation`,
   description:
-    'Falcon Ledger is the quantum-safe ledger built for real participation. Post-quantum security, protocol-controlled treasury, and rewards for those who secure and use the network.',
+    'Falcon PL is the quantum-safe participation ledger. Falcon Consensus, Falcon-512 from genesis, protocol-controlled treasury, and rewards for those who secure and use the network.',
   icons: { icon: '/assets/images/brand/logo-mark.jpg', apple: '/assets/images/brand/apple-touch-icon.jpg' },
   manifest: '/manifest.json',
   openGraph: {
