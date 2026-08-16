@@ -1,6 +1,6 @@
-/** Falcon PL white paper — content for /whitepaper (v4, August 2026) */
+/** Falcon PL white paper — content for /whitepaper (v4.1, August 2026) */
 
-export const WHITEPAPER_VERSION = '4.0'
+export const WHITEPAPER_VERSION = '4.1'
 export const WHITEPAPER_DATE = 'August 2026'
 
 export interface WhitepaperDownload {
@@ -53,7 +53,7 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
   },
   {
     title: 'Multi-Chain Wallet & Bridge Report',
-    description: 'Falcon, XRP, Bitcoin, Ethereum, and BNB wallets and lock-mint bridges.',
+    description: 'Falcon, Bitcoin, Ethereum, and BNB wallets and lock-mint bridges.',
     href: '/Docs/FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
     filename: 'FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
   },
@@ -78,7 +78,7 @@ export interface WhitepaperSection {
 /**
  * Structured white paper body.
  * Vision: FPL is the centre of a participation ledger — Falcon Consensus +
- * Falcon-512 — with the same keyless treasury and PoPL economics as Falcon Ledger.
+ * Falcon-512 — with a keyless treasury and PoPL economics.
  */
 export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
   {
@@ -87,11 +87,11 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'lead',
-        text: 'Falcon PL is a quantum-safe **participation ledger**. One token — **FPL** — coordinates security, liquidity, collateral, and rewards. Settlement is an ordered hash-linked ledger, not a DAG and not an XRP Ledger fork. Agreement is **Falcon Consensus**. Signatures are **Falcon-512** from the first block.',
+        text: 'Falcon PL is a quantum-safe **participation ledger**. One token — **FPL** — coordinates security, liquidity, collateral, and rewards. Settlement is an ordered hash-linked ledger: one parent, one height, one hash. Agreement is **Falcon Consensus**. Signatures are **Falcon-512** from the first block.',
       },
       {
         type: 'p',
-        text: 'We left a Narwhal-style DAG research line because a wallet needs one tip, not two layers of certificates. We kept the economic design Falcon Ledger already socialised: 200B hard cap, 98% keyless treasury, CID-style epoch emission, and Proof of Participation & Liquidity. The engine is new. Bonded seats join a packer lottery, seal non-empty ledgers, and everyone verifies. Early Falcon Ledger testnet intake hit a wall near **30 tx/s**. Falcon PL kept up through **500 tx/s** on the same signature family — **16.7×**, or **+1,567%**.',
+        text: 'We left a Narwhal-style DAG research line because a wallet needs one tip, not two layers of certificates. The economic design is a 200B hard cap, 98% keyless treasury, CID-style epoch emission, and Proof of Participation & Liquidity. The engine is new. Bonded seats join a packer lottery, seal non-empty ledgers, and everyone verifies. An earlier Falcon testnet hit an intake wall near **30 tx/s**. Falcon PL kept up through **500 tx/s** on the same signature family — **16.7×**, or **+1,567%**.',
       },
     ],
   },
@@ -120,7 +120,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'Native FPL sits alongside bridged representations from connected rails — BTC, ETH, BNB, and later corridors — for pools, lending, and settlement. Hold, swap, provide liquidity, and borrow under one product surface. The economy is the same spirit as Falcon Ledger. The consensus path is not RPCA.',
+        text: 'Native FPL sits alongside bridged representations from connected rails — BTC, ETH, BNB, and later corridors — for pools, lending, and settlement. Hold, swap, provide liquidity, and borrow under one product surface.',
       },
     ],
   },
@@ -137,7 +137,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           'Validators unpaid on several high-speed networks, so security depends on goodwill.',
           'Classical signatures that will not age well against quantum-capable attackers.',
           'A research DAG that could not give operators a single tip to point at.',
-          'An earlier Falcon Ledger testnet that hit an intake wall near 30 tx/s (HTTP 503 / fee escalate).',
+          'An earlier Falcon testnet that hit an intake wall near 30 tx/s (HTTP 503 / fee escalate).',
         ],
       },
       {
@@ -152,11 +152,16 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     title: 'Architecture overview',
     blocks: [
       {
+        type: 'lead',
+        text: 'Falcon Consensus is the agreement protocol of this chain. Bonded seats, a packer lottery, committee quorum, and skip failover — purpose-built for Falcon-512 and a single tip. It is not a familiar fork of another ledger.',
+      },
+      {
         type: 'table',
         headers: ['Layer', 'Role'],
         rows: [
-          ['Settlement', 'Ordered hash-linked ledgers — not a DAG, not an XRPL fork'],
+          ['Settlement', 'Ordered hash-linked ledgers — one parent, one height, one hash'],
           ['Falcon Consensus', 'Bond lottery elects a packer; everyone verifies; 4-of-6 committee commit'],
+          ['Liveness', 'Silent packer is skipped; no empty seals; double-sign is slash and jail'],
           ['Security', 'Falcon-512 for txs, votes, and seals (no classical signing paths)'],
           ['Supply', '200B hard cap · 98% keyless treasury · 2% public bootstrap'],
           ['Incentives', 'PoPL — validators, watchers, AMM LPs, and lend LPs paid by epoch'],
@@ -172,16 +177,21 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
         type: 'code',
         text: 'bond → lottery → pack (no empty seals) → Falcon-512 verify → soft/hard OK → tip',
       },
+      {
+        type: 'callout',
+        title: 'What this is',
+        text: 'Falcon Consensus sits in the bonded-committee family: stake seats the lottery, a quorum commits the block, post-quantum signatures bind every vote and seal. Proof of Participation & Liquidity is the **reward** layer — who gets paid at epoch — not the agreement algorithm.',
+      },
     ],
   },
   {
     id: 'throughput',
     number: '4',
-    title: 'Throughput vs the original Falcon testnet',
+    title: 'Throughput vs the earlier Falcon testnet',
     blocks: [
       {
         type: 'lead',
-        text: 'Same Falcon-512 family. Different engine. The old ~30 tx/s figure was an API wall on Falcon Ledger (RPCA), not a law of the signatures.',
+        text: 'Same Falcon-512 family. Different engine. The old ~30 tx/s figure was an API wall on an earlier Falcon testnet, not a law of the signatures.',
       },
       {
         type: 'stats',
@@ -196,7 +206,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
         type: 'table',
         headers: ['Run', 'Result', 'vs 30 TPS'],
         rows: [
-          ['Falcon Ledger testnet (May 2026)', '~30 TPS then HTTP 503 / fee escalate; ~3–3.5 s close', 'Baseline'],
+          ['Earlier Falcon testnet (May 2026)', '~30 TPS then HTTP 503 / fee escalate; ~3–3.5 s close', 'Baseline'],
           ['PL endurance ~4.3 h', '20→50→80→150 tx/s, ~885k submit / 0 err', '5× at the 150 spike (+400%)'],
           ['PL break ramp', 'Clean keep-up 200–500 TPS', '6.7×–16.7× (+567% to +1,567%)'],
           ['PL soft wall', '600–800 TPS lag / backlog, still sealing', '20–27×'],
@@ -334,14 +344,14 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'p',
-        text: 'The portal is one surface. Pre-public beta **2300** is the Falcon PL mesh. The wallet and faucet also still speak the earlier Falcon Ledger testnet where that product is live.',
+        text: 'The portal is one surface. Pre-public beta **2300** is the Falcon PL mesh — the chain this paper describes.',
       },
       {
         type: 'table',
         headers: ['Surface', 'What it does'],
         rows: [
           ['Falcon PL 2300', '5-val multi-host beta · 7-day epoch · Falcon Consensus 2.9.30'],
-          ['Faucet', 'Testnet FALCON drip (Ledger) · PL watcher start / real test (2300)'],
+          ['Faucet', 'Testnet FPL drip · watcher start / real test (2300)'],
           ['Wallet', 'Passkey accounts; multi-chain keys; send/receive'],
           ['Bridge / swap / lend', 'Portal markets — bridged assets and vaults on the product surface'],
           ['Explorer / arcade', 'Ledgers, participation, community'],
@@ -365,7 +375,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'Network 2200 is the retired private soak (never flipped public). Network **2300** is the pre-public beta genesis. Falcon Ledger 1001 remains a separate product.',
+        text: 'Network 2200 is the retired private soak (never flipped public). Network **2300** is the pre-public beta genesis — the only live Falcon PL chain.',
       },
     ],
   },

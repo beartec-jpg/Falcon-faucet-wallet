@@ -9,7 +9,7 @@
 | **Consensus** | Falcon Consensus |
 | **Signatures** | Falcon-512 (NIST PQC) |
 | **This cut** | **2.9.30** · pre-public beta **network_id 2300** |
-| **Not** | Falcon Ledger / qXRP (RPCA) · XRPL fork · DAG · mainnet |
+| **Not** | A DAG · mainnet |
 
 This is an implementation history with **measured** numbers. It is not a security proof and not a marketing sheet. Sources: [IDENTITY.md](IDENTITY.md), [POC.md](POC.md), [HARDWARE.md](HARDWARE.md), [FEATURES_AND_TOKENOMICS.md](FEATURES_AND_TOKENOMICS.md), 2200 private soak, 2300 multi-host beta.
 
@@ -57,18 +57,18 @@ bond → lottery rank → packer seals a non-empty ledger
 | Progress | Skip-QC walks a dead packer. View-change unsticks a height. No operator hard-reset for normal liveness. |
 | Economy | Epoch emission. Validators / watchers / AMM / lend pots. Claims pull. |
 
-This is **not** RPCA and **not** a 3-second open ledger. Tip can step in a few hundred milliseconds when there is work.
+Tip can step in a few hundred milliseconds when there is work. There are no empty seals.
 
 ---
 
-## 3. Two Falcons (do not collapse)
+## 3. What we measured against
 
 | Name | What it is | Consensus | What we measured |
 |------|------------|-----------|------------------|
-| **Falcon Ledger (qXRP)** | Separate XRPL-fork product, network 1001 | **RPCA** | Long soak; **~30 TPS sustained** then HTTP **503** / fee escalate |
+| **Earlier Falcon testnet** | Prior product line, same Falcon-512 family | Inherited close path | Long soak; **~30 TPS sustained** then HTTP **503** / fee escalate |
 | **Falcon PL (FPL)** | This crate | **Falcon Consensus** | Submit keep-up through **500 TPS**; strain **600–800**; host **OOM ~900** |
 
-Same **Falcon-512** signatures. Different engine. The “30 tx/s” number is the **original Falcon Ledger API wall**, not a law of Falcon signatures.
+Same **Falcon-512** signatures. Different engine. The “30 tx/s” number is the **original Falcon API wall**, not a law of Falcon signatures.
 
 ---
 
@@ -133,7 +133,7 @@ Measured: droplet v5 on 2300 **0 → 262** in a few seconds, then voted live.
 
 ### 6.1 The 30 tx/s baseline
 
-Falcon Ledger (qXRP) testnet load (May 2026, separate product, RPCA):
+Earlier Falcon testnet load (May 2026):
 
 - Sustained intake about **30 TPS** then **HTTP 503** / fee escalate.  
 - Ledger close about **3–3.5 s**.  
@@ -151,7 +151,7 @@ Dual-host, real Falcon-512, 3 validators ([POC.md](POC.md) §6):
 | Break ramp keep-up | **200–500 TPS** clean (0 err) | **6.7×–16.7×** (**+567% to +1,567%**) |
 | Soft wall | **600–800 TPS** (lag, backlog, still sealing) | **20–27×** (**+1,900% to +2,567%**) |
 | Hard wall | **~900 TPS** Linux **OOM** (2× ~7.5 GB RSS on 15 GB) | Resource, **not** a consensus lie |
-| Tip clock | Mean **~0.21 s** under soak | vs ~3.5 s RPCA ≈ **17×** faster close |
+| Tip clock | Mean **~0.21 s** under soak | vs ~3.5 s earlier close ≈ **17×** faster |
 
 **Headline comparison (honest):** same signature family, different consensus. Clean **keep-up at 500 TPS** is **16.7×** the original Falcon testnet **30 TPS** wall — **1,567% higher**.
 
@@ -228,27 +228,16 @@ Idle: alice ↔ bob, 1 Pay / 3 s. Multi-host: all five same tip / hash / state r
 
 ---
 
-## 9. Do we need a new white paper?
+## 9. Public paper
 
-**Yes — before a loud public announce. No — not to keep soaking.**
+The faucet `/whitepaper` is the Falcon PL paper (**v4.1+**). Falcon Consensus, measured vs the earlier 30 TPS wall, 2300 as pre-public beta.
 
-| Document | Job | Enough for |
-|----------|-----|------------|
-| This read-up | Internal start→finish + numbers | Team, advisors, next engineering |
-| [POC.md](POC.md) | Aug 10–11 load campaign | Citing the 500 TPS ramp |
-| [IDENTITY.md](IDENTITY.md) | Names | Always |
-| [FEATURES_AND_TOKENOMICS.md](FEATURES_AND_TOKENOMICS.md) | Economy design | Tokenomics discussion |
-| Faucet `/whitepaper` | **Falcon Ledger** marketing | **Wrong product** — do not reuse as FPL |
-| **New FPL white paper** | Outsider story: why not DAG, what Falcon Consensus is, **measured vs 30 TPS**, limits | Public beta landing, press, researchers |
+| Document | Job |
+|----------|-----|
+| Faucet `/whitepaper` | Public narrative |
+| This read-up | Internal start→finish + numbers |
+| [POC.md](POC.md) | Aug 10–11 load campaign |
+| [IDENTITY.md](IDENTITY.md) | Names |
+| [FEATURES_AND_TOKENOMICS.md](FEATURES_AND_TOKENOMICS.md) | Economy design |
 
-A new paper should be **short and honest**:
-
-1. Why the DAG was archived.  
-2. Falcon Consensus in one page.  
-3. Table: 30 TPS API wall vs **500 TPS keep-up (16.7× / +1,567%)**.  
-4. 2200 lesson: lag ≠ fork; one val per 2-core.  
-5. 2300 is a **pre-public beta**, not mainnet, not a BFT theorem.
-
-Do **not** write a new paper that claims 640 TPS, 7-day watcher payday already paid, or “we never had consensus bugs.” Early 2.9 **did** have fork *classes*; they were **fixed**; the long soak after that did not fork.
-
-Soak 2300. Write the paper when you are ready to put a URL in front of strangers.
+Do **not** claim 640 TPS, 7-day watcher payday already paid, or “we never had consensus bugs.” Early 2.9 **did** have fork *classes*; they were **fixed**; the long soak after that did not fork.

@@ -144,7 +144,7 @@ function BlockView({ block }: { block: WhitepaperBlock }) {
 export default function WhitepaperPage() {
   return (
     <ProductShell intensity={0.32}>
-      <Header current="whitepaper" subtitle="White paper · v4" />
+      <Header current="whitepaper" subtitle={`White paper · v${WHITEPAPER_VERSION}`} />
 
       <main className="flex-1 w-full">
         {/* Cover */}
