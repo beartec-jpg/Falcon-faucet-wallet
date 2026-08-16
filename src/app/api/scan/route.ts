@@ -1,341 +1,282 @@
-// GET /api/scan
-// Returns a full suite of network stats for the explorer page.
+// GET /api/scan — Falcon PL 2300 explorer snapshot
 
-import { NextResponse } from 'next/server'
-import {
-  cidEmissionPct,
-  cidYearlyAvgPct,
-  lpAllocationPctFromBps,
-  type EpochOverview,
-} from '@/lib/epoch-model'
-import { appendMetricSamples } from '@/lib/metric-store'
-import { rpcCall } from '@/lib/rpc'
+import { NextRequest, NextResponse } from 'next/server'
+import { cidEmissionPct, cidYearlyAvgPct } from '@/lib/epoch-model'
+import { plAccount, plStatus } from '@/lib/pl-rpc'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export interface ValidatorEntry {
-  /** Operator account (r…) */
-  account:         string
-  /** Falcon consensus / public key (0xFB…) */
-  pubkey:          string
-  bond_status:     'registered' | 'bonded' | 'unbonding' | string
-  bonded_amount:   string   // drops
+  account: string
+  pubkey: string
+  bond_status: string
+  bonded_amount: string
   composite_score: number
-  /** Last ledger that mutated this bond object */
-  ledger_index:    number
-}
-
-const BOND_STATUS: Record<number, ValidatorEntry['bond_status']> = {
-  0: 'registered',
-  1: 'bonded',
-  2: 'unbonding',
-}
-
-/** Public path: bonded validators live on-ledger (admin `validators` RPC is 403 on :6005). */
-async function fetchBondedValidators(): Promise<ValidatorEntry[]> {
-  const out: ValidatorEntry[] = []
-  const seen = new Set<string>()
-  let marker: unknown
-
-  // ledger_data returns sparse pages for type=validator_bond — use a large limit
-  // and keep paging until the marker is gone (old cap of 16×32 missed new bonds).
-  for (let page = 0; page < 64; page++) {
-    const params: Record<string, unknown> = {
-      ledger_index: 'validated',
-      type:         'validator_bond',
-      limit:        400,
-    }
-    if (marker !== undefined && marker !== null) params.marker = marker
-
-    const data = await rpcCall<{
-      state?:  Record<string, unknown>[]
-      marker?: unknown
-    }>('ledger_data', params)
-
-    for (const entry of data.state ?? []) {
-      if (entry.LedgerEntryType !== 'ValidatorBond') continue
-      const account = String(entry.Account ?? '')
-      if (!account || seen.has(account)) continue
-      seen.add(account)
-      const statusRaw = entry.BondStatus
-      const statusNum = typeof statusRaw === 'number' ? statusRaw : Number(statusRaw)
-      const pubkey = String(entry.PublicKey ?? entry.ConsensusKey ?? '')
-      out.push({
-        account,
-        pubkey,
-        bond_status:     BOND_STATUS[statusNum] ?? String(statusRaw ?? 'unknown'),
-        bonded_amount:   String(entry.BondedAmount ?? '0'),
-        composite_score: Number(entry.CompositeScore ?? 0),
-        ledger_index:    Number(entry.PreviousTxnLgrSeq ?? 0),
-      })
-    }
-
-    marker = data.marker
-    if (marker === undefined || marker === null) break
-  }
-
-  // Stable order: highest score first, then account.
-  out.sort((a, b) => {
-    if (b.composite_score !== a.composite_score) return b.composite_score - a.composite_score
-    return a.account.localeCompare(b.account)
-  })
-  return out
+  ledger_index: number
+  jailed?: boolean
+  lottery_ready?: boolean
+  pack_count?: number
 }
 
 export interface LedgerSummary {
-  seq:           number
-  hash:          string
-  txn_count:     number
+  seq: number
+  hash: string
+  txn_count: number
   close_time_human: string
-  total_coins?:  string
-  base_fee?:     number
-  close_time:    number
+  close_time: number
+  packer?: string
 }
 
 export interface TxSummary {
-  hash:             string
-  type:             string
-  account:          string
-  destination?:     string
-  amount?:          string
-  fee:              string
-  ledger_index:     number
-  result:           string
-  date?:            number
+  hash: string
+  type: string
+  account: string
+  destination?: string
+  amount?: string
+  fee: string
+  ledger_index: number
+  result: string
+}
+
+export interface RailRow {
+  asset: string
+  tip_height: number
+  tip_hash: string
+  total_minted: number
+  total_burned: number
+  min_confirmations: number
+  open_withdrawals: number
 }
 
 export interface ScanData {
-  // Network overview
-  server_state:       string
-  uptime_seconds:     number
-  complete_ledgers:   string
-  peers:              number
-  load_factor:        number
-  load_base:          number
-  server_version:     string
-
-  // Ledger stats
-  validated_ledger:   number
-  close_time_human:   string
-  total_coins:        string   // drops
-  reserve_base:       number   // drops
-  reserve_inc:        number   // drops
-  base_fee_xrp:       number
-
-  // Fee / queue
-  current_fee_drops:  number
-  median_fee_drops:   number
-  open_ledger_fee:    number
-  tx_queue_size:      number
-
-  // Recent ledgers (last 10)
-  recent_ledgers:     LedgerSummary[]
-
-  // Recent transactions (last 20 from latest ledger)
-  recent_txs:         TxSummary[]
-
-  // Bonded validators (from on-ledger ValidatorBond objects)
-  validators:         ValidatorEntry[]
-  /** Proposers in last closed ledger (from server_info) */
-  proposers:          number
-
-  // TPS estimate (avg over last 10 ledgers)
-  tps_estimate:       number
+  product: string
+  ticker: string
+  consensus: string
+  network_id: number
+  product_version: string
+  server_state: string
+  server_version: string
+  uptime_seconds: number
+  peers: number
+  validated_ledger: number
+  tip_hash: string
+  state_root: string
+  current_fee_drops: number
+  median_fee_drops: number
+  open_ledger_fee: number
+  tx_queue_size: number
+  mempool: number
+  max_mempool: number
+  fee_multiplier: number
+  recent_ledgers: LedgerSummary[]
+  recent_txs: TxSummary[]
+  validators: ValidatorEntry[]
+  proposers: number
+  online_seats: string[]
+  tps_estimate: number
   avg_txs_per_ledger: number
-  avg_close_seconds:  number
-
-  epoch: EpochOverview
-}
-
-// Ripple epoch offset
-const RIPPLE_EPOCH = 946684800
-
-function rippleToIso(rippleTime: number): string {
-  if (!rippleTime) return ''
-  return new Date((rippleTime + RIPPLE_EPOCH) * 1000).toISOString()
-}
-
-const DROPS = 1_000_000
-
-function dropsToFalcon(v: string | number | undefined | null): number | null {
-  if (v == null || v === '') return null
-  const n = typeof v === 'string' ? parseInt(v, 10) : v
-  if (!Number.isFinite(n)) return null
-  return n / DROPS
-}
-
-async function fetchEpoch(): Promise<EpochOverview> {
-  try {
-    const epochR = await rpcCall<{ node?: Record<string, unknown> }>('ledger_entry', {
-      reward_epoch: true,
-      ledger_index: 'validated',
-    })
-    const epochNode = epochR?.node
-    const epochNum = typeof epochNode?.EpochNumber === 'number' ? epochNode.EpochNumber : null
-    const lpBps =
-      typeof epochNode?.LPAllocationBps === 'number'
-        ? epochNode.LPAllocationBps
-        : typeof epochNode?.lp_allocation_bps === 'number'
-          ? epochNode.lp_allocation_bps
-          : null
-    return {
-      number: epochNum,
-      poolBalanceFalcon: dropsToFalcon(epochNode?.EpochPoolBalance as string),
-      emissionRateFalcon: dropsToFalcon(epochNode?.EmissionRate as string),
-      lpAllocationPct: lpAllocationPctFromBps(lpBps),
-      lpProviderCount: lpBps != null ? Math.round(lpBps / 100) : null,
-      cidEmissionPct: epochNum != null ? cidEmissionPct(epochNum) : null,
-      cidYearlyAvgPct: epochNum != null ? cidYearlyAvgPct(epochNum) : null,
-    }
-  } catch {
-    return {
-      number: null,
-      poolBalanceFalcon: null,
-      emissionRateFalcon: null,
-      lpAllocationPct: null,
-      lpProviderCount: null,
-      cidEmissionPct: null,
-      cidYearlyAvgPct: null,
-    }
+  avg_close_seconds: number
+  load_factor: number
+  load_base: number
+  complete_ledgers: string
+  reserve_base: number
+  reserve_inc: number
+  treasury: number
+  epoch: {
+    number: number | null
+    poolBalanceFalcon: number | null
+    emissionRateFalcon: number | null
+    lpAllocationPct: number | null
+    lpProviderCount: number | null
+    cidEmissionPct: number | null
+    cidYearlyAvgPct: number | null
+    firstClaimEpoch: number
+    epochClaimable: boolean
+    lastSettledEpoch: number
+  }
+  last_pack: {
+    height: number
+    packer: string
+    txs: number
+  }
+  lottery_winner: string
+  committee_size: number
+  commit_need: number
+  rails: RailRow[]
+  metrics: {
+    ledgers_sealed: number
+    txs_sealed: number
+    submit_accepted: number
+    fees_burned: number
   }
 }
 
-export async function GET() {
+type TipRing = LedgerSummary
+const tipRing: TipRing[] = []
+const RING = 12
+
+function num(v: unknown, fallback = 0): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string' && v.trim()) {
+    const n = Number(v)
+    if (Number.isFinite(n)) return n
+  }
+  return fallback
+}
+
+function str(v: unknown, fallback = ''): string {
+  return v == null ? fallback : String(v)
+}
+
+function rememberTip(row: TipRing) {
+  if (tipRing[0]?.seq === row.seq) {
+    tipRing[0] = row
+    return
+  }
+  tipRing.unshift(row)
+  if (tipRing.length > RING) tipRing.length = RING
+}
+
+export async function GET(req: NextRequest) {
+  const accountQ = req.nextUrl.searchParams.get('account')?.trim()
+  if (accountQ) {
+    try {
+      const acct = await plAccount(accountQ)
+      return NextResponse.json({ type: 'account', found: Boolean(acct.exists), ...acct })
+    } catch (e) {
+      return NextResponse.json({ type: 'account', found: false, error: String(e) }, { status: 200 })
+    }
+  }
+
   try {
-    // ── Parallel: server_info + fee + bonded validators ───────────────────
-    // Admin `validators` RPC is 403 on public :6005 — use on-ledger bonds instead.
-    const [srvR, feeR, validators, epoch] = await Promise.all([
-      rpcCall<{ info: Record<string, unknown> }>('server_info', {}),
-      rpcCall<Record<string, unknown>>('fee', {}),
-      fetchBondedValidators().catch(() => [] as ValidatorEntry[]),
-      fetchEpoch(),
-    ])
+    const st = await plStatus(false)
+    const tip = num(st.tip_height)
+    const tipHash = str(st.tip_hash)
+    const packer = str(st.last_pack_packer)
+    const txs = num(st.last_pack_txs)
+    rememberTip({
+      seq: tip,
+      hash: tipHash,
+      txn_count: txs,
+      packer,
+      close_time: Date.now() / 1000,
+      close_time_human: new Date().toISOString(),
+    })
 
-    const info    = srvR.info as Record<string, unknown>
-    const valLedger = info.validated_ledger as Record<string, unknown>
-    const valSeq: number = (valLedger?.seq as number) ?? 0
-    const lastClose = (info.last_close as Record<string, unknown> | undefined) ?? {}
-    const proposers = Number(lastClose.proposers ?? 0)
+    const valsRaw = Array.isArray(st.validators) ? (st.validators as Array<Record<string, unknown>>) : []
+    const validators: ValidatorEntry[] = valsRaw.map((v) => ({
+      account: str(v.id || v.bond_account),
+      pubkey: str(v.id),
+      bond_status: v.jailed ? 'jailed' : v.unbonding ? 'unbonding' : 'bonded',
+      bonded_amount: String(num(v.bond)),
+      composite_score: Math.round(num(v.pack_count)),
+      ledger_index: num(v.last_advertised_tip),
+      jailed: Boolean(v.jailed),
+      lottery_ready: Boolean(v.lottery_ready),
+      pack_count: num(v.pack_count),
+    }))
 
-    // ── Fetch last 10 ledgers ──────────────────────────────────────────────
-    const ledgerNums = Array.from({ length: 10 }, (_, i) => valSeq - i).filter(s => s > 0)
-    const ledgerResults = await Promise.all(
-      ledgerNums.map(seq =>
-        rpcCall<{ ledger: Record<string, unknown> }>('ledger', {
-          ledger_index: seq,
-          transactions: true,
-          expand: false,
-        }).catch(() => null),
-      ),
-    )
-
-    const recentLedgers: LedgerSummary[] = ledgerResults
-      .filter(Boolean)
-      .map(r => {
-        const l = r!.ledger
-        const txns = (l.transactions as string[] | undefined) ?? []
-        return {
-          seq:              l.seqNum as number ?? l.ledger_index as number ?? 0,
-          hash:             (l.hash ?? l.ledger_hash ?? '') as string,
-          txn_count:        txns.length,
-          close_time_human: rippleToIso(l.close_time as number),
-          total_coins:      (l.totalCoins ?? l.total_coins ?? '') as string,
-          base_fee:         l.base_fee as number | undefined,
-          close_time:       l.close_time as number,
-        }
-      })
-
-    // ── Fetch recent TXs from latest ledger ───────────────────────────────
-    let recentTxs: TxSummary[] = []
-    const latestFull = await rpcCall<{ ledger: Record<string, unknown> }>('ledger', {
-      ledger_index: valSeq,
-      transactions: true,
-      expand:       true,
-    }).catch(() => null)
-
-    if (latestFull?.ledger) {
-      const txList = (latestFull.ledger.transactions as Record<string, unknown>[]) ?? []
-      recentTxs = txList.slice(0, 20).map(t => {
-        const meta = t.metaData as Record<string, unknown> ?? t.meta as Record<string, unknown> ?? {}
-        return {
-          hash:         (t.hash ?? '') as string,
-          type:         (t.TransactionType ?? 'Unknown') as string,
-          account:      (t.Account ?? '') as string,
-          destination:  t.Destination as string | undefined,
-          amount:       t.Amount as string | undefined,
-          fee:          (t.Fee ?? '0') as string,
-          ledger_index: valSeq,
-          result:       (meta.TransactionResult ?? '') as string,
-          date:         t.date as number | undefined,
-        }
+    const online = Array.isArray(st.online_seats)
+      ? (st.online_seats as unknown[]).map((x) => String(x))
+      : []
+    const railsRaw = Array.isArray(st.rails) ? (st.rails as Array<Record<string, unknown>>) : []
+    const rails: RailRow[] = railsRaw.map((r) => ({
+      asset: str(r.asset),
+      tip_height: num(r.tip_height),
+      tip_hash: str(r.tip_hash),
+      total_minted: num(r.total_minted),
+      total_burned: num(r.total_burned),
+      min_confirmations: num(r.min_confirmations),
+      open_withdrawals: num(r.open_withdrawals),
+    }))
+    if (!rails.some((r) => r.asset === 'XRP')) {
+      rails.push({
+        asset: 'XRP',
+        tip_height: 0,
+        tip_hash: '',
+        total_minted: 0,
+        total_burned: 0,
+        min_confirmations: 1,
+        open_withdrawals: 0,
       })
     }
 
-    // ── TPS / close time estimates ────────────────────────────────────────
-    let totalTxs     = 0
-    let totalSeconds = 0
-    const sorted = [...recentLedgers].sort((a, b) => a.seq - b.seq)
-    for (let i = 1; i < sorted.length; i++) {
-      totalTxs     += sorted[i].txn_count
-      const dt      = (sorted[i].close_time ?? 0) - (sorted[i - 1].close_time ?? 0)
-      if (dt > 0 && dt < 30) totalSeconds += dt
-    }
-    const avgClose  = sorted.length > 1 ? totalSeconds / (sorted.length - 1) : 3
-    const avgTxPerL = sorted.length > 1 ? totalTxs     / (sorted.length - 1) : 0
-    const tps       = avgClose > 0 ? avgTxPerL / avgClose : 0
+    const metrics = (st.metrics ?? {}) as Record<string, unknown>
+    const feeMkt = (metrics.fee_market ?? {}) as Record<string, unknown>
+    const epochN = num(st.epoch, 1)
+    const treasury = num(st.treasury)
+    const emissionBps = num(st.emission_bps, 30)
+    const epochClaimable = Boolean(st.epoch_claimable)
+    const emission = epochClaimable ? Math.floor((treasury * emissionBps) / 10_000) : 0
 
-    // ── Fee data ─────────────────────────────────────────────────────────
-    const drops       = feeR.drops as Record<string, unknown> ?? {}
-    const openFeeDrops = parseInt((drops.open_ledger_fee  ?? drops.base_fee ?? '12') as string, 10)
-    const medFeeDrops  = parseInt((drops.median_fee       ?? drops.base_fee ?? '12') as string, 10)
-    const curFeeDrops  = parseInt((drops.minimum_fee      ?? '12')                   as string, 10)
-    const txQueue      = (feeR.current_queue_size as number) ?? 0
-
-    const payload = {
-      server_state:       info.server_state as string,
-      uptime_seconds:     info.uptime as number ?? 0,
-      complete_ledgers:   info.complete_ledgers as string ?? '',
-      peers:              info.peers as number ?? 0,
-      load_factor:        info.load_factor as number ?? 1,
-      load_base:          info.load_base as number ?? 256,
-      server_version:     (info.build_version ?? info.version ?? '') as string,
-
-      validated_ledger:   valSeq,
-      close_time_human:   rippleToIso(valLedger?.close_time as number),
-      total_coins:        (valLedger?.base_xrp ?? '') as string,
-      reserve_base:       (valLedger?.reserve_base ?? 0) as number,
-      reserve_inc:        (valLedger?.reserve_inc  ?? 0) as number,
-      base_fee_xrp:       (valLedger?.base_fee_xrp ?? 0.000012) as number,
-
-      current_fee_drops:  curFeeDrops,
-      median_fee_drops:   medFeeDrops,
-      open_ledger_fee:    openFeeDrops,
-      tx_queue_size:      txQueue,
-
-      recent_ledgers:     recentLedgers,
-      recent_txs:         recentTxs,
+    const payload: ScanData = {
+      product: str(st.product, 'Falcon PL'),
+      ticker: str(st.ticker, 'FPL'),
+      consensus: str(st.consensus, 'Falcon Consensus'),
+      network_id: num(st.network_id, 2300),
+      product_version: str(st.product_version),
+      server_state: online.length >= 4 ? 'live' : 'degraded',
+      server_version: str(st.product_version),
+      uptime_seconds: Math.max(0, Math.floor((num(st.now_ms) - num(st.genesis_ms)) / 1000)),
+      peers: online.length,
+      validated_ledger: tip,
+      tip_hash: tipHash,
+      state_root: str(st.state_root),
+      current_fee_drops: num(st.suggested_min_fee, num(st.min_fee, 1)),
+      median_fee_drops: num(metrics.fee_p50, 2),
+      open_ledger_fee: num(feeMkt.suggested_min_fee, 1),
+      tx_queue_size: num(st.mempool),
+      mempool: num(st.mempool),
+      max_mempool: num(st.max_mempool_txs, 50_000),
+      fee_multiplier: num(feeMkt.fee_multiplier, 1),
+      recent_ledgers: tipRing.slice(),
+      recent_txs: [],
       validators,
-      proposers,
-
-      tps_estimate:       Math.round(tps * 100) / 100,
-      avg_txs_per_ledger: Math.round(avgTxPerL * 10) / 10,
-      avg_close_seconds:  Math.round(avgClose * 10) / 10,
-
-      epoch,
-    } satisfies ScanData
-
-    appendMetricSamples({
-      tps: payload.tps_estimate,
-      avg_close: payload.avg_close_seconds,
-      base_fee: payload.current_fee_drops,
-      median_fee: payload.median_fee_drops,
-      tx_queue: payload.tx_queue_size,
-      peers: payload.peers,
-    }).catch(() => {})
+      proposers: online.length,
+      online_seats: online,
+      tps_estimate: 0,
+      avg_txs_per_ledger: txs,
+      avg_close_seconds: 0.2,
+      load_factor: num(feeMkt.mempool_util_bps),
+      load_base: 10_000,
+      complete_ledgers: String(num(metrics.ledgers_sealed, tip)),
+      reserve_base: 0,
+      reserve_inc: 0,
+      treasury,
+      epoch: {
+        number: epochN,
+        poolBalanceFalcon: treasury,
+        emissionRateFalcon: emission,
+        lpAllocationPct: 40,
+        lpProviderCount: 0,
+        cidEmissionPct: cidEmissionPct(epochN),
+        cidYearlyAvgPct: cidYearlyAvgPct(epochN),
+        firstClaimEpoch: num(st.first_claim_epoch, 1),
+        epochClaimable,
+        lastSettledEpoch: num(st.last_settled_epoch),
+      },
+      last_pack: {
+        height: num(st.last_pack_height, tip),
+        packer,
+        txs,
+      },
+      lottery_winner: str(st.lottery_winner_next),
+      committee_size: num(st.committee_size, 6),
+      commit_need: num(st.commit_need, 4),
+      rails,
+      metrics: {
+        ledgers_sealed: num(metrics.ledgers_sealed, tip),
+        txs_sealed: num(metrics.txs_sealed),
+        submit_accepted: num(metrics.submit_accepted),
+        fees_burned: num(metrics.fees_burned_total),
+      },
+    }
 
     return NextResponse.json(payload)
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 503 })
   }
 }
+
+

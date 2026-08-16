@@ -28,7 +28,7 @@ export default function EpochEmissionsCard({ epoch }: { epoch: EpochOverview | n
           </div>
           <div>
             <div className="text-slate-500">Treasury pool</div>
-            <div className="font-mono text-slate-200 text-lg">{fmt(epoch.poolBalanceFalcon, 0)} FALCON</div>
+            <div className="font-mono text-slate-200 text-lg">{fmt(epoch.poolBalanceFalcon, 0)} FPL</div>
           </div>
           <div>
             <div className="text-slate-500">Emission rate</div>
@@ -44,20 +44,17 @@ export default function EpochEmissionsCard({ epoch }: { epoch: EpochOverview | n
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs pt-1 border-t border-slate-800">
           <div>
-            <div className="text-slate-500">Validator share</div>
-            <div className="font-mono text-slate-300">
-              {epoch.lpAllocationPct != null ? `${pct(100 - epoch.lpAllocationPct)}` : '—'}
-            </div>
+            <div className="text-slate-500">Split</div>
+            <div className="font-mono text-slate-300">55% val · 5% watch · 20% AMM · 20% lend</div>
           </div>
           <div>
-            <div className="text-slate-500">LP / lend share</div>
-            <div className="font-mono text-slate-300">{pct(epoch.lpAllocationPct)}</div>
+            <div className="text-slate-500">First claim</div>
+            <div className="font-mono text-slate-300">epoch 1 on testnet</div>
           </div>
           <div className="sm:col-span-1 col-span-2">
             <p className="text-slate-600 leading-relaxed">
-              CID emission declines linearly each epoch (~0.07 bps/week); year-1 averages 12% of
-              treasury. LP share is participation-based: each active vault depositor adds 1% (cap 50
-              providers). Validators receive the remainder. Epoch length is 172,800 ledgers (~7 days).
+              7-day epochs. Testnet 2300 pays from epoch 1. Mainnet keeps the epoch-8 bootstrap.
+              CID declines each epoch; year-1 averages 12% of remaining treasury.
             </p>
           </div>
         </div>
