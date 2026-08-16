@@ -6,7 +6,7 @@
 import { decodeFalconSecret, bytesToHex, zeroize } from './falcon-keys'
 import { getFalcon512 } from './falcon-wasm'
 
-export type SignedPlPay = {
+export type SignedPlTx = {
   account: string
   sequence: number
   destination: string
@@ -16,8 +16,10 @@ export type SignedPlPay = {
   public_key: string
   signature: string
   tx_id: string
-  body: { kind: 'pay' }
+  body: { kind: string; destination?: string }
 }
+
+export type SignedPlPay = SignedPlTx
 
 const DEFAULT_NETWORK_ID = 2300
 
@@ -41,27 +43,19 @@ export function plPayPayload(opts: {
   return `pl-tx:v2|${opts.account}|${opts.sequence}|${opts.destination}|${opts.amount}|${opts.fee}|${opts.networkId}|${PAY_BODY_JSON}`
 }
 
-export async function signPlPay(opts: {
+async function signPlBody(opts: {
   account: string
   destination: string
   amount: number
   sequence: number
-  fee?: number
-  networkId?: number
+  fee: number
+  networkId: number
+  body: SignedPlTx['body']
   falconSecret: string
-}): Promise<SignedPlPay> {
+}): Promise<SignedPlTx> {
   const decoded = decodeFalconSecret(opts.falconSecret)
-  const fee = opts.fee ?? 2
-  const networkId = opts.networkId ?? DEFAULT_NETWORK_ID
-  const amount = Math.floor(opts.amount)
-  const payload = plPayPayload({
-    account: opts.account,
-    sequence: opts.sequence,
-    destination: opts.destination,
-    amount,
-    fee,
-    networkId,
-  })
+  const bodyJson = JSON.stringify(opts.body)
+  const payload = `pl-tx:v2|${opts.account}|${opts.sequence}|${opts.destination}|${opts.amount}|${opts.fee}|${opts.networkId}|${bodyJson}`
   const publicKey = bytesToHex(decoded.pubBlob.slice(1))
   const falcon = await getFalcon512()
   const msg = new TextEncoder().encode(payload)
@@ -71,17 +65,77 @@ export async function signPlPay(opts: {
   } finally {
     zeroize(decoded.secretKey)
   }
-  const txId = await sha256HexBrowser(payload)
   return {
     account: opts.account,
     sequence: opts.sequence,
     destination: opts.destination,
-    amount,
-    fee,
-    network_id: networkId,
+    amount: opts.amount,
+    fee: opts.fee,
+    network_id: opts.networkId,
     public_key: publicKey,
     signature: bytesToHex(signature),
-    tx_id: txId,
-    body: { kind: 'pay' },
+    tx_id: await sha256HexBrowser(payload),
+    body: opts.body,
   }
+}
+
+export async function signPlPay(opts: {
+  account: string
+  destination: string
+  amount: number
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlPay> {
+  return signPlBody({
+    account: opts.account,
+    destination: opts.destination,
+    amount: Math.floor(opts.amount),
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'pay' },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+/** Convert this account to a vault locked to `destination`. */
+export async function signVaultOpen(opts: {
+  account: string
+  destination: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: opts.destination,
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'vault_open', destination: opts.destination },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+export async function signVaultLock(opts: {
+  account: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'vault_lock' },
+    falconSecret: opts.falconSecret,
+  })
 }

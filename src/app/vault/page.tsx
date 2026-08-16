@@ -73,7 +73,7 @@ import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
 import { authenticatePasskey } from '@/lib/passkey'
 import { encryptSeed, decryptSeed } from '@/lib/wallet-crypto'
 import { activationFeeFpl, linkedVaultName, normalizePlName, plAccountId } from '@/lib/pl-names'
-import { signPlPay } from '@/lib/pl-wallet-sign'
+import { signPlPay, signVaultLock, signVaultOpen } from '@/lib/pl-wallet-sign'
 
 const MultiQrDisplay = dynamic(() => import('@/components/MultiQrDisplay'), { ssr: false })
 const MultiQrScanner = dynamic(() => import('@/components/MultiQrScanner'), { ssr: false })
@@ -98,6 +98,9 @@ interface AccountSnap {
   exists: boolean
   sequence: number
   currentLedger: number
+  accountType?: string
+  vaultLocked?: boolean
+  allowlist?: string[]
   fusdc?: {
     balance: number
     currency: string
@@ -204,6 +207,9 @@ export default function VaultPage() {
         exists: !!data.exists,
         sequence: data.sequence ?? 0,
         currentLedger: data.currentLedger ?? 0,
+        accountType: data.accountType,
+        vaultLocked: Boolean(data.vaultLocked),
+        allowlist: Array.isArray(data.allowlist) ? data.allowlist : [],
         fusdc: fusdc
           ? {
               balance: fusdc.balance ?? 0,
@@ -377,17 +383,84 @@ export default function VaultPage() {
     }
   }
 
+  async function submitSignedTx(tx: { tx_id: string }) {
+    const res = await fetch('/api/wallet/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tx, network: network.key }),
+    })
+    const out = (await res.json()) as { success?: boolean; error?: string; message?: string }
+    if (!res.ok || out.success === false) {
+      throw new Error(out.error || out.message || 'Submit failed')
+    }
+  }
+
+  async function unlockVaultSecret(): Promise<string> {
+    if (browserSecret) return browserSecret
+    if (!vault?.encrypted) throw new Error('Unlock this vault with your passkey first')
+    const cred = vault.credentialId || hotWallet?.credentialId
+    if (!cred) throw new Error('Open the linked hot wallet on this device')
+    const { keyBytes } = await authenticatePasskey(cred, vault.hasPrf ?? hotWallet?.hasPrf ?? false)
+    const secret = await decryptSeed(vault.encrypted, keyBytes)
+    setBrowserSecret(secret)
+    return secret
+  }
+
+  async function protocolLockVault(secret: string, dest: string) {
+    const acctId = vaultAccountId(vault!)
+    let snap = await fetchSequenceInfo(acctId, network.key)
+    if (account?.accountType === 'vault' && account.vaultLocked) return
+    if (account?.accountType !== 'vault') {
+      const open = await signVaultOpen({
+        account: acctId,
+        destination: dest,
+        sequence: snap.sequence,
+        networkId: network.networkId,
+        falconSecret: secret,
+      })
+      await submitSignedTx(open)
+      for (let i = 0; i < 24; i++) {
+        await new Promise((r) => setTimeout(r, 250))
+        await loadBalance(acctId)
+      }
+      snap = await fetchSequenceInfo(acctId, network.key)
+    }
+    const mid = await fetch(
+      withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(acctId)}`, network.key),
+    )
+    const midJ = (await mid.json()) as { accountType?: string; vaultLocked?: boolean }
+    if (midJ.accountType === 'vault' && midJ.vaultLocked) return
+    const lock = await signVaultLock({
+      account: acctId,
+      sequence: snap.sequence,
+      networkId: network.networkId,
+      falconSecret: secret,
+    })
+    await submitSignedTx(lock)
+    for (let i = 0; i < 24; i++) {
+      await new Promise((r) => setTimeout(r, 250))
+      await loadBalance(acctId)
+    }
+  }
+
   async function activateVaultName() {
     if (!vault?.accountName) return
     const fee = vault.nameActivationFee ?? activationFeeFpl(vault.accountName)
-    if ((account?.balance ?? 0) < fee) {
-      setError(`Send ${fee.toLocaleString()} FPL to ${vault.accountName} to activate`)
+    if ((account?.balance ?? 0) < fee + 2) {
+      setError(`Send ${(fee + 2).toLocaleString()} FPL to ${vault.accountName} to activate and lock`)
+      return
+    }
+    const dest = vault.payoutAddress || hotId
+    if (!dest) {
+      setError('No hot wallet linked as payout')
       return
     }
     setBusy(true)
     setError(null)
     try {
-      const r = await fetch('/api/wallet/name', {
+      const secret = await unlockVaultSecret()
+      await protocolLockVault(secret, dest)
+      await fetch('/api/wallet/name', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -396,25 +469,22 @@ export default function VaultPage() {
           publicKey: vault.publicKey,
         }),
       })
-      const d = (await r.json()) as { error?: string }
-      if (!r.ok) throw new Error(d.error ?? 'Activate failed')
-      const dest = vault.payoutAddress || hotId
-      if (dest) {
-        await fetch('/api/wallet/pl', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'vault-activate',
-            account: vault.accountName,
-            destination: dest,
-          }),
-        }).catch(() => {
-          /* protocol lock is best-effort until the vault key is on-node */
-        })
+      const check = await fetch(
+        withNetworkQuery(
+          `/api/wallet/account?address=${encodeURIComponent(vault.accountName)}`,
+          network.key,
+        ),
+      )
+      const on = (await check.json()) as { accountType?: string; vaultLocked?: boolean; allowlist?: string[] }
+      if (on.accountType !== 'vault' || !on.vaultLocked) {
+        throw new Error(
+          'Protocol did not lock this vault yet. The node must accept VaultOpen from this key — retry after the 2.9.31 roll.',
+        )
       }
       const next = { ...vault, nameActivated: true }
       await replacePrimaryVault(next)
       setVault(next)
+      await loadBalance(vault.accountName)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Activate failed')
     } finally {
@@ -619,20 +689,19 @@ export default function VaultPage() {
       setError('No payout account linked')
       return
     }
+    if (vault.payoutAddress && destination !== vault.payoutAddress) {
+      setError(`This vault can only pay ${vault.payoutAddress}`)
+      return
+    }
     if (account && amt > account.balance) {
       setError('Insufficient FPL balance')
       return
     }
     setBusy(true)
     try {
-      let secret = browserSecret
-      if (!secret) {
-        if (!hotWallet && !vault.encrypted) throw new Error('Unlock this vault with your passkey first')
-        const cred = vault.credentialId || hotWallet?.credentialId
-        if (!cred || !vault.encrypted) throw new Error('Unlock this vault with your passkey first')
-        const { keyBytes } = await authenticatePasskey(cred, vault.hasPrf ?? hotWallet?.hasPrf ?? false)
-        secret = await decryptSeed(vault.encrypted, keyBytes)
-        setBrowserSecret(secret)
+      const secret = await unlockVaultSecret()
+      if (account?.accountType !== 'vault' || !account.vaultLocked) {
+        await protocolLockVault(secret, destination)
       }
       const seq = await fetchSequenceInfo(vaultAccountId(vault), network.key)
       const tx = await signPlPay({
