@@ -604,9 +604,13 @@ export default function WalletPage() {
     setCreateNameStatus('checking')
     const t = setTimeout(() => {
       void fetch(`/api/wallet/name?name=${encodeURIComponent(n)}`, { cache: 'no-store' })
-        .then((r) => r.json())
-        .then((d: { available?: boolean }) => {
-          setCreateNameStatus(d.available ? 'available' : 'taken')
+        .then(async (r) => {
+          const d = (await r.json()) as { available?: boolean; status?: string }
+          if (d.status === 'blocked' || d.status === 'invalid') {
+            setCreateNameStatus('invalid')
+            return
+          }
+          setCreateNameStatus(d.available || d.status === 'free' ? 'available' : 'taken')
         })
         .catch(() => setCreateNameStatus('available'))
     }, 350)
@@ -649,7 +653,6 @@ export default function WalletPage() {
           action: 'reserve',
           name: picked,
           publicKey,
-          credentialId: 'pending',
         }),
       })
       const holdJ = (await hold.json()) as { error?: string; reservedUntil?: number; fee?: number }

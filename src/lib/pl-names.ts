@@ -36,19 +36,25 @@ const RESERVED = new Set([
   'v7',
 ])
 
+export function isProtocolName(raw: string): boolean {
+  return RESERVED.has(raw.trim().toLowerCase())
+}
+
 export function normalizePlName(raw: string): string | null {
   const s = raw.trim().toLowerCase()
   if (s.length < NAME_MIN_LEN || s.length > NAME_MAX_LEN) return null
   if (s.startsWith('.') || s.endsWith('.') || s.includes('..')) return null
   if (!/^[a-z0-9.]+$/.test(s)) return null
-  if (RESERVED.has(s)) return null
+  if (isProtocolName(s)) return null
   return s
 }
 
 export function plNameHint(raw: string): string | null {
   const s = raw.trim().toLowerCase()
   if (!s) return null
-  if (RESERVED.has(s)) return `"${s}" is reserved by the protocol`
+  if (isProtocolName(s)) {
+    return `"${s}" is a system name (faucet, validators, or test seats). Pick a different account name.`
+  }
   if (normalizePlName(s)) return null
   return '3–32 chars: a–z, 0–9, optional dots (no leading/trailing/double dots)'
 }

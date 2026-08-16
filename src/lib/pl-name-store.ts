@@ -8,6 +8,7 @@ import path from 'path'
 import os from 'os'
 import {
   activationFeeFpl,
+  isProtocolName,
   NAME_RESERVE_MS,
   normalizePlName,
 } from '@/lib/pl-names'
@@ -55,10 +56,20 @@ function live(rows: StoredName[], now = Date.now()): StoredName[] {
 }
 
 export function viewName(raw: string, now = Date.now()): NameView {
+  const trimmed = raw.trim().toLowerCase()
+  if (isProtocolName(trimmed)) {
+    return {
+      name: trimmed,
+      available: false,
+      status: 'blocked',
+      fee: 0,
+      error: 'System name',
+    }
+  }
   const name = normalizePlName(raw)
   if (!name) {
     return {
-      name: raw.trim().toLowerCase(),
+      name: trimmed,
       available: false,
       status: 'invalid',
       fee: 0,
@@ -100,7 +111,7 @@ export function reserveName(opts: {
     throw new Error('Name is reserved by another wallet')
   }
   if (existing && existing.publicKey === opts.publicKey) return existing
-  if (opts.credentialHash) {
+  if (opts.credentialHash && opts.credentialHash !== 'pending') {
     const held = rows.find(
       (r) => !r.activated && r.credentialHash && r.credentialHash === opts.credentialHash,
     )
