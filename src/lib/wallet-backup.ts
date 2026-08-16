@@ -13,6 +13,8 @@ export const BACKUP_VERSION_LEGACY = 1
 export interface BackupPayload {
   falcon_secret: string
   address: string
+  /** FPL account name when the name is the account */
+  accountName?: string
   publicKey: string
   label: string
   createdAt: number
@@ -37,6 +39,7 @@ export interface EncryptedBackupFile {
   type: typeof BACKUP_TYPE
   encrypted: true
   address: string
+  accountName?: string
   /** EVM deposit address (outer metadata) */
   evm_address?: string
   /** BTC testnet address (outer metadata) */
@@ -137,6 +140,7 @@ export async function createEncryptedBackup(
     type: BACKUP_TYPE,
     encrypted: true,
     address: payload.address,
+    accountName: payload.accountName,
     evm_address: payload.evm_address,
     btc_address: payload.btc_address,
     xrpl_classic_address: payload.xrpl_classic_address,
@@ -219,8 +223,15 @@ export function backupHasXrplClassicKeys(payload: BackupPayload): boolean {
   return !!(payload.xrpl_classic_seed && payload.xrpl_classic_address)
 }
 
-export function backupFilename(address: string): string {
-  return `falcon-backup-${address.slice(0, 10)}.json`
+export function backupFilename(file: WalletBackupFile | string): string {
+  if (typeof file === 'string') {
+    const slug = file.replace(/[^a-z0-9._-]+/gi, '-').slice(0, 24) || 'wallet'
+    return `falcon-multi-backup-${slug}.json`
+  }
+  const slug = (file.accountName || file.label || file.address || 'wallet')
+    .replace(/[^a-z0-9._-]+/gi, '-')
+    .slice(0, 24)
+  return `falcon-multi-backup-${slug}.json`
 }
 
 export function downloadBackup(file: WalletBackupFile): void {
@@ -228,20 +239,24 @@ export function downloadBackup(file: WalletBackupFile): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = backupFilename(file.address)
+  a.download = backupFilename(file)
+  a.rel = 'noopener'
+  a.style.display = 'none'
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 4_000)
 }
 
 export async function shareBackup(file: WalletBackupFile): Promise<boolean> {
   if (!navigator.share || !navigator.canShare) return false
   const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' })
-  const shareFile = new File([blob], backupFilename(file.address), { type: 'application/json' })
+  const shareFile = new File([blob], backupFilename(file), { type: 'application/json' })
   if (!navigator.canShare({ files: [shareFile] })) return false
   await navigator.share({
     files: [shareFile],
-    title: 'Falcon Ledger wallet backup',
-    text: `Backup for ${file.address}${file.evm_address ? ` + EVM ${file.evm_address}` : ''}${file.btc_address ? ` + BTC ${file.btc_address}` : ''}${file.xrpl_classic_address ? ` + XRPL ${file.xrpl_classic_address}` : ''}`,
+    title: 'Falcon & multi wallet backup',
+    text: `Backup for ${file.accountName || file.address}`,
   })
   return true
 }

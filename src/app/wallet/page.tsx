@@ -780,6 +780,7 @@ export default function WalletPage() {
       const file = await createEncryptedBackup({
         falcon_secret: pendingSave.falcon_secret,
         address: pendingSave.address,
+        accountName: pendingSave.accountName,
         publicKey: pendingSave.publicKey,
         label: pendingSave.label,
         createdAt: Date.now(),
@@ -792,10 +793,14 @@ export default function WalletPage() {
         xrpl_classic_address: pendingSave.xrplClassicAddress,
         xrpl_classic_public_key: pendingSave.xrplClassicPublicKey,
       }, backupPassphrase)
-      downloadBackup(file)
+      const mobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      if (mobile) {
+        const shared = await shareBackup(file).catch(() => false)
+        if (!shared) downloadBackup(file)
+      } else {
+        downloadBackup(file)
+      }
       setBackupDownloaded(true)
-      // On mobile, offer native save-to-files if available
-      void shareBackup(file).catch(() => {})
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to create backup file')
     }
@@ -832,6 +837,7 @@ export default function WalletPage() {
       | 'xrpl_classic_address'
       | 'xrpl_classic_public_key'
     >,
+    accountName?: string,
   ) => {
     if (!isPasskeySupported()) {
       setError('Passkeys need a secure context (HTTPS or localhost).')
@@ -883,6 +889,8 @@ export default function WalletPage() {
       const stored: StoredWallet = {
         credentialId,
         address,
+        accountName: accountName || undefined,
+        nameActivated: Boolean(accountName),
         publicKey,
         label: walletLabel,
         encrypted,
@@ -968,6 +976,7 @@ export default function WalletPage() {
               xrpl_classic_public_key: payload.xrpl_classic_public_key,
             }
           : undefined,
+        payload.accountName,
       )
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not read backup file')
@@ -1037,6 +1046,7 @@ export default function WalletPage() {
       const file = await createEncryptedBackup({
         falcon_secret,
         address: exportWallet.address,
+        accountName: exportWallet.accountName,
         publicKey: exportWallet.publicKey,
         label: exportWallet.label,
         createdAt: exportWallet.createdAt,
@@ -1664,7 +1674,7 @@ export default function WalletPage() {
                   <div className="text-[10px] text-slate-500 uppercase tracking-wide">Sepolia bridge address</div>
                   <div className="font-mono text-xs text-cyan-300 break-all">{pendingSave.evmAddress}</div>
                   <p className="text-[10px] text-slate-600">
-                    Included in the same encrypted backup file as your Falcon wallet.
+                    ETH, BTC, BNB, and classic XRP keys are in the same backup file.
                   </p>
                 </div>
 
@@ -1691,16 +1701,24 @@ export default function WalletPage() {
                   />
                 </div>
 
+                {backupPassphrase && validateBackupPassphrase(backupPassphrase) && (
+                  <p className="text-xs text-amber-300">{validateBackupPassphrase(backupPassphrase)}</p>
+                )}
+                {backupPassphrase && backupPassConfirm && backupPassphrase !== backupPassConfirm && (
+                  <p className="text-xs text-amber-300">Backup passwords do not match</p>
+                )}
                 <button
                   type="button"
-                  onClick={downloadPendingBackup}
+                  onClick={() => void downloadPendingBackup()}
                   disabled={!backupPassphrase || !backupPassConfirm}
                   className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm transition disabled:opacity-50"
                 >
-                  {backupDownloaded ? 'Download again ✓' : 'Download Falcon + Sepolia backup file'}
+                  {backupDownloaded ? 'Download again ✓' : 'Download Falcon & multi wallet backup'}
                 </button>
                 {backupDownloaded && (
-                  <p className="text-xs text-emerald-400 text-center">Backup file downloaded — store it somewhere safe</p>
+                  <p className="text-xs text-emerald-400 text-center">
+                    Backup saved — keep the file and password somewhere safe
+                  </p>
                 )}
 
                 <button
