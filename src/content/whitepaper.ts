@@ -52,7 +52,7 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
   },
   {
     title: 'Multi-Chain Wallet & Bridge Report',
-    description: 'Falcon, Bitcoin, Ethereum, and BNB wallets and lock-mint bridges.',
+    description: 'Falcon, Bitcoin, Ethereum, BNB, and XRP wallets and lock-mint bridges.',
     href: '/Docs/FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
     filename: 'FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
   },
@@ -364,6 +364,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ['Bitcoin', 'Primary SPV-style rail into wrapped BTC markets'],
           ['Ethereum', 'ETH corridor, same proof shape'],
           ['BNB', 'BNB corridor, same proof shape'],
+          ['XRP', 'XRP corridor — ledger headers and protocol Payment deposits'],
         ],
       },
       {
