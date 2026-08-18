@@ -44,11 +44,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen flex flex-col">
         <Providers>{children}</Providers>
         {/* Register service worker for PWA */}
-        <Script id="sw-register" strategy="afterInteractive">{`
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').catch(() => {});
-          }
-        `}</Script>
+        <Script id="sw-register" strategy="afterInteractive">
+          {process.env.NEXT_PUBLIC_DISABLE_SW === '1'
+            ? `if ('serviceWorker' in navigator) { navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); }); }`
+            : `if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(function(){}); }`}
+        </Script>
       </body>
     </html>
   )

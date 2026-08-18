@@ -15,6 +15,38 @@ import { plAccount, plStatus } from '@/lib/pl-rpc'
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const PL_NAME_RE = /^[A-Za-z0-9._-]{2,64}$/
 
+function plAssets(raw: unknown) {
+  const map = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const sats = (key: string) => {
+    const v = map[key]
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    if (typeof v === 'string' && v.trim()) {
+      const n = Number(v)
+      if (Number.isFinite(n)) return n
+    }
+    return 0
+  }
+  const btc = sats('BTC')
+  return {
+    fusdc: { symbol: 'F-USDC', balance: 0, currency: 'QUC', issuer: '', hasTrustLine: false },
+    fbtc: {
+      symbol: 'FBTC',
+      balance: btc / 1e8,
+      currency: 'BTC',
+      issuer: '',
+      hasTrustLine: true,
+      sats: btc,
+    },
+    feth: { symbol: 'FETH', balance: sats('ETH') / 1e18, currency: 'ETH', issuer: '', hasTrustLine: true },
+    fbnb: { symbol: 'FBNB', balance: sats('BNB') / 1e18, currency: 'BNB', issuer: '', hasTrustLine: true },
+    BTC: btc,
+    tokens: btc
+      ? [{ symbol: 'FBTC', currency: 'BTC', issuer: '', balance: btc / 1e8, hasTrustLine: true, spvMpt: true, spvMptBalance: btc / 1e8 }]
+      : [],
+    lp: { symbol: 'LP-TOKENS', balance: 0, currency: '', issuer: '', sharePct: 0, estXrpOut: 0, estUsdcOut: 0 },
+  }
+}
+
 function num(v: unknown, fallback = 0): number {
   if (typeof v === 'number' && Number.isFinite(v)) return v
   if (typeof v === 'string' && v.trim()) {
@@ -69,10 +101,7 @@ export async function GET(req: NextRequest) {
         accountType: String(acct.account_type ?? 'hot'),
         allowlist: Array.isArray(acct.allowlist) ? acct.allowlist : [],
         vaultLocked: Boolean(acct.vault_locked),
-        assets: {
-          fusdc: { symbol: 'F-USDC', balance: 0, currency: 'QUC', issuer: '', hasTrustLine: false },
-          lp: { symbol: 'LP-TOKENS', balance: 0, currency: '', issuer: '', sharePct: 0, estXrpOut: 0, estUsdcOut: 0 },
-        },
+        assets: plAssets(acct.assets),
       })
     }
 

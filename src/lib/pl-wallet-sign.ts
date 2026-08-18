@@ -16,7 +16,7 @@ export type SignedPlTx = {
   public_key: string
   signature: string
   tx_id: string
-  body: { kind: string; destination?: string }
+  body: Record<string, unknown>
 }
 
 export type SignedPlPay = SignedPlTx
@@ -50,7 +50,7 @@ async function signPlBody(opts: {
   sequence: number
   fee: number
   networkId: number
-  body: SignedPlTx['body']
+  body: Record<string, unknown>
   falconSecret: string
 }): Promise<SignedPlTx> {
   const decoded = decodeFalconSecret(opts.falconSecret)
@@ -136,6 +136,123 @@ export async function signVaultLock(opts: {
     fee: opts.fee ?? 2,
     networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
     body: { kind: 'vault_lock' },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+export type PlBridgeProof = {
+  external_txid: string
+  block_hash: string
+  height: number
+  merkle_path: string[]
+  merkle_index: number
+  lock_id: string
+  parent_hash: string
+  merkle_root: string
+  external_to: string
+  raw_tx?: string
+}
+
+export async function signRailHeader(opts: {
+  account: string
+  sequence: number
+  asset: string
+  height: number
+  hash: string
+  parentHash: string
+  merkleRoot: string
+  /** 80-byte Bitcoin header hex. Required on 2.9.35+ BTC rail. */
+  raw?: string
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  const body: Record<string, unknown> = {
+    kind: 'rail_header',
+    asset: opts.asset,
+    height: opts.height,
+    hash: opts.hash,
+    parent_hash: opts.parentHash,
+    merkle_root: opts.merkleRoot,
+  }
+  if (opts.raw) body.raw = opts.raw.replace(/^0x/i, '').toLowerCase()
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body,
+    falconSecret: opts.falconSecret,
+  })
+}
+
+export async function signRailDeposit(opts: {
+  account: string
+  sequence: number
+  asset: string
+  to: string
+  amount: number
+  proof: PlBridgeProof
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: opts.to,
+    amount: Math.floor(opts.amount),
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: {
+      kind: 'rail_deposit',
+      asset: opts.asset,
+      to: opts.to,
+      amount: Math.floor(opts.amount),
+      proof: {
+        external_txid: opts.proof.external_txid,
+        block_hash: opts.proof.block_hash,
+        height: opts.proof.height,
+        merkle_path: opts.proof.merkle_path,
+        merkle_index: opts.proof.merkle_index,
+        lock_id: opts.proof.lock_id,
+        parent_hash: opts.proof.parent_hash,
+        merkle_root: opts.proof.merkle_root,
+        external_to: opts.proof.external_to,
+        ...(opts.proof.raw_tx
+          ? { raw_tx: opts.proof.raw_tx.replace(/^0x/i, '').toLowerCase() }
+          : {}),
+      },
+    },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+export async function signRailWithdraw(opts: {
+  account: string
+  sequence: number
+  asset: string
+  amount: number
+  externalTo: string
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: opts.externalTo,
+    amount: Math.floor(opts.amount),
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: {
+      kind: 'rail_withdraw',
+      asset: opts.asset,
+      amount: Math.floor(opts.amount),
+      external_to: opts.externalTo,
+    },
     falconSecret: opts.falconSecret,
   })
 }

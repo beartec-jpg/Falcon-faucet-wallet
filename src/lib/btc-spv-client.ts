@@ -132,9 +132,14 @@ function pushData(data: Uint8Array): Uint8Array {
 
 /** OP_RETURN payload: ASCII `FALC` + 20-byte Falcon AccountID. */
 export function falcOpReturnPayload(falconAddress: string): Uint8Array {
-  const id = decodeAccountID(falconAddress)
-  if (id.length !== 20) throw new Error('Invalid Falcon account id length')
-  return concatBytes(new TextEncoder().encode('FALC'), id)
+  try {
+    const id = decodeAccountID(falconAddress)
+    if (id.length === 20) return concatBytes(new TextEncoder().encode('FALC'), id)
+  } catch {
+    /* named FPL account */
+  }
+  const digest = sha256(new TextEncoder().encode(falconAddress.trim().toLowerCase()))
+  return concatBytes(new TextEncoder().encode('FALC'), digest.slice(0, 20))
 }
 
 /** OP_RETURN script: OP_RETURN <push payload>. */
@@ -200,6 +205,9 @@ export interface SpvStatus {
   btcNetwork: BtcNetwork
   ready: boolean
   message: string
+  /** FPL 2300: "bitcoin" after the header submitter reanchors. */
+  spv?: string
+  mode?: string
   /** W1.5 header lag monitoring */
   headers?: {
     falconTipHeight?: number | null

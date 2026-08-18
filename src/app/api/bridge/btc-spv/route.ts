@@ -143,10 +143,106 @@ async function explorerGet(pathSuffix: string, network: BtcNetwork): Promise<Res
   throw lastErr instanceof Error ? lastErr : new Error('Bitcoin explorer unavailable')
 }
 
+function isPl2300Request(req: NextRequest): boolean {
+  return getNetwork(resolveNetworkKey(req.nextUrl.searchParams.get('network'))).networkId === 2300
+}
+
+/** FALC dest id: classic AccountID or sha256(lowercase name)[:20]. */
+async function falcDest20(account: string): Promise<Buffer | null> {
+  const trimmed = account.trim()
+  if (!trimmed) return null
+  try {
+    const { decodeAccountID } = await import('ripple-address-codec')
+    const id = decodeAccountID(trimmed)
+    if (id.length === 20) return Buffer.from(id)
+  } catch {
+    /* named FPL account */
+  }
+  const { createHash } = await import('node:crypto')
+  return createHash('sha256').update(trimmed.toLowerCase()).digest().subarray(0, 20)
+}
+
 export async function GET(req: NextRequest) {
   try {
     const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
     const net = getNetwork(networkKey)
+
+    if (net.networkId === 2300) {
+      const { plStatus } = await import('@/lib/pl-rpc')
+      const fileCfg = await loadFileConfig()
+      const st = await plStatus(false)
+      const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
+      const btc = rails.find((r) => String(r.asset) === 'BTC') ?? {}
+      const watchAddress =
+        (fileCfg.watch_address as string | undefined)?.trim() ||
+        process.env.FPL_BTC_WATCH_ADDRESS?.trim() ||
+        process.env.NEXT_PUBLIC_BTC_SPV_WATCH_ADDRESS?.trim() ||
+        'tb1q7dnlzumm50hke3yl75rywds3gtfu2swqwu4xa08kx0ctxs00rv4q8hrkwu'
+      const paymentScriptHex =
+        (fileCfg.payment_script_hex as string | undefined)?.trim() ||
+        process.env.BTC_SPV_PAYMENT_SCRIPT_HEX?.trim() ||
+        '0020f367f1737ba3ef6cc49ff50647361142d3c541c0772a6ebcf633f0b341ef1b2a'
+      const tipHeight = Number(btc.tip_height ?? 0)
+      const minConf = Number(btc.min_confirmations ?? 6) || 6
+      const spv = String(btc.spv ?? 'protocol') === 'bitcoin' ? 'bitcoin' : 'protocol'
+      let btcTipHeight: number | null = null
+      let btcTipHash: string | null = null
+      try {
+        const tipH = await explorerGet('/blocks/tip/height', 'testnet')
+        if (tipH.ok) btcTipHeight = parseInt(await tipH.text(), 10) || null
+        const tipHashR = await explorerGet('/blocks/tip/hash', 'testnet')
+        if (tipHashR.ok) btcTipHash = (await tipHashR.text()).trim() || null
+      } catch {
+        /* explorer lag */
+      }
+      const lagBlocks =
+        tipHeight > 0 && btcTipHeight != null ? Math.max(0, btcTipHeight - tipHeight) : null
+      const lagLevel =
+        lagBlocks == null ? 'unknown' : lagBlocks >= 100 ? 'critical' : lagBlocks >= 20 ? 'warn' : 'ok'
+      return NextResponse.json({
+        amendment: { supported: true, enabled: true, majority: true },
+        activated: true,
+        ready: spv === 'bitcoin',
+        mode: spv === 'bitcoin' ? 'bitcoin-spv' : 'pl-rail',
+        spv,
+        message:
+          spv === 'bitcoin'
+            ? 'Falcon PL Bitcoin SPV — send testnet BTC to the hold + FALC memo, then mint after 6 confirmations'
+            : 'Header submitter has not reanchored onto Bitcoin yet',
+        btcNetwork: 'testnet',
+        watchAddress,
+        paymentScriptHex,
+        rail: {
+          asset: 'BTC',
+          tip_height: tipHeight,
+          tip_hash: String(btc.tip_hash ?? ''),
+          lock_id: String(btc.lock_id ?? ''),
+          min_confirmations: minConf,
+          total_minted: Number(btc.total_minted ?? 0),
+          total_burned: Number(btc.total_burned ?? 0),
+          open_withdrawals: Number(btc.open_withdrawals ?? 0),
+          withdrawals: btc.withdrawals ?? [],
+          spv,
+        },
+        bridge: {
+          tipHeight,
+          tipHash: String(btc.tip_hash ?? ''),
+          minConfirmations: minConf,
+          lockId: String(btc.lock_id ?? ''),
+          totalMinted: String(btc.total_minted ?? 0),
+        },
+        headers: {
+          falconTipHeight: tipHeight || null,
+          bitcoinTipHeight: btcTipHeight,
+          bitcoinTipHash: btcTipHash,
+          lagBlocks,
+          lagLevel,
+          claimSafe: lagLevel === 'ok' || lagLevel === 'warn',
+          lagWarnBlocks: 20,
+          lagCriticalBlocks: 100,
+        },
+      })
+    }
     const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
     const fileCfg = await loadFileConfig()
 
@@ -375,12 +471,14 @@ export async function POST(req: NextRequest) {
   if (action === 'list_deposits') {
     const account = (body.account || '').trim()
     const network: BtcNetwork = body.network === 'mainnet' ? 'mainnet' : 'testnet'
-    if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account)) {
+    if (!account) {
       return NextResponse.json({ error: 'Need Falcon account' }, { status: 400 })
     }
     try {
-      const { decodeAccountID } = await import('ripple-address-codec')
-      const acc20 = Buffer.from(decodeAccountID(account))
+      const acc20 = await falcDest20(account)
+      if (!acc20) {
+        return NextResponse.json({ error: 'Need Falcon account' }, { status: 400 })
+      }
       const want = Buffer.concat([Buffer.from('FALC'), acc20])
       const fileCfg = await loadFileConfig()
       const hold =
@@ -454,19 +552,20 @@ export async function POST(req: NextRequest) {
         } catch {
           /* include if outspend check fails */
         }
-        // Skip deposits already minted on Falcon (BtcDeposit ledger object)
-        try {
-          const hash = t.txid.replace(/^0x/i, '').toUpperCase()
-          const le = await falconRpc('ledger_entry', {
-            btc_deposit: { hash, vout: holdVout },
-            ledger_index: 'validated',
-          })
-          if (le && !le.error && le.node) {
-            // Already claimed — do not surface Claim FBTC again
-            continue
+        // 1001 only: skip deposits already minted (BtcDeposit ledger object).
+        if (!isPl2300Request(req)) {
+          try {
+            const hash = t.txid.replace(/^0x/i, '').toUpperCase()
+            const le = await falconRpc('ledger_entry', {
+              btc_deposit: { hash, vout: holdVout },
+              ledger_index: 'validated',
+            })
+            if (le && !le.error && le.node) {
+              continue
+            }
+          } catch {
+            /* if RPC blips, still list */
           }
-        } catch {
-          /* if RPC blips, still list — client can treat tecDUPLICATE as success */
         }
         deposits.push({
           txid: t.txid,
@@ -603,6 +702,41 @@ export async function POST(req: NextRequest) {
   // SPV peg-out: list open/recent BtcWithdrawal objects for tracker UI
   if (action === 'withdraw_list') {
     const account = (body.account || '').trim()
+    if (isPl2300Request(req)) {
+      try {
+        const { plStatus } = await import('@/lib/pl-rpc')
+        const st = await plStatus(false)
+        const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
+        const btc = rails.find((r) => String(r.asset) === 'BTC') ?? {}
+        const raw = (btc.withdrawals as Array<Record<string, unknown>> | undefined) ?? []
+        const withdrawals = raw
+          .filter((w) => !account || String(w.from ?? '') === account)
+          .map((w) => ({
+            account: String(w.from ?? account),
+            burnSeq: 0,
+            status: 0,
+            amountSats: Number(w.amount ?? 0),
+            challengeEndLedger: 0,
+            currentLedger: Number(st.tip_height ?? 0),
+            ready: false,
+            btcProven: false,
+            phase: 'awaiting_btc' as const,
+            noteId: String(w.note_id ?? ''),
+            externalTo: String(w.external_to ?? ''),
+          }))
+        return NextResponse.json({
+          account,
+          currentLedger: Number(st.tip_height ?? 0),
+          withdrawals,
+          mode: 'pl-rail',
+        })
+      } catch (e: unknown) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : 'withdraw_list failed', withdrawals: [] },
+          { status: 502 },
+        )
+      }
+    }
     if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account)) {
       return NextResponse.json({ error: 'Need Falcon account' }, { status: 400 })
     }
@@ -805,12 +939,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Falcon must already have the Bitcoin header for this block or engine returns tecNO_ENTRY
+    // 1001 xrpld must already have the Bitcoin header. FPL 2300 checks the
+    // rail tip on RailDeposit — return the explorer proof even if the
+    // submitter is still catching up.
     const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
     const net = getNetwork(networkKey)
     const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
     let falconTipHeight = 0
-    let headerReady = false
+    let headerReady = isPl2300Request(req)
+    if (!headerReady) {
     try {
       const bridgeLe = await falconRpc(
         'ledger_entry',
@@ -831,6 +968,7 @@ export async function POST(req: NextRequest) {
       }
     } catch {
       /* RPC flaky — still return proof; claim may fail with tecNO_ENTRY */
+    }
     }
 
     if (!headerReady) {

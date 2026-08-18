@@ -478,7 +478,7 @@ export default function VaultPage() {
       const on = (await check.json()) as { accountType?: string; vaultLocked?: boolean; allowlist?: string[] }
       if (on.accountType !== 'vault' || !on.vaultLocked) {
         throw new Error(
-          'Protocol did not lock this vault yet. The node must accept VaultOpen from this key — retry after the 2.9.31 roll.',
+          'Protocol did not lock this vault yet. Hard-refresh and tap Activate again so VaultOpen can enroll this key.',
         )
       }
       const next = { ...vault, nameActivated: true }
