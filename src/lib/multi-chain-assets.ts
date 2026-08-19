@@ -118,7 +118,7 @@ export const NATIVE_CHAIN_WALLETS: NativeChainWalletDef[] = [
     status: 'live',
     sharesEthKey: true,
     isToken: true,
-    canSend: false,
+    canSend: true,
     canReceive: true,
     canBridge: true,
   },

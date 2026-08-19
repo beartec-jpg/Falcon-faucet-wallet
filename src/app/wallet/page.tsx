@@ -88,7 +88,7 @@ import {
   shortTokenLabel,
 } from '@/lib/wallet-ui'
 import { fetchSpotPrices, multiChainUsdTotal, type SpotPrices } from '@/lib/wallet-prices'
-import { fetchSepoliaBalances, sendSepoliaEth } from '@/lib/evm-bridge-client'
+import { fetchSepoliaBalances, sendSepoliaEth, sendSepoliaUsdc } from '@/lib/evm-bridge-client'
 import {
   fetchBnbTestnetBalance,
   fetchBtcTestnetBalance,
@@ -330,7 +330,7 @@ export default function WalletPage() {
   >('idle')
 
   // Send form (Falcon IOUs + native multi-chain)
-  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'feth' | 'fbnb' | 'fbtc' | 'btc' | 'bnb' | 'eth' | 'xrp'>('falcon')
+  const [sendAsset,  setSendAsset]  = useState<'falcon' | 'fusdc' | 'feth' | 'fbnb' | 'fbtc' | 'btc' | 'bnb' | 'eth' | 'usdc' | 'xrp'>('falcon')
   const [sendTo,     setSendTo]     = useState('')
   const [sendAmount, setSendAmount] = useState('')
   const [sendResult, setSendResult] = useState<{
@@ -1096,7 +1096,12 @@ export default function WalletPage() {
     if (!wallet) return
 
     const isClassicXrp = sendAsset === 'xrp'
-    const isNative = sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth' || isClassicXrp
+    const isNative =
+      sendAsset === 'btc' ||
+      sendAsset === 'bnb' ||
+      sendAsset === 'eth' ||
+      sendAsset === 'usdc' ||
+      isClassicXrp
     if (!isNative && !account) return
     if (!isNative && !network.live) {
       setError(`${network.name} is not live yet.`)
@@ -1207,7 +1212,11 @@ export default function WalletPage() {
           setError('Insufficient ETH balance')
           return
         }
-        if (sendAsset === 'eth' && !bridgeCfg?.sepolia) {
+        if (sendAsset === 'usdc' && usdcNativeBal != null && amt > parseFloat(usdcNativeBal)) {
+          setError('Insufficient USDC balance')
+          return
+        }
+        if ((sendAsset === 'eth' || sendAsset === 'usdc') && !bridgeCfg?.sepolia) {
           setError('Bridge config not loaded')
           return
         }
@@ -1255,6 +1264,25 @@ export default function WalletPage() {
             })
             if (wallet.evmAddress) {
               void fetchBnbTestnetBalance(wallet.evmAddress).then(setBnbNativeBal)
+            }
+          } else if (sendAsset === 'usdc') {
+            const hash = await sendSepoliaUsdc({
+              cfg: bridgeCfg!.sepolia,
+              evmPrivateKey: pk,
+              to,
+              amountUsdc: sendAmount.trim(),
+            })
+            setSendResult({
+              success: true,
+              hash,
+              message: `Sent ${sendAmount} USDC on Sepolia`,
+              explorerUrl: `${bridgeCfg!.sepolia.explorer_url}/tx/${hash}`,
+            })
+            if (wallet.evmAddress && bridgeCfg?.sepolia) {
+              void fetchSepoliaBalances(bridgeCfg.sepolia, wallet.evmAddress).then((b) => {
+                setEthNativeBal(b.eth)
+                setUsdcNativeBal(b.usdc)
+              })
             }
           } else {
             const hash = await sendSepoliaEth({
@@ -2967,7 +2995,7 @@ export default function WalletPage() {
                       setError(null)
                       return
                     }
-                    if (sendAsset === 'eth' || sendAsset === 'bnb') {
+                    if (sendAsset === 'eth' || sendAsset === 'bnb' || sendAsset === 'usdc') {
                       const addr = parseEvmAddressFromScan(raw)
                       if (!addr) {
                         setError('QR does not contain a valid 0x address')
@@ -3008,7 +3036,7 @@ export default function WalletPage() {
                         setView('dashboard')
                         setError(null)
                         setSendResult(null)
-                        if (sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth' || sendAsset === 'xrp') {
+                        if (sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth' || sendAsset === 'usdc' || sendAsset === 'xrp') {
                           setWalletSection('multichain')
                         }
                       }}
@@ -3025,9 +3053,11 @@ export default function WalletPage() {
                           ? 'Send BNB (BSC testnet)'
                           : sendAsset === 'eth'
                             ? 'Send ETH (Sepolia)'
-                            : sendAsset === 'xrp'
-                              ? 'Send XRP (classic XRPL testnet)'
-                            : 'Send on Falcon'}
+                            : sendAsset === 'usdc'
+                              ? 'Send USDC (Sepolia)'
+                              : sendAsset === 'xrp'
+                                ? 'Send XRP (classic XRPL testnet)'
+                                : 'Send on Falcon'}
                     </h3>
                   </div>
 
@@ -3064,13 +3094,15 @@ export default function WalletPage() {
                   </div>
                   )}
 
-                  {(sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth') && (
+                  {(sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth' || sendAsset === 'usdc') && (
                     <p className="text-[11px] text-slate-500 leading-snug">
                       {sendAsset === 'btc'
                         ? 'Signed in-browser · broadcast via Blockstream/Mempool testnet API. Keys never leave this device.'
                         : sendAsset === 'bnb'
                           ? 'Same 0x key as ETH · BSC testnet. Keys stay encrypted under your passkey.'
-                          : 'Sepolia ETH · same deposit wallet used for Bridge In.'}
+                          : sendAsset === 'usdc'
+                            ? 'Sepolia USDC (ERC-20) · same 0x as ETH · needs a little ETH for gas.'
+                            : 'Sepolia ETH · same deposit wallet used for Bridge In.'}
                     </p>
                   )}
                   {sendAsset === 'xrp' && (
@@ -3116,7 +3148,7 @@ export default function WalletPage() {
                         onClick={() => {
                           setSendResult(null)
                           setView('dashboard')
-                          if (sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth' || sendAsset === 'xrp') {
+                          if (sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth' || sendAsset === 'usdc' || sendAsset === 'xrp') {
                             setWalletSection('multichain')
                           }
                         }}
@@ -3131,7 +3163,7 @@ export default function WalletPage() {
                         <label className="text-xs text-slate-400">
                           {sendAsset === 'btc'
                             ? 'Destination (testnet m… / n…)'
-                            : sendAsset === 'eth' || sendAsset === 'bnb'
+                            : sendAsset === 'eth' || sendAsset === 'bnb' || sendAsset === 'usdc'
                               ? 'Destination (0x…)'
                               : sendAsset === 'xrp'
                                 ? 'Destination (classic XRPL r…)'
@@ -3145,7 +3177,7 @@ export default function WalletPage() {
                             placeholder={
                               sendAsset === 'btc'
                                 ? 'm… or n…'
-                                : sendAsset === 'eth' || sendAsset === 'bnb'
+                                : sendAsset === 'eth' || sendAsset === 'bnb' || sendAsset === 'usdc'
                                   ? '0x…'
                                   : sendAsset === 'xrp'
                                     ? 'rXXX… (classic XRPL)'
@@ -3187,9 +3219,11 @@ export default function WalletPage() {
                                     ? 'BTC'
                                     : sendAsset === 'bnb'
                                       ? 'BNB'
-                                      : sendAsset === 'xrp'
-                                        ? 'XRP'
-                                      : 'ETH'}
+                                      : sendAsset === 'usdc'
+                                        ? 'USDC'
+                                        : sendAsset === 'xrp'
+                                          ? 'XRP'
+                                          : 'ETH'}
                           )
                         </label>
                         <input
@@ -3385,6 +3419,26 @@ export default function WalletPage() {
                             )}
                           </div>
                         )}
+                        {sendAsset === 'usdc' && (
+                          <div className="flex justify-between text-xs text-slate-600">
+                            <span>
+                              Available:{' '}
+                              {usdcNativeBal != null
+                                ? Number(usdcNativeBal).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                                : '—'}{' '}
+                              USDC
+                            </span>
+                            {usdcNativeBal != null && parseFloat(usdcNativeBal) > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setSendAmount(usdcNativeBal)}
+                                className="text-brand-500 hover:text-brand-400 transition-colors"
+                              >
+                                Max
+                              </button>
+                            )}
+                          </div>
+                        )}
                         {sendAsset === 'fusdc' && account?.assets?.fusdc?.hasTrustLine === false && (
                           <p className="text-xs text-amber-400">
                             Recipient and sender both need a F-USDC trust line. Add yours on{' '}
@@ -3518,7 +3572,7 @@ export default function WalletPage() {
                       if (transferPicker === 'send') {
                         if (id === 'fusdc' || id === 'feth' || id === 'fbnb' || id === 'fbtc' || id === 'falcon') {
                           setSendAsset(id)
-                        } else if (id === 'btc' || id === 'bnb' || id === 'eth' || id === 'xrp') {
+                        } else if (id === 'btc' || id === 'bnb' || id === 'eth' || id === 'usdc' || id === 'xrp') {
                           setSendAsset(id)
                         } else {
                           setTransferPicker(null)
