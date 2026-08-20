@@ -1,6 +1,8 @@
 # Falcon Multi-Chain Implementation (Testnet)
 
-**Status:** 2026-07-28 · Falcon network id **1001** · Bridge-only mint (no free bootstrap of F-assets)  
+**Status:** 2026-07-28 (historical). Falcon Ledger network id **1001** is **shut down**. Current product is Falcon PL **2300** dest-lock / FROST — see [BRIDGES-2300.md](./BRIDGES-2300.md). The rest of this file is the 1001 multi-chain implementation snapshot.
+
+**Status (this snapshot):** 2026-07-28 · Falcon network id **1001** · Bridge-only mint (no free bootstrap of F-assets)  
 **Custody model:** Custodial lock-mint via multi-sig-capable `FalconCollateralLock` + off-chain deposit relays (not fully trustless).
 
 This document describes the full multi-chain wallet + bridge system as implemented and deployed on testnet: architecture, addresses, transaction flows, backup model, ops services, and remaining work (especially **FBTC**).

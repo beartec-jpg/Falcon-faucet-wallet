@@ -144,6 +144,60 @@ export async function GET(req: NextRequest) {
   try {
     const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
     const net = getNetwork(networkKey)
+    if (net.networkId === 2300) {
+      const { plStatus } = await import('@/lib/pl-rpc')
+      const fileCfg = await loadJsonConfig('btc-spv-bridge.json')
+      const st = await plStatus(false)
+      const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
+      const btc = rails.find((r) => String(r.asset) === 'BTC') ?? {}
+      return NextResponse.json({
+        checked_at: new Date().toISOString(),
+        btcNetwork: 'testnet',
+        ready: String(btc.spv) === 'bitcoin',
+        message: 'Falcon PL 2300 BTC rail',
+        amendment: { name: 'FalconPL', supported: true, enabled: true },
+        falcon: {
+          ledger: Number(st.tip_height ?? st.height ?? 0),
+          tipHeight: Number(btc.tip_height ?? 0),
+          tipHash: btc.tip_hash ?? null,
+          minConfirmations: Number(btc.min_confirmations ?? 6),
+          watchScriptHash: null,
+          totalMintedSats: Number(btc.total_minted ?? 0),
+          totalMintedBtc: Number(btc.total_minted ?? 0) / 1e8,
+          mintCapSats: null,
+          chainId: 2300,
+        },
+        bitcoin: { tipHeight: null, tipHash: null, explorer: 'https://mempool.space/testnet' },
+        headers: {
+          falconTipHeight: Number(btc.tip_height ?? 0),
+          bitcoinTipHeight: null,
+          lagBlocks: null,
+          synced: String(btc.spv) === 'bitcoin',
+          note: 'Header submitter must stay within 256 blocks of Bitcoin tip',
+        },
+        reserve: {
+          holdAddress: fileCfg.watch_address ?? null,
+          holdConfirmedSats: 0,
+          holdConfirmedBtc: 0,
+          holdUtxoCount: 0,
+          holdMatureUtxoCount: 0,
+          challengeCsv: 0,
+          model: 'falcon-pl-2300',
+          watchMatchesConfig: true,
+        },
+        tvl: {
+          valueLockedSats: Number(btc.total_minted ?? 0) - Number(btc.total_burned ?? 0),
+          valueLockedBtc: 0,
+        },
+      })
+    }
+    return NextResponse.json(
+      {
+        error: 'Falcon Ledger (network 1001) BTC bridge scan is retired. Use Falcon PL 2300.',
+        retired: true,
+      },
+      { status: 410 },
+    )
     const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
 
     const fileCfg = await loadJsonConfig('btc-spv-bridge.json')

@@ -243,7 +243,13 @@ export async function GET(req: NextRequest) {
         },
       })
     }
-    const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
+    return NextResponse.json(
+      {
+        error: 'Falcon Ledger (network 1001) is shut down. Use Falcon PL 2300.',
+        retired: true,
+      },
+      { status: 410 },
+    )
     const fileCfg = await loadFileConfig()
 
     // Amendment
@@ -552,21 +558,7 @@ export async function POST(req: NextRequest) {
         } catch {
           /* include if outspend check fails */
         }
-        // 1001 only: skip deposits already minted (BtcDeposit ledger object).
-        if (!isPl2300Request(req)) {
-          try {
-            const hash = t.txid.replace(/^0x/i, '').toUpperCase()
-            const le = await falconRpc('ledger_entry', {
-              btc_deposit: { hash, vout: holdVout },
-              ledger_index: 'validated',
-            })
-            if (le && !le.error && le.node) {
-              continue
-            }
-          } catch {
-            /* if RPC blips, still list */
-          }
-        }
+        // Old Falcon Ledger deposit objects are gone with network 1001.
         deposits.push({
           txid: t.txid,
           vout: holdVout,
@@ -583,8 +575,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Locate COMPLETE payout: FBTO || AccountID20 || seq_be32 + amount to payout script
   if (action === 'find_redeem') {
+    return NextResponse.json(
+      { error: 'Falcon Ledger redeem is retired. Use Falcon PL 2300.', retired: true },
+      { status: 410 },
+    )
+  }
+  if (false && action === 'find_redeem_retired') {
     const account = (body.account || '').trim()
     const seq = Math.floor(Number(body.seq ?? 0))
     const network: BtcNetwork = body.network === 'mainnet' ? 'mainnet' : 'testnet'
@@ -737,6 +734,10 @@ export async function POST(req: NextRequest) {
         )
       }
     }
+    return NextResponse.json(
+      { error: 'Falcon Ledger withdraw list is retired. Use Falcon PL 2300.', retired: true },
+      { status: 410 },
+    )
     if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account)) {
       return NextResponse.json({ error: 'Need Falcon account' }, { status: 400 })
     }
@@ -782,6 +783,10 @@ export async function POST(req: NextRequest) {
 
   // SPV peg-out: poll BtcWithdrawal challenge window
   if (action === 'withdraw_status') {
+    return NextResponse.json(
+      { error: 'Falcon Ledger withdraw status is retired. Use Falcon PL 2300.', retired: true },
+      { status: 410 },
+    )
     const account = (body.account || '').trim()
     const seq = Math.floor(Number(body.seq ?? 0))
     if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account) || seq < 1) {

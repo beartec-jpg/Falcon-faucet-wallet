@@ -1,5 +1,7 @@
 # Falcon PL — start-to-finish implementation read-up
 
+**2026-08-20:** Bridges are **not** public-live. Current dest-lock / FROST status is [BRIDGES-2300.md](../../docs/BRIDGES-2300.md) (repo) and protocol `BRIDGES_2300_STATUS.md`. This read-up is ledger/consensus history.
+
 **From the DAG diversion, to the ordered ledger, to measured throughput vs the original Falcon ~30 tx/s wall.**
 
 | | |

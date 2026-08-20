@@ -1,28 +1,5 @@
 {
-  "version": 1,
-  "status": "live",
-  "description": "Native Bitcoin testnet → Falcon FBTC. One Bridge action: send multi-chain BTC to custody; relay mints FBTC. No WBTC shown in the wallet.",
-  "bitcoin": {
-    "network": "testnet",
-    "custody_testnet": "mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik",
-    "custody_mainnet": "1JPdULhG5mvKwKJa4bWR2HMKfTwgbReTqE",
-    "decimals": 8
-  },
-  "falcon": {
-    "network_id": 1001,
-    "token_symbol": "FBTC",
-    "token_currency": "BTC",
-    "token_issuer": "rnvzCKcBU7G8Kb9JXHwEKTHiK9aTrZAqWT"
-  },
-  "relay": {
-    "script": "scripts/bridge-btc-deposit-relay.py",
-    "service": "qxrp-fbtc-relay.service",
-    "claims_file": "/var/lib/qxrp-bridge/fbtc_claims.json",
-    "state_file": "/var/lib/qxrp-bridge/fbtc_relay_state.json"
-  },
-  "ux": {
-    "label_in": "BTC → FBTC",
-    "hide_wbtc": true,
-    "one_action": "passkey unlock → send BTC to custody → register claim → mint FBTC"
-  }
+  "status": "retired",
+  "note": "Falcon Ledger (network 1001) custodial FBTC is shut down. Use Falcon PL 2300 BTC rail.",
+  "network_id": 2300
 }

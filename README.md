@@ -1,6 +1,6 @@
-# Falcon Ledger Web Portal
+# Falcon PL Web Portal
 
-Official public portal for the **Falcon Ledger** testnet (Network ID **1001**) — a post-quantum fork of the XRP Ledger using **Falcon-512** signatures everywhere.
+Official public portal for **Falcon PL** testnet (network ID **2300**) — Falcon Consensus + Falcon-512. The old Falcon Ledger / XRPL fork (network **1001**) is shut down; those balances are lost.
 
 **Live:** [falcon-ledger.com](https://falcon-ledger.com) · **Repo:** [Falcon-faucet-wallet](https://github.com/beartec-jpg/Falcon-faucet-wallet)
 
@@ -9,15 +9,15 @@ Official public portal for the **Falcon Ledger** testnet (Network ID **1001**) �
 ## Features
 
 ### Faucet
-- Rate-limited testnet **FALCON** drip (default 2,000 per request)
-- Works with any Falcon `r…` address
+- Rate-limited testnet **FPL** drip (default 2,000 per request)
+- Falcon PL named accounts (network **2300**), not classic `r…` XRPL addresses
 
 ### Wallet (passkey-secured)
 - **Create** Falcon-512 wallets with WebAuthn passkeys — keys generated on-device
 - **Restore** from saved `falcon_secret` or unlock an existing passkey-encrypted wallet
-- **Send / receive FALCON** — manual address entry or **QR code scan** (`jsqr`)
-- **Send / receive F-USDC** — peer-to-peer IOU transfers (recipient needs trust line)
-- **Recent transactions** — correct asset labels for FALCON and F-USDC payments
+- **Send / receive FPL** — named Falcon PL accounts or QR
+- **Send / receive F-USDC** — bridged USDC on 2300 (dest-lock rail; not public-live)
+- **Recent transactions** — FPL and rail-asset labels
 - **Validator onboarding** — one-click deploy command with your address as `--payout` (1,000 FALCON bond)
 - **PWA** — installable progressive web app with offline shell
 
@@ -28,15 +28,19 @@ Official public portal for the **Falcon Ledger** testnet (Network ID **1001**) �
 - **Open orders** — persistent panel with cancel and fill status
 - Price field is **FALCON per F-USDC** (inverse helper shown in UI)
 
-### Bridge (Sepolia ↔ Falcon)
-- **Passkey Sepolia wallet** — no MetaMask required; EVM keys encrypted on-device
-- **F-USDC trust line** — required on the Bridge tab before Bridge In (relay will not mint without it)
-- **Bridge In** — lock Sepolia USDC on contract → relay mints **F-USDC** on Falcon
-- **Bridge Out** — send F-USDC to issuer with memo → relay releases **Sepolia USDC**
-- **Send Out** — move Sepolia ETH or USDC to any external `0x` address
-- **EVM backup** — encrypted export/import of Sepolia private key
+### Bridge (Sepolia ↔ Falcon PL 2300)
 
-Sepolia testnet contract: `0x2dae31Cbf2E3a418d617081985661fCD0117b75C` (see `public/config/usdc-bridge.json`)
+**Public peg-in is closed.** Paperwork: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
+
+- **Dest-lock ETH/USDC** — `FalconBridge` `depositEth(bytes20)` / `depositUsdc` / `openClaim` / `take`. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: lc-prover` until LC + mint e2e).
+- **Live contract (not a deposit address yet):** `0x7eB72974F2d2a4AaDFabAf0975a29470fcd163E4` (Sepolia). Groth16 verifier `0x7db9b1862AE7D04cE9ff85447390bDdfa972a9d0`.
+- **BTC** — BitVM dest-lock + FROST vault on 2300. Wallet flag `BTC_RAIL_LIVE = false`.
+- **Classic XRPL FXRP** — separate corridor; not the 1001 Falcon Ledger fork.
+- **Passkey Sepolia wallet** — no MetaMask; EVM keys encrypted on-device.
+- **Send Out** — move Sepolia ETH or USDC to any external `0x` address.
+- **EVM backup** — encrypted export/import of Sepolia private key.
+
+Do **not** send to old FalconCollateralLock `0x2dae31…` / `0x11808B…` (`public/config/usdc-bridge.json` is the retired 1001 lock, kept for FXRP notes only).
 
 ### Pool
 - **Add liquidity** — deposit FALCON + F-USDC into the FALCON/F-USDC AMM
@@ -75,9 +79,10 @@ Sepolia testnet contract: `0x2dae31Cbf2E3a418d617081985661fCD0117b75C` (see `pub
 
 | UI label | What it is | Where used |
 |----------|------------|------------|
-| **FALCON** | Native ledger asset (XRP drops) | Wallet, Swap, Pool, DEX |
-| **F-USDC** | Falcon-ledger IOU (`QUC` from issuer) | Wallet, Swap, Pool, DEX |
-| **Sepolia USDC** | ERC-20 on Ethereum Sepolia | Bridge tab only |
+| **FPL** | Native Falcon PL asset (network 2300) | Wallet, Swap, Pool, DEX |
+| **F-USDC / FETH** | Bridged USDC / ETH on Falcon PL (dest-lock rail; not live) | Wallet, Bridge |
+| **Sepolia USDC** | ERC-20 on Ethereum Sepolia | Multi-chain / Bridge |
+| **FXRP** | Classic XRPL XRP corridor | Bridge (not 1001) |
 
 F-USDC and Sepolia USDC are **not** the same token — the bridge converts between them.
 

@@ -22,16 +22,18 @@ import {
   waitForWithdrawalRelease,
   type BridgeDepositResult,
 } from '@/lib/evm-bridge-client'
-import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
-import { sendBtcP2pkh, fetchBtcBalance } from '@/lib/btc-client'
 import {
-  fetchSpvClaimMaterials,
+  depositEthDestLock,
+  depositUsdcDestLock,
+  destLockHeadersReady,
+  fetchFplTip,
+  fetchPl2300BridgeConfig,
+  type Pl2300BridgeConfig,
+} from '@/lib/pl-dest-lock'
+import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
+import { fetchBtcBalance } from '@/lib/btc-client'
+import {
   fetchSpvStatus,
-  spvPegIn,
-  spvPegOut,
-  spvProveRedeem,
-  submitSpvDepositClaim,
-  waitForSpvRedeemPayment,
   type SpvStatus,
 } from '@/lib/btc-spv-client'
 import {
@@ -70,7 +72,6 @@ import { pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
 import { sendSpvDeposit } from '@/lib/btc-spv-client'
 import {
   signBridgeWithdraw,
-  signFbtcBridgeWithdraw,
   signFusdcPayment,
   signTrustSet,
 } from '@/lib/wallet-sign-client'
@@ -244,6 +245,8 @@ export default function BridgeDepositPanel({
   const { networkKey, network } = useNetwork()
   const isPl2300 = network.networkId === 2300
   const falconId = plAccountId(wallet)
+  const [destLockCfg, setDestLockCfg] = useState<Pl2300BridgeConfig | null>(null)
+  const [destLockTip, setDestLockTip] = useState<number | null>(null)
   const [balances, setBalances] = useState<{ eth: string; usdc: string } | null>(null)
   const [balanceError, setBalanceError] = useState<string | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(false)
@@ -288,8 +291,7 @@ export default function BridgeDepositPanel({
   const [fbtcSpvLive, setFbtcSpvLive] = useState<number | null>(null)
   const [fbtcIouLive, setFbtcIouLive] = useState<number | null>(null)
   const [hasFbtcTrustLine, setHasFbtcTrustLine] = useState(false)
-  const [fbtcCustody, setFbtcCustody] = useState('')
-  const [fbtcIssuer, setFbtcIssuer] = useState('rnvzCKcBU7G8Kb9JXHwEKTHiK9aTrZAqWT')
+  const [fbtcIssuer, setFbtcIssuer] = useState('')
   const [fxrpIssuer, setFxrpIssuer] = useState('')
   const [fxrpCustody, setFxrpCustody] = useState('') // classic XRPL custody r…
   const [hasFxrpTrustLine, setHasFxrpTrustLine] = useState(false)
@@ -315,15 +317,16 @@ export default function BridgeDepositPanel({
       : 'fusdc-sepolia'
   })
 
-  const bridgeReady = lockContractReady(bridgeCfg)
-  const fethReady = fethLockReady(bridgeCfg)
+  const destLockLive = isPl2300 && destLockHeadersReady(destLockCfg, destLockTip)
+  const bridgeReady = isPl2300 ? destLockLive : lockContractReady(bridgeCfg)
+  const fethReady = isPl2300 ? destLockLive : fethLockReady(bridgeCfg)
   const fbnbReady = fbnbLockReady(bridgeCfg)
   const spvLive = !!(
     spvStatus?.ready &&
     (spvStatus.paymentScriptHex || spvStatus.watchAddress)
   )
-  /** SPV protocol reserve preferred. */
-  const fbtcReady = isPl2300 || spvLive || !!(fbtcCustody && fbtcIssuer)
+  /** Falcon PL 2300 BTC rail only — Falcon Ledger / custody paths retired. */
+  const fbtcReady = isPl2300 && spvLive
   const fxrpReady = !!(fxrpIssuer && fxrpCustody)
   const hasEvm = !!(wallet.evmAddress && wallet.evmEncrypted)
   const hasBtc = !!(wallet.btcAddress && wallet.btcEncrypted)
@@ -358,7 +361,7 @@ export default function BridgeDepositPanel({
           ? fethCurrency
           : falconCurrency
   const activeTrust = isFbtcRoute
-    ? isPl2300 || spvLive || hasFbtcTrustLine
+    ? isPl2300
     : isFxrpRoute
       ? hasFxrpTrustLine
       : isFbnbRoute
@@ -380,19 +383,45 @@ export default function BridgeDepositPanel({
   const canBridgeIn = openSpvBlocksIn
     ? false
     : isFbtcRoute
-      ? hasBtc && fbtcReady && (isPl2300 || spvLive || (hasFbtcTrustLine && !!activeIssuer))
+      ? hasBtc && fbtcReady
       : isFxrpRoute
         ? hasXrpl && fxrpReady && hasFxrpTrustLine && !!activeIssuer
-        : activeTrust && !!activeIssuer && activeLockReady
+        : isPl2300 && (isFethRoute || (!isFbnbRoute && !isFxrpRoute))
+          ? hasEvm && destLockLive
+          : activeTrust && !!activeIssuer && activeLockReady
   const assetLabel = isFbtcRoute
     ? 'FBTC'
     : isFxrpRoute
       ? 'FXRP'
       : isFbnbRoute
         ? 'FBNB'
-        : isFethRoute
-          ? 'FETH'
-          : 'F-USDC'
+      : isFethRoute
+        ? 'FETH'
+        : 'F-USDC'
+
+  useEffect(() => {
+    if (!isPl2300) {
+      setDestLockCfg(null)
+      setDestLockTip(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const cfg = await fetchPl2300BridgeConfig()
+      if (cancelled) return
+      setDestLockCfg(cfg)
+      if (!cfg) return
+      try {
+        const tip = await fetchFplTip(cfg)
+        if (!cancelled) setDestLockTip(tip)
+      } catch {
+        if (!cancelled) setDestLockTip(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isPl2300])
 
   const refreshFusdcBalance = useCallback(async () => {
     setFusdcLoading(true)
@@ -465,7 +494,7 @@ export default function BridgeDepositPanel({
         setFbtcLive(spv)
         setFbtcSpvLive(spv)
         setFbtcIouLive(0)
-      } else if (fbtcIssuer && !isPl2300) {
+      } else {
         setHasFbtcTrustLine(false)
         setFbtcLive(0)
         setFbtcSpvLive(0)
@@ -544,15 +573,6 @@ export default function BridgeDepositPanel({
 
   useEffect(() => {
     let cancelled = false
-    void fetch('/api/bridge/btc', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((j) => {
-        if (cancelled || j.error) return
-        if (j.custody_testnet) setFbtcCustody(String(j.custody_testnet))
-        if (j.falcon?.token_issuer) setFbtcIssuer(String(j.falcon.token_issuer))
-      })
-      .catch(() => {})
-    // FXRP: optional public config + bridge manifest
     void fetch('/config/fxrp-bridge.json', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { falcon?: { token_issuer?: string }; classic?: { custody?: string } } | null) => {
@@ -595,7 +615,7 @@ export default function BridgeDepositPanel({
 
     const minConf = Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6
     const net = spvStatus?.btcNetwork || 'testnet'
-    const watch = spvStatus?.watchAddress || (isPl2300 ? '' : fbtcCustody)
+    const watch = spvStatus?.watchAddress || ''
 
     const applyJob = (p: ReturnType<typeof ensureSpvPendingTracked>) => {
       if (cancelled || !p) {
@@ -686,7 +706,7 @@ export default function BridgeDepositPanel({
     return () => {
       cancelled = true
     }
-  }, [wallet.address, falconId, isPl2300, spvStatus?.watchAddress, spvStatus?.bridge?.minConfirmations, spvStatus?.btcNetwork, fbtcCustody])
+  }, [wallet.address, falconId, isPl2300, spvStatus?.watchAddress, spvStatus?.bridge?.minConfirmations, spvStatus?.btcNetwork])
 
   // Load + poll Bridge Out trackers. Hide is durable — poll must not resurrect.
   useEffect(() => {
@@ -1305,93 +1325,7 @@ export default function BridgeDepositPanel({
         }
         return
       }
-      if (!spvLive) {
-        setError('SPV bridge not live — cannot redeem FBTC right now')
-        return
-      }
-
-      setBusy(true)
-      setError(null)
-      setWithdrawResult(null)
-      setReleaseStatus(null)
-      setStep(null)
-      try {
-        const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-        const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-        const amountStr = String(Math.round(amt * 1e8) / 1e8)
-
-        setStep('Redeeming FBTC → BTC…')
-        const peg = await spvPegOut({
-          falconSecret: falcon_secret,
-          account: wallet.address,
-          networkKey,
-          networkId: network.networkId,
-          amountSats,
-          btcPayoutAddress: wallet.btcAddress!,
-          btcNetwork: spvStatus?.btcNetwork || 'testnet',
-          waitForRedeem: true,
-          onStep: (m) => setStep(m),
-        })
-        setWithdrawResult({
-          falconTxHash: peg.proveHash || peg.burnHash || `burn-seq-${peg.burnSeq}`,
-          amount: amountStr,
-          sepoliaRecipient: wallet.btcAddress,
-          btcClaimTxid: peg.redeemBtcTxid,
-          btcClaimExplorerUrl: peg.redeemBtcTxid
-            ? `https://mempool.space/testnet/tx/${peg.redeemBtcTxid}`
-            : undefined,
-          payoutSats: peg.amountSats,
-        })
-        setWithdrawAmount('')
-        const tracked = createSpvWithdraw({
-          falconAccount: wallet.address,
-          burnSeq: peg.burnSeq,
-          burnHash: peg.burnHash,
-          amountSats: peg.amountSats,
-          payoutAddress: wallet.btcAddress!,
-          phase: peg.status === 'paid' ? 'complete' : 'awaiting_btc',
-        })
-        setSpvWithdraws((prev) => {
-          const rest = prev.filter((w) => w.burnSeq !== tracked.burnSeq)
-          return [tracked, ...rest]
-        })
-        try {
-          localStorage.setItem(
-            `falcon-spv-burn-${wallet.address}-${peg.burnSeq}`,
-            JSON.stringify({
-              amountSats: peg.amountSats,
-              burnHash: peg.burnHash,
-              burnSeq: peg.burnSeq,
-              payout: wallet.btcAddress,
-              status: peg.status,
-              redeemBtcTxid: peg.redeemBtcTxid,
-              preferredFeeSats: Math.max(500, parseInt(userNetworkFeeSats, 10) || 1500),
-            }),
-          )
-        } catch {
-          /* ignore */
-        }
-        setReleaseStatus(peg.status === 'paid' ? 'released' : 'pending')
-        setStep(
-          peg.status === 'paid'
-            ? 'Complete — BTC paid and proven on Falcon.'
-            : peg.redeemBtcTxid
-              ? `Burn ${peg.burnSeq}: BTC paid — wait confirmations then Finish if needed.`
-              : `Burn ${peg.burnSeq}: waiting for reserve BTC payout…`,
-        )
-        setTimeout(() => {
-          onFalconRefresh?.()
-          refreshFusdcBalance()
-          if (wallet.btcAddress) {
-            void fetchBtcBalance(wallet.btcAddress, 'testnet').then((b) => setBtcBal(b?.btc ?? null))
-          }
-        }, 5000)
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'FBTC bridge out failed')
-      } finally {
-        setBusy(false)
-        setStep(null)
-      }
+      setError('Falcon Ledger BTC bridge is retired. Use Falcon PL 2300.')
       return
     }
 
@@ -1543,60 +1477,7 @@ export default function BridgeDepositPanel({
         return
       }
 
-      // Retry proof fetch: explorers often lag minutes after the 6th conf
-      let materials: Awaited<ReturnType<typeof fetchSpvClaimMaterials>> | null = null
-      let lastWait = ''
-      for (let attempt = 0; attempt < 18; attempt++) {
-        try {
-          setStep(
-            attempt === 0
-              ? 'Fetching merkle proof…'
-              : `Explorer still indexing proof (try ${attempt + 1}/18)…`,
-          )
-          materials = await fetchSpvClaimMaterials(
-            txid,
-            spvPending.btcNetwork,
-            spvPending.watchVout,
-          )
-          if (materials.confirmations < spvPending.minConfirmations) {
-            lastWait = `Need ${spvPending.minConfirmations} confs (have ${materials.confirmations})`
-            materials = null
-          } else {
-            break
-          }
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e)
-          lastWait = msg
-          if (!isSpvWaitMessage(msg)) throw e
-        }
-        // ~3 min total (18 × 10s) of soft waiting before user-facing error
-        await new Promise((r) => setTimeout(r, 10_000))
-      }
-      if (!materials) {
-        const wait = spvWaitUserMessage(lastWait)
-        updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: wait })
-        setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: wait } : p))
-        setError(null)
-        return
-      }
-
-      let vaultScriptHex: string | undefined
-      try {
-        vaultScriptHex = localStorage.getItem(`falcon-spv-vault-script-${txid}`) || undefined
-      } catch {
-        /* ignore */
-      }
-
-      setStep('Submitting BTCDepositClaim on Falcon…')
-      const claim = await submitSpvDepositClaim({
-        falconSecret: falcon_secret,
-        account: wallet.address,
-        networkKey,
-        networkId: network.networkId,
-        materials,
-        vaultScriptHex,
-      })
-      finishSpvClaimSuccess(txid, claim.hash, claim.hash ? `FBTC minted — claim ${claim.hash.slice(0, 12)}…` : undefined)
+      throw new Error('Falcon Ledger BTCDepositClaim is retired. Use Falcon PL 2300.')
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Claim failed'
       // Already minted (double-click / refresh) — success, clear open card
@@ -1656,7 +1537,7 @@ export default function BridgeDepositPanel({
     const pending = createSpvPending({
       falconAccount: wallet.address,
       txid: raw,
-      watchAddress: spvStatus?.watchAddress || fbtcCustody,
+      watchAddress: spvStatus?.watchAddress || '',
       amountSats: 0,
       minConfirmations: minConf,
       btcNetwork: net,
@@ -1763,7 +1644,11 @@ export default function BridgeDepositPanel({
       setError(
         isPl2300 && isFbtcRoute
           ? 'Open Multi-chain BTC first, then Bridge In.'
-          : `Add a ${assetLabel} trust line on this page before bridging in — otherwise minted tokens cannot be delivered.`,
+          : isPl2300 && (isFethRoute || (!isFbnbRoute && !isFxrpRoute))
+            ? destLockLive
+              ? 'Open the Sepolia EVM wallet on Multi-chain first.'
+              : 'ETH/USDC dest-lock is waiting for LC headers on Sepolia (prover). Do not send yet.'
+            : `Add a ${assetLabel} trust line on this page before bridging in — otherwise minted tokens cannot be delivered.`,
       )
       return
     }
@@ -1880,147 +1765,7 @@ export default function BridgeDepositPanel({
           return
         }
 
-        // Prefer non-custodial SPV light client when amendment + activate + watch are live
-        if (spvLive && (spvStatus?.paymentScriptHex || spvStatus?.watchAddress)) {
-          setStep('Sending…')
-          const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-          const minConf = Number(spvStatus.bridge?.minConfirmations ?? 6) || 6
-          try {
-            const peg = await spvPegIn({
-              btcPrivateKeyHex: btcPk,
-              falconSecret: falcon_secret,
-              falconAccount: wallet.address,
-              watchAddress: spvStatus.watchAddress || spvStatus.protocol?.hold_script_pubkey || '',
-              paymentScriptHex: spvStatus.paymentScriptHex || undefined,
-              amountBtc: amount.trim(),
-              networkKey,
-              networkId: network.networkId,
-              btcNetwork: spvStatus.btcNetwork || 'testnet',
-              minConfirmations: minConf,
-              onStep: (m) => setStep(m),
-              onDepositBroadcast: (d) => {
-                // Persist immediately (multi-layer) so refresh cannot lose the bar
-                const pending = createSpvPending({
-                  falconAccount: wallet.address,
-                  txid: d.txid,
-                  watchVout: d.watchVout ?? 0,
-                  watchAddress: spvStatus.watchAddress || 'protocol-hold',
-                  amountSats: d.amountSats,
-                  minConfirmations: minConf,
-                  btcNetwork: spvStatus.btcNetwork || 'testnet',
-                  status: 'waiting_confs',
-                  confirmations: 0,
-                })
-                setSpvPending(pending)
-                setResult({
-                  depositHash: d.txid,
-                  depositId: `BTC sent — progress bar saved on this browser (refresh-safe)`,
-                })
-                setAmount('')
-              },
-            })
-            if (peg.claimHash) {
-              const done = updateSpvPending(wallet.address, {
-                status: 'claimed',
-                claimHash: peg.claimHash,
-                confirmations: minConf,
-              })
-              if (done) setSpvPending({ ...done })
-            }
-            setResult({
-              depositHash: peg.depositTxid,
-              depositId: peg.claimHash
-                ? `SPV mint claim ${peg.claimHash}`
-                : `SPV deposit ${peg.depositTxid} — claim pending`,
-            })
-          } catch (e: unknown) {
-            const msg = e instanceof Error ? e.message : String(e)
-            const txm = msg.match(/\b([0-9a-f]{64})\b/i)
-            const already = getSpvPending(wallet.address)
-            // BTC already left the wallet — never show "Failed to fetch" as a failed payment
-            if (already || txm) {
-              if (!already && txm) {
-                const pending = createSpvPending({
-                  falconAccount: wallet.address,
-                  txid: txm[1],
-                  watchAddress:
-                    spvStatus.watchAddress ||
-                    spvStatus.paymentScriptHex ||
-                    'protocol-hold',
-                  amountSats,
-                  minConfirmations: minConf,
-                  btcNetwork: spvStatus.btcNetwork || 'testnet',
-                })
-                setSpvPending(pending)
-              }
-              const txid = already?.txid || txm![1]
-              setResult({
-                depositHash: txid,
-                depositId: isSpvWaitMessage(msg)
-                  ? `BTC sent — waiting for ${minConf} confirmations (tracking above). Explorer lag is normal.`
-                  : msg,
-              })
-              setError(null)
-            } else if (isSpvWaitMessage(msg)) {
-              setError(
-                'Network hiccup while talking to Bitcoin explorers — if your BTC balance dropped, open Bridge again; tracking may already be open above.',
-              )
-            } else {
-              throw e
-            }
-          }
-          if (wallet.btcAddress) {
-            void fetchBtcBalance(wallet.btcAddress, 'testnet').then((b) => setBtcBal(b?.btc ?? null))
-          }
-          setTimeout(() => {
-            refreshFusdcBalance()
-            onFalconRefresh?.()
-          }, 8_000)
-          setStep(null)
-          setBusy(false)
-          return
-        }
-
-        // Legacy custody relay path
-        setStep('Sending BTC to bridge custody…')
-        const sent = await sendBtcP2pkh({
-          privateKeyHex: btcPk,
-          toAddress: fbtcCustody,
-          amountBtc: amount.trim(),
-          network: 'testnet',
-        })
-        setStep('Registering deposit for FBTC mint…')
-        const claimR = await fetch('/api/bridge/btc', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            falcon_account: wallet.address,
-            btc_txid: sent.txid,
-            amount_sats: amountSats,
-          }),
-        })
-        const claimJ = (await claimR.json()) as { error?: string; message?: string }
-        if (!claimR.ok) {
-          throw new Error(
-            claimJ.error ||
-              `BTC sent (${sent.txid}) but claim failed — contact ops with txid`,
-          )
-        }
-        setResult({
-          depositHash: sent.txid,
-          depositId: claimJ.message || sent.txid,
-        })
-        setAmount('')
-        if (wallet.btcAddress) {
-          void fetchBtcBalance(wallet.btcAddress, 'testnet').then((b) => setBtcBal(b?.btc ?? null))
-        }
-        setTimeout(() => {
-          refreshFusdcBalance()
-          onFalconRefresh?.()
-        }, 15_000)
-        setStep(null)
-        setBusy(false)
-        return
+        throw new Error('Falcon Ledger BTC bridge is retired. Use Falcon PL 2300.')
       }
 
       setStep(
@@ -2033,7 +1778,30 @@ export default function BridgeDepositPanel({
       const evmPrivateKey = await decryptSeed(wallet.evmEncrypted!, keyBytes)
 
       let res: BridgeDepositResult
-      if (isFbnbRoute) {
+      if (isPl2300 && destLockCfg && (isFethRoute || (!isFbnbRoute && !isFxrpRoute && !isFbtcRoute))) {
+        if (!destLockLive) {
+          throw new Error('ETH/USDC dest-lock is waiting for LC headers on Sepolia. Do not send yet.')
+        }
+        if (isFethRoute) {
+          const d = await depositEthDestLock({
+            cfg: destLockCfg,
+            evmPrivateKey,
+            amountEth: amount,
+            plAccount: falconId,
+            onStep: setStep,
+          })
+          res = { depositHash: d.depositHash, depositId: `dest20 ${d.dest20}` }
+        } else {
+          const d = await depositUsdcDestLock({
+            cfg: destLockCfg,
+            evmPrivateKey,
+            amountUsdc: amount,
+            plAccount: falconId,
+            onStep: setStep,
+          })
+          res = { depositHash: d.depositHash, approveHash: d.approveHash, depositId: `dest20 ${d.dest20}` }
+        }
+      } else if (isFbnbRoute) {
         const bsc = bridgeCfg.bsc_testnet
         if (!bsc?.lock_contract || !bsc.wbnb_token) {
           throw new Error('FBNB lock not deployed yet — try again shortly')
@@ -2567,7 +2335,9 @@ export default function BridgeDepositPanel({
               : isFbtcRoute
               ? !hasBtc
                 ? 'Add BTC under Multi-chain first'
-                : 'FBTC bridge not configured'
+                : !spvLive
+                  ? 'BTC rail waiting for Bitcoin headers'
+                  : 'FBTC bridge not ready'
               : isFbnbRoute
                 ? 'FBNB lock not ready — refresh shortly'
                 : isFethRoute
@@ -2828,7 +2598,7 @@ export default function BridgeDepositPanel({
                     min="0.00000546"
                     step="any"
                     className="input-field"
-                    disabled={busy || !hasBtc || (!isPl2300 && !spvLive && !fbtcIssuer)}
+                    disabled={busy || !hasBtc || !fbtcReady}
                   />
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>
@@ -2895,7 +2665,7 @@ export default function BridgeDepositPanel({
                   disabled={
                     busy ||
                     !hasBtc ||
-                    (!isPl2300 && !spvLive && !fbtcIssuer) ||
+                    !fbtcReady ||
                     withdrawAmtNum <= 0 ||
                     withdrawAmtNum > (fbtcSpvLive ?? fbtcLive ?? 0)
                   }
@@ -3193,8 +2963,6 @@ export default function BridgeDepositPanel({
                             <div className="font-mono break-all text-slate-600">
                               {spvStatus.watchAddress}
                             </div>
-                          ) : fbtcReady && fbtcCustody ? (
-                            <div className="font-mono break-all text-slate-600">{fbtcCustody}</div>
                           ) : null}
                         </>
                       )}

@@ -1,24 +1,15 @@
 {
   "status": "live",
+  "network": "falcon-pl",
+  "network_id": 2300,
   "btc_network": "testnet",
-  "chain_id": 1,
   "watch_address": "tb1q7dnlzumm50hke3yl75rywds3gtfu2swqwu4xa08kx0ctxs00rv4q8hrkwu",
   "payment_script_hex": "0020f367f1737ba3ef6cc49ff50647361142d3c541c0772a6ebcf633f0b341ef1b2a",
-  "watch_script_hash": "44AB2A45523D1AD05A6A855AEBF05AA2672CBF4DA529B64EAC246CDB180C22F1",
-  "model": "protocol_shared_reserve_v3",
-  "challenge_csv": 16,
   "min_confirmations": 6,
-  "conf_tiers": [
-    { "max_btc": 0.001, "min_confirmations": 3, "reorg_buffer": 1 },
-    { "max_btc": 0.01, "min_confirmations": 6, "reorg_buffer": 2 },
-    { "max_btc": null, "min_confirmations": 12, "reorg_buffer": 3 }
-  ],
-  "lag_warn_blocks": 50,
-  "lag_critical_blocks": 100,
   "retired_watch_addresses": [
     "mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik",
     "tb1qqxf9h0ytl0valyrmfqq53ws48mq88n8rzxcnkcvt2wg98kh8uj5qtzhm5f",
     "tb1q40fswfaq0e5nvnmayutp7qw3s0r0ctgy62p48w0k4zq79wx6w27s6ulwpv"
   ],
-  "notes": "WP4 v3 cutover. Deposit to watch_address + FALC OP_RETURN. Fee wallet pays fees; solvent redeemer. Previous v2 hold retired (funds migrated). Portal-only policy fields: conf_tiers, lag_*, retired_watch_addresses."
+  "notes": "Falcon PL 2300 BTC rail. Peg-in: watch_address + FALC OP_RETURN, then RailDeposit. Peg-out burns FBTC only until the 2300 payout path ships. Old Falcon Ledger holds are lost."
 }

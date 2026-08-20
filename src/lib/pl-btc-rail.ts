@@ -10,6 +10,8 @@ import { signPlPay, signRailDeposit, signRailWithdraw } from './pl-wallet-sign'
 const RAIL = 'BTC'
 const FEE = 2
 const NETWORK_ID = 2300
+/** Set true only after PR8 e2e. Peg-in/out stay refused until then. */
+export const BTC_RAIL_LIVE = false
 
 export type PlBtcRail = {
   asset: string
@@ -211,6 +213,9 @@ export async function pegInPlBtc(opts: {
   amountSats: number
   onStep?: (msg: string) => void
 }): Promise<{ depositTxId: string; headerHeight: number }> {
+  if (!BTC_RAIL_LIVE) {
+    throw new Error('BTC rail is not live — e2e not passed (BTC_RAIL_LIVE=false)')
+  }
   const amount = Math.floor(opts.amountSats)
   if (amount < 546) throw new Error('Amount too small')
   if (!/^[0-9a-f]{64}$/i.test(opts.externalTxid.replace(/^0x/i, ''))) {
@@ -254,6 +259,9 @@ export async function pegOutPlBtc(opts: {
   amountSats: number
   btcAddress: string
 }): Promise<{ txId: string }> {
+  if (!BTC_RAIL_LIVE) {
+    throw new Error('BTC rail is not live — e2e not passed (BTC_RAIL_LIVE=false)')
+  }
   const amount = Math.floor(opts.amountSats)
   if (amount < 546) throw new Error('Amount too small')
   const dest = opts.btcAddress.trim()

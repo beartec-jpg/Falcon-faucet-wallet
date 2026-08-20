@@ -1,9 +1,12 @@
-# Falcon Ledger Portal — Roadmap
+# Falcon PL portal — Roadmap
 
-**Last updated:** August 2026  
-**Testnet:** Network ID 1001 · RPC `http://46.224.0.140:6005`
+**Last updated:** 2026-08-20  
+**Current testnet:** Falcon PL network ID **2300** (Falcon Consensus + Falcon-512).  
+**Falcon Ledger / XRPL fork 1001 is shut down.** Rows below that still say 1001 are historical (July–early August 2026).
 
-This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integration with the Falcon Ledger protocol. Protocol-level milestones (consensus, treasury, slashing) are also tracked in the [whitepaper](/whitepaper) §10.
+Bridge status (do not deposit): [BRIDGES-2300.md](./BRIDGES-2300.md). Protocol living report: `falcon-pl-rs` `docs/BRIDGES_2300_STATUS.md`.
+
+This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integration with Falcon PL. Protocol-level milestones are also tracked in the [whitepaper](/whitepaper) §10.
 
 **Bridge & custody hardening (next wave):** see [BRIDGE-AND-CUSTODY-HARDENING-PLAN.md](./BRIDGE-AND-CUSTODY-HARDENING-PLAN.md) — multi-party headers, lag alerts, value-tiered confs, challenge/CSV, WebAuthn/cold keygen, bonds/watchers/audit/soak.
 
