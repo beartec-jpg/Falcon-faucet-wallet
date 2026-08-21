@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Wallet } from 'ethers'
+import { Wallet, parseUnits } from 'ethers'
 import { createRandomEvmWallet } from '@/lib/create-evm-wallet'
 import {
   authenticatePasskey,
@@ -29,6 +29,7 @@ import {
   fetchFplTip,
   fetchPl2300BridgeConfig,
   mintAfterDestLockDeposit,
+  pegOutDestLock,
   type Pl2300BridgeConfig,
 } from '@/lib/pl-dest-lock'
 import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
@@ -164,7 +165,7 @@ type EvmPanel = 'bridge' | 'backup' | 'restore'
 /** Which routes support Bridge Out (custodial unlock) today. */
 const ROUTE_SUPPORTS_OUT: Record<BridgeRouteId, boolean> = {
   'fusdc-sepolia': true,
-  'feth-sepolia': false,
+  'feth-sepolia': true,
   'fbnb-bsc': false,
   'fbtc-btc': true,
   'fxrp-xrpl': false,
@@ -230,6 +231,8 @@ interface BridgeWithdrawResult {
   btcClaimTxid?: string
   btcClaimExplorerUrl?: string
   payoutSats?: number
+  sepoliaTxHash?: string
+  noteId?: string
 }
 
 type ReleaseStatus = 'pending' | 'released' | 'unconfirmed' | null
@@ -1341,9 +1344,78 @@ export default function BridgeDepositPanel({
     }
 
     if (isPl2300 && destLockCfg && !isFxrpRoute && !isFbnbRoute) {
-      setError(
-        'Dest-lock peg-out (burn → openClaim → take) is not in this panel yet. Operator in+out already passed. Do not burn from here — Sepolia take is not automatic in the wallet.',
-      )
+      if (!destLockLive) {
+        setError('ETH/USDC dest-lock is waiting for LC headers on Sepolia. Do not burn yet.')
+        return
+      }
+      if (!wallet.evmAddress || !wallet.evmEncrypted) {
+        setError('Open Multi-chain ETH first — dest-lock take pays that 0x address.')
+        return
+      }
+      const isEth = isFethRoute
+      const avail = isEth ? (fethLive ?? 0) : fusdcAvail
+      const amt = parseFloat(withdrawAmount)
+      if (!Number.isFinite(amt) || amt <= 0) {
+        setError(isEth ? 'Enter a valid FETH amount' : 'Enter a valid F-USDC amount')
+        return
+      }
+      if (avail + 1e-12 < amt) {
+        setError(
+          isEth
+            ? `Insufficient FETH (have ${fmt(avail, 8)})`
+            : `Insufficient F-USDC (have ${fmt(avail, 4)})`,
+        )
+        return
+      }
+      const decimals = isEth ? 18 : destLockCfg.sepolia.usdc_decimals ?? 6
+      let amountExact: bigint
+      try {
+        amountExact = parseUnits(withdrawAmount.trim(), decimals)
+      } catch {
+        setError('Amount is not a valid token quantity')
+        return
+      }
+      if (amountExact <= 0n) {
+        setError('Amount must be greater than zero')
+        return
+      }
+      setBusy(true)
+      setError(null)
+      setWithdrawResult(null)
+      setReleaseStatus(null)
+      try {
+        const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+        const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+        const evmPrivateKey = await decryptSeed(wallet.evmEncrypted, keyBytes)
+        const out = await pegOutDestLock({
+          cfg: destLockCfg,
+          account: falconId,
+          falconSecret: falcon_secret,
+          evmPrivateKey,
+          asset: isEth ? 'ETH' : 'USDC',
+          amountExact,
+          dest: wallet.evmAddress,
+          network: networkKey,
+          onStep: setStep,
+        })
+        setWithdrawResult({
+          falconTxHash: out.burnTxId,
+          sepoliaTxHash: out.takeHash,
+          amount: withdrawAmount,
+          sepoliaRecipient: wallet.evmAddress,
+          noteId: out.noteId,
+        })
+        setWithdrawAmount('')
+        setTimeout(() => {
+          void refreshFusdcBalance()
+          onFalconRefresh?.()
+        }, 1500)
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Dest-lock bridge out failed')
+      } finally {
+        setBusy(false)
+        setStep(null)
+      }
       return
     }
 
@@ -2310,7 +2382,7 @@ export default function BridgeDepositPanel({
               <option
                 value="feth-sepolia"
                 disabled={
-                  direction === 'withdraw' ||
+                  (direction === 'withdraw' && !(isPl2300 && destLockLive)) ||
                   !hasEvm ||
                   !fethReady
                 }
@@ -2723,7 +2795,7 @@ export default function BridgeDepositPanel({
               <>
                 <div className="space-y-1.5">
                   <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">Amount</div>
-                  <label className="text-xs text-slate-400">F-USDC</label>
+                  <label className="text-xs text-slate-400">{isFethRoute ? 'FETH' : 'F-USDC'}</label>
                   <input
                     type="number"
                     value={withdrawAmount}
@@ -2735,9 +2807,19 @@ export default function BridgeDepositPanel({
                     disabled={busy || !bridgeReady}
                   />
                   <div className="flex justify-between text-xs text-slate-600">
-                    <span>{fusdcAvail > 0 ? `Available: ${fmt(fusdcAvail, 4)} F-USDC` : 'No F-USDC balance'}</span>
-                    {fusdcAvail > 0 && (
-                      <button type="button" onClick={() => setWithdrawAmount(String(fusdcAvail))} className="text-brand-500">
+                    {isFethRoute ? (
+                      <span>{(fethLive ?? 0) > 0 ? `Available: ${fmt(fethLive ?? 0, 8)} FETH` : 'No FETH balance'}</span>
+                    ) : (
+                      <span>{fusdcAvail > 0 ? `Available: ${fmt(fusdcAvail, 4)} F-USDC` : 'No F-USDC balance'}</span>
+                    )}
+                    {(isFethRoute ? (fethLive ?? 0) : fusdcAvail) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setWithdrawAmount(String(isFethRoute ? (fethLive ?? 0) : fusdcAvail))
+                        }
+                        className="text-brand-500"
+                      >
                         Max
                       </button>
                     )}
@@ -2754,9 +2836,9 @@ export default function BridgeDepositPanel({
                   disabled={
                     busy ||
                     !bridgeReady ||
-                    !bridgeCfg.falcon?.token_issuer ||
+                    (!isPl2300 && !bridgeCfg.falcon?.token_issuer) ||
                     withdrawAmtNum <= 0 ||
-                    withdrawAmtNum > fusdcAvail
+                    withdrawAmtNum > (isFethRoute ? (fethLive ?? 0) : fusdcAvail)
                   }
                   className="btn-primary flex items-center justify-center gap-2"
                 >
@@ -3018,7 +3100,9 @@ export default function BridgeDepositPanel({
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-medium text-brand-300">
-                {withdrawResult.btcClaimTxid ? 'Bridge out complete' : 'Bridge out submitted'}
+                {withdrawResult.btcClaimTxid || withdrawResult.sepoliaTxHash
+                  ? 'Bridge out complete'
+                  : 'Bridge out submitted'}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 {withdrawResult.amount}{' '}
@@ -3028,7 +3112,11 @@ export default function BridgeDepositPanel({
                     : isPl2300
                       ? 'FBTC burned on Falcon PL. Testnet does not auto-send BTC — a withdraw note is open for the payout address.'
                       : 'FBTC · shared-reserve redeem (any holder)'
-                  : 'F-USDC · release usually under a few minutes'}
+                  : isPl2300
+                    ? isFethRoute
+                      ? 'FETH burned · Sepolia ETH dest-locked to your 0x'
+                      : 'F-USDC burned · Sepolia USDC dest-locked to your 0x'
+                    : 'F-USDC · release usually under a few minutes'}
               </p>
             </div>
             <button
@@ -3043,6 +3131,17 @@ export default function BridgeDepositPanel({
             <div className="text-[11px] text-slate-500 font-mono truncate" title={withdrawResult.falconTxHash}>
               Falcon {withdrawResult.falconTxHash.slice(0, 14)}…
             </div>
+          )}
+          {withdrawResult.sepoliaTxHash && destLockCfg && (
+            <a
+              href={`${destLockCfg.sepolia.explorer_url}/tx/${withdrawResult.sepoliaTxHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-[11px] text-emerald-400/90 font-mono truncate"
+              title={withdrawResult.sepoliaTxHash}
+            >
+              Sepolia take {withdrawResult.sepoliaTxHash.slice(0, 16)}…
+            </a>
           )}
           {withdrawResult.btcClaimTxid && (
             <div className="space-y-1">

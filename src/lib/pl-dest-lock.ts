@@ -4,6 +4,7 @@
  */
 
 import { Contract, Wallet, sha256, toUtf8Bytes, parseUnits, parseEther } from 'ethers'
+import { signRailWithdraw } from '@/lib/pl-wallet-sign'
 import { SEPOLIA_RPC_FALLBACKS } from '@/lib/evm-bridge-client'
 import { JsonRpcProvider } from 'ethers'
 
@@ -30,6 +31,8 @@ export const DEST_LOCK_ABI = [
   'function openClaim(bytes32 noteId, address dest, uint256 amount, bool isUsdc, bytes32[] proof, uint32 index, uint64 fplHeight)',
   'function take(bytes32 noteId)',
   'function fplTip() view returns (uint64)',
+  'function headers(uint64) view returns (bytes32 hash, bytes32 parent, bytes32 claimRoot, bool finalized)',
+  'function claims(bytes32) view returns (address dest, uint256 amount, bool usdc, uint64 readyBlock, uint64 fplHeight, bytes32 leaf, bool open, bool challenged, bool taken)',
   'function ethPool() view returns (uint256)',
   'function usdcPool() view returns (uint256)',
   'event Deposit(bytes32 indexed dest20, address indexed token, uint256 amount, bytes32 lockId)',
@@ -216,6 +219,172 @@ export async function depositUsdcDestLock(opts: {
     if (!rc || rc.status !== 1) throw new Error(`depositUsdc failed (${tx.hash})`)
     return { depositHash: tx.hash, approveHash, dest20 }
   })
+}
+
+export type DestLockClaimProof = {
+  ok?: boolean
+  noteId: string
+  asset: string
+  dest: string
+  amount: number | string
+  isUsdc: boolean
+  leaf: string
+  index: number
+  proof: string[]
+  claimRoot: string
+  lcClaimRoot: string
+  fplTip: number
+  ready?: boolean
+  error?: string
+}
+
+async function postClaimProof(body: Record<string, unknown>): Promise<DestLockClaimProof> {
+  const res = await fetch('/api/wallet/pl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'claim-proof', ...body }),
+  })
+  const d = (await res.json()) as DestLockClaimProof
+  if (!res.ok) throw new Error(d.error || `claim-proof ${res.status}`)
+  return d
+}
+
+async function submitExact(txJson: string, network: string): Promise<string> {
+  const res = await fetch('/api/wallet/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tx_json: txJson, network }),
+  })
+  const out = (await res.json()) as { success?: boolean; hash?: string; error?: string; message?: string }
+  if (!res.ok || out.success === false) {
+    throw new Error(out.error || out.message || 'RailWithdraw submit failed')
+  }
+  return out.hash || ''
+}
+
+async function accountSeq(account: string, network: string): Promise<{ sequence: number; balance: number }> {
+  const res = await fetch(
+    `/api/wallet/account?address=${encodeURIComponent(account)}&network=${encodeURIComponent(network)}`,
+  )
+  const j = (await res.json()) as { sequence?: number; balance?: number; error?: string }
+  if (!res.ok) throw new Error(j.error || 'account lookup failed')
+  return { sequence: Number(j.sequence ?? 0), balance: Number(j.balance ?? 0) }
+}
+
+function hexEq(a: string, b: string): boolean {
+  return a.replace(/^0x/i, '').toLowerCase() === b.replace(/^0x/i, '').toLowerCase()
+}
+
+export async function pegOutDestLock(opts: {
+  cfg: Pl2300BridgeConfig
+  account: string
+  falconSecret: string
+  evmPrivateKey: string
+  asset: 'ETH' | 'USDC'
+  amountExact: bigint
+  dest: string
+  network: string
+  onStep?: (s: string) => void
+}): Promise<{ burnTxId: string; openHash: string; takeHash: string; noteId: string }> {
+  const dest = opts.dest.trim()
+  if (!/^0x[a-fA-F0-9]{40}$/.test(dest)) throw new Error('Need your Sepolia 0x address for dest-lock take')
+  if (opts.amountExact <= 0n) throw new Error('Amount must be greater than zero')
+  const snap = await accountSeq(opts.account, opts.network)
+  if (snap.balance < 2) throw new Error('Need 2 FPL on this account for the burn fee')
+  opts.onStep?.(`Burning ${opts.asset} on Falcon PL…`)
+  const burn = await signRailWithdraw({
+    account: opts.account,
+    sequence: snap.sequence,
+    asset: opts.asset,
+    amount: opts.amountExact.toString(),
+    externalTo: dest,
+    falconSecret: opts.falconSecret,
+  })
+  if (!burn.rawJson) throw new Error('withdraw sign missing exact JSON')
+  const burnTxId = await submitExact(burn.rawJson, opts.network)
+  opts.onStep?.('Waiting for the burn note to pack…')
+  let proof: DestLockClaimProof | null = null
+  const tPack = Date.now()
+  while (Date.now() - tPack < 90_000) {
+    try {
+      proof = await postClaimProof({
+        account: opts.account,
+        asset: opts.asset,
+        dest,
+        amount: opts.amountExact.toString(),
+      })
+      if (proof.noteId && proof.claimRoot) break
+    } catch {
+      /* not packed yet */
+    }
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+  if (!proof?.noteId) {
+    throw new Error('Burn submitted but the withdraw note did not pack. Keep this panel open and retry Bridge out.')
+  }
+  opts.onStep?.('Waiting for a sampled LC header with this claim root on Sepolia…')
+  const tHdr = Date.now()
+  let fplHeight = 0
+  while (Date.now() - tHdr < 20 * 60_000) {
+    const tip = await fetchFplTip(opts.cfg)
+    const hdr = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
+      const c = new Contract(opts.cfg.sepolia.bridge, DEST_LOCK_ABI, p)
+      const row = await c.headers(tip)
+      const claimRoot = String(row?.claimRoot ?? row?.[2] ?? '')
+      const finalized = Boolean(row?.finalized ?? row?.[3])
+      return { claimRoot, finalized }
+    })
+    if (hdr.finalized && hexEq(hdr.claimRoot, proof.claimRoot)) {
+      fplHeight = tip
+      break
+    }
+    // leaf set may have grown; refresh proof against current FPL tree
+    try {
+      const fresh = await postClaimProof({
+        account: opts.account,
+        asset: opts.asset,
+        dest,
+        amount: opts.amountExact.toString(),
+        noteId: proof.noteId,
+      })
+      if (fresh.claimRoot) proof = fresh
+    } catch {
+      /* keep last proof */
+    }
+    const elapsed = Math.round((Date.now() - tHdr) / 1000)
+    opts.onStep?.(`Waiting for LC header… on-chain tip ${tip} (${elapsed}s)`)
+    await new Promise((r) => setTimeout(r, 8000))
+  }
+  if (!fplHeight) {
+    throw new Error(
+      `Burn packed (note ${proof.noteId.slice(0, 10)}…) but Sepolia has not yet proven this claim root. Do not burn again.`,
+    )
+  }
+  opts.onStep?.(`openClaim at FPL height ${fplHeight}…`)
+  const openHash = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
+    const signer = new Wallet(opts.evmPrivateKey, p)
+    const c = new Contract(opts.cfg.sepolia.bridge, DEST_LOCK_ABI, signer)
+    const tx = await c.openClaim(
+      proof!.noteId,
+      dest,
+      opts.amountExact,
+      opts.asset === 'USDC',
+      proof!.proof,
+      proof!.index,
+      fplHeight,
+    )
+    const rc = await tx.wait(1)
+    if (!rc || rc.status !== 1) throw new Error(`openClaim failed (${tx.hash})`)
+    return tx.hash as string
+  })
+  opts.onStep?.('take() dest-locked funds…')
+  const takeHash = await takeDestLockClaim({
+    cfg: opts.cfg,
+    evmPrivateKey: opts.evmPrivateKey,
+    noteId: proof.noteId,
+    onStep: opts.onStep,
+  })
+  return { burnTxId, openHash, takeHash, noteId: proof.noteId }
 }
 
 export async function takeDestLockClaim(opts: {

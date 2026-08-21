@@ -32,7 +32,7 @@ Official public portal for **Falcon PL** testnet (network ID **2300**) — Falco
 
 Paperwork: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
 
-- **Dest-lock ETH/USDC** — `FalconBridge` `depositEth(bytes20)` / `depositUsdc` auto-mints on Falcon PL. `openClaim` / `take` for peg-out (operator e2e green; wallet take next). `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: live`).
+- **Dest-lock ETH/USDC** — `FalconBridge` `depositEth(bytes20)` / `depositUsdc` auto-mints on Falcon PL. Bridge out: burn → LC header → `openClaim` / `take` dest-locked to your 0x. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: live`).
 - **Live contract:** `0x7eB72974F2d2a4AaDFabAf0975a29470fcd163E4` (Sepolia). Groth16 verifier `0x7db9b1862AE7D04cE9ff85447390bDdfa972a9d0`.
 - **BTC** — BitVM dest-lock + FROST vault on 2300. Wallet flag `BTC_RAIL_LIVE = false`.
 - **Classic XRPL FXRP** — separate corridor; not the 1001 Falcon Ledger fork.

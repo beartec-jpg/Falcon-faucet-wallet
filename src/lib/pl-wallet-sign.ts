@@ -17,6 +17,8 @@ export type SignedPlTx = {
   signature: string
   tx_id: string
   body: Record<string, unknown>
+  /** Exact JSON with u64 amounts as JSON numbers (not JS Number). */
+  rawJson?: string
 }
 
 export type SignedPlPay = SignedPlTx
@@ -234,25 +236,56 @@ export async function signRailWithdraw(opts: {
   account: string
   sequence: number
   asset: string
-  amount: number
+  amount: number | bigint | string
   externalTo: string
   fee?: number
   networkId?: number
   falconSecret: string
 }): Promise<SignedPlTx> {
-  return signPlBody({
+  const amountExact = typeof opts.amount === 'bigint' ? opts.amount.toString() : String(opts.amount).split('.')[0]
+  if (!/^[1-9][0-9]*$/.test(amountExact)) {
+    throw new Error('withdraw amount must be a positive integer')
+  }
+  const networkId = opts.networkId ?? DEFAULT_NETWORK_ID
+  const fee = opts.fee ?? 2
+  const dest = opts.externalTo.trim()
+  const bodyJson =
+    `{"kind":"rail_withdraw","asset":${JSON.stringify(opts.asset)},` +
+    `"amount":${amountExact},"external_to":${JSON.stringify(dest)}}`
+  const payload = `pl-tx:v2|${opts.account}|${opts.sequence}|${dest}|${amountExact}|${fee}|${networkId}|${bodyJson}`
+  const decoded = decodeFalconSecret(opts.falconSecret)
+  const publicKey = bytesToHex(decoded.pubBlob.slice(1))
+  const falcon = await getFalcon512()
+  const msg = new TextEncoder().encode(payload)
+  let signature: Uint8Array
+  try {
+    signature = falcon.sign(msg, decoded.secretKey)
+  } finally {
+    zeroize(decoded.secretKey)
+  }
+  const sigHex = bytesToHex(signature)
+  const txId = await sha256HexBrowser(payload)
+  const rawJson =
+    `{"account":${JSON.stringify(opts.account)},"sequence":${opts.sequence},` +
+    `"destination":${JSON.stringify(dest)},"amount":${amountExact},"fee":${fee},` +
+    `"network_id":${networkId},"public_key":${JSON.stringify(publicKey)},` +
+    `"signature":${JSON.stringify(sigHex)},"tx_id":${JSON.stringify(txId)},"body":${bodyJson}}`
+  return {
     account: opts.account,
-    destination: opts.externalTo,
-    amount: Math.floor(opts.amount),
     sequence: opts.sequence,
-    fee: opts.fee ?? 2,
-    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    destination: dest,
+    amount: Number(amountExact),
+    fee,
+    network_id: networkId,
+    public_key: publicKey,
+    signature: sigHex,
+    tx_id: txId,
     body: {
       kind: 'rail_withdraw',
       asset: opts.asset,
-      amount: Math.floor(opts.amount),
-      external_to: opts.externalTo,
+      amount: amountExact,
+      external_to: dest,
     },
-    falconSecret: opts.falconSecret,
-  })
+    rawJson,
+  }
 }

@@ -122,11 +122,12 @@ export function signPlTx(opts: {
 }
 
 function plRpcOnce(
-  msg: Record<string, unknown>,
+  msg: Record<string, unknown> | string,
   addr: string,
   timeoutMs: number,
 ): Promise<PlWire> {
   const { host, port } = parseAddr(addr)
+  const line = typeof msg === 'string' ? msg.replace(/\s+$/, '') : JSON.stringify(msg)
 
   return new Promise((resolve, reject) => {
     const sock = net.connect({ host, port })
@@ -147,7 +148,7 @@ function plRpcOnce(
     sock.setEncoding('utf8')
     sock.on('error', (e) => finish(e))
     sock.on('connect', () => {
-      sock.write(JSON.stringify(msg) + '\n')
+      sock.write(line + '\n')
     })
     sock.on('data', (chunk: string) => {
       buf += chunk
@@ -205,4 +206,23 @@ export async function plSubmit(tx: PlTx): Promise<{ ok: boolean; msg: string }> 
   const r = await plRpc({ type: 'submit_tx', tx })
   if (r.type === 'err') return { ok: false, msg: String(r.msg ?? 'rejected') }
   return { ok: true, msg: String(r.msg ?? 'accepted') }
+}
+
+/** Pass through exact tx JSON so u64 wei amounts are not rounded by JS Number. */
+export async function plSubmitRaw(txJson: string): Promise<{ ok: boolean; msg: string }> {
+  const tx = txJson.trim()
+  if (!tx.startsWith('{')) throw new Error('tx_json must be an object')
+  const timeoutMs = 8_000
+  const addrs = plRpcAddrs()
+  let last: Error | null = null
+  for (const addr of addrs) {
+    try {
+      const r = await plRpcOnce(`{"type":"submit_tx","tx":${tx}}`, addr, timeoutMs)
+      if (r.type === 'err') return { ok: false, msg: String(r.msg ?? 'rejected') }
+      return { ok: true, msg: String(r.msg ?? 'accepted') }
+    } catch (e) {
+      last = e instanceof Error ? e : new Error(String(e))
+    }
+  }
+  throw last ?? new Error('pl rpc: no endpoints')
 }

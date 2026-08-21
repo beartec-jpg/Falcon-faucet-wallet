@@ -81,12 +81,14 @@ export async function POST(req: NextRequest) {
     action?: string
     from?: string
     to?: string
-    amount?: number
+    amount?: number | string
     account?: string
     destination?: string
     txHash?: string
     txid?: string
     asset?: string
+    dest?: string
+    noteId?: string
   }
   try {
     body = (await req.json()) as typeof body
@@ -135,6 +137,41 @@ export async function POST(req: NextRequest) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'vault-activate', account, destination }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
+      return NextResponse.json(d)
+    } catch (e) {
+      return NextResponse.json(
+        { error: String(e instanceof Error ? e.message : e) },
+        { status: 503 },
+      )
+    }
+  }
+
+  if (action === 'claim-proof') {
+    const account = String(body.account ?? '').trim()
+    const dest = String(body.dest ?? '').trim()
+    const asset = String(body.asset ?? 'ETH').trim().toUpperCase()
+    const noteId = String(body.noteId ?? '').trim()
+    const amount = String(body.amount ?? '').trim()
+    if (!NAME_RE.test(account)) {
+      return NextResponse.json({ error: 'account must be a PL name' }, { status: 400 })
+    }
+    if (!/^0x[a-fA-F0-9]{40}$/.test(dest)) {
+      return NextResponse.json({ error: 'dest must be a 20-byte 0x address' }, { status: 400 })
+    }
+    if (asset !== 'ETH' && asset !== 'USDC') {
+      return NextResponse.json({ error: 'asset must be ETH or USDC' }, { status: 400 })
+    }
+    if (!/^[0-9]+$/.test(amount) || amount === '0') {
+      return NextResponse.json({ error: 'amount must be a positive integer' }, { status: 400 })
+    }
+    try {
+      const r = await fetch(WALLET_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'claim-proof', account, dest, asset, amount, noteId }),
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
