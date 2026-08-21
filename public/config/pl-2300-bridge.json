@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "status": "lc-prover",
+  "status": "live",
   "network_id": 2300,
-  "description": "Falcon PL 2300 dest-lock ETH/USDC. depositEth(bytes20)/depositUsdc/openClaim/take. Classic XRPL FXRP stays on usdc-bridge.json (1001).",
+  "description": "Falcon PL 2300 dest-lock ETH/USDC. depositEth(bytes20)/depositUsdc auto-mints on Falcon PL. openClaim/take for peg-out. Classic XRPL FXRP stays on usdc-bridge.json (1001).",
   "sepolia": {
     "chain_id": 11155111,
     "chain_name": "Sepolia",

@@ -29,11 +29,53 @@ export async function GET(req: NextRequest) {
     try {
       const acct = await plAccount(address)
       const btc = satsOf(acct.assets, 'BTC')
+      const eth = satsOf(acct.assets, 'ETH')
+      const usdc = satsOf(acct.assets, 'USDC')
+      const bnb = satsOf(acct.assets, 'BNB')
+      const tokens: Array<Record<string, unknown>> = []
+      if (btc) {
+        tokens.push({
+          symbol: 'FBTC',
+          currency: 'BTC',
+          issuer: '',
+          balance: btc / 1e8,
+          hasTrustLine: true,
+          spvMpt: true,
+          spvMptBalance: btc / 1e8,
+        })
+      }
+      if (eth) {
+        tokens.push({
+          symbol: 'FETH',
+          currency: 'ETH',
+          issuer: '',
+          balance: eth / 1e18,
+          hasTrustLine: true,
+        })
+      }
+      if (usdc) {
+        tokens.push({
+          symbol: 'F-USDC',
+          currency: 'USDC',
+          issuer: '',
+          balance: usdc / 1e6,
+          hasTrustLine: true,
+        })
+      }
+      if (bnb) {
+        tokens.push({
+          symbol: 'FBNB',
+          currency: 'BNB',
+          issuer: '',
+          balance: bnb / 1e18,
+          hasTrustLine: true,
+        })
+      }
       return NextResponse.json({
         address,
         network: networkKey,
         assets: {
-          fusdc: { symbol: 'F-USDC', balance: 0, currency: 'QUC', issuer: '', hasTrustLine: false },
+          fusdc: { symbol: 'F-USDC', balance: usdc / 1e6, currency: 'USDC', issuer: '', hasTrustLine: true },
           fbtc: {
             symbol: 'FBTC',
             balance: btc / 1e8,
@@ -42,19 +84,8 @@ export async function GET(req: NextRequest) {
             hasTrustLine: true,
             sats: btc,
           },
-          tokens: btc
-            ? [
-                {
-                  symbol: 'FBTC',
-                  currency: 'BTC',
-                  issuer: '',
-                  balance: btc / 1e8,
-                  hasTrustLine: true,
-                  spvMpt: true,
-                  spvMptBalance: btc / 1e8,
-                },
-              ]
-            : [],
+          feth: { symbol: 'FETH', balance: eth / 1e18, currency: 'ETH', issuer: '', hasTrustLine: true },
+          tokens,
         },
       })
     } catch (err: unknown) {

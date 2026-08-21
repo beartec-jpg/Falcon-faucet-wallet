@@ -16,7 +16,7 @@ Official public portal for **Falcon PL** testnet (network ID **2300**) — Falco
 - **Create** Falcon-512 wallets with WebAuthn passkeys — keys generated on-device
 - **Restore** from saved `falcon_secret` or unlock an existing passkey-encrypted wallet
 - **Send / receive FPL** — named Falcon PL accounts or QR
-- **Send / receive F-USDC** — bridged USDC on 2300 (dest-lock rail; not public-live)
+- **Send / receive F-USDC** — dest-lock USDC on 2300 (peg-in live)
 - **Recent transactions** — FPL and rail-asset labels
 - **Validator onboarding** — one-click deploy command with your address as `--payout` (1,000 FALCON bond)
 - **PWA** — installable progressive web app with offline shell
@@ -30,10 +30,10 @@ Official public portal for **Falcon PL** testnet (network ID **2300**) — Falco
 
 ### Bridge (Sepolia ↔ Falcon PL 2300)
 
-**Public peg-in is closed.** Paperwork: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
+Paperwork: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
 
-- **Dest-lock ETH/USDC** — `FalconBridge` `depositEth(bytes20)` / `depositUsdc` / `openClaim` / `take`. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: lc-prover` until LC + mint e2e).
-- **Live contract (not a deposit address yet):** `0x7eB72974F2d2a4AaDFabAf0975a29470fcd163E4` (Sepolia). Groth16 verifier `0x7db9b1862AE7D04cE9ff85447390bDdfa972a9d0`.
+- **Dest-lock ETH/USDC** — `FalconBridge` `depositEth(bytes20)` / `depositUsdc` auto-mints on Falcon PL. `openClaim` / `take` for peg-out (operator e2e green; wallet take next). `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: live`).
+- **Live contract:** `0x7eB72974F2d2a4AaDFabAf0975a29470fcd163E4` (Sepolia). Groth16 verifier `0x7db9b1862AE7D04cE9ff85447390bDdfa972a9d0`.
 - **BTC** — BitVM dest-lock + FROST vault on 2300. Wallet flag `BTC_RAIL_LIVE = false`.
 - **Classic XRPL FXRP** — separate corridor; not the 1001 Falcon Ledger fork.
 - **Passkey Sepolia wallet** — no MetaMask; EVM keys encrypted on-device.

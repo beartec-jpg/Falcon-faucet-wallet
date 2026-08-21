@@ -94,6 +94,73 @@ export function destLockHeadersReady(cfg: Pl2300BridgeConfig | null, fplTip: num
   return fplTip > (cfg.sepolia.start_height || 0)
 }
 
+export type DestLockMintJob = {
+  ok?: boolean
+  status?: string
+  account?: string
+  asset?: string
+  amount?: number
+  credited?: number
+  dest20?: string
+  txid?: string
+  error?: string
+}
+
+export async function mintAfterDestLockDeposit(opts: {
+  account: string
+  txHash: string
+  asset: 'ETH' | 'USDC'
+  onStep?: (s: string) => void
+}): Promise<DestLockMintJob> {
+  const account = opts.account.trim()
+  const txHash = opts.txHash.trim()
+  if (!account) throw new Error('PL account required to mint dest-lock deposit')
+  if (!/^0x[a-fA-F0-9]{64}$/.test(txHash) && !/^[a-fA-F0-9]{64}$/.test(txHash)) {
+    throw new Error('Deposit tx hash required to mint')
+  }
+  opts.onStep?.('Queuing Falcon PL mint…')
+  const queued = await postMint('mint-eth-deposit', account, txHash, opts.asset)
+  if (queued.status === 'done') return queued
+  opts.onStep?.(
+    queued.asset
+      ? `Minting ${queued.asset} on Falcon PL (headers + RailDeposit)…`
+      : 'Minting on Falcon PL…',
+  )
+  const t0 = Date.now()
+  while (Date.now() - t0 < 180_000) {
+    await new Promise((r) => setTimeout(r, 2000))
+    const st = await postMint('mint-status', account, txHash, opts.asset)
+    if (st.status === 'done') {
+      opts.onStep?.(`${st.asset ?? opts.asset} minted on Falcon PL`)
+      return st
+    }
+    if (st.status === 'error') {
+      throw new Error(st.error || 'Dest-lock mint failed')
+    }
+    const elapsed = Math.round((Date.now() - t0) / 1000)
+    opts.onStep?.(`Minting on Falcon PL… ${st.status ?? 'queued'} (${elapsed}s)`)
+  }
+  throw new Error(
+    `Mint still running after 3 minutes. Keep this txid: ${txHash}. Do not deposit again.`,
+  )
+}
+
+async function postMint(
+  action: 'mint-eth-deposit' | 'mint-status',
+  account: string,
+  txHash: string,
+  asset: 'ETH' | 'USDC',
+): Promise<DestLockMintJob> {
+  const res = await fetch('/api/wallet/pl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, account, txHash, asset }),
+  })
+  const d = (await res.json()) as DestLockMintJob & { error?: string }
+  if (!res.ok) throw new Error(d.error || `mint api ${res.status}`)
+  return d
+}
+
 export async function depositEthDestLock(opts: {
   cfg: Pl2300BridgeConfig
   evmPrivateKey: string

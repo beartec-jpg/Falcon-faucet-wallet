@@ -84,6 +84,9 @@ export async function POST(req: NextRequest) {
     amount?: number
     account?: string
     destination?: string
+    txHash?: string
+    txid?: string
+    asset?: string
   }
   try {
     body = (await req.json()) as typeof body
@@ -132,6 +135,36 @@ export async function POST(req: NextRequest) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'vault-activate', account, destination }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
+      return NextResponse.json(d)
+    } catch (e) {
+      return NextResponse.json(
+        { error: String(e instanceof Error ? e.message : e) },
+        { status: 503 },
+      )
+    }
+  }
+
+  if (action === 'mint-eth-deposit' || action === 'mint-status') {
+    const account = String(body.account ?? body.to ?? '').trim()
+    const txHash = String(body.txHash ?? body.txid ?? '').trim()
+    const asset = String(body.asset ?? '').trim().toUpperCase()
+    if (!NAME_RE.test(account)) {
+      return NextResponse.json({ error: 'account must be a PL name' }, { status: 400 })
+    }
+    if (!/^(0x)?[0-9a-fA-F]{64}$/.test(txHash)) {
+      return NextResponse.json({ error: 'txHash must be 32-byte hex' }, { status: 400 })
+    }
+    if (asset && asset !== 'ETH' && asset !== 'USDC') {
+      return NextResponse.json({ error: 'asset must be ETH or USDC' }, { status: 400 })
+    }
+    try {
+      const r = await fetch(WALLET_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, account, txHash, asset: asset || undefined }),
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)

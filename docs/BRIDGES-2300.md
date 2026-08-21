@@ -1,8 +1,8 @@
 # Falcon faucet wallet — 2300 bridge paperwork
 
-**Last updated:** 2026-08-20  
+**Last updated:** 2026-08-21  
 **Network the portal talks to:** Falcon PL **2300**  
-**Not live for public peg-in.** Do not send ETH, USDC, or BTC to any address in this file until the matching flag is live.
+**ETH/USDC dest-lock peg-in is live.** Wallet deposit auto-mints on Falcon PL (watcher-browser sequential headers + `RailDeposit`). BTC stays closed (`BTC_RAIL_LIVE = false`). Wallet dest-lock peg-out (`openClaim`/`take`) is not in the panel yet; operator in+out already passed. Do not send BTC. Do not send to old 1001 collateral locks.
 
 The protocol-side living report is [`falcon-pl-rs/crates/fd-pl/docs/BRIDGES_2300_STATUS.md`](https://github.com/beartec-jpg/Falcon-PL) (on the operator tree: `~/falcon-pl/falcon-pl-rs/crates/fd-pl/docs/BRIDGES_2300_STATUS.md`).
 
@@ -14,12 +14,12 @@ Classic **XRPL FXRP** stays a separate corridor. The Falcon Ledger / XRPL-fork *
 
 | File | Role |
 |------|------|
-| `public/config/pl-2300-bridge.json` | Dest-lock ETH/USDC (`FalconBridge`). `status` is **`lc-prover`** until LC headers + mint e2e. |
-| `src/lib/pl-dest-lock.ts` | `depositEth(bytes20)` / `depositUsdc` / `take`. `dest20 = sha256(lowercase PL account)[:20]`. Deposits require `status === "live"`. |
+| `public/config/pl-2300-bridge.json` | Dest-lock ETH/USDC (`FalconBridge`). `status` is **`live`**. |
+| `src/lib/pl-dest-lock.ts` | `depositEth(bytes20)` / `depositUsdc` then `POST /api/wallet/pl` `mint-eth-deposit`. `dest20 = sha256(lowercase PL account)[:20]`. |
 | `public/config/usdc-bridge.json` | **1001 / old FalconCollateralLock** — keep for FXRP/classic notes; do not overwrite with 2300 dest-lock. |
 | `src/lib/pl-btc-rail.ts` | BTC rail. **`BTC_RAIL_LIVE = false`**. |
 
-## Live Sepolia dest-lock (not a public deposit yet)
+## Live Sepolia dest-lock
 
 - FalconBridge: `0x7eB72974F2d2a4AaDFabAf0975a29470fcd163E4`
 - Groth16Verifier: `0x7db9b1862AE7D04cE9ff85447390bDdfa972a9d0`

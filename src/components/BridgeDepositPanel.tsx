@@ -28,6 +28,7 @@ import {
   destLockHeadersReady,
   fetchFplTip,
   fetchPl2300BridgeConfig,
+  mintAfterDestLockDeposit,
   type Pl2300BridgeConfig,
 } from '@/lib/pl-dest-lock'
 import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
@@ -435,10 +436,12 @@ export default function BridgeDepositPanel({
         throw new Error(data.error ?? `Balance lookup failed (${res.status})`)
       }
       if (data.assets?.fusdc) {
-        setHasFusdcTrustLine(!!data.assets.fusdc.hasTrustLine)
-        setFusdcLive(data.assets.fusdc.hasTrustLine ? data.assets.fusdc.balance : 0)
+        const has = isPl2300 ? true : !!data.assets.fusdc.hasTrustLine
+        setHasFusdcTrustLine(has)
+        setFusdcLive(has ? data.assets.fusdc.balance : 0)
       } else {
-        setHasFusdcTrustLine(false)
+        setHasFusdcTrustLine(isPl2300)
+        if (isPl2300) setFusdcLive(0)
       }
       if (data.assets?.fbtc && typeof data.assets.fbtc.balance === 'number') {
         setHasFbtcTrustLine(true)
@@ -460,9 +463,17 @@ export default function BridgeDepositPanel({
             t.currency === (bridgeCfg.feth?.token_currency ?? 'ETH') &&
             t.issuer === (bridgeCfg.feth?.token_issuer ?? ''),
         ) || tokens.find((t) => t.symbol === 'FETH' || t.currency === 'ETH')
+      const fethDirect = (data.assets as { feth?: { balance?: number; hasTrustLine?: boolean } } | undefined)?.feth
       if (fethTok) {
-        setHasFethTrustLine(!!fethTok.hasTrustLine)
-        setFethLive(fethTok.hasTrustLine ? (fethTok.balance ?? 0) : 0)
+        const has = isPl2300 ? true : !!fethTok.hasTrustLine
+        setHasFethTrustLine(has)
+        setFethLive(has ? (fethTok.balance ?? 0) : 0)
+      } else if (fethDirect) {
+        setHasFethTrustLine(isPl2300 ? true : !!fethDirect.hasTrustLine)
+        setFethLive(fethDirect.balance ?? 0)
+      } else if (isPl2300) {
+        setHasFethTrustLine(true)
+        setFethLive(0)
       } else if (bridgeCfg.feth?.token_issuer) {
         setHasFethTrustLine(false)
         setFethLive(0)
@@ -1329,6 +1340,13 @@ export default function BridgeDepositPanel({
       return
     }
 
+    if (isPl2300 && destLockCfg && !isFxrpRoute && !isFbnbRoute) {
+      setError(
+        'Dest-lock peg-out (burn → openClaim → take) is not in this panel yet. Operator in+out already passed. Do not burn from here — Sepolia take is not automatic in the wallet.',
+      )
+      return
+    }
+
     const issuer = bridgeCfg.falcon?.token_issuer
     const currency = bridgeCfg.falcon?.token_currency
     if (!issuer || !currency || !wallet.evmAddress) return
@@ -1790,7 +1808,16 @@ export default function BridgeDepositPanel({
             plAccount: falconId,
             onStep: setStep,
           })
-          res = { depositHash: d.depositHash, depositId: `dest20 ${d.dest20}` }
+          const minted = await mintAfterDestLockDeposit({
+            account: falconId,
+            txHash: d.depositHash,
+            asset: 'ETH',
+            onStep: setStep,
+          })
+          res = {
+            depositHash: d.depositHash,
+            depositId: minted.status === 'done' ? 'FETH minted on Falcon PL' : `dest20 ${d.dest20}`,
+          }
         } else {
           const d = await depositUsdcDestLock({
             cfg: destLockCfg,
@@ -1799,7 +1826,17 @@ export default function BridgeDepositPanel({
             plAccount: falconId,
             onStep: setStep,
           })
-          res = { depositHash: d.depositHash, approveHash: d.approveHash, depositId: `dest20 ${d.dest20}` }
+          const minted = await mintAfterDestLockDeposit({
+            account: falconId,
+            txHash: d.depositHash,
+            asset: 'USDC',
+            onStep: setStep,
+          })
+          res = {
+            depositHash: d.depositHash,
+            approveHash: d.approveHash,
+            depositId: minted.status === 'done' ? 'F-USDC minted on Falcon PL' : `dest20 ${d.dest20}`,
+          }
         }
       } else if (isFbnbRoute) {
         const bsc = bridgeCfg.bsc_testnet
