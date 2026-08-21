@@ -11,6 +11,10 @@ export const RETIRED_BTC_WATCH_ADDRESSES = [
   'tb1qqxf9h0ytl0valyrmfqq53ws48mq88n8rzxcnkcvt2wg98kh8uj5qtzhm5f',
   // Intermediate v1 P2WSH
   'tb1q40fswfaq0e5nvnmayutp7qw3s0r0ctgy62p48w0k4zq79wx6w27s6ulwpv',
+  // Watch-script, not a vault
+  'tb1q7dnlzumm50hke3yl75rywds3gtfu2swqwu4xa08kx0ctxs00rv4q8hrkwu',
+  // Old Shamir P2WPKH (emptied)
+  'tb1qesum00x0jm6w2a0dt5vksckhyt45430c0yg5sj',
 ].map((a) => a.toLowerCase())
 
 /** Dust floor (sats) for peg-in / peg-out */

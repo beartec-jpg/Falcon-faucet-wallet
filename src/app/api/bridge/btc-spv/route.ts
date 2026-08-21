@@ -173,15 +173,29 @@ export async function GET(req: NextRequest) {
       const st = await plStatus(false)
       const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
       const btc = rails.find((r) => String(r.asset) === 'BTC') ?? {}
-      const watchAddress =
-        (fileCfg.watch_address as string | undefined)?.trim() ||
-        process.env.FPL_BTC_WATCH_ADDRESS?.trim() ||
-        process.env.NEXT_PUBLIC_BTC_SPV_WATCH_ADDRESS?.trim() ||
-        'tb1q7dnlzumm50hke3yl75rywds3gtfu2swqwu4xa08kx0ctxs00rv4q8hrkwu'
-      const paymentScriptHex =
-        (fileCfg.payment_script_hex as string | undefined)?.trim() ||
-        process.env.BTC_SPV_PAYMENT_SCRIPT_HEX?.trim() ||
-        '0020f367f1737ba3ef6cc49ff50647361142d3c541c0772a6ebcf633f0b341ef1b2a'
+      const vp = (btc.vault_pub as Record<string, unknown> | undefined) ?? {}
+      const watchAddress = String(
+        btc.vault_address ||
+          vp.address ||
+          (fileCfg.watch_address as string | undefined) ||
+          '',
+      ).trim()
+      const paymentScriptHex = String(
+        vp.spk_hex || (fileCfg.payment_script_hex as string | undefined) || '',
+      )
+        .trim()
+        .replace(/^0x/i, '')
+      if (!watchAddress || /tb1q7dnl/i.test(watchAddress) || /tb1qesum/i.test(watchAddress)) {
+        return NextResponse.json(
+          {
+            ready: false,
+            error: 'BTC vault address is not the FROST P2TR — refusing retired holds',
+            watchAddress: '',
+            retired: true,
+          },
+          { status: 503 },
+        )
+      }
       const tipHeight = Number(btc.tip_height ?? 0)
       const minConf = Number(btc.min_confirmations ?? 6) || 6
       const spv = String(btc.spv ?? 'protocol') === 'bitcoin' ? 'bitcoin' : 'protocol'
