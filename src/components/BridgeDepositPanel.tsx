@@ -70,7 +70,7 @@ import {
 } from '@/lib/btc-spv-withdraw-pending'
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
 import { plAccountId } from '@/lib/pl-names'
-import { pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
+import { BTC_RAIL_LIVE, pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
 import { sendSpvDeposit } from '@/lib/btc-spv-client'
 import {
   signBridgeWithdraw,
@@ -330,7 +330,7 @@ export default function BridgeDepositPanel({
     (spvStatus.paymentScriptHex || spvStatus.watchAddress)
   )
   /** Falcon PL 2300 BTC rail only — Falcon Ledger / custody paths retired. */
-  const fbtcReady = isPl2300 && spvLive
+  const fbtcReady = isPl2300 && spvLive && BTC_RAIL_LIVE
   const fxrpReady = !!(fxrpIssuer && fxrpCustody)
   const hasEvm = !!(wallet.evmAddress && wallet.evmEncrypted)
   const hasBtc = !!(wallet.btcAddress && wallet.btcEncrypted)

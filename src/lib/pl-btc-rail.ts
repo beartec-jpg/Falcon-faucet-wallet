@@ -10,8 +10,8 @@ import { signPlPay, signRailDeposit, signRailWithdraw } from './pl-wallet-sign'
 const RAIL = 'BTC'
 const FEE = 2
 const NETWORK_ID = 2300
-/** Set true only after PR8 e2e. Peg-in/out stay refused until then. */
-export const BTC_RAIL_LIVE = false
+/** Dest-lock mint + Kickoff + CSV take e2e passed. Kickoff coordinator uses Bitcoin UTXOs. */
+export const BTC_RAIL_LIVE = true
 
 export type PlBtcRail = {
   asset: string
@@ -271,6 +271,20 @@ export async function pegOutPlBtc(opts: {
     throw new Error(`Insufficient FBTC (have ${(snap.btcSats / 1e8).toFixed(8)})`)
   }
   if (snap.balance < FEE) throw new Error(`Need ${FEE} FPL for the withdraw fee`)
+  const kick = await fetch('/api/wallet/pl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'btc-kickoff',
+      account: opts.account,
+      amount,
+      dest,
+    }),
+  })
+  const kickJ = (await kick.json()) as { error?: string; signed_btc_tx?: string }
+  if (!kick.ok || !kickJ.signed_btc_tx) {
+    throw new Error(kickJ.error || 'Kickoff coordinator failed')
+  }
   const tx = await signRailWithdraw({
     account: opts.account,
     sequence: snap.sequence,
@@ -278,6 +292,7 @@ export async function pegOutPlBtc(opts: {
     amount,
     externalTo: dest,
     falconSecret: opts.falconSecret,
+    signedBtcTx: kickJ.signed_btc_tx,
   })
   await postTx(tx, opts.network)
   await waitSeq(opts.account, opts.network, snap.sequence + 1)

@@ -241,6 +241,8 @@ export async function signRailWithdraw(opts: {
   fee?: number
   networkId?: number
   falconSecret: string
+  /** BTC dest-lock Kickoff hex. Required for BTC; omit for ETH/USDC. */
+  signedBtcTx?: string
 }): Promise<SignedPlTx> {
   const amountExact = typeof opts.amount === 'bigint' ? opts.amount.toString() : String(opts.amount).split('.')[0]
   if (!/^[1-9][0-9]*$/.test(amountExact)) {
@@ -249,9 +251,14 @@ export async function signRailWithdraw(opts: {
   const networkId = opts.networkId ?? DEFAULT_NETWORK_ID
   const fee = opts.fee ?? 2
   const dest = opts.externalTo.trim()
+  const kickoff = (opts.signedBtcTx || '').trim().toLowerCase()
+  if (opts.asset === 'BTC' && !/^[0-9a-f]+$/.test(kickoff)) {
+    throw new Error('BTC withdraw needs a dest-lock Kickoff tx')
+  }
+  const kickoffJson = kickoff ? `,"signed_btc_tx":${JSON.stringify(kickoff)}` : ''
   const bodyJson =
     `{"kind":"rail_withdraw","asset":${JSON.stringify(opts.asset)},` +
-    `"amount":${amountExact},"external_to":${JSON.stringify(dest)}}`
+    `"amount":${amountExact},"external_to":${JSON.stringify(dest)}${kickoffJson}}`
   const payload = `pl-tx:v2|${opts.account}|${opts.sequence}|${dest}|${amountExact}|${fee}|${networkId}|${bodyJson}`
   const decoded = decodeFalconSecret(opts.falconSecret)
   const publicKey = bytesToHex(decoded.pubBlob.slice(1))
@@ -285,6 +292,7 @@ export async function signRailWithdraw(opts: {
       asset: opts.asset,
       amount: amountExact,
       external_to: dest,
+      ...(kickoff ? { signed_btc_tx: kickoff } : {}),
     },
     rawJson,
   }

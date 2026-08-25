@@ -21,6 +21,7 @@ async function payViaHttp(from: string, to: string, amount: number) {
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 const NAME_RE = /^[A-Za-z0-9._-]{2,64}$/
 const TEST_HINTS = ['alice', 'bob', 'carol', 'dave'] as const
@@ -89,6 +90,7 @@ export async function POST(req: NextRequest) {
     asset?: string
     dest?: string
     noteId?: string
+    externalTo?: string
   }
   try {
     body = (await req.json()) as typeof body
@@ -202,6 +204,36 @@ export async function POST(req: NextRequest) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, account, txHash, asset: asset || undefined }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
+      return NextResponse.json(d)
+    } catch (e) {
+      return NextResponse.json(
+        { error: String(e instanceof Error ? e.message : e) },
+        { status: 503 },
+      )
+    }
+  }
+
+  if (action === 'btc-kickoff') {
+    const account = String(body.account ?? body.from ?? '').trim()
+    const dest = String(body.dest ?? body.externalTo ?? '').trim()
+    const amount = String(body.amount ?? '').trim()
+    if (!NAME_RE.test(account)) {
+      return NextResponse.json({ error: 'account must be a PL name' }, { status: 400 })
+    }
+    if (dest.length < 26) {
+      return NextResponse.json({ error: 'dest must be a Bitcoin address' }, { status: 400 })
+    }
+    if (!/^[0-9]+$/.test(amount) || Number(amount) < 10000) {
+      return NextResponse.json({ error: 'amount must be ≥ 10000 sats' }, { status: 400 })
+    }
+    try {
+      const r = await fetch(WALLET_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'btc-kickoff', account, dest, amount }),
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
