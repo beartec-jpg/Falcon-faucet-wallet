@@ -30,6 +30,7 @@ export const DEST_LOCK_ABI = [
   'function depositUsdc(bytes20 dest20, uint256 amount)',
   'function openClaim(bytes32 noteId, address dest, uint256 amount, bool isUsdc, bytes32[] proof, uint32 index, uint64 fplHeight)',
   'function take(bytes32 noteId)',
+  'function submitHeaderWithProof(uint64 height, bytes32 hash, bytes32 parent, bytes32 claimRoot, uint256[2] a, uint256[2][2] b, uint256[2] c)',
   'function fplTip() view returns (uint64)',
   'function headers(uint64) view returns (bytes32 hash, bytes32 parent, bytes32 claimRoot, bool finalized)',
   'function claims(bytes32) view returns (address dest, uint256 amount, bool usdc, uint64 readyBlock, uint64 fplHeight, bytes32 leaf, bool open, bool challenged, bool taken)',
@@ -280,10 +281,6 @@ async function accountSeq(account: string, network: string): Promise<{ sequence:
   return { sequence: Number(j.sequence ?? 0), balance: Number(j.balance ?? 0) }
 }
 
-function hexEq(a: string, b: string): boolean {
-  return a.replace(/^0x/i, '').toLowerCase() === b.replace(/^0x/i, '').toLowerCase()
-}
-
 export async function pegOutDestLock(opts: {
   cfg: Pl2300BridgeConfig
   account: string
@@ -331,44 +328,57 @@ export async function pegOutDestLock(opts: {
   if (!proof?.noteId) {
     throw new Error('Burn submitted but the withdraw note did not pack. Keep this panel open and retry Bridge out.')
   }
-  opts.onStep?.('Waiting for a sampled LC header with this claim root on Sepolia…')
-  const tHdr = Date.now()
-  let fplHeight = 0
-  while (Date.now() - tHdr < 20 * 60_000) {
-    const tip = await fetchFplTip(opts.cfg)
-    const hdr = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
-      const c = new Contract(opts.cfg.sepolia.bridge, DEST_LOCK_ABI, p)
-      const row = await c.headers(tip)
-      const claimRoot = String(row?.claimRoot ?? row?.[2] ?? '')
-      const finalized = Boolean(row?.finalized ?? row?.[3])
-      return { claimRoot, finalized }
+  const proveHeight = Number(proof.fplTip || 0)
+  if (!proveHeight) {
+    throw new Error('Burn packed but no FPL height yet. Retry Bridge out in a moment.')
+  }
+  opts.onStep?.(`Proving Falcon-512 header ${proveHeight} (you pay Sepolia gas)…`)
+  let headerProof: {
+    height: number
+    header: string
+    parent: string
+    claimRoot: string
+    a: [string, string]
+    b: [[string, string], [string, string]]
+    c: [string, string]
+    error?: string
+  } | null = null
+  const tPr = Date.now()
+  while (Date.now() - tPr < 3 * 60_000) {
+    const res = await fetch('/api/wallet/pl', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'header-proof', height: proveHeight }),
     })
-    if (hdr.finalized && hexEq(hdr.claimRoot, proof.claimRoot)) {
-      fplHeight = tip
+    const d = (await res.json()) as typeof headerProof & { error?: string }
+    if (res.ok && d && d.a && d.header) {
+      headerProof = d
       break
     }
-    // leaf set may have grown; refresh proof against current FPL tree
-    try {
-      const fresh = await postClaimProof({
-        account: opts.account,
-        asset: opts.asset,
-        dest,
-        amount: opts.amountExact.toString(),
-        noteId: proof.noteId,
-      })
-      if (fresh.claimRoot) proof = fresh
-    } catch {
-      /* keep last proof */
-    }
-    const elapsed = Math.round((Date.now() - tHdr) / 1000)
-    opts.onStep?.(`Waiting for LC header… on-chain tip ${tip} (${elapsed}s)`)
-    await new Promise((r) => setTimeout(r, 8000))
+    opts.onStep?.(d?.error || 'Waiting for 4 Falcon-512 attestations + Groth16…')
+    await new Promise((r) => setTimeout(r, 4000))
   }
-  if (!fplHeight) {
-    throw new Error(
-      `Burn packed (note ${proof.noteId.slice(0, 10)}…) but Sepolia has not yet proven this claim root. Do not burn again.`,
+  if (!headerProof) {
+    throw new Error('Header proof did not land. Do not burn again — retry Bridge out.')
+  }
+  const fplHeight = Number(headerProof.height)
+  opts.onStep?.(`submitHeaderWithProof h=${fplHeight} from your Sepolia key…`)
+  await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
+    const signer = new Wallet(opts.evmPrivateKey, p)
+    const c = new Contract(opts.cfg.sepolia.bridge, DEST_LOCK_ABI, signer)
+    const tx = await c.submitHeaderWithProof(
+      fplHeight,
+      headerProof!.header,
+      headerProof!.parent,
+      headerProof!.claimRoot,
+      headerProof!.a,
+      headerProof!.b,
+      headerProof!.c,
     )
-  }
+    const rc = await tx.wait(1)
+    if (!rc || rc.status !== 1) throw new Error(`submitHeaderWithProof failed (${tx.hash})`)
+    return tx.hash as string
+  })
   opts.onStep?.(`openClaim at FPL height ${fplHeight}…`)
   const openHash = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
     const signer = new Wallet(opts.evmPrivateKey, p)

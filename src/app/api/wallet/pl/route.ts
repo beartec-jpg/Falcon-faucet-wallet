@@ -151,6 +151,28 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  if (action === 'header-proof') {
+    const height = Number(body.height ?? 0)
+    if (!Number.isInteger(height) || height < 1) {
+      return NextResponse.json({ error: 'height must be a positive integer' }, { status: 400 })
+    }
+    try {
+      const r = await fetch(WALLET_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'header-proof', height }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
+      return NextResponse.json(d)
+    } catch (e) {
+      return NextResponse.json(
+        { error: String(e instanceof Error ? e.message : e) },
+        { status: 503 },
+      )
+    }
+  }
+
   if (action === 'claim-proof') {
     const account = String(body.account ?? '').trim()
     const dest = String(body.dest ?? '').trim()
