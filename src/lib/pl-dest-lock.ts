@@ -90,11 +90,20 @@ export async function fetchFplTip(cfg: Pl2300BridgeConfig): Promise<number> {
   })
 }
 
+export function destLockContractReady(cfg: Pl2300BridgeConfig | null): boolean {
+  return !!(
+    cfg &&
+    cfg.status === 'live' &&
+    cfg.sepolia?.bridge?.match(/^0x[a-fA-F0-9]{40}$/)
+  )
+}
+
+/** Peg-out needs Groth16 Falcon-512 headers on the live FalconQc contract. Peg-in does not. */
 export function destLockHeadersReady(cfg: Pl2300BridgeConfig | null, fplTip: number | null): boolean {
-  if (!cfg?.sepolia?.bridge?.match(/^0x[a-fA-F0-9]{40}$/)) return false
-  if (cfg.status !== 'live') return false
+  if (!destLockContractReady(cfg)) return false
   if (fplTip == null) return false
-  return fplTip > (cfg.sepolia.start_height || 0)
+  const start = cfg!.sepolia.start_height || 0
+  return fplTip > start && fplTip > 0
 }
 
 export type DestLockMintJob = {

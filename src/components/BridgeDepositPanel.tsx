@@ -25,6 +25,7 @@ import {
 import {
   depositEthDestLock,
   depositUsdcDestLock,
+  destLockContractReady,
   destLockHeadersReady,
   fetchFplTip,
   fetchPl2300BridgeConfig,
@@ -321,9 +322,11 @@ export default function BridgeDepositPanel({
       : 'fusdc-sepolia'
   })
 
-  const destLockLive = isPl2300 && destLockHeadersReady(destLockCfg, destLockTip)
-  const bridgeReady = isPl2300 ? destLockLive : lockContractReady(bridgeCfg)
-  const fethReady = isPl2300 ? destLockLive : fethLockReady(bridgeCfg)
+  const destLockInReady = isPl2300 && destLockContractReady(destLockCfg)
+  const destLockOutReady = isPl2300 && destLockHeadersReady(destLockCfg, destLockTip)
+  const destLockLive = destLockInReady
+  const bridgeReady = isPl2300 ? destLockInReady : lockContractReady(bridgeCfg)
+  const fethReady = isPl2300 ? destLockInReady : fethLockReady(bridgeCfg)
   const fbnbReady = fbnbLockReady(bridgeCfg)
   const spvLive = !!(
     spvStatus?.ready &&
@@ -1344,8 +1347,8 @@ export default function BridgeDepositPanel({
     }
 
     if (isPl2300 && destLockCfg && !isFxrpRoute && !isFbnbRoute) {
-      if (!destLockLive) {
-        setError('ETH/USDC dest-lock is waiting for LC headers on Sepolia. Do not burn yet.')
+      if (!destLockOutReady) {
+        setError('ETH/USDC dest-lock is waiting for Groth16 Falcon-512 headers on Sepolia. Do not burn yet.')
         return
       }
       if (!wallet.evmAddress || !wallet.evmEncrypted) {
@@ -1735,9 +1738,9 @@ export default function BridgeDepositPanel({
         isPl2300 && isFbtcRoute
           ? 'Open Multi-chain BTC first, then Bridge In.'
           : isPl2300 && (isFethRoute || (!isFbnbRoute && !isFxrpRoute))
-            ? destLockLive
+            ? destLockInReady
               ? 'Open the Sepolia EVM wallet on Multi-chain first.'
-              : 'ETH/USDC dest-lock is waiting for LC headers on Sepolia (prover). Do not send yet.'
+              : 'ETH/USDC dest-lock config missing live FalconQcBridge. Do not send yet.'
             : `Add a ${assetLabel} trust line on this page before bridging in — otherwise minted tokens cannot be delivered.`,
       )
       return
@@ -1869,8 +1872,8 @@ export default function BridgeDepositPanel({
 
       let res: BridgeDepositResult
       if (isPl2300 && destLockCfg && (isFethRoute || (!isFbnbRoute && !isFxrpRoute && !isFbtcRoute))) {
-        if (!destLockLive) {
-          throw new Error('ETH/USDC dest-lock is waiting for LC headers on Sepolia. Do not send yet.')
+        if (!destLockInReady) {
+          throw new Error('ETH/USDC dest-lock is not the live FalconQcBridge. Do not send yet.')
         }
         if (isFethRoute) {
           const d = await depositEthDestLock({
@@ -2382,7 +2385,7 @@ export default function BridgeDepositPanel({
               <option
                 value="feth-sepolia"
                 disabled={
-                  (direction === 'withdraw' && !(isPl2300 && destLockLive)) ||
+                  (direction === 'withdraw' && !(isPl2300 && destLockOutReady)) ||
                   !hasEvm ||
                   !fethReady
                 }

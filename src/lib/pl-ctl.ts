@@ -15,7 +15,9 @@ export const PL_KEYS =
   path.join(os.homedir(), 'falcon-pl-public-testnet-2300/keys')
 export const PL_SCHEME = process.env.FALCON_PL_SCHEME?.trim() || 'falcon-512'
 export const PL_ADDR = process.env.FALCON_PL_RPC?.trim() || '127.0.0.1:19301'
-export const PL_NETWORK_ID = Number(process.env.FALCON_PL_NETWORK_ID ?? '2300')
+const _ctlNid = Number(process.env.FALCON_PL_NETWORK_ID ?? '2300')
+export const PL_NETWORK_ID =
+  _ctlNid === 1001 || _ctlNid === 2200 || !Number.isFinite(_ctlNid) ? 2300 : _ctlNid
 
 export function runCtl(
   args: string[],

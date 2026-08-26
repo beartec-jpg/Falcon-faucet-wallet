@@ -9,7 +9,8 @@
 import net from 'net'
 import { createHash, createHmac } from 'crypto'
 
-export const PL_NETWORK_ID = Number(process.env.FALCON_PL_NETWORK_ID ?? '2300')
+const _plNid = Number(process.env.FALCON_PL_NETWORK_ID ?? '2300')
+export const PL_NETWORK_ID = _plNid === 1001 || _plNid === 2200 || !Number.isFinite(_plNid) ? 2300 : _plNid
 /** Public TCP proxy on the droplet → falcon1 :19301 archive. */
 export const PL_PUBLIC_PROXY = '192.241.247.158:19311'
 

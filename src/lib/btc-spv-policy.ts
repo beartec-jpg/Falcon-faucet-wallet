@@ -15,6 +15,8 @@ export const RETIRED_BTC_WATCH_ADDRESSES = [
   'tb1q7dnlzumm50hke3yl75rywds3gtfu2swqwu4xa08kx0ctxs00rv4q8hrkwu',
   // Old Shamir P2WPKH (emptied)
   'tb1qesum00x0jm6w2a0dt5vksckhyt45430c0yg5sj',
+  // Odd-Y v1 NUMS — BIP341 unspendable
+  'tb1pq9mgl62e4dskkc9h4jxwfsfdt56hn9vl22u9xhqgz2l8jxfpwsascq6098',
 ].map((a) => a.toLowerCase())
 
 /** Dust floor (sats) for peg-in / peg-out */

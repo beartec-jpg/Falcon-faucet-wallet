@@ -185,11 +185,16 @@ export async function GET(req: NextRequest) {
       )
         .trim()
         .replace(/^0x/i, '')
-      if (!watchAddress || /tb1q7dnl/i.test(watchAddress) || /tb1qesum/i.test(watchAddress)) {
+      if (
+        !watchAddress ||
+        /tb1q7dnl/i.test(watchAddress) ||
+        /tb1qesum/i.test(watchAddress) ||
+        /tb1pq9mgl/i.test(watchAddress)
+      ) {
         return NextResponse.json(
           {
             ready: false,
-            error: 'BTC vault address is not the FROST P2TR — refusing retired holds',
+            error: 'BTC vault is not the live NUMS dest+watch pool — refusing retired holds',
             watchAddress: '',
             retired: true,
           },

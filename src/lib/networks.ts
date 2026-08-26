@@ -35,6 +35,13 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
+/** Public testnet is Falcon PL 2300. Retired 1001 / 2200 env pins must not win. */
+function envTestnetNetworkId(): number {
+  const n = envInt('NEXT_PUBLIC_TESTNET_NETWORK_ID', 2300)
+  if (n === 1001 || n === 2200) return 2300
+  return n
+}
+
 function envStr(name: string, fallback: string): string {
   return process.env[name]?.trim() || fallback
 }
@@ -52,7 +59,7 @@ const TESTNET: NetworkConfig = {
   key: 'testnet',
   name: envStr('NEXT_PUBLIC_TESTNET_NAME', 'Falcon PL 2300'),
   shortName: 'Testnet',
-  networkId: envInt('NEXT_PUBLIC_TESTNET_NETWORK_ID', 2300),
+  networkId: envTestnetNetworkId(),
   rpcUrl: envStr(
     'NEXT_PUBLIC_TESTNET_RPC_URL',
     envStr('NEXT_PUBLIC_RPC_URL', '192.241.247.158:19311'),

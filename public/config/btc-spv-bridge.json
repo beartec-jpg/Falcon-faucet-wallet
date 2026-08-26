@@ -3,13 +3,15 @@
   "network": "falcon-pl",
   "network_id": 2300,
   "btc_network": "testnet",
-  "watch_address": "tb1q7dnlzumm50hke3yl75rywds3gtfu2swqwu4xa08kx0ctxs00rv4q8hrkwu",
-  "payment_script_hex": "0020f367f1737ba3ef6cc49ff50647361142d3c541c0772a6ebcf633f0b341ef1b2a",
+  "watch_address": "tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34",
+  "payment_script_hex": "51206ebeb0289c396f1f0ace996500600f831350d95c0cc89f412ed0eca650abb38f",
   "min_confirmations": 6,
   "retired_watch_addresses": [
     "mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik",
     "tb1qqxf9h0ytl0valyrmfqq53ws48mq88n8rzxcnkcvt2wg98kh8uj5qtzhm5f",
-    "tb1q40fswfaq0e5nvnmayutp7qw3s0r0ctgy62p48w0k4zq79wx6w27s6ulwpv"
+    "tb1q40fswfaq0e5nvnmayutp7qw3s0r0ctgy62p48w0k4zq79wx6w27s6ulwpv",
+    "tb1q7dnlzumm50hke3yl75rywds3gtfu2swqwu4xa08kx0ctxs00rv4q8hrkwu",
+    "tb1pq9mgl62e4dskkc9h4jxwfsfdt56hn9vl22u9xhqgz2l8jxfpwsascq6098"
   ],
-  "notes": "Falcon PL 2300 BTC rail. Peg-in: watch_address + FALC OP_RETURN, then RailDeposit. Peg-out burns FBTC only until the 2300 payout path ships. Old Falcon Ledger holds are lost."
+  "notes": "Falcon PL 2300 NUMS dest+watch pool (even-Y). Peg-in: this address + FALC OP_RETURN. Do not send to retired 1001 holds or the odd-Y v1 NUMS."
 }
