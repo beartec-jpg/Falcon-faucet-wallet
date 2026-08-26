@@ -500,7 +500,11 @@ export async function POST(req: NextRequest) {
         if (hasFbto && (hasPay || !payoutScript)) {
           const bh = t.status?.block_height
           const confs =
-            t.status?.confirmed && bh && tip ? Math.max(1, tip - bh + 1) : t.status?.confirmed ? 1 : 0
+            t.status?.confirmed && typeof bh === 'number' && tip > 0
+              ? Math.max(1, tip - bh + 1)
+              : t.status?.confirmed
+                ? 1
+                : 0
           return NextResponse.json({
             txid: t.txid,
             confirmations: confs,
