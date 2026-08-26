@@ -498,19 +498,16 @@ export async function POST(req: NextRequest) {
           }
         }
         if (hasFbto && (hasPay || !payoutScript)) {
-          const blockHeight = t.status?.block_height
-          let confs = 0
-          if (t.status?.confirmed) {
-            if (typeof blockHeight === 'number' && tip > 0) {
-              confs = Math.max(1, tip - blockHeight + 1)
-            } else {
-              confs = 1
-            }
-          }
+          const height = Number(t.status?.block_height)
+          const confs = t.status?.confirmed
+            ? Number.isFinite(height) && tip > 0
+              ? Math.max(1, tip - height + 1)
+              : 1
+            : 0
           return NextResponse.json({
             txid: t.txid,
             confirmations: confs,
-            blockHeight,
+            blockHeight: Number.isFinite(height) ? height : undefined,
             matched: { fbto: true, amount: hasPay },
           })
         }
