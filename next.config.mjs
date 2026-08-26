@@ -3,6 +3,10 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: [
       'ripple-address-codec',
+      'ripple-binary-codec',
+      'xrpl',
+      '@xrplf/isomorphic',
+      '@noble/hashes',
       '@openforge-sh/liboqs',
     ],
   },
