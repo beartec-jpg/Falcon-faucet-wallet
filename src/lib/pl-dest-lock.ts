@@ -362,23 +362,43 @@ export async function pegOutDestLock(opts: {
     throw new Error('Header proof did not land. Do not burn again — retry Bridge out.')
   }
   const fplHeight = Number(headerProof.height)
-  opts.onStep?.(`submitHeaderWithProof h=${fplHeight} from your Sepolia key…`)
-  await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
-    const signer = new Wallet(opts.evmPrivateKey, p)
-    const c = new Contract(opts.cfg.sepolia.bridge, DEST_LOCK_ABI, signer)
-    const tx = await c.submitHeaderWithProof(
-      fplHeight,
-      headerProof!.header,
-      headerProof!.parent,
-      headerProof!.claimRoot,
-      headerProof!.a,
-      headerProof!.b,
-      headerProof!.c,
-    )
-    const rc = await tx.wait(1)
-    if (!rc || rc.status !== 1) throw new Error(`submitHeaderWithProof failed (${tx.hash})`)
-    return tx.hash as string
+  try {
+    const fresh = await postClaimProof({
+      account: opts.account,
+      asset: opts.asset,
+      dest,
+      amount: opts.amountExact.toString(),
+      noteId: proof.noteId,
+    })
+    if (fresh.claimRoot) proof = fresh
+  } catch {
+    /* keep packed proof */
+  }
+  opts.onStep?.(`Checking Sepolia header ${fplHeight}…`)
+  const already = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
+    const c = new Contract(opts.cfg.sepolia.bridge, DEST_LOCK_ABI, p)
+    const row = await c.headers(fplHeight)
+    return Boolean(row?.finalized ?? row?.[3])
   })
+  if (!already) {
+    opts.onStep?.(`submitHeaderWithProof h=${fplHeight} — gas from your Sepolia key…`)
+    await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
+      const signer = new Wallet(opts.evmPrivateKey, p)
+      const c = new Contract(opts.cfg.sepolia.bridge, DEST_LOCK_ABI, signer)
+      const tx = await c.submitHeaderWithProof(
+        fplHeight,
+        headerProof!.header,
+        headerProof!.parent,
+        headerProof!.claimRoot,
+        headerProof!.a,
+        headerProof!.b,
+        headerProof!.c,
+      )
+      const rc = await tx.wait(1)
+      if (!rc || rc.status !== 1) throw new Error(`submitHeaderWithProof failed (${tx.hash})`)
+      return tx.hash as string
+    })
+  }
   opts.onStep?.(`openClaim at FPL height ${fplHeight}…`)
   const openHash = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
     const signer = new Wallet(opts.evmPrivateKey, p)
