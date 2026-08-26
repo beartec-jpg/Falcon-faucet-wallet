@@ -2,7 +2,7 @@
   "version": 1,
   "status": "live",
   "network_id": 2300,
-  "description": "Falcon PL 2300 dest-lock ETH/USDC and BTC. ETH/USDC: depositEth/depositUsdc auto-mint; openClaim/take for peg-out. BTC: FROST P2TR dest20 deposit + Kickoff dest-lock out. Classic XRPL FXRP stays on usdc-bridge.json (1001).",
+  "description": "Falcon PL 2300 dest-lock. ETH/USDC headers: 4 Falcon-512 proofs (validator keys). BTC: FROST P2TR + Kickoff dest-lock.",
   "sepolia": {
     "chain_id": 11155111,
     "chain_name": "Sepolia",
@@ -10,23 +10,13 @@
     "explorer_url": "https://sepolia.etherscan.io",
     "usdc_token": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
     "usdc_decimals": 6,
-    "bridge": "0x7eB72974F2d2a4AaDFabAf0975a29470fcd163E4",
-    "verifier": "0x7db9b1862AE7D04cE9ff85447390bDdfa972a9d0",
+    "bridge": "0x8d0c0798055774532088549eaCC0581713BE53E2",
+    "verifier": "0xA37Ba477CB4a46794342c77d7e83883FF25CC45C",
     "eth_lock": "0xc1113d2059c5d73f45968910fadfff7d88a3c4a4d8a0f754f15faa495d2c467b",
     "usdc_lock": "0xc8927e1f8b56b080b015ccf240c5d27c6f1525d52a6545a1c03c84326e483c1c",
-    "lc_key_root": "0x1c2c1bfbca036b7566dd53d7f8ccbeebe371b9d20e15a8dc9c2e720f0ff6091d",
-    "lc_threshold": 4,
-    "start_height": 121064,
-    "header_delay": 0,
-    "claim_delay": 0
+    "falcon_key_root": "0x04a9ad1908569884ff307f63291c592af16fe345fb471c22104d0c0717bcfd8a",
+    "proofs_needed": 4,
+    "start_height": 224476
   },
-  "dest20": "sha256(lowercase PL account)[:20]",
-  "sampled_headers": true,
-  "not": [
-    "0x19b852E17db4E3B8a43B8A09d71d64858CDDa39B",
-    "0xE660de83FEFED8ccAc40300840869f19CcC1FBdd",
-    "0x2dae31Cbf2E3a418d617081985661fCD0117b75C",
-    "0x11808B5Cda14d4144dbD2279f92f447e0f8F8F1d"
-  ],
-  "fxrp": "classic XRPL / Falcon Ledger 1001 — do not overwrite usdc-bridge.json"
+  "dest20": "sha256(lowercase PL account)[:20]"
 }
