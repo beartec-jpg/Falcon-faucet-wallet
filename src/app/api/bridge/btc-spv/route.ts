@@ -20,6 +20,11 @@ import {
 const FEATURE = 'BitcoinSPVBridge'
 const DEFAULT_RPC = process.env.XRPLD_RPC_URL?.trim() || 'http://46.224.0.140:6005'
 
+function errorMessage(e: unknown, fallback: string): string {
+  if (e instanceof Error) return e.message
+  return fallback
+}
+
 type BtcNetwork = 'testnet' | 'mainnet'
 
 const EXPLORERS: Record<BtcNetwork, string[]> = {
@@ -528,7 +533,7 @@ export async function POST(req: NextRequest) {
       )
     } catch (e: unknown) {
       return NextResponse.json(
-        { error: e instanceof Error ? e.message : 'find_redeem failed' },
+        { error: errorMessage(e, 'find_redeem failed') },
         { status: 502 },
       )
     }
@@ -613,7 +618,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ account, currentLedger, withdrawals })
     } catch (e: unknown) {
       return NextResponse.json(
-        { error: e instanceof Error ? e.message : 'withdraw_list failed' },
+        { error: errorMessage(e, 'withdraw_list failed') },
         { status: 502 },
       )
     }
@@ -670,7 +675,7 @@ export async function POST(req: NextRequest) {
       })
     } catch (e: unknown) {
       return NextResponse.json(
-        { error: e instanceof Error ? e.message : 'withdraw_status failed' },
+        { error: errorMessage(e, 'withdraw_status failed') },
         { status: 502 },
       )
     }

@@ -37,6 +37,9 @@ import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
 import { fetchBtcBalance } from '@/lib/btc-client'
 import {
   fetchSpvStatus,
+  sendSpvDeposit,
+  spvProveRedeem,
+  waitForSpvRedeemPayment,
   type SpvStatus,
 } from '@/lib/btc-spv-client'
 import {
@@ -72,7 +75,6 @@ import {
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
 import { plAccountId } from '@/lib/pl-names'
 import { BTC_RAIL_LIVE, pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
-import { sendSpvDeposit } from '@/lib/btc-spv-client'
 import {
   signBridgeWithdraw,
   signFusdcPayment,
