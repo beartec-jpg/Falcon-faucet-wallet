@@ -149,6 +149,14 @@ export async function GET(req: NextRequest) {
       const st = await plStatus(false)
       const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
       const btc = rails.find((r) => String(r.asset) === 'BTC') ?? {}
+      const { loadZeroPoint, offsetRail } = await import('@/lib/pl-zero-point')
+      const zp = await loadZeroPoint()
+      const off = offsetRail(
+        zp,
+        'BTC',
+        Number(btc.total_minted ?? 0),
+        Number(btc.total_burned ?? 0),
+      )
       return NextResponse.json({
         checked_at: new Date().toISOString(),
         btcNetwork: 'testnet',
@@ -161,8 +169,8 @@ export async function GET(req: NextRequest) {
           tipHash: btc.tip_hash ?? null,
           minConfirmations: Number(btc.min_confirmations ?? 6),
           watchScriptHash: null,
-          totalMintedSats: Number(btc.total_minted ?? 0),
-          totalMintedBtc: Number(btc.total_minted ?? 0) / 1e8,
+          totalMintedSats: off.minted,
+          totalMintedBtc: off.minted / 1e8,
           mintCapSats: null,
           chainId: 2300,
         },
@@ -185,7 +193,7 @@ export async function GET(req: NextRequest) {
           watchMatchesConfig: true,
         },
         tvl: {
-          valueLockedSats: Number(btc.total_minted ?? 0) - Number(btc.total_burned ?? 0),
+          valueLockedSats: off.minted - off.burned,
           valueLockedBtc: 0,
         },
       })

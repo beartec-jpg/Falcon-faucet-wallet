@@ -258,19 +258,26 @@ export async function pegOutPlBtc(opts: {
   network: string
   amountSats: number
   btcAddress: string
-}): Promise<{ txId: string }> {
+  destSecretHex: string
+  onStep?: (msg: string) => void
+}): Promise<{ txId: string; kickoffTxid?: string; takeTxid?: string }> {
   if (!BTC_RAIL_LIVE) {
     throw new Error('BTC rail is not live — e2e not passed (BTC_RAIL_LIVE=false)')
   }
   const amount = Math.floor(opts.amountSats)
-  if (amount < 546) throw new Error('Amount too small')
+  if (amount < 10_000) throw new Error('Amount too small (min 10000 sats)')
   const dest = opts.btcAddress.trim()
   if (dest.length < 26) throw new Error('Need a Bitcoin payout address')
+  const destSecret = opts.destSecretHex.replace(/^0x/i, '').toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(destSecret)) {
+    throw new Error('Bitcoin dest key missing — open Multi-chain BTC')
+  }
   const snap = await accountSnap(opts.account, opts.network)
   if (snap.btcSats < amount) {
     throw new Error(`Insufficient FBTC (have ${(snap.btcSats / 1e8).toFixed(8)})`)
   }
   if (snap.balance < FEE) throw new Error(`Need ${FEE} FPL for the withdraw fee`)
+  opts.onStep?.('Building dest+watch Kickoff…')
   const kick = await fetch('/api/wallet/pl', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -279,9 +286,15 @@ export async function pegOutPlBtc(opts: {
       account: opts.account,
       amount,
       dest,
+      destSecret,
     }),
   })
-  const kickJ = (await kick.json()) as { error?: string; signed_btc_tx?: string }
+  const kickJ = (await kick.json()) as {
+    error?: string
+    signed_btc_tx?: string
+    amount?: number
+    utxo?: string
+  }
   if (!kick.ok || !kickJ.signed_btc_tx) {
     throw new Error(kickJ.error || 'Kickoff coordinator failed')
   }
@@ -296,5 +309,68 @@ export async function pegOutPlBtc(opts: {
   })
   await postTx(tx, opts.network)
   await waitSeq(opts.account, opts.network, snap.sequence + 1)
-  return { txId: tx.tx_id }
+
+  const { broadcastBtcTx } = await import('@/lib/btc-client')
+  opts.onStep?.('Broadcasting Kickoff to Bitcoin testnet…')
+  let kickoffTxid = ''
+  try {
+    kickoffTxid = (await broadcastBtcTx(kickJ.signed_btc_tx, 'testnet')).trim()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/already|exists|txn-already/i.test(msg)) {
+      opts.onStep?.('Kickoff already in mempool…')
+    } else {
+      throw new Error(`Kickoff broadcast failed: ${msg}`)
+    }
+  }
+
+  const { pollSpvConfirmations } = await import('@/lib/btc-spv-pending')
+  const csv = 6
+  const need = csv + 1
+  const t0 = Date.now()
+  let confs = 0
+  while (Date.now() - t0 < 45 * 60_000) {
+    if (kickoffTxid) {
+      const st = await pollSpvConfirmations(kickoffTxid, 'testnet')
+      confs = st.confirmations
+      opts.onStep?.(`Kickoff confirmations ${confs} / ${need} (CSV=${csv})…`)
+      if (confs >= need) break
+    } else {
+      opts.onStep?.('Waiting for Kickoff txid…')
+    }
+    await new Promise((r) => setTimeout(r, 12_000))
+  }
+  if (confs < need || !kickoffTxid) {
+    throw new Error(
+      `FBTC burned and Kickoff posted. Wait for ${need} Bitcoin confirmations then retry take (txid ${kickoffTxid || 'pending'}).`,
+    )
+  }
+
+  const claimSats = Number(kickJ.amount ?? amount)
+  opts.onStep?.('Dest take after CSV…')
+  const take = await fetch('/api/wallet/pl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'btc-take',
+      account: opts.account,
+      dest,
+      amount,
+      destSecret,
+      prevTxid: kickoffTxid,
+      vout: 0,
+      sats: claimSats,
+    }),
+  })
+  const takeJ = (await take.json()) as { error?: string; take_txid?: string; signed_btc_tx?: string }
+  if (!take.ok) throw new Error(takeJ.error || 'Dest take failed')
+  let takeTxid = takeJ.take_txid || ''
+  if (takeJ.signed_btc_tx && !takeTxid) {
+    try {
+      takeTxid = (await broadcastBtcTx(takeJ.signed_btc_tx, 'testnet')).trim()
+    } catch {
+      /* coordinator may have broadcast */
+    }
+  }
+  return { txId: tx.tx_id, kickoffTxid, takeTxid }
 }

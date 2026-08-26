@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverNetworkConfig } from '@/lib/network-server'
 import { fetchWalletAssets } from '@/lib/swap/wallet-assets'
 import { plAccount } from '@/lib/pl-rpc'
+import { loadZeroPoint, offsetAsset } from '@/lib/pl-zero-point'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const PL_NAME_RE = /^[A-Za-z0-9._-]{2,64}$/
@@ -28,10 +29,11 @@ export async function GET(req: NextRequest) {
     }
     try {
       const acct = await plAccount(address)
-      const btc = satsOf(acct.assets, 'BTC')
-      const eth = satsOf(acct.assets, 'ETH')
-      const usdc = satsOf(acct.assets, 'USDC')
-      const bnb = satsOf(acct.assets, 'BNB')
+      const zp = await loadZeroPoint()
+      const btc = offsetAsset(zp, address, 'BTC', satsOf(acct.assets, 'BTC'))
+      const eth = offsetAsset(zp, address, 'ETH', satsOf(acct.assets, 'ETH'))
+      const usdc = offsetAsset(zp, address, 'USDC', satsOf(acct.assets, 'USDC'))
+      const bnb = offsetAsset(zp, address, 'BNB', satsOf(acct.assets, 'BNB'))
       const tokens: Array<Record<string, unknown>> = []
       if (btc) {
         tokens.push({

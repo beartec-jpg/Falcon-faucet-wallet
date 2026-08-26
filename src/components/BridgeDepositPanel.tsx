@@ -1318,19 +1318,25 @@ export default function BridgeDepositPanel({
         try {
           const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
           const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+          if (!wallet.btcEncrypted) {
+            throw new Error('Bitcoin dest key missing — open Multi-chain BTC')
+          }
+          const destSecretHex = (await decryptSeed(wallet.btcEncrypted, keyBytes)).replace(/^0x/i, '')
           const out = await pegOutPlBtc({
             account: falconId,
             falconSecret: falcon_secret,
             network: networkKey,
             amountSats,
             btcAddress: wallet.btcAddress,
+            destSecretHex,
+            onStep: setStep,
           })
           setWithdrawResult({
             falconTxHash: out.txId,
             amount: String(amt),
             sepoliaRecipient: wallet.btcAddress,
+            btcClaimTxid: out.takeTxid || out.kickoffTxid,
           })
-          // BTC is not auto-paid on 2300 — RailWithdraw only burns FBTC and opens a note.
           setWithdrawAmount('')
           setTimeout(() => {
             void refreshFusdcBalance()

@@ -216,10 +216,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (action === 'btc-kickoff') {
+  if (action === 'btc-kickoff' || action === 'btc-take') {
     const account = String(body.account ?? body.from ?? '').trim()
     const dest = String(body.dest ?? body.externalTo ?? '').trim()
     const amount = String(body.amount ?? '').trim()
+    const destSecret = String(body.destSecret ?? '').replace(/^0x/i, '').toLowerCase()
     if (!NAME_RE.test(account)) {
       return NextResponse.json({ error: 'account must be a PL name' }, { status: 400 })
     }
@@ -229,11 +230,26 @@ export async function POST(req: NextRequest) {
     if (!/^[0-9]+$/.test(amount) || Number(amount) < 10000) {
       return NextResponse.json({ error: 'amount must be ≥ 10000 sats' }, { status: 400 })
     }
+    if (!/^[0-9a-f]{64}$/.test(destSecret)) {
+      return NextResponse.json({ error: 'destSecret must be 32-byte hex' }, { status: 400 })
+    }
+    const payload: Record<string, unknown> = {
+      action,
+      account,
+      dest,
+      amount,
+      destSecret,
+    }
+    if (action === 'btc-take') {
+      payload.prevTxid = String(body.prevTxid ?? '').toLowerCase()
+      payload.vout = Number(body.vout ?? 0)
+      payload.sats = Number(body.sats ?? amount)
+    }
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'btc-kickoff', account, dest, amount }),
+        body: JSON.stringify(payload),
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)

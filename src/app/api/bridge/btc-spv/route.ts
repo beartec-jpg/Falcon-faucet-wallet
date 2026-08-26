@@ -206,6 +206,14 @@ export async function GET(req: NextRequest) {
           { status: 503 },
         )
       }
+      const { loadZeroPoint, offsetRail } = await import('@/lib/pl-zero-point')
+      const zp = await loadZeroPoint()
+      const off = offsetRail(
+        zp,
+        'BTC',
+        Number(btc.total_minted ?? 0),
+        Number(btc.total_burned ?? 0),
+      )
       const tipHeight = Number(btc.tip_height ?? 0)
       const minConf = Number(btc.min_confirmations ?? 6) || 6
       const spv = String(btc.spv ?? 'protocol') === 'bitcoin' ? 'bitcoin' : 'protocol'
@@ -242,8 +250,8 @@ export async function GET(req: NextRequest) {
           tip_hash: String(btc.tip_hash ?? ''),
           lock_id: String(btc.lock_id ?? ''),
           min_confirmations: minConf,
-          total_minted: Number(btc.total_minted ?? 0),
-          total_burned: Number(btc.total_burned ?? 0),
+          total_minted: off.minted,
+          total_burned: off.burned,
           open_withdrawals: Number(btc.open_withdrawals ?? 0),
           withdrawals: btc.withdrawals ?? [],
           spv,
@@ -253,7 +261,7 @@ export async function GET(req: NextRequest) {
           tipHash: String(btc.tip_hash ?? ''),
           minConfirmations: minConf,
           lockId: String(btc.lock_id ?? ''),
-          totalMinted: String(btc.total_minted ?? 0),
+          totalMinted: String(off.minted),
         },
         headers: {
           falconTipHeight: tipHeight || null,

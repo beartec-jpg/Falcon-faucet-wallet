@@ -1,0 +1,14 @@
+{
+  "network_id": 2300,
+  "tip": 233554,
+  "note": "Public zero-point. Explorers and wallet subtract these so pre-cutover rail balances read as 0. New mints/burns above this baseline display normally.",
+  "rails": {
+    "BTC": { "minted": 193000, "burned": 50000 },
+    "ETH": { "minted": 6100000000000000, "burned": 6000000000000000 },
+    "USDC": { "minted": 2000000, "burned": 2000000 },
+    "BNB": { "minted": 0, "burned": 0 }
+  },
+  "accounts": {
+    "dave": { "BTC": 143000, "ETH": 100000000000000, "USDC": 0 }
+  }
+}

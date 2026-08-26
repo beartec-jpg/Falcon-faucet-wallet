@@ -11,11 +11,16 @@ import {
   resolveNameForAddress,
 } from '@/lib/account-name-server'
 import { plAccount, plStatus } from '@/lib/pl-rpc'
+import { loadZeroPoint, offsetAsset } from '@/lib/pl-zero-point'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const PL_NAME_RE = /^[A-Za-z0-9._-]{2,64}$/
 
-function plAssets(raw: unknown) {
+function plAssets(
+  raw: unknown,
+  account: string,
+  zp: { accounts: Record<string, Record<string, number>> },
+) {
   const map = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   const sats = (key: string) => {
     const v = map[key]
@@ -26,10 +31,10 @@ function plAssets(raw: unknown) {
     }
     return 0
   }
-  const btc = sats('BTC')
-  const eth = sats('ETH')
-  const usdc = sats('USDC')
-  const bnb = sats('BNB')
+  const btc = offsetAsset(zp, account, 'BTC', sats('BTC'))
+  const eth = offsetAsset(zp, account, 'ETH', sats('ETH'))
+  const usdc = offsetAsset(zp, account, 'USDC', sats('USDC'))
+  const bnb = offsetAsset(zp, account, 'BNB', sats('BNB'))
   const tokens: Array<Record<string, unknown>> = []
   if (btc) {
     tokens.push({
@@ -112,7 +117,7 @@ export async function GET(req: NextRequest) {
 
   try {
     if (isPl) {
-      const [st, acct] = await Promise.all([plStatus(false), plAccount(address)])
+      const [st, acct, zp] = await Promise.all([plStatus(false), plAccount(address), loadZeroPoint()])
       const exists = Boolean(acct.exists)
       return NextResponse.json({
         address,
@@ -125,7 +130,7 @@ export async function GET(req: NextRequest) {
         accountType: String(acct.account_type ?? 'hot'),
         allowlist: Array.isArray(acct.allowlist) ? acct.allowlist : [],
         vaultLocked: Boolean(acct.vault_locked),
-        assets: plAssets(acct.assets),
+        assets: plAssets(acct.assets, address, zp),
       })
     }
 

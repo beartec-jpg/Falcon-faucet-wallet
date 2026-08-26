@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cidEmissionPct, cidYearlyAvgPct } from '@/lib/epoch-model'
 import { plAccount, plStatus } from '@/lib/pl-rpc'
+import { loadZeroPoint, offsetRail } from '@/lib/pl-zero-point'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -181,15 +182,19 @@ export async function GET(req: NextRequest) {
       ? (st.online_seats as unknown[]).map((x) => String(x))
       : []
     const railsRaw = Array.isArray(st.rails) ? (st.rails as Array<Record<string, unknown>>) : []
-    const rails: RailRow[] = railsRaw.map((r) => ({
-      asset: str(r.asset),
-      tip_height: num(r.tip_height),
-      tip_hash: str(r.tip_hash),
-      total_minted: num(r.total_minted),
-      total_burned: num(r.total_burned),
-      min_confirmations: num(r.min_confirmations),
-      open_withdrawals: num(r.open_withdrawals),
-    }))
+    const zp = await loadZeroPoint()
+    const rails: RailRow[] = railsRaw.map((r) => {
+      const off = offsetRail(zp, str(r.asset), num(r.total_minted), num(r.total_burned))
+      return {
+        asset: str(r.asset),
+        tip_height: num(r.tip_height),
+        tip_hash: str(r.tip_hash),
+        total_minted: off.minted,
+        total_burned: off.burned,
+        min_confirmations: num(r.min_confirmations),
+        open_withdrawals: num(r.open_withdrawals),
+      }
+    })
     if (!rails.some((r) => r.asset === 'XRP')) {
       rails.push({
         asset: 'XRP',

@@ -175,8 +175,8 @@ function RailsTable({ rails }: { rails: RailRow[] }) {
         Protocol rails
       </h2>
       <p className="text-[10px] text-slate-600 mb-4">
-        Hardcoded lock-mint corridors on Falcon PL. Tip 0 means no live headers on this beta yet —
-        not the old 1001 Bitcoin bridge.
+        Live dest-lock rails. Minted/burned counts start at the public zero-point;
+        new peg-ins add from here.
       </p>
       <div className="card overflow-hidden">
         <table className="w-full text-sm">
