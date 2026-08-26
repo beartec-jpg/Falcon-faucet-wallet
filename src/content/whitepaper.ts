@@ -1,7 +1,7 @@
 /** Falcon PL white paper — technical system paper for /whitepaper (v5.0) */
 
-export const WHITEPAPER_VERSION = '5.0'
-export const WHITEPAPER_DATE = 'August 2026'
+export const WHITEPAPER_VERSION = '5.1'
+export const WHITEPAPER_DATE = '26 August 2026'
 
 export interface WhitepaperDownload {
   title: string
@@ -21,38 +21,38 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
     format: 'MD',
   },
   {
-    title: 'Testnet E2E Report',
-    description: 'End-to-end verification notes for the Falcon testnet stack.',
+    title: 'Historical (1001) — Testnet E2E Report',
+    description: 'Falcon Ledger 1001 lock-mint stack. Not 2300 dest-lock.',
     href: '/Docs/FALCON-TESTNET-E2E-REPORT.pdf',
     filename: 'FALCON-TESTNET-E2E-REPORT.pdf',
   },
   {
-    title: 'Security Report — Wallet',
-    description: 'Passkey wallet: send, receive, backup, and restore.',
+    title: 'Historical (1001) — Security Report — Wallet',
+    description: 'Passkey wallet on the 1001 fork. Not 2300 dest-lock.',
     href: '/Docs/FALCON-SECURITY-REPORT-wallet-send-receive-backup-restore.pdf',
     filename: 'FALCON-SECURITY-REPORT-wallet-send-receive-backup-restore.pdf',
   },
   {
-    title: 'Security Report — Bridge, Pool, AMM & Orders',
-    description: 'Bridge, AMM, swap, and limit-order security review.',
+    title: 'Historical (1001) — Security Report — Bridge, Pool, AMM & Orders',
+    description: 'Custodial lock-mint bridge on 1001. Not FalconBridge dest-lock.',
     href: '/Docs/FALCON-SECURITY-REPORT-bridge-pool-amm-swap-orders.pdf',
     filename: 'FALCON-SECURITY-REPORT-bridge-pool-amm-swap-orders.pdf',
   },
   {
-    title: 'Lending Implementation Report',
-    description: 'Vault, borrow/repay, collateral, and liquidation E2E.',
+    title: 'Historical (1001) — Lending Implementation Report',
+    description: '1001 lending E2E.',
     href: '/Docs/FALCON-LENDING-IMPLEMENTATION-REPORT.pdf',
     filename: 'FALCON-LENDING-IMPLEMENTATION-REPORT.pdf',
   },
   {
-    title: 'Vault & Cold Signer Report',
-    description: 'Air-gapped vault custody and multi-part QR cold signing.',
+    title: 'Historical (1001) — Vault & Cold Signer Report',
+    description: '1001 vault / cold signer.',
     href: '/Docs/FALCON-VAULT-COLD-SIGNER-IMPLEMENTATION-REPORT.pdf',
     filename: 'FALCON-VAULT-COLD-SIGNER-IMPLEMENTATION-REPORT.pdf',
   },
   {
-    title: 'Multi-Chain Wallet & Bridge Report',
-    description: 'Falcon, Bitcoin, Ethereum, BNB, and XRP wallets and lock-mint bridges.',
+    title: 'Historical (1001) — Multi-Chain Wallet & Bridge Report',
+    description: '1001 lock-mint multi-chain. Not FROST / Groth16 dest-lock.',
     href: '/Docs/FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
     filename: 'FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
   },
@@ -354,22 +354,22 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'p',
-        text: 'Native FPL sits beside represented assets from hardcoded rails. Value enters by lock-on-source, mint-on-Falcon, against protocol headers and deposits — not a federated mint authority as the end state. Once on the ledger, capital can sit in pools, supply lending markets, serve as collateral, or trade against FPL and stables.',
+        text: 'Native FPL sits beside represented assets from hardcoded rails. On public testnet **2300**, ETH and USDC enter through a **dest-lock** Ethereum contract with no owner and no admin withdraw. BTC enters a FROST Taproot vault; peg-out is a dest-lock Kickoff, then the user’s Bitcoin key. That is not a federated “operator withdraw” key. Kickoff is still a 4-of-6 FROST signature — the same collusion class as forging the 2300 committee. After Kickoff, only dest CHECKSIG (CSV) or a published abort can spend the claim. This paper does not claim an external audit.',
       },
       {
         type: 'table',
-        headers: ['Rail', 'Role'],
+        headers: ['Rail (2300 testnet)', 'Role'],
         rows: [
           ['Falcon PL', 'Settlement, FPL, lending, AMM, rewards'],
-          ['Bitcoin', 'Primary SPV-style rail into wrapped BTC markets'],
-          ['Ethereum', 'ETH corridor, same proof shape'],
-          ['BNB', 'BNB corridor, same proof shape'],
-          ['XRP', 'XRP corridor — ledger headers and protocol Payment deposits'],
+          ['Bitcoin testnet', 'FROST P2TR vault + BitVM dest-lock Kickoff (FBTC)'],
+          ['Ethereum Sepolia', 'FalconBridge dest-lock ETH / USDC; Groth16 of 4-of-6 LC'],
+          ['BNB', 'Protocol rail exists; not a public dest-lock product'],
+          ['XRP', 'Classic XRPL FXRP corridor — not 1001, not dest-lock'],
         ],
       },
       {
         type: 'p',
-        text: 'Supported rails are genesis- or governance-listed. Arbitrary user-added bridges are not a day-one path. Public mint of native FPL remains epoch settlement only.',
+        text: 'Supported rails are genesis- or governance-listed. Arbitrary user-added bridges are not a day-one path. Public mint of native FPL remains epoch settlement only. Live addresses and the trust model: portal `docs/BRIDGES-2300.md` and Falcon-PL `docs/BRIDGES_2300_STATUS.md`.',
       },
     ],
   },
@@ -448,7 +448,15 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ],
           [
             'False rail mint',
-            'Hardcoded rails. Mint follows an accepted header and deposit proof. Watchers cannot write their own work.',
+            'Hardcoded rails. ETH/USDC mint follows an on-chain Deposit and sampled LC header. BTC mint follows a Bitcoin SPV proof vs the rail tip. Watchers cannot write their own work.',
+          ],
+          [
+            'Admin drain of bridged ETH/USDC',
+            'FalconBridge has no owner and no open withdraw. take() is dest-locked. Auto-mint is liveness only.',
+          ],
+          [
+            'Stranger spend of BTC claim',
+            'After Kickoff, ELSE is dest CHECKSIG + CSV; IF is abort only after a valid FPL challenge. Kickoff itself still needs t-of-n FROST.',
           ],
         ],
       },

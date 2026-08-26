@@ -1,14 +1,14 @@
 # Falcon PL portal — Roadmap
 
-**Last updated:** 2026-08-20  
-**Current testnet:** Falcon PL network ID **2300** (Falcon Consensus + Falcon-512).  
-**Falcon Ledger / XRPL fork 1001 is shut down.** Rows below that still say 1001 are historical (July–early August 2026).
+**Last updated:** 2026-08-26  
+**Current testnet:** Falcon PL network ID **2300** (Falcon Consensus + Falcon-512, live `product_version` 2.9.36).  
+**Falcon Ledger / XRPL fork 1001 is shut down.**
 
-Bridge status (do not deposit): [BRIDGES-2300.md](./BRIDGES-2300.md). Protocol living report: `falcon-pl-rs` `docs/BRIDGES_2300_STATUS.md`.
+Bridge status (testnet dest-lock **live** for ETH, USDC, and BTC): [BRIDGES-2300.md](./BRIDGES-2300.md). Protocol living report: Falcon-PL `docs/BRIDGES_2300_STATUS.md`.
 
-This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integration with Falcon PL. Protocol-level milestones are also tracked in the [whitepaper](/whitepaper) §10.
+This roadmap covers the **web portal** (`Falcon-faucet-wallet`). Protocol papers: in-app [whitepaper](/whitepaper) (v5.1).
 
-**Bridge & custody hardening (next wave):** see [BRIDGE-AND-CUSTODY-HARDENING-PLAN.md](./BRIDGE-AND-CUSTODY-HARDENING-PLAN.md) — multi-party headers, lag alerts, value-tiered confs, challenge/CSV, WebAuthn/cold keygen, bonds/watchers/audit/soak.
+**Not an external audit.** Hardening that still refers to 1001 SPV/shared-reserve is archived: [BRIDGE-AND-CUSTODY-HARDENING-PLAN.md](./BRIDGE-AND-CUSTODY-HARDENING-PLAN.md).
 
 ---
 
@@ -49,14 +49,14 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 - [x] Pool stats, LP share %, estimated withdrawal amounts
 - [x] F-USDC labels on pool UI
 
-### Sepolia bridge
+### Dest-lock bridges (2300)
 - [x] Passkey-encrypted Sepolia EVM wallet (no MetaMask)
-- [x] Bridge In: Sepolia USDC → F-USDC (lock contract + relay mint)
-- [x] Bridge Out: F-USDC → Sepolia USDC (`sepolia-withdraw` memo + relay)
+- [x] ETH/USDC dest-lock in: `depositEth` / `depositUsdc` + auto-mint (`pl-2300-bridge.json` live)
+- [x] ETH/USDC dest-lock out: burn → sampled LC header → `openClaim` / `take`
+- [x] BTC dest-lock in/out: FROST P2TR + Kickoff + CSV take (`BTC_RAIL_LIVE = true`)
 - [x] Send Out: Sepolia ETH / USDC to external `0x` addresses
 - [x] Encrypted EVM wallet backup export/import
-- [x] Bridge config manifest (`public/config/usdc-bridge.json`)
-- [x] End-to-end verified on Sepolia + Falcon (see [TESTNET-E2E-REPORT.md](./TESTNET-E2E-REPORT.md))
+- [x] Retired 1001 `usdc-bridge.json` lock kept as notes only
 
 ### Validator & rewards
 - [x] Validator register / bond / unbond UI
@@ -94,7 +94,7 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 
 ---
 
-## In progress — July 2026
+## In progress — August 2026
 
 ### Protocol
 - [x] `LendingPermissionless` + `LoanCollateralDeposit` fleet on `qxrp/xrpld:lending-v2` (7/7 nodes, July 2026)
@@ -145,7 +145,8 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 | Area | Limitation | Tracking |
 |------|------------|----------|
 | AMM | High slippage on thin pool | Add LP before large swaps |
-| Bridge | Relay polling latency (seconds–minutes) | Monitor relay process |
+| Bridge | LC prover needs Sepolia ETH; BTC headers must follow testnet reorgs | Operator liveness, not a drain key |
+| Bridge | BTC Kickoff is 4-of-6 FROST | Honest dest-lock only after Kickoff |
 | DEX | Partial-fill dust remainders | Cancel manually; hidden from book |
 | F-USDC | Requires trust line before receive / bridge mint | Explicit TrustSet step on Bridge tab (and Swap tab for P2P) |
 | Lend | `LendingPermissionless` not yet enabled on all validators | Fleet docker rebuild + amendment vote in progress |
@@ -168,6 +169,7 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`) and its integrat
 
 | Date | Highlights |
 |------|------------|
+| Aug 2026 | 2300 dest-lock ETH/USDC + BTC; whitepaper v5.1; archive 1001 PDFs |
 | Jul 2026 | Permissionless lending, HF liquidation, multi-loan Positions, lending preflight APIs, whitepaper v2.5 |
 | Jul 2026 | Post-genesis issuer, lending amendments, bridge trust-line gate, PoPL LP participation, whitepaper v2.3 |
 | Jul 2026 | Bridge, pool, DEX limit orders, F-USDC P2P, QR scanner, tx label fix, E2E report |

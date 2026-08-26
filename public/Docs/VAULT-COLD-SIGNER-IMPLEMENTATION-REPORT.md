@@ -1,4 +1,4 @@
-# Falcon Vault + Cold Signer — Implementation Report
+> **HISTORICAL (Falcon Ledger 1001 / pre dest-lock).** Not the live 2300 product.\n> Current: [BRIDGES-2300.md](../../docs/BRIDGES-2300.md).\n\n# Falcon Vault + Cold Signer — Implementation Report
 
 **Date:** 2026-07-28  
 **Repository:** `Falcon-faucet-wallet`  

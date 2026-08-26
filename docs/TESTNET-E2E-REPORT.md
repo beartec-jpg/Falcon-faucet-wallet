@@ -1,3 +1,7 @@
+> **HISTORICAL (Falcon Ledger 1001 / pre dest-lock).** Not the live 2300 product.
+> Current: [BRIDGES-2300.md](BRIDGES-2300.md) · [README.md](README.md).
+> Archive index: [archive-1001/README.md](archive-1001/README.md).
+
 # Falcon Ledger Testnet — End-to-End Test Report
 
 > **Historical snapshot (pre-genesis, July 2026).** This report documents the first integrated E2E run at ledger ~83k with issuer `rfftKWu…` and AMM pool `rwwcutHZ…`. After a genesis wipe the live network uses issuer **`rsJoDhjVV78jr6huHxKjtT8uG8RGeGmd1N`**, epoch length **172,800 ledgers**, Falcon validator consensus, and lending amendments enabled. For current parameters see `public/config/testnet-stables.json`, the [whitepaper](/whitepaper), and [README](../README.md). On-ledger seq/hash references below are from the pre-genesis chain unless noted otherwise.

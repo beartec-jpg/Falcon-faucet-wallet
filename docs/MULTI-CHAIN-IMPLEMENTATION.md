@@ -1,3 +1,7 @@
+> **HISTORICAL (Falcon Ledger 1001 / pre dest-lock).** Not the live 2300 product.
+> Current: [BRIDGES-2300.md](BRIDGES-2300.md) · [README.md](README.md).
+> Archive index: [archive-1001/README.md](archive-1001/README.md).
+
 # Falcon Multi-Chain Implementation (Testnet)
 
 **Status:** 2026-07-28 (historical). Falcon Ledger network id **1001** is **shut down**. Current product is Falcon PL **2300** dest-lock / FROST — see [BRIDGES-2300.md](./BRIDGES-2300.md). The rest of this file is the 1001 multi-chain implementation snapshot.

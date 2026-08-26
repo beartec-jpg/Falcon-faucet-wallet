@@ -1,3 +1,7 @@
+> **HISTORICAL (Falcon Ledger 1001 / pre dest-lock).** Not the live 2300 product.
+> Current: [BRIDGES-2300.md](BRIDGES-2300.md) · [README.md](README.md).
+> Archive index: [archive-1001/README.md](archive-1001/README.md).
+
 # Falcon Vault + Cold Signer — Implementation Report
 
 **Date:** 2026-07-28  
