@@ -1,17 +1,29 @@
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Next 14 collect/prerender `require()`s server chunks. Leaving ESM-only
+  // xrpl/noble packages external throws ERR_REQUIRE_ESM. Bundle them instead.
   experimental: {
-    serverComponentsExternalPackages: [
-      'ripple-address-codec',
-      'ripple-binary-codec',
-      'xrpl',
-      '@xrplf/isomorphic',
-      '@noble/hashes',
-      '@openforge-sh/liboqs',
-    ],
+    esmExternals: false,
+    serverComponentsExternalPackages: ['@openforge-sh/liboqs'],
   },
+  transpilePackages: [
+    'xrpl',
+    'ripple-binary-codec',
+    '@xrplf/isomorphic',
+    '@noble/hashes',
+  ],
 
   webpack: (config, { isServer }) => {
+    // ripple-address-codec is ESM-only; Next collect page data require()s it and fails.
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'ripple-address-codec': path.join(__dirname, 'src/lib/classic-address.ts'),
+    }
     if (!isServer) {
       config.experiments = {
         ...config.experiments,

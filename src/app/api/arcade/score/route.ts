@@ -3,7 +3,7 @@
 // Upserts best score for the UTC day (leaderboard + claim eligibility).
 
 import { NextRequest, NextResponse } from 'next/server'
-import { isValidClassicAddress } from 'ripple-address-codec'
+import { isClassicAddress } from '@/lib/classic-address'
 import {
   isGameSlug,
   upsertArcadeScore,
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  if (!account || !isValidClassicAddress(account)) {
+  if (!account || !isClassicAddress(account)) {
     return NextResponse.json({ error: 'Invalid account' }, { status: 400 })
   }
   if (!isGameSlug(game)) {

@@ -2,7 +2,7 @@
 // Per-game best scores + claim remaining for the connected wallet.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { isValidClassicAddress } from 'ripple-address-codec'
+import { isClassicAddress } from '@/lib/classic-address'
 import {
   GAME_FAUCET_MIN_SCORE,
   GAME_SLUGS,
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const account = (sp.get('account') ?? '').trim()
   const networkKey = resolveNetworkKey(sp.get('network'))
 
-  if (!account || !isValidClassicAddress(account)) {
+  if (!account || !isClassicAddress(account)) {
     return NextResponse.json({ error: 'Invalid account' }, { status: 400 })
   }
 

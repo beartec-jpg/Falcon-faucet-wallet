@@ -333,7 +333,7 @@ export async function pegOutDestLock(opts: {
     throw new Error('Burn packed but no FPL height yet. Retry Bridge out in a moment.')
   }
   opts.onStep?.(`Proving Falcon-512 header ${proveHeight} (you pay Sepolia gas)…`)
-  let headerProof: {
+  type HeaderProof = {
     height: number
     header: string
     parent: string
@@ -342,7 +342,8 @@ export async function pegOutDestLock(opts: {
     b: [[string, string], [string, string]]
     c: [string, string]
     error?: string
-  } | null = null
+  }
+  let headerProof: HeaderProof | null = null
   const tPr = Date.now()
   while (Date.now() - tPr < 3 * 60_000) {
     const res = await fetch('/api/wallet/pl', {
@@ -350,7 +351,7 @@ export async function pegOutDestLock(opts: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'header-proof', height: proveHeight }),
     })
-    const d = (await res.json()) as typeof headerProof & { error?: string }
+    const d = (await res.json()) as HeaderProof
     if (res.ok && d && d.a && d.header) {
       headerProof = d
       break

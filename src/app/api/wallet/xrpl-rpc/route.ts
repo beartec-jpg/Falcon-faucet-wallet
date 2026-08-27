@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   XRPL_CLASSIC_HTTP,
   type XrplClassicNetwork,
-} from '@/lib/create-xrpl-classic-wallet'
+} from '@/lib/xrpl-classic-rpc'
 
 /**
  * Same-origin XRPL JSON-RPC proxy (classic public networks).

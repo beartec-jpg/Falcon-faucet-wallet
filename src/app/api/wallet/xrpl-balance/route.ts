@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   fetchXrplClassicXrpBalance,
   type XrplClassicNetwork,
-} from '@/lib/create-xrpl-classic-wallet'
+} from '@/lib/xrpl-classic-rpc'
 
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address')?.trim() || ''

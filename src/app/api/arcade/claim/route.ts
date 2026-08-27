@@ -4,7 +4,7 @@
 // Same faucet pool as /api/faucet — separate game rate limits + score threshold.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { isValidClassicAddress } from 'ripple-address-codec'
+import { isClassicAddress } from '@/lib/classic-address'
 import {
   GAME_FAUCET_MIN_SCORE,
   GAME_GLOBAL_CLAIMS_PER_DAY,
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     return err('Invalid JSON body')
   }
 
-  if (!account || !isValidClassicAddress(account)) {
+  if (!account || !isClassicAddress(account)) {
     return err('Invalid Falcon address')
   }
   if (!isGameSlug(game)) {

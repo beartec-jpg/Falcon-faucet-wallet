@@ -13,7 +13,7 @@ import {
   NAME_BOND_FALCON,
   decodeLedgerName,
 } from '@/lib/account-name'
-import { isValidClassicAddress } from 'ripple-address-codec'
+import { isClassicAddress } from '@/lib/classic-address'
 import { isOriginAllowed } from '@/lib/origin'
 import { activateName, reserveName, viewName } from '@/lib/pl-name-store'
 import { activationFeeFpl, normalizePlName } from '@/lib/pl-names'
@@ -136,7 +136,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (addressQ) {
-      if (!ADDRESS_RE.test(addressQ) && !isValidClassicAddress(addressQ)) {
+      if (!ADDRESS_RE.test(addressQ) && !isClassicAddress(addressQ)) {
         return NextResponse.json({ error: 'Invalid address' }, { status: 400 })
       }
 

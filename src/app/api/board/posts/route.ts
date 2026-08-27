@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isOriginAllowed } from '@/lib/origin'
 import { getSql, isDbConfigured } from '@/lib/db'
-import {
-  buildBoardSignMessage,
-  isValidBoardAddress,
-  verifyBoardSignature,
-} from '@/lib/board-auth'
+import { isClassicAddress } from '@/lib/classic-address'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -120,9 +116,11 @@ export async function POST(req: NextRequest) {
   if (!challengeId || !signature || !publicKey) {
     return err('challengeId, signature, and publicKey are required')
   }
-  if (!isValidBoardAddress(authorAddress)) {
+  if (!isClassicAddress(authorAddress)) {
     return err('Invalid Falcon address')
   }
+
+  const { buildBoardSignMessage, verifyBoardSignature } = await import('@/lib/board-auth')
 
   const sql = getSql()
 

@@ -181,7 +181,7 @@ async function falcDest20(account: string): Promise<Buffer | null> {
   const trimmed = account.trim()
   if (!trimmed) return null
   try {
-    const { decodeAccountID } = await import('ripple-address-codec')
+    const { decodeAccountID } = await import('@/lib/classic-address')
     const id = decodeAccountID(trimmed)
     if (id.length === 20) return Buffer.from(id)
   } catch {
@@ -462,7 +462,7 @@ export async function POST(req: NextRequest) {
     }
     try {
       // classic → account id 20
-      const { decodeAccountID } = await import('ripple-address-codec')
+      const { decodeAccountID } = await import('@/lib/classic-address')
       const acc20 = Buffer.from(decodeAccountID(account))
       const fbto = Buffer.concat([
         Buffer.from('FBTO'),

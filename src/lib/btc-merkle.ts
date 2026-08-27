@@ -3,7 +3,11 @@
  * Uses double-SHA256; siblings in Bitcoin internal byte order (as Falcon expects).
  */
 
-import { sha256 } from '@noble/hashes/sha2.js'
+import { createHash } from 'crypto'
+
+function sha256(data: Uint8Array): Uint8Array {
+  return new Uint8Array(createHash('sha256').update(data).digest())
+}
 
 function hexToBytes(hex: string): Uint8Array {
   const h = hex.replace(/^0x/i, '').toLowerCase()

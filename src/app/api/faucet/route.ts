@@ -14,7 +14,7 @@ import {
 import { runFaucetSybilGates, consumeFaucetSybilBudgets } from '@/lib/faucet-sybil'
 import { signPayment, dropsFromQxrp } from '@/lib/xrpl-sign'
 import { isOriginAllowed } from '@/lib/origin'
-import { isValidClassicAddress } from 'ripple-address-codec'
+import { isClassicAddress } from '@/lib/classic-address'
 import {
   resolveFaucet,
   resolveNetworkKey,
@@ -55,7 +55,7 @@ function err(msg: string, status = 400, extra?: Record<string, unknown>) {
 const PL_DRIP = Number(process.env.FALCON_PL_DRIP ?? '2000') || 2000
 
 function isPlAccount(name: string): boolean {
-  if (isValidClassicAddress(name)) return true
+  if (isClassicAddress(name)) return true
   return /^[A-Za-z0-9._-]{2,64}$/.test(name)
 }
 
@@ -177,7 +177,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  if (!isValidClassicAddress(account)) return err('Invalid Falcon address')
+  if (!isClassicAddress(account)) return err('Invalid Falcon address')
 
   // Anti-Sybil: captcha (if configured), UA block, subnet + global budgets,
   // mainnet fail-closed without Redis/DB.

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAirdropForAddress, getAirdropOverview } from '@/lib/airdrop-store'
 import { resolveNetworkKey } from '@/lib/network-server'
-import { isValidClassicAddress } from 'ripple-address-codec'
+import { isClassicAddress } from '@/lib/classic-address'
 import { AIRDROP_SCORING_NETWORK } from '@/lib/airdrop-network'
 
 export const runtime = 'nodejs'
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address')?.trim() ?? ''
-  if (!address || !isValidClassicAddress(address)) {
+  if (!address || !isClassicAddress(address)) {
     return NextResponse.json({ error: 'Valid address required' }, { status: 400 })
   }
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))

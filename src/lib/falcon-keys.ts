@@ -5,7 +5,7 @@
 
 import { sha256 } from '@noble/hashes/sha2.js'
 import { ripemd160 } from '@noble/hashes/legacy.js'
-import { encodeAccountID } from 'ripple-address-codec'
+import { encodeAccountID } from '@/lib/classic-address'
 
 export const FALCON512_PREFIX = 0xfb
 export const FALCON512_PUB_RAW = 897

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { addressFromFalconSecret } from '@/lib/falcon-address'
 import { isOriginAllowed } from '@/lib/origin'
 import { isProductionRuntime } from '@/lib/security'
 
@@ -49,6 +48,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const { addressFromFalconSecret } = await import('@/lib/falcon-address')
     const address = addressFromFalconSecret(hex)
     return NextResponse.json({
       address,

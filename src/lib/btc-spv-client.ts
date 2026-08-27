@@ -9,7 +9,7 @@
 
 import { Wallet, hexlify, getBytes } from 'ethers'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { decodeAccountID } from 'ripple-address-codec'
+import { decodeAccountID } from '@/lib/classic-address'
 import {
   broadcastBtcTx,
   decodeP2pkhAddress,

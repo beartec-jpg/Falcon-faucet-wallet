@@ -1,4 +1,4 @@
-import { isValidClassicAddress } from 'ripple-address-codec'
+import { isValidClassicAddress } from '@/lib/classic-address'
 
 /** Full r-address only (anchored). Classic codec check when possible. */
 const FALCON_ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/

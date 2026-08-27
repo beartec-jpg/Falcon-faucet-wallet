@@ -91,6 +91,11 @@ export async function POST(req: NextRequest) {
     dest?: string
     noteId?: string
     externalTo?: string
+    height?: number | string
+    destSecret?: string
+    prevTxid?: string
+    vout?: number | string
+    sats?: number | string
   }
   try {
     body = (await req.json()) as typeof body

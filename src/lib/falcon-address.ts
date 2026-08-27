@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { encodeAccountID } from 'ripple-address-codec'
+import { encodeAccountID } from '@/lib/classic-address'
 
 const FALCON512_PUB_HEX_LEN = 1796 // 898-byte on-wire public key blob
 

@@ -6,11 +6,7 @@ import {
   BOARD_CHALLENGE_TTL_SEC,
   BOARD_POSTS_PER_HOUR,
 } from '@/lib/board-constants'
-import {
-  buildBoardSignMessage,
-  isValidBoardAddress,
-  normalizeBoardBody,
-} from '@/lib/board-auth'
+import { isClassicAddress } from '@/lib/classic-address'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -42,10 +38,11 @@ export async function POST(req: NextRequest) {
     return err('Invalid JSON body')
   }
 
-  if (!isValidBoardAddress(authorAddress)) {
+  if (!isClassicAddress(authorAddress)) {
     return err('Invalid Falcon address')
   }
 
+  const { buildBoardSignMessage, normalizeBoardBody } = await import('@/lib/board-auth')
   const normalized = normalizeBoardBody(body)
   if (!normalized) return err('Message cannot be empty')
   if (normalized.length > BOARD_BODY_MAX) {

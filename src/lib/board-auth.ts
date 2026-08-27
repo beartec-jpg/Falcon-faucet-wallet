@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { createFalcon512 } from '@openforge-sh/liboqs/sig'
-import { isValidClassicAddress } from 'ripple-address-codec'
+import { isValidClassicAddress } from '@/lib/classic-address'
 import {
   FALCON512_PREFIX,
   FALCON512_PUB_RAW,
