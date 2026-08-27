@@ -803,7 +803,18 @@ export async function POST(req: NextRequest) {
     const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
     let falconTipHeight = 0
     let headerReady = isPl2300Request(req)
-    if (!headerReady) {
+    if (headerReady) {
+      try {
+        const { plStatus } = await import('@/lib/pl-rpc')
+        const st = await plStatus(false)
+        const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
+        const btcRail = rails.find((r) => String(r.asset) === 'BTC') ?? {}
+        falconTipHeight = Number(btcRail.tip_height ?? 0) || 0
+        headerReady = String(btcRail.spv ?? '') === 'bitcoin' || falconTipHeight > 0
+      } catch {
+        /* still return explorer proof; claim gate uses falconTipHeight */
+      }
+    } else {
     try {
       const bridgeLe = await falconRpc(
         'ledger_entry',
