@@ -11,7 +11,7 @@ import {
   resolveNameForAddress,
 } from '@/lib/account-name-server'
 import { plAccount, plStatus } from '@/lib/pl-rpc'
-import { loadZeroPoint, offsetAsset } from '@/lib/pl-zero-point'
+import { loadZeroPoint, offsetAsset, type ZeroPoint } from '@/lib/pl-zero-point'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const PL_NAME_RE = /^[A-Za-z0-9._-]{2,64}$/
@@ -19,7 +19,7 @@ const PL_NAME_RE = /^[A-Za-z0-9._-]{2,64}$/
 function plAssets(
   raw: unknown,
   account: string,
-  zp: { accounts: Record<string, Record<string, number>> },
+  zp: ZeroPoint,
 ) {
   const map = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   const sats = (key: string) => {
