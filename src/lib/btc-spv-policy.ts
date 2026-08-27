@@ -135,13 +135,10 @@ export function claimAllowedForDeposit(opts: {
       reorgBuffer: tier.reorgBuffer,
     }
   }
+  // Missing Falcon tip must not hard-block a confirmed Bitcoin deposit.
+  // PL 2300 claim proof used to pass null here and 409 forever.
   if (opts.falconTip == null) {
-    return {
-      ok: false,
-      reason: 'Falcon SPV tip unknown — cannot claim yet.',
-      minConf,
-      reorgBuffer: tier.reorgBuffer,
-    }
+    return { ok: true, minConf, reorgBuffer: tier.reorgBuffer }
   }
   if (opts.depositHeight > opts.falconTip) {
     return {
