@@ -148,8 +148,32 @@ async function explorerGet(pathSuffix: string, network: BtcNetwork): Promise<Res
   throw lastErr instanceof Error ? lastErr : new Error('Bitcoin explorer unavailable')
 }
 
-function isPl2300Request(req: NextRequest): boolean {
-  return getNetwork(resolveNetworkKey(req.nextUrl.searchParams.get('network'))).networkId === 2300
+function isPl2300Request(req: NextRequest, bodyNetwork?: string | null): boolean {
+  return (
+    getNetwork(resolveNetworkKey(bodyNetwork ?? req.nextUrl.searchParams.get('network')))
+      .networkId === 2300
+  )
+}
+
+async function fetchPlBtcRailTip(): Promise<{ height: number; spv: string }> {
+  const { plRpc } = await import('@/lib/pl-rpc')
+  let lastErr: unknown
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await plRpc({ type: 'status_req', include_accounts: false }, { timeoutMs: 15_000 })
+      if (r.type === 'err') throw new Error(String(r.msg ?? 'status error'))
+      const st = (r.body ?? r) as Record<string, unknown>
+      const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
+      const btcRail = rails.find((row) => String(row.asset) === 'BTC') ?? {}
+      const height = Number(btcRail.tip_height ?? 0) || 0
+      const spv = String(btcRail.spv ?? '')
+      if (height > 0) return { height, spv }
+      lastErr = new Error('PL BTC rail tip_height missing')
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('PL BTC rail tip unavailable')
 }
 
 /** FALC dest id: classic AccountID or sha256(lowercase name)[:20]. */
@@ -802,17 +826,15 @@ export async function POST(req: NextRequest) {
     const net = getNetwork(networkKey)
     const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
     let falconTipHeight = 0
-    let headerReady = isPl2300Request(req)
+    let headerReady = isPl2300Request(req, body.network)
     if (headerReady) {
       try {
-        const { plStatus } = await import('@/lib/pl-rpc')
-        const st = await plStatus(false)
-        const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
-        const btcRail = rails.find((r) => String(r.asset) === 'BTC') ?? {}
-        falconTipHeight = Number(btcRail.tip_height ?? 0) || 0
-        headerReady = String(btcRail.spv ?? '') === 'bitcoin' || falconTipHeight > 0
+        const rail = await fetchPlBtcRailTip()
+        falconTipHeight = rail.height
+        headerReady = rail.spv === 'bitcoin' || falconTipHeight > 0
       } catch {
-        /* still return explorer proof; claim gate uses falconTipHeight */
+        // Proof can still return; do not 409 "tip unknown" on a healthy 2300 rail.
+        headerReady = true
       }
     } else {
     try {
@@ -917,11 +939,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Value-tier confs + reorg buffer for deposits (W2)
-    if (purpose === 'deposit') {
+    if (purpose === 'deposit' && falconTipHeight > 0) {
       const amountSats = Math.floor(Number(status.vout?.[vout]?.value ?? 0))
       const gate = claimAllowedForDeposit({
         depositHeight: blockHeight,
-        falconTip: falconTipHeight || null,
+        falconTip: falconTipHeight,
         btcTip: tip || null,
         confirmations,
         amountSats,
@@ -933,7 +955,7 @@ export async function POST(req: NextRequest) {
             error: gate.reason,
             waiting: true,
             headerReady: true,
-            falconTipHeight: falconTipHeight || undefined,
+            falconTipHeight,
             confirmations,
             minConfirmations: gate.minConf,
             reorgBuffer: gate.reorgBuffer,
