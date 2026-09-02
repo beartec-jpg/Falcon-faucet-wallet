@@ -260,7 +260,7 @@ export default function MarketingHomePage() {
               {
                 n: '01',
                 title: 'Testnet wallet',
-                p1: 'Hold FPL on Falcon PL 2300. Live dest-lock rails are ETH and USDC (Sepolia). BTC is on the rail; exit is still operator-fronted, not custodialess.',
+                p1: 'Hold FPL on Falcon PL 2300. ETH/USDC dest-lock: Groth16 (FalconQc). BTC: BitVM2. Both are the custodialess rails, currently on testnet 2300 (under test, test tokens, no cash value).',
                 p2: 'Passkey wallet on this testnet. Test tokens have no cash value.',
                 img: '/assets/images/features/feature-wallet.jpg',
                 reverse: false,
@@ -269,7 +269,7 @@ export default function MarketingHomePage() {
                 n: '02',
                 title: 'Testnet dest-lock',
                 badge: 'Experimental',
-                p1: 'ETH/USDC dest-lock is the 2300 path. BTC exit is still operator-fronted (not custodialess).',
+                p1: 'ETH/USDC dest-lock: Groth16 (FalconQc). BTC: BitVM2. Both are the custodialess rails, currently on testnet 2300 (under test, test tokens, no cash value).',
                 p2: 'Experimental testnet corridor — not a finished bridge product.',
                 img: '/assets/images/features/feature-bridge.jpg',
                 reverse: true,
