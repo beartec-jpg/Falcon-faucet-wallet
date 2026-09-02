@@ -171,12 +171,12 @@ export default function MarketingHomePage() {
                 {
                   src: '/assets/images/icons/icon-validators.jpg',
                   title: 'Validators Get Paid',
-                  text: 'Those who secure the network earn directly from the protocol.',
+                  text: 'On this testnet, those who secure the network earn from the protocol. Test tokens have no cash value.',
                 },
                 {
                   src: '/assets/images/icons/icon-liquidity.jpg',
                   title: 'Liquidity Providers Get Paid',
-                  text: 'Providing liquidity is recognised and rewarded by the protocol itself.',
+                  text: 'On this testnet, providing liquidity is recognised by the protocol. Testnet rewards only — not mainnet yield. Test tokens have no cash value.',
                 },
               ].map((card, i) => (
                 <article key={card.title} className="feature-card reveal" data-stagger={i}>
@@ -349,7 +349,7 @@ export default function MarketingHomePage() {
                 {
                   n: '03',
                   title: 'Real rewards for the people who secure and use the network',
-                  text: 'Validators, liquidity providers, and participants earn from the protocol itself — not empty incentives.',
+                  text: 'On testnet 2300, validators, liquidity providers, and participants earn from the protocol. Testnet rewards only — test tokens have no cash value.',
                 },
                 {
                   n: '04',
