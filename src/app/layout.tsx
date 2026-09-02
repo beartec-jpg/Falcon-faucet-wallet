@@ -10,14 +10,15 @@ const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mon
 const NETWORK = process.env.NEXT_PUBLIC_TESTNET_NAME ?? 'Falcon PL'
 
 export const metadata: Metadata = {
-  title: `${NETWORK} — Quantum-Safe Ledger for Real Participation`,
+  title: `${NETWORK} — Quantum-safe participation ledger (testnet 2300)`,
   description:
-    'Falcon PL is the quantum-safe participation ledger. Falcon Consensus, Falcon-512 from genesis, protocol-controlled treasury, and rewards for those who secure and use the network.',
+    'Falcon PL is a quantum-safe participation ledger on pre-public testnet 2300. Falcon-512 from genesis. Test tokens have no cash value. Wallet, faucet, and explorer are live; AMM, lend, and dest-lock bridge are experimental.',
   icons: { icon: '/assets/images/brand/logo-mark.jpg', apple: '/assets/images/brand/apple-touch-icon.jpg' },
   manifest: '/manifest.json',
   openGraph: {
     title: `${NETWORK}`,
-    description: 'The quantum-safe ledger built for real participation.',
+    description:
+      'Quantum-safe participation ledger. Pre-public testnet 2300. Test tokens have no cash value.',
     images: ['/assets/images/brand/og-image.jpg'],
   },
   appleWebApp: {

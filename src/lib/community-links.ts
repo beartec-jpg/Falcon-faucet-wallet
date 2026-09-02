@@ -1,5 +1,8 @@
 /** Public community destinations — labels only in the UI; never show raw URLs. */
 
+/** Canonical Discord invite (PR #46). Do not substitute expired codes. */
+export const DISCORD_INVITE_URL = 'https://discord.gg/rP7M5fG9ja'
+
 export type CommunitySocial = {
   id: string
   name: string
@@ -22,7 +25,7 @@ export const COMMUNITY_SOCIALS: CommunitySocial[] = [
     id: 'discord',
     name: 'Discord',
     description: 'Chat with the community, ask questions, share builds.',
-    href: 'https://discord.gg/rP7M5fG9ja',
+    href: DISCORD_INVITE_URL,
     accent: '#5865F2',
   },
   {
