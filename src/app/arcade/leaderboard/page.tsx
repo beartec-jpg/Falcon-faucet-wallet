@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
-import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 
 const GAMES = [
@@ -56,7 +55,11 @@ export default function ArcadeLeaderboardPage() {
   return (
     <ProductShell intensity={0.35} className="flex-1">
       <Header current="arcade" subtitle="Arcade · Leaderboard" />
-      <NetworkBanner />
+      <div className="bg-amber-950/50 border-b border-amber-800/40 px-4 py-2 text-center text-xs text-amber-200/90">
+        <span className="font-medium">Falcon PL</span>
+        {' · '}Network ID 2300
+        {' · '}FPL testnet — no real value
+      </div>
 
       <main className="flex-1 px-4 py-8 max-w-2xl mx-auto w-full space-y-6">
         <div className="flex items-center justify-between gap-3">

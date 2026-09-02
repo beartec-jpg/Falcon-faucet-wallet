@@ -45,6 +45,15 @@ const nextConfig = {
     // uses instead of a blanket `https:`/`wss:`, reducing the exfiltration
     // surface if a script injection ever occurs. Built at build time from the
     // known public endpoints plus any operator-configured RPC origins.
+    /** Retired 1001 JSON-RPC used port 6005. Never allow it in connect-src. */
+    const isRetired1001RpcOrigin = (origin) => {
+      try {
+        return new URL(origin).port === '6005'
+      } catch {
+        return /:6005(?:\/|$)/.test(origin)
+      }
+    }
+
     const connectOrigins = new Set(["'self'"])
     // Public Sepolia RPC fallbacks used by the in-app EVM bridge client.
     for (const url of [
@@ -94,7 +103,11 @@ const nextConfig = {
       process.env.NEXT_PUBLIC_MAINNET_RPC_URL,
     ]) {
       if (!envVar) continue
-      try { connectOrigins.add(new URL(envVar).origin) } catch (err) {
+      try {
+        const origin = new URL(envVar).origin
+        if (isRetired1001RpcOrigin(origin)) continue
+        connectOrigins.add(origin)
+      } catch (err) {
         console.warn(`[csp] Ignoring malformed RPC URL in connect-src config: ${envVar}`, err)
       }
     }
@@ -117,7 +130,7 @@ const nextConfig = {
               "img-src 'self' data: https: blob:",
               // vercel.live injects preview fonts; allow so the toolbar does not CSP-spam
               "font-src 'self' data: https://vercel.live",
-              `connect-src ${Array.from(connectOrigins).join(' ')}`,
+              `connect-src ${Array.from(connectOrigins).filter((o) => o === "'self'" || !isRetired1001RpcOrigin(o)).join(' ')}`,
               "object-src 'none'",
               "frame-ancestors 'none'",
               "base-uri 'self'",
