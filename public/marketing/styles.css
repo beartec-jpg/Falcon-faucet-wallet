@@ -318,8 +318,20 @@ button { font: inherit; border: none; background: none; cursor: pointer; color: 
   font-size: clamp(0.95rem, 1.5vw, 1.1rem);
   color: var(--text-muted);
   max-width: 540px;
-  margin: 0 auto 2.5rem;
+  margin: 0 auto 1.15rem;
   line-height: 1.7;
+}
+
+.hero-status {
+  font-size: clamp(0.88rem, 1.4vw, 1.02rem);
+  color: var(--text);
+  max-width: 640px;
+  margin: 0 auto 2.25rem;
+  line-height: 1.65;
+  padding: 0.85rem 1.15rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: rgba(12, 10, 15, 0.62);
 }
 
 .hero-actions {
@@ -592,6 +604,19 @@ button { font: inherit; border: none; background: none; cursor: pointer; color: 
   color: var(--text);
 }
 
+.tile-badge {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+
 /* --------------------------------------------------------------------------
    Platform Features (alternating blocks)
    -------------------------------------------------------------------------- */
@@ -621,6 +646,20 @@ button { font: inherit; border: none; background: none; cursor: pointer; color: 
   text-transform: uppercase;
   color: var(--accent);
   margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.feature-block-badge {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: var(--accent-bright);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
 }
 
 .feature-block-copy h3 {

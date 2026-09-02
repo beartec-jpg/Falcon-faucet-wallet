@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { DISCORD_INVITE_URL } from '@/lib/community-links'
 
 /**
  * Marketing homepage for Falcon PL (falcon-ledger.com root).
@@ -105,19 +106,31 @@ export default function MarketingHomePage() {
               Falcon PL
             </h1>
             <p className="hero-subtitle reveal-load" data-delay="200">
-              The quantum-safe ledger built for real participation
+              A quantum-safe participation ledger
             </p>
             <p className="hero-support reveal-load" data-delay="400">
-              Falcon Consensus. Falcon-512 from genesis. Protocol-controlled treasury. Rewards for
-              those who secure and use the network.
+              Pre-public Falcon-512 testnet 2300. Test tokens have no cash value.
+              Post-quantum signatures from genesis.
+            </p>
+            <p className="hero-status reveal-load" data-delay="500">
+              PQC testnet + wallet + faucet + explorer. AMM, lend, and dest-lock
+              bridge are experimental.
             </p>
             <div className="hero-actions reveal-load" data-delay="600">
-              <a href="#what-is-falcon" className="btn btn-primary">
-                Explore the Platform
-              </a>
+              <Link href="/wallet" className="btn btn-primary">
+                Launch Wallet
+              </Link>
               <Link href="/faucet" className="btn btn-secondary">
                 Join the Testnet
               </Link>
+              <a
+                href={DISCORD_INVITE_URL}
+                className="btn btn-secondary"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Discord
+              </a>
             </div>
           </div>
           <div className="hero-scroll" aria-hidden="true">
@@ -134,7 +147,8 @@ export default function MarketingHomePage() {
               <h2 className="section-title">What is Falcon?</h2>
               <p className="section-intro">
                 Falcon PL is a quantum-safe participation ledger — Falcon Consensus and Falcon-512,
-                designed for long-term security and fair participation.
+                designed for long-term security and fair participation. This site is the pre-public
+                2300 testnet, not a finished multi-chain product.
               </p>
             </div>
             <div className="feature-grid">
@@ -178,24 +192,43 @@ export default function MarketingHomePage() {
           </div>
         </section>
 
-        {/* One Roof */}
+        {/* Testnet surfaces */}
         <section className="section section-roof" id="platform">
           <div className="container">
             <div className="section-header reveal">
-              <p className="section-eyebrow">Platform</p>
-              <h2 className="section-title">One Roof for Everything Crypto</h2>
+              <p className="section-eyebrow">Testnet 2300</p>
+              <h2 className="section-title">What you can try today</h2>
               <p className="section-intro">
-                A single platform where you can hold, bridge, trade, lend, and earn — without jumping
-                between different apps and chains.
+                Wallet, faucet, and explorer are live on this PQC testnet. AMM, lend, and dest-lock
+                are experimental — not a finished wallet + pools + lend + earn stack.
               </p>
             </div>
             <div className="roof-grid">
               {[
-                { src: '/assets/images/platform/platform-wallet.jpg', title: 'Multichain Wallet', href: '/wallet' },
-                { src: '/assets/images/platform/platform-bridge.jpg', title: 'Permissionless Bridge', href: '/swap' },
-                { src: '/assets/images/platform/platform-pools.jpg', title: 'Liquidity Pools', href: '/pool' },
-                { src: '/assets/images/platform/platform-lending.jpg', title: 'Collateralized Lending', href: '/lend' },
-                { src: '/assets/images/platform/platform-rewards.jpg', title: 'Participation & Arcade Rewards', href: '/arcade' },
+                { src: '/assets/images/platform/platform-wallet.jpg', title: 'Testnet wallet', href: '/wallet' },
+                {
+                  src: '/assets/images/platform/platform-bridge.jpg',
+                  title: 'Testnet dest-lock',
+                  href: '/wallet',
+                  badge: 'Experimental',
+                },
+                {
+                  src: '/assets/images/platform/platform-pools.jpg',
+                  title: 'Liquidity pools',
+                  href: '/pool',
+                  badge: 'Experimental',
+                },
+                {
+                  src: '/assets/images/platform/platform-lending.jpg',
+                  title: 'Lending',
+                  href: '/lend',
+                  badge: 'Experimental',
+                },
+                {
+                  src: '/assets/images/platform/platform-rewards.jpg',
+                  title: 'Arcade',
+                  href: '/arcade',
+                },
               ].map((item, i) => (
                 <Link
                   key={item.title}
@@ -208,6 +241,7 @@ export default function MarketingHomePage() {
                     <img src={item.src} alt="" width={96} height={96} loading="lazy" />
                   </div>
                   <h3>{item.title}</h3>
+                  {item.badge ? <span className="tile-badge">{item.badge}</span> : null}
                 </Link>
               ))}
             </div>
@@ -219,62 +253,65 @@ export default function MarketingHomePage() {
           <div className="container">
             <div className="section-header reveal">
               <p className="section-eyebrow">Capabilities</p>
-              <h2 className="section-title">Platform Features</h2>
+              <h2 className="section-title">On this testnet</h2>
             </div>
 
-            {[
+            {([
               {
                 n: '01',
-                title: 'Multichain Wallet',
-                p1: 'Hold FPL, Bitcoin, Ethereum, BNB, and XRP in one place.',
-                p2: 'One wallet. Multiple chains. Simple and secure.',
+                title: 'Testnet wallet',
+                p1: 'Hold FPL on Falcon PL 2300. Live dest-lock rails are ETH and USDC (Sepolia). BTC is on the rail; exit is still operator-fronted, not custodialess.',
+                p2: 'Passkey wallet on this testnet. Test tokens have no cash value.',
                 img: '/assets/images/features/feature-wallet.jpg',
-                replace: 'feature-wallet.png',
                 reverse: false,
               },
               {
                 n: '02',
-                title: 'Permissionless Bridge',
-                p1: 'Move assets onto Falcon PL with a clean, permissionless bridge.',
-                p2: 'No complicated steps. No unnecessary middlemen.',
+                title: 'Testnet dest-lock',
+                badge: 'Experimental',
+                p1: 'ETH/USDC dest-lock is the 2300 path. BTC exit is still operator-fronted (not custodialess).',
+                p2: 'Experimental testnet corridor — not a finished bridge product.',
                 img: '/assets/images/features/feature-bridge.jpg',
-                replace: 'feature-bridge.png',
                 reverse: true,
               },
               {
                 n: '03',
-                title: 'Liquidity Pools',
-                p1: 'Provide liquidity and earn.',
-                p2: 'The protocol recognises and rewards those who make markets possible.',
+                title: 'Liquidity pools',
+                badge: 'Experimental AMM',
+                p1: 'Testnet AMM for providing liquidity on Falcon PL 2300.',
+                p2: 'Experimental. Not a production market-maker.',
                 img: '/assets/images/features/feature-pools.jpg',
-                replace: 'feature-pools.png',
                 reverse: false,
               },
               {
                 n: '04',
-                title: 'Collateralized Lending & Borrowing',
-                p1: 'Lend and borrow using on-chain collateral.',
-                p2: 'Protocol-controlled, transparent, and designed for real use.',
+                title: 'Lending',
+                badge: 'Experimental',
+                p1: 'Testnet collateralized lend and borrow on Falcon PL 2300.',
+                p2: 'Experimental. Not a production lending market.',
                 img: '/assets/images/features/feature-lending.jpg',
-                replace: 'feature-lending.png',
                 reverse: true,
               },
               {
                 n: '05',
-                title: 'Earn by Participating',
-                p1: 'Validators, liquidity providers, and active users are all rewarded by the protocol.',
-                p2: 'No empty promises — real participation, real rewards.',
+                title: 'Earn by participating',
+                p1: 'Validators, liquidity providers, and arcade play are how you participate on this testnet.',
+                p2: 'Rewards are testnet — they have no cash value.',
                 img: '/assets/images/features/feature-earn.jpg',
-                replace: 'feature-earn.png',
                 reverse: false,
               },
-            ].map((f) => (
+            ] as const).map((f) => (
               <div
                 key={f.n}
                 className={`feature-block reveal${f.reverse ? ' feature-block-reverse' : ''}`}
               >
                 <div className="feature-block-copy">
-                  <p className="feature-block-label">Feature {f.n}</p>
+                  <p className="feature-block-label">
+                    Feature {f.n}
+                    {'badge' in f && f.badge ? (
+                      <span className="feature-block-badge">{f.badge}</span>
+                    ) : null}
+                  </p>
                   <h3>{f.title}</h3>
                   <p>{f.p1}</p>
                   <p>{f.p2}</p>
@@ -283,7 +320,6 @@ export default function MarketingHomePage() {
                   <figure className="media-frame">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={f.img} alt={`${f.title} preview`} width={720} height={520} loading="lazy" />
-                    <figcaption className="media-slot-label">Replace: {f.replace}</figcaption>
                   </figure>
                 </div>
               </div>
@@ -338,20 +374,25 @@ export default function MarketingHomePage() {
             <div className="cta-content reveal">
               <h2 className="section-title">Ready to explore?</h2>
               <p className="cta-text">
-                Falcon PL is live on testnet.
+                Falcon PL is a pre-public testnet.
                 <br />
-                Start using the wallet, bridge assets, provide liquidity, or just look around.
+                Start with the wallet, faucet, or explorer. Test tokens have no cash value.
               </p>
               <div className="cta-actions">
                 <Link href="/wallet" className="btn btn-primary">
                   Launch Wallet
                 </Link>
                 <Link href="/whitepaper" className="btn btn-secondary">
-                  Read the Docs
+                  Read the Whitepaper
                 </Link>
-                <Link href="/community" className="btn btn-secondary">
-                  Join the Community
-                </Link>
+                <a
+                  href={DISCORD_INVITE_URL}
+                  className="btn btn-secondary"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Join Discord
+                </a>
               </div>
             </div>
           </div>
@@ -372,17 +413,21 @@ export default function MarketingHomePage() {
           </div>
           <nav className="footer-links" aria-label="Footer">
             <Link href="/wallet">Wallet</Link>
-            <Link href="/swap">Bridge</Link>
-            <Link href="/whitepaper">Docs</Link>
-            <Link href="/whitepaper">Whitepaper</Link>
             <Link href="/faucet">Faucet</Link>
+            <Link href="/scan">Explorer</Link>
+            <Link href="/arcade">Arcade</Link>
+            <Link href="/whitepaper">Whitepaper</Link>
             <Link href="/community">Community</Link>
+            <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
+              Discord
+            </a>
             <a href="https://github.com/beartec-jpg/Falcon-faucet-wallet" target="_blank" rel="noopener noreferrer">
               GitHub
             </a>
           </nav>
           <p className="footer-copy">
-            &copy; <span id="year"></span> Falcon PL. All rights reserved.
+            &copy; <span id="year"></span> Falcon PL. Pre-public testnet 2300. Test tokens have no cash
+            value.
           </p>
         </div>
       </footer>
