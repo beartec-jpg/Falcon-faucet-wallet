@@ -33,6 +33,8 @@ function resolveArcadeUrl(): string {
 }
 
 const ARCADE_URL = resolveArcadeUrl()
+/** Arcade chrome and faucet are Falcon PL 2300 testnet only. */
+const ARCADE_NETWORK = 'testnet' as const
 
 const ARCADE_ORIGIN = (() => {
   try {
@@ -63,13 +65,17 @@ function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
 }
 
 export default function ArcadePage() {
-  const { networkKey } = useNetwork()
+  const { networkKey, setNetworkKey } = useNetwork()
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [claimBusy, setClaimBusy] = useState(false)
   const [lastTx, setLastTx] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (networkKey !== ARCADE_NETWORK) setNetworkKey(ARCADE_NETWORK)
+  }, [networkKey, setNetworkKey])
 
   // Load passkey wallet address if present
   useEffect(() => {
@@ -103,7 +109,7 @@ export default function ArcadePage() {
   const handleScoreUpdate = useCallback(
     (game: string, score: number) => {
       if (!walletAddress) return
-      const key = `${networkKey}:${game}`
+      const key = `${ARCADE_NETWORK}:${game}`
       const prev = scoreTimers.current.get(key)
       if (prev) clearTimeout(prev)
       scoreTimers.current.set(
@@ -117,7 +123,7 @@ export default function ArcadePage() {
                 account: walletAddress,
                 game,
                 score,
-                network: networkKey,
+                network: ARCADE_NETWORK,
               }),
             })
           } catch {
@@ -126,7 +132,7 @@ export default function ArcadePage() {
         }, 800),
       )
     },
-    [walletAddress, networkKey],
+    [walletAddress],
   )
 
   const handleClaimRequest = useCallback(
@@ -154,7 +160,7 @@ export default function ArcadePage() {
             account: walletAddress,
             game,
             score,
-            network: networkKey,
+            network: ARCADE_NETWORK,
           }),
         })
 
@@ -165,7 +171,7 @@ export default function ArcadePage() {
             account: walletAddress,
             game,
             score,
-            network: networkKey,
+            network: ARCADE_NETWORK,
           }),
         })
         const data = await res.json()
@@ -203,7 +209,7 @@ export default function ArcadePage() {
         setClaimBusy(false)
       }
     },
-    [walletAddress, networkKey, claimBusy, postToArcade],
+    [walletAddress, claimBusy, postToArcade],
   )
 
   useEffect(() => {
