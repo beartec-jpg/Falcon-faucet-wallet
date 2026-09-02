@@ -49,7 +49,7 @@ export async function sendFaucetDrip(opts: {
     }
   }
 
-  const amountQxrp = opts.amountQxrp ?? faucet.dripAmountQxrp
+  const amountQxrp = opts.amountQxrp ?? faucet.dripAmountFpl ?? faucet.dripAmountQxrp
   const proxy = serverSignerProxy(opts.networkKey)
 
   let sequence: number

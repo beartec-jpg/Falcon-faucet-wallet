@@ -132,7 +132,7 @@ async function dexQuote(
   }
 }
 
-/** Instant swap direction — amount is always FALCON. */
+/** Instant swap direction — amount is always FPL. */
 export type SwapDirection = 'sell_falcon' | 'buy_falcon'
 
 /** @deprecated Use sell_falcon / buy_falcon */
@@ -272,7 +272,7 @@ export async function getUsdcMarket(
     userBalance,
     /** Hint for UI when SPV FBTC has no MPT AMM yet (needs MPTokensV2 + seed). */
     poolHint: isMptToken(token) && !market
-      ? 'SPV FBTC pool not created yet. Requires MPTokensV2 enabled and an AMM seed (FALCON + FBTC).'
+      ? 'SPV FBTC pool not created yet. Requires MPTokensV2 enabled and an AMM seed (FPL + FBTC).'
       : undefined,
   }
 }

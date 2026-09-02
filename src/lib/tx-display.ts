@@ -50,7 +50,7 @@ export function parseTxAmount(amount: unknown): ParsedTxAmount | null {
         minimumFractionDigits: 0,
         maximumFractionDigits: 6,
       }),
-      asset: 'FALCON',
+      asset: 'FPL',
     }
   }
 

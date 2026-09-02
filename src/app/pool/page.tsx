@@ -358,7 +358,7 @@ export default function PoolPage() {
 
         {selected && (
           <p className="text-center text-xs text-slate-500 -mt-2">
-            Pair: <span className="text-slate-300 font-medium">FALCON / {selected.displaySymbol}</span>
+            Pair: <span className="text-slate-300 font-medium">FPL / {selected.displaySymbol}</span>
           </p>
         )}
 
@@ -390,7 +390,7 @@ export default function PoolPage() {
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Your wallet</div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-slate-800/60 rounded-xl p-3 text-center">
-                  <div className="text-xs text-slate-500 mb-1">FALCON</div>
+                  <div className="text-xs text-slate-500 mb-1">FPL</div>
                   <div className="text-lg font-bold text-white">
                     {xrpBalance !== null ? fmt(xrpBalance, 2) : '—'}
                   </div>

@@ -160,7 +160,7 @@ export function explainLendSubmitError(
     }
     if (permissionless) {
       return base
-        ? `Borrow failed (${base}). Check vault liquidity and FALCON collateral on the Borrow tab.`
+        ? `Borrow failed (${base}). Check vault liquidity and FPL collateral on the Borrow tab.`
         : 'Borrow failed: insufficient vault liquidity or collateral (permissionless borrow — no broker cover required).'
     }
     return base
@@ -168,7 +168,7 @@ export function explainLendSubmitError(
       : 'Borrow failed: insufficient funds (vault liquidity or broker cover).'
   }
   if (engineResult === 'tecINSUFFICIENT_RESERVE') {
-    return 'Borrow failed: your Falcon wallet needs more FALCON for account reserve (fund the wallet via faucet first).'
+    return 'Borrow failed: your Falcon wallet needs more FPL for account reserve (fund the wallet via faucet first).'
   }
   if (engineResult === 'tecINVARIANT_FAILED') {
     return 'Supply failed: vault share rounding rejected that amount. Try a slightly lower value (e.g. 19.999999 instead of 20) or re-submit — the portal now auto-adjusts deposit amounts.'

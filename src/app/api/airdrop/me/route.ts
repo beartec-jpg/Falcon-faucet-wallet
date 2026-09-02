@@ -21,11 +21,16 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     overview: {
       ...overview,
+      poolFpl: overview.poolFalcon,
+      totalAllocatedFpl: overview.totalAllocatedFalcon,
       scoringNetwork: AIRDROP_SCORING_NETWORK,
       viewerNetwork: networkKey,
       testnetActivityCounts: false,
     },
-    me,
+    me: {
+      ...me,
+      fplAmount: me.falconAmount,
+    },
     scoringNetwork: AIRDROP_SCORING_NETWORK,
     note:
       networkKey === 'testnet'

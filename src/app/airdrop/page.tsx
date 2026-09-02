@@ -13,6 +13,7 @@ type Overview = {
   network: string
   genesisAt: string | null
   windowDays: number
+  poolFpl?: number
   poolFalcon: number
   firstEmissionEpoch: number
   windowOpen: boolean
@@ -20,6 +21,7 @@ type Overview = {
   daysElapsed: number | null
   notes: string | null
   totalAddresses: number
+  totalAllocatedFpl?: number
   totalAllocatedFalcon: number
 }
 
@@ -32,6 +34,7 @@ type Me = {
   scoreSetup: number
   scoreDexLp: number
   scoreTotal: number
+  fplAmount?: number
   falconAmount: number
   claimed: boolean
   claimsByDay: Record<string, number>
@@ -103,7 +106,7 @@ export default function AirdropPage() {
         <div>
           <h1 className="text-2xl font-semibold text-white">Community airdrop</h1>
           <p className="text-sm text-slate-400 mt-1">
-            1% of supply (2B FALCON) for mainnet contributors. Score window: genesis → +60 days.
+            1% of supply (2B FPL) for mainnet contributors. Score window: genesis → +60 days.
             Emissions start at epoch 8.
           </p>
         </div>
@@ -122,7 +125,7 @@ export default function AirdropPage() {
               <div className="bg-slate-950/60 rounded-lg px-3 py-2">
                 <div className="text-slate-500">Pool</div>
                 <div className="font-mono text-emerald-300 mt-0.5">
-                  {fmt(overview.poolFalcon, 0)} FALCON
+                  {fmt(overview.poolFpl ?? overview.poolFalcon, 0)} FPL
                 </div>
               </div>
               <div className="bg-slate-950/60 rounded-lg px-3 py-2">
@@ -219,9 +222,9 @@ export default function AirdropPage() {
                   </div>
                 </div>
                 <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-                  <div className="text-slate-500">Est. FALCON (if finalized)</div>
+                  <div className="text-slate-500">Est. FPL (if finalized)</div>
                   <div className="font-mono text-amber-300 mt-0.5">
-                    {me.falconAmount > 0 ? fmt(me.falconAmount, 2) : '— (after freeze)'}
+                    {(me.fplAmount ?? me.falconAmount) > 0 ? fmt(me.fplAmount ?? me.falconAmount, 2) : '— (after freeze)'}
                   </div>
                 </div>
               </div>

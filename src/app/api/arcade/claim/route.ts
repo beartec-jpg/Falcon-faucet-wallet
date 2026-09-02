@@ -26,6 +26,7 @@ import {
 } from '@/lib/faucet-quota'
 import { isOriginAllowed } from '@/lib/origin'
 import { resolveFaucet, resolveNetworkKey } from '@/lib/network-server'
+import { envNumberFirst } from '@/lib/networks'
 import { clientIp } from '@/lib/security'
 
 export const runtime = 'nodejs'
@@ -121,14 +122,16 @@ export async function POST(req: NextRequest) {
   }
 
   const faucet = resolveFaucet(networkKey)
-  const gameDrip = process.env.GAME_DRIP_AMOUNT_QXRP
-    ? parseFloat(process.env.GAME_DRIP_AMOUNT_QXRP)
-    : faucet?.dripAmountQxrp
+  const gameDrip = envNumberFirst(
+    ['GAME_DRIP_AMOUNT_FPL', 'GAME_DRIP_AMOUNT_QXRP'],
+    faucet?.dripAmountFpl ?? faucet?.dripAmountQxrp ?? NaN,
+  )
+  const amountFpl = Number.isFinite(gameDrip) ? gameDrip : undefined
 
   const paid = await sendFaucetDrip({
     networkKey,
     toAccount: account,
-    amountQxrp: gameDrip,
+    amountQxrp: amountFpl,
   })
 
   if (!paid.ok) {
@@ -178,6 +181,7 @@ export async function POST(req: NextRequest) {
     game,
     txHash: paid.txHash,
     amount: paid.amount,
+    amountFpl: paid.amount,
     account,
     network: networkKey,
     scoreAtClaim: best,

@@ -4,7 +4,14 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 
-const DRIP_AMOUNT = parseInt(process.env.NEXT_PUBLIC_DRIP_AMOUNT_QXRP ?? '2000', 10)
+const DRIP_AMOUNT = parseInt(
+  process.env.NEXT_PUBLIC_TESTNET_DRIP_FPL ??
+    process.env.NEXT_PUBLIC_DRIP_AMOUNT_FPL ??
+    process.env.NEXT_PUBLIC_TESTNET_DRIP_QXRP ??
+    process.env.NEXT_PUBLIC_DRIP_AMOUNT_QXRP ??
+    '2000',
+  10,
+)
 
 const STEPS = [
   {

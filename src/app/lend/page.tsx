@@ -302,7 +302,7 @@ export default function LendPage() {
           }
         }
         setNotice(
-          `Borrowed ${principal} F-USDC for ${formatLoanDuration(epochs)} — ${collateralFalcon} FALCON locked as collateral`,
+          `Borrowed ${principal} F-USDC for ${formatLoanDuration(epochs)} — ${collateralFalcon} FPL locked as collateral`,
         )
       })
     },
@@ -359,7 +359,7 @@ export default function LendPage() {
       }
       setNotice(
         preflight.estEpochRewardFalcon != null
-          ? `LP epoch rewards claimed (~${preflight.estEpochRewardFalcon} FALCON)`
+          ? `LP epoch rewards claimed (~${preflight.estEpochRewardFalcon} FPL)`
           : 'LP epoch rewards claimed',
       )
     })
@@ -494,7 +494,7 @@ export default function LendPage() {
               'Add collateral failed',
           )
         }
-        setNotice(`Added ${collateralFalcon} FALCON collateral to loan`)
+        setNotice(`Added ${collateralFalcon} FPL collateral to loan`)
       })
     },
     [data, wallet, withSecret, networkKey, network.networkId],
@@ -529,7 +529,7 @@ export default function LendPage() {
             falcon_secret,
           ),
       })
-      setNotice('Claimed liquidation FALCON to your wallet')
+      setNotice('Claimed liquidation FPL to your wallet')
     })
   }, [data, wallet, withSecret, networkKey, network.networkId])
 

@@ -12,10 +12,10 @@ export function addCollateralBlockedReason(
   }
   const loan = data.loans?.find((l) => l.id === loanId)
   if (!loan || !isRepayableLoan(loan)) return 'No active loan found on this account.'
-  if (!Number.isFinite(amountFalcon) || amountFalcon <= 0) return 'Enter how much FALCON to add.'
+  if (!Number.isFinite(amountFalcon) || amountFalcon <= 0) return 'Enter how much FPL to add.'
   const balance = data.wallet?.falconBalance
   if (balance != null && amountFalcon > balance + 1e-9) {
-    return `Insufficient FALCON in wallet (${balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} available).`
+    return `Insufficient FPL in wallet (${balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} available).`
   }
   return null
 }

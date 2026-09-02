@@ -148,7 +148,7 @@ export default function DexOrdersPanel({
     const amt = parseFloat(tokenAmt)
     const px = parseFloat(price)
     if (!Number.isFinite(amt) || amt <= 0 || !Number.isFinite(px) || px <= 0) {
-      setError(`Enter valid amount and price (FALCON per ${token.symbol})`)
+      setError(`Enter valid amount and price (FPL per ${token.symbol})`)
       return
     }
 
@@ -313,11 +313,11 @@ export default function DexOrdersPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">DEX Limit Orders</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Price field is <strong className="text-slate-300">FALCON per {token.symbol}</strong> (not {token.symbol} per FALCON).
+            Price field is <strong className="text-slate-300">FPL per {token.symbol}</strong> (not {token.symbol} per FPL).
             {marketPrice ? (
               <>
-                {' '}AMM mid ≈ <span className="font-mono text-slate-200">{fmt(marketPrice, 4)}</span> FALCON/{token.symbol}
-                ({fmt(falconPerFusdcToInverse(marketPrice) ?? 0, 4)} {token.symbol} per FALCON).
+                {' '}AMM mid ≈ <span className="font-mono text-slate-200">{fmt(marketPrice, 4)}</span> FPL/{token.symbol}
+                ({fmt(falconPerFusdcToInverse(marketPrice) ?? 0, 4)} {token.symbol} per FPL).
               </>
             ) : null}
           </p>
@@ -357,7 +357,7 @@ export default function DexOrdersPanel({
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs text-slate-400">Price (FALCON per {token.symbol})</label>
+            <label className="text-xs text-slate-400">Price (FPL per {token.symbol})</label>
             <input
               type="number"
               value={price}
@@ -375,7 +375,7 @@ export default function DexOrdersPanel({
                     : 'text-emerald-400/90'
                 }`}
               >
-                {fmt(priceNum, 4)} FALCON/{token.symbol} = {fmt(falconPerFusdcToInverse(priceNum) ?? 0, 4)} {token.symbol}/FALCON
+                {fmt(priceNum, 4)} FPL/{token.symbol} = {fmt(falconPerFusdcToInverse(priceNum) ?? 0, 4)} {token.symbol}/FPL
                 {side === 'sell'
                   ? priceNum < marketPrice
                     ? ` · below AMM (${fmt(marketPrice, 4)}) → fills via AMM`
@@ -400,7 +400,7 @@ export default function DexOrdersPanel({
 
         {priceNum > 0 && wouldCross && !postOnly && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-            This price crosses the AMM{marketPrice ? ` (~${fmt(marketPrice, 4)} FALCON/${token.symbol})` : ''} — your order will
+            This price crosses the AMM{marketPrice ? ` (~${fmt(marketPrice, 4)} FPL/${token.symbol})` : ''} — your order will
             <strong className="text-amber-100"> execute immediately</strong> (AMM swap), not rest on the book.
             Tap <strong className="text-amber-100">Maker price</strong> or raise sell / lower buy vs AMM mid to list.
           </div>
@@ -416,7 +416,7 @@ export default function DexOrdersPanel({
           <p className="text-xs text-slate-500">
             {side === 'sell'
               ? `Locks ${fmt(tokenNum, 4)} ${token.symbol} on the book`
-              : `Locks ~${fmt(falconNeeded, 4)} FALCON as bid`}
+              : `Locks ~${fmt(falconNeeded, 4)} FPL as bid`}
           </p>
         )}
 
@@ -438,7 +438,7 @@ export default function DexOrdersPanel({
             }}
             className="text-xs text-brand-500"
           >
-            Max from FALCON balance
+            Max from FPL balance
           </button>
         )}
 
@@ -505,7 +505,7 @@ export default function DexOrdersPanel({
                 <th className="text-left px-3 py-2">Side</th>
                 <th className="text-right px-3 py-2">Price</th>
                 <th className="text-right px-3 py-2">{token.symbol}</th>
-                <th className="text-right px-3 py-2 hidden sm:table-cell">FALCON</th>
+                <th className="text-right px-3 py-2 hidden sm:table-cell">FPL</th>
                 <th className="text-right px-3 py-2"></th>
               </tr>
             </thead>

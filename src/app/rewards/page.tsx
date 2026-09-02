@@ -39,13 +39,20 @@ import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
 interface BondInfo {
   registered: boolean
   bond_status?: string
+  bonded_amount_fpl?: number | null
   bonded_amount_qxrp?: number | null
   composite_score?: number | null
+  reward_accum_fpl?: number | null
   reward_accum_qxrp?: number | null
   can_claim?: boolean
+  balance_fpl?: number | null
   balance_qxrp?: number | null
   sequence?: number | null
-  epoch?: { number?: number; pool_balance_qxrp?: number | null } | null
+  epoch?: {
+    number?: number
+    pool_balance_fpl?: number | null
+    pool_balance_qxrp?: number | null
+  } | null
 }
 
 interface AmmPoolRow {
@@ -251,7 +258,7 @@ export default function RewardsPage() {
       const fresh = await refreshBond(valCreds.address)
       if (!fresh.can_claim) {
         throw new Error(
-          fresh.reward_accum_qxrp
+          (fresh.reward_accum_fpl ?? fresh.reward_accum_qxrp)
             ? 'Cannot claim yet — need bonded status, score ≥ 500 bps, and epoch rewards'
             : 'No accumulated rewards to claim',
         )
@@ -429,7 +436,7 @@ export default function RewardsPage() {
     }
   }
 
-  /** Claim every claimable FALCON-paired AMM pool (one tx per pair). */
+  /** Claim every claimable FPL-paired AMM pool (one tx per pair). */
   const handleClaimAllAmmLp = async () => {
     if (!payoutWallet || !network.live) return
     const claimable = (lpOverview?.ammPools ?? []).filter(
@@ -698,11 +705,11 @@ export default function RewardsPage() {
                       </div>
                       <div className="bg-slate-800/60 rounded-lg p-3">
                         <div className="text-slate-500">Est. claim</div>
-                        <div className="text-emerald-400 font-semibold">{fmt(bond.reward_accum_qxrp, 4)}</div>
+                        <div className="text-emerald-400 font-semibold">{fmt(bond.reward_accum_fpl ?? bond.reward_accum_qxrp, 4)}</div>
                       </div>
                       <div className="bg-slate-800/60 rounded-lg p-3">
                         <div className="text-slate-500">Balance</div>
-                        <div className="text-white font-semibold">{fmt(bond.balance_qxrp, 2)}</div>
+                        <div className="text-white font-semibold">{fmt(bond.balance_fpl ?? bond.balance_qxrp, 2)}</div>
                       </div>
                     </div>
                   )}
@@ -752,7 +759,7 @@ export default function RewardsPage() {
                     <div className="bg-slate-800/60 rounded-lg p-3">
                       <div className="text-slate-500">Est. this epoch</div>
                       <div className="text-emerald-400 font-semibold">
-                        {fmt(lpOverview?.vaultLp.estFalcon, 4)} FALCON
+                        {fmt(lpOverview?.vaultLp.estFalcon, 4)} FPL
                       </div>
                     </div>
                   </div>
@@ -770,12 +777,12 @@ export default function RewardsPage() {
               )}
             </div>
 
-            {/* ── AMM LP (all FALCON-paired pools) ───────────────────── */}
+            {/* ── AMM LP (all FPL-paired pools) ───────────────────── */}
             <div className="card p-5 space-y-3">
               <h2 className="text-sm font-semibold text-white">3 · AMM / DEX LP</h2>
               <p className="text-xs text-slate-500">
                 <code className="text-slate-400">ClaimAmmLpReward</code> — one claim per pool per
-                epoch. Native FALCON pairs share a single AMM basket, weighted by FALCON TVL.
+                epoch. Native FPL pairs share a single AMM basket, weighted by FPL TVL.
                 Pools:{' '}
                 <Link href="/pool" className="text-brand-400 hover:underline">/pool</Link>.
               </p>
@@ -791,13 +798,13 @@ export default function RewardsPage() {
                           lpOverview?.ammTotalEstFalcon ?? lpOverview?.ammLp.estFalcon,
                           4,
                         )}{' '}
-                        FALCON
+                        FPL
                       </div>
                     </div>
                     <div className="bg-slate-800/60 rounded-lg p-3">
                       <div className="text-slate-500">Aggregate AMM TVL</div>
                       <div className="text-white font-semibold">
-                        {fmt(lpOverview?.epoch.aggregateAmmTvlFalcon, 0)} FALCON
+                        {fmt(lpOverview?.epoch.aggregateAmmTvlFalcon, 0)} FPL
                       </div>
                     </div>
                   </div>
@@ -813,7 +820,7 @@ export default function RewardsPage() {
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="text-sm font-semibold text-white">
-                                FALCON / {pool.symbol}
+                                FPL / {pool.symbol}
                               </div>
                               {pool.canClaim && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
@@ -832,7 +839,7 @@ export default function RewardsPage() {
                               <div>
                                 <div className="text-slate-500">Pool TVL</div>
                                 <div className="text-slate-200 font-mono">
-                                  {fmt(pool.poolFalconTvl, 0)} FALCON
+                                  {fmt(pool.poolFalconTvl, 0)} FPL
                                 </div>
                               </div>
                               <div>
@@ -913,7 +920,7 @@ export default function RewardsPage() {
                   type="number"
                   value={transferAmt}
                   onChange={(e) => setTransferAmt(e.target.value)}
-                  placeholder="FALCON amount"
+                  placeholder="FPL amount"
                   className="input-field"
                   disabled={busy}
                 />
@@ -929,7 +936,7 @@ export default function RewardsPage() {
 
             {tokens.length > 0 && (valCreds || payoutWallet) && (
               <div className="card p-5 space-y-4">
-                <h2 className="text-sm font-semibold text-white">Swap FALCON → stablecoin</h2>
+                <h2 className="text-sm font-semibold text-white">Swap FPL → stablecoin</h2>
                 <div className="flex gap-2 flex-wrap">
                   {tokens.map((tok) => (
                     <button
@@ -952,7 +959,7 @@ export default function RewardsPage() {
                       type="number"
                       value={swapAmt}
                       onChange={(e) => setSwapAmt(e.target.value)}
-                      placeholder="FALCON to spend"
+                      placeholder="FPL to spend"
                       className="input-field"
                       disabled={busy}
                     />

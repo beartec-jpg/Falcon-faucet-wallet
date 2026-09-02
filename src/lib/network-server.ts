@@ -5,6 +5,7 @@
 
 import { DEFAULT_RPC_URL } from '@/lib/rpc'
 import {
+  envNumberFirst,
   getNetwork,
   isNetworkKey,
   type NetworkConfig,
@@ -14,6 +15,8 @@ import {
 export interface FaucetCredentials {
   account: string
   secret: string
+  dripAmountFpl: number
+  /** @deprecated Prefer dripAmountFpl */
   dripAmountQxrp: number
 }
 
@@ -74,9 +77,12 @@ export function resolveFaucet(networkKey: NetworkKey): FaucetCredentials | null 
   if (networkKey === 'mainnet') {
     const account = process.env.MAINNET_FAUCET_ACCOUNT?.trim() ?? ''
     const secret = process.env.MAINNET_FAUCET_SECRET?.trim() ?? ''
-    const drip = parseFloat(process.env.MAINNET_DRIP_AMOUNT_QXRP ?? process.env.MAINNET_DRIP_QXRP ?? '100')
+    const drip = envNumberFirst(
+      ['MAINNET_DRIP_AMOUNT_FPL', 'MAINNET_DRIP_AMOUNT_QXRP', 'MAINNET_DRIP_QXRP'],
+      100,
+    )
     if (!account || !secret) return null
-    return { account, secret, dripAmountQxrp: drip }
+    return { account, secret, dripAmountFpl: drip, dripAmountQxrp: drip }
   }
 
   const account =
@@ -87,13 +93,12 @@ export function resolveFaucet(networkKey: NetworkKey): FaucetCredentials | null 
     process.env.TESTNET_FAUCET_SECRET?.trim() ??
     process.env.FAUCET_SECRET?.trim() ??
     ''
-  const drip = parseFloat(
-    process.env.TESTNET_DRIP_AMOUNT_QXRP ??
-      process.env.DRIP_AMOUNT_QXRP ??
-      '2000',
+  const drip = envNumberFirst(
+    ['TESTNET_DRIP_AMOUNT_FPL', 'TESTNET_DRIP_AMOUNT_QXRP', 'DRIP_AMOUNT_FPL', 'DRIP_AMOUNT_QXRP'],
+    2000,
   )
   if (!account || !secret) return null
-  return { account, secret, dripAmountQxrp: drip }
+  return { account, secret, dripAmountFpl: drip, dripAmountQxrp: drip }
 }
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'

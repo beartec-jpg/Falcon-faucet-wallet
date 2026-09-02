@@ -33,7 +33,7 @@ const VALIDATOR_LINKS = [
   {
     href: '/validator',
     title: 'Run a Validator',
-    description: 'Bond FALCON, install the node one-liner, and secure the network.',
+    description: 'Bond FPL, install the node one-liner, and secure the network.',
     cta: 'Guide',
     primary: true,
   },
@@ -46,8 +46,8 @@ const VALIDATOR_LINKS = [
   },
   {
     href: '/faucet',
-    title: 'Fund with FALCON faucet',
-    description: 'Get testnet FALCON for bonding (≥1,100 needed on the validator address).',
+    title: 'Fund with FPL faucet',
+    description: 'Get testnet FPL for bonding (≥1,100 needed on the validator address).',
     cta: 'Faucet',
     primary: false,
   },

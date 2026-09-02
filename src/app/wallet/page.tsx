@@ -2385,7 +2385,7 @@ export default function WalletPage() {
                   {walletSection === 'falcon' && (
                   <div className="space-y-2">
                     {FALCON_WALLET_ASSETS.filter((asset) => {
-                      // Top card is FALCON — list only bridged assets under it
+                      // Top card is FPL — list only bridged assets under it
                       if (asset.id === 'falcon') return false
                       if (!falconVisible[asset.id]) return false
                       const q = assetSearch.trim().toLowerCase()

@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
       pool: null,
       token: tokenOut,
       poolHint: mpt
-        ? 'SPV FBTC AMM not found — needs MPTokensV2 + FALCON/FBTC seed.'
+        ? 'SPV FBTC AMM not found — needs MPTokensV2 + FPL/FBTC seed.'
         : undefined,
     })
   }

@@ -73,7 +73,7 @@ async function buildAmmPoolRow(
     )
     const amm = ammR.amm
     if (!amm) {
-      return { ...base, reason: `No FALCON/${token.displaySymbol} AMM pool` }
+      return { ...base, reason: `No FPL/${token.displaySymbol} AMM pool` }
     }
 
     const ammAccount = String(amm.account ?? '')
@@ -278,7 +278,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── AMM LP — all native FALCON-paired pools ─────────────────────────────
+  // ── AMM LP — all native FPL-paired pools ─────────────────────────────
   const pairTokens = await loadPoolPairTokens()
   const linesR = await serverRpcCall<{
     lines?: Array<{ currency: string; account: string; balance: string }>

@@ -1,6 +1,6 @@
 /**
  * AccountNames helpers (portal).
- * Bond: 100 FALCON. Rules match protocol AccountNameHelpers.
+ * Bond: 100 FPL. Rules match protocol AccountNameHelpers.
  */
 
 export const NAME_BOND_FALCON = 100

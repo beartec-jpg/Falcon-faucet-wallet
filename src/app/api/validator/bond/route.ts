@@ -11,13 +11,13 @@ const BOND_STATUS: Record<number, string> = {
   4: 'slashed',
 }
 
-const DROPS_PER_QXRP = 1_000_000
+const DROPS_PER_FPL = 1_000_000
 
-function dropsToQxrp(drops: string | number | undefined | null): number | null {
+function dropsToFpl(drops: string | number | undefined | null): number | null {
   if (drops == null || drops === '') return null
   const n = typeof drops === 'string' ? parseInt(drops, 10) : drops
   if (!Number.isFinite(n)) return null
-  return n / DROPS_PER_QXRP
+  return n / DROPS_PER_FPL
 }
 
 export async function GET(req: NextRequest) {
@@ -55,24 +55,33 @@ export async function GET(req: NextRequest) {
     const acct = acctR?.account_data
 
     if (!bond) {
+      const balance = dropsToFpl(acct?.Balance)
       return NextResponse.json({
         account,
         registered: false,
-        balance_qxrp: dropsToQxrp(acct?.Balance),
+        balance_fpl: balance,
+        balance_qxrp: balance,
         sequence: acct?.Sequence ?? null,
       })
     }
 
     const statusCode = bond.BondStatus as number | undefined
     const compositeScore = bond.CompositeScore as number | undefined
+    const bonded = dropsToFpl(bond.BondedAmount as string)
+    const rewardAccum = dropsToFpl(bond.RewardAccumulator as string)
+    const balance = dropsToFpl(acct?.Balance)
+    const poolBalance = epoch ? dropsToFpl(epoch.EpochPoolBalance as string) : null
+    const emissionRate = epoch ? dropsToFpl(epoch.EmissionRate as string) : null
 
     return NextResponse.json({
       account,
       registered: true,
       bond_status: BOND_STATUS[statusCode ?? 0] ?? `status_${statusCode}`,
-      bonded_amount_qxrp: dropsToQxrp(bond.BondedAmount as string),
+      bonded_amount_fpl: bonded,
+      bonded_amount_qxrp: bonded,
       composite_score: compositeScore ?? null,
-      reward_accum_qxrp: dropsToQxrp(bond.RewardAccumulator as string),
+      reward_accum_fpl: rewardAccum,
+      reward_accum_qxrp: rewardAccum,
       uptime_score: bond.UptimeScore ?? null,
       vote_accuracy_score: bond.VoteAccuracyScore ?? null,
       slash_multiplier: bond.SlashMultiplier ?? null,
@@ -81,13 +90,16 @@ export async function GET(req: NextRequest) {
         statusCode === 2 &&
         (compositeScore ?? 0) >= 500 &&
         parseInt(String(bond.RewardAccumulator ?? '0'), 10) > 0,
-      balance_qxrp: dropsToQxrp(acct?.Balance),
+      balance_fpl: balance,
+      balance_qxrp: balance,
       sequence: acct?.Sequence ?? null,
       epoch: epoch
         ? {
             number: epoch.EpochNumber,
-            pool_balance_qxrp: dropsToQxrp(epoch.EpochPoolBalance as string),
-            emission_rate_qxrp: dropsToQxrp(epoch.EmissionRate as string),
+            pool_balance_fpl: poolBalance,
+            pool_balance_qxrp: poolBalance,
+            emission_rate_fpl: emissionRate,
+            emission_rate_qxrp: emissionRate,
           }
         : null,
     })

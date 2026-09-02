@@ -18,6 +18,9 @@ export interface NetworkConfig {
   networkId: number
   /** Public RPC (browser may read; server uses env override) */
   rpcUrl: string
+  /** Faucet drip in FPL (legacy JSON alias: dripAmountQxrp). */
+  dripAmountFpl: number
+  /** @deprecated Prefer dripAmountFpl — kept for live clients. */
   dripAmountQxrp: number
   explorerUrl: string
   tokens: NetworkToken[]
@@ -33,6 +36,17 @@ function envInt(name: string, fallback: number): number {
   if (!v) return fallback
   const n = parseInt(v, 10)
   return Number.isFinite(n) ? n : fallback
+}
+
+/** First defined finite number among env names (FPL preferred, then legacy QXRP). */
+export function envNumberFirst(names: readonly string[], fallback: number): number {
+  for (const name of names) {
+    const v = process.env[name]
+    if (v == null || v === '') continue
+    const n = Number(v)
+    if (Number.isFinite(n)) return n
+  }
+  return fallback
 }
 
 /** Public testnet is Falcon PL 2300. Retired 1001 / 2200 env pins must not win. */
@@ -55,6 +69,16 @@ export function networkIdForTx(networkId: number): number | undefined {
   return txRequiresNetworkId(networkId) ? networkId : undefined
 }
 
+const TESTNET_DRIP_FPL = envNumberFirst(
+  [
+    'NEXT_PUBLIC_TESTNET_DRIP_FPL',
+    'NEXT_PUBLIC_DRIP_AMOUNT_FPL',
+    'NEXT_PUBLIC_TESTNET_DRIP_QXRP',
+    'NEXT_PUBLIC_DRIP_AMOUNT_QXRP',
+  ],
+  2000,
+)
+
 const TESTNET: NetworkConfig = {
   key: 'testnet',
   name: envStr('NEXT_PUBLIC_TESTNET_NAME', 'Falcon PL 2300'),
@@ -64,7 +88,8 @@ const TESTNET: NetworkConfig = {
     'NEXT_PUBLIC_TESTNET_RPC_URL',
     envStr('NEXT_PUBLIC_RPC_URL', '192.241.247.158:19311'),
   ),
-  dripAmountQxrp: envInt('NEXT_PUBLIC_TESTNET_DRIP_QXRP', envInt('NEXT_PUBLIC_DRIP_AMOUNT_QXRP', 2000)),
+  dripAmountFpl: TESTNET_DRIP_FPL,
+  dripAmountQxrp: TESTNET_DRIP_FPL,
   explorerUrl: envStr('NEXT_PUBLIC_TESTNET_EXPLORER_URL', envStr('NEXT_PUBLIC_EXPLORER_URL', '')),
   tokens: [
     {
@@ -77,13 +102,19 @@ const TESTNET: NetworkConfig = {
   badge: 'testnet',
 }
 
+const MAINNET_DRIP_FPL = envNumberFirst(
+  ['NEXT_PUBLIC_MAINNET_DRIP_FPL', 'NEXT_PUBLIC_MAINNET_DRIP_QXRP'],
+  100,
+)
+
 const MAINNET: NetworkConfig = {
   key: 'mainnet',
   name: envStr('NEXT_PUBLIC_MAINNET_NAME', 'Falcon PL'),
   shortName: 'Mainnet',
   networkId: envInt('NEXT_PUBLIC_MAINNET_NETWORK_ID', 1),
   rpcUrl: envStr('NEXT_PUBLIC_MAINNET_RPC_URL', ''),
-  dripAmountQxrp: envInt('NEXT_PUBLIC_MAINNET_DRIP_QXRP', 100),
+  dripAmountFpl: MAINNET_DRIP_FPL,
+  dripAmountQxrp: MAINNET_DRIP_FPL,
   explorerUrl: envStr('NEXT_PUBLIC_MAINNET_EXPLORER_URL', ''),
   tokens: [
     {
@@ -116,4 +147,9 @@ export function getNetwork(key: string | null | undefined): NetworkConfig {
 }
 
 /** Genesis bootstrap: recommended mainnet faucet seed from circulating allocation (2% = 4B total). */
-export const MAINNET_FAUCET_BOOTSTRAP_QXRP = envInt('MAINNET_FAUCET_BOOTSTRAP_QXRP', 25_000_000)
+export const MAINNET_FAUCET_BOOTSTRAP_FPL = envNumberFirst(
+  ['MAINNET_FAUCET_BOOTSTRAP_FPL', 'MAINNET_FAUCET_BOOTSTRAP_QXRP'],
+  25_000_000,
+)
+/** @deprecated Prefer MAINNET_FAUCET_BOOTSTRAP_FPL */
+export const MAINNET_FAUCET_BOOTSTRAP_QXRP = MAINNET_FAUCET_BOOTSTRAP_FPL

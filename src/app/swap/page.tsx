@@ -505,7 +505,7 @@ export default function SwapPage() {
       let deliverMin: XrplAmount | undefined
 
       if (swapDir === 'sell_falcon') {
-        // Sell FALCON → receive F-asset
+        // Sell FPL → receive F-asset
         sendMax = String(Math.round(amt * DROPS_PER_XRP))
         if (mptId) {
           amount = mptTokenAmount(mptId, outAmt)
@@ -519,7 +519,7 @@ export default function SwapPage() {
           }
         }
       } else {
-        // Buy FALCON → pay F-asset
+        // Buy FPL → pay F-asset
         if (swapData.userBalance && minOut > swapData.userBalance.balance + 1e-9) {
           setError(
             `Need ~${fmtTokenBal(minOut)} ${tokenLabel} for this buy (have ${fmtTokenBal(swapData.userBalance.balance)})`,
@@ -641,7 +641,7 @@ export default function SwapPage() {
 
         {selected && (
           <p className="text-center text-xs text-slate-500 -mt-2">
-            Pair: <span className="text-slate-300 font-medium">FALCON / {selected.displaySymbol}</span>
+            Pair: <span className="text-slate-300 font-medium">FPL / {selected.displaySymbol}</span>
           </p>
         )}
 
@@ -670,7 +670,7 @@ export default function SwapPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-slate-800/60 rounded-xl p-3 text-center">
-                  <div className="text-xs text-slate-500 mb-1">FALCON</div>
+                  <div className="text-xs text-slate-500 mb-1">FPL</div>
                   <div className="text-lg font-bold text-white">
                     {xrpBalance !== null ? fmt(xrpBalance, 2) : '—'}
                   </div>
@@ -775,15 +775,15 @@ export default function SwapPage() {
                       {swapData.market.type === 'amm' ? 'AMM' : 'DEX book'}
                     </span>
                     <span>
-                      {fmt(swapData.market.price, 6)} FALCON per {tokenLabel}
+                      {fmt(swapData.market.price, 6)} FPL per {tokenLabel}
                       {swapData.market.price > 0 && (
-                        <> ({fmt(1 / swapData.market.price, 4)} {tokenLabel} per FALCON)</>
+                        <> ({fmt(1 / swapData.market.price, 4)} {tokenLabel} per FPL)</>
                       )}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="bg-slate-800/60 rounded-lg px-3 py-2">
-                      <div className="text-slate-500">FALCON pool</div>
+                      <div className="text-slate-500">FPL pool</div>
                       <div className="text-slate-200 font-mono">{fmt(swapData.market.xrpPool, 0)}</div>
                     </div>
                     <div className="bg-slate-800/60 rounded-lg px-3 py-2">
@@ -798,7 +798,7 @@ export default function SwapPage() {
 
               {tradeMode === 'instant' && swapData?.market ? (
                 <div className="card p-5 space-y-4">
-                  <h2 className="text-sm font-semibold text-white">FALCON ↔ {tokenLabel}</h2>
+                  <h2 className="text-sm font-semibold text-white">FPL ↔ {tokenLabel}</h2>
                   <p className="text-xs text-slate-500">
                     Market swap via on-ledger Payment — routes through AMM if a pool exists, otherwise the DEX book.
                     Only Falcon-paired markets are supported.
@@ -812,7 +812,7 @@ export default function SwapPage() {
                         swapDir === 'buy_falcon' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-500'
                       }`}
                     >
-                      Buy FALCON
+                      Buy FPL
                     </button>
                     <button
                       type="button"
@@ -821,18 +821,18 @@ export default function SwapPage() {
                         swapDir === 'sell_falcon' ? 'bg-red-500/10 text-red-400' : 'text-slate-500'
                       }`}
                     >
-                      Sell FALCON
+                      Sell FPL
                     </button>
                   </div>
 
                   <p className="text-[10px] text-slate-500">
                     {swapDir === 'buy_falcon'
-                      ? `Enter how much FALCON you want to buy — we show the ${tokenLabel} it costs.`
-                      : `Enter how much FALCON you want to sell — we show the ${tokenLabel} you receive.`}
+                      ? `Enter how much FPL you want to buy — we show the ${tokenLabel} it costs.`
+                      : `Enter how much FPL you want to sell — we show the ${tokenLabel} you receive.`}
                   </p>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs text-slate-400">Amount (FALCON)</label>
+                    <label className="text-xs text-slate-400">Amount (FPL)</label>
                     <input
                       type="number"
                       value={swapAmt}
@@ -846,9 +846,9 @@ export default function SwapPage() {
                     <div className="flex justify-between text-xs text-slate-600">
                       <span>
                         {swapDir === 'sell_falcon'
-                          ? xrpBalance !== null ? `Available: ${fmt(xrpBalance, 4)} FALCON` : ''
+                          ? xrpBalance !== null ? `Available: ${fmt(xrpBalance, 4)} FPL` : ''
                           : swapData.userBalance && swapData.market
-                            ? `Can buy ~${fmt(swapData.userBalance.balance * swapData.market.price, 2)} FALCON with ${tokenLabel}`
+                            ? `Can buy ~${fmt(swapData.userBalance.balance * swapData.market.price, 2)} FPL with ${tokenLabel}`
                             : swapData.userBalance
                               ? `${tokenLabel}: ${fmtTokenBal(swapData.userBalance.balance)}`
                               : `No ${tokenLabel} trust line`}
@@ -884,14 +884,14 @@ export default function SwapPage() {
                       </div>
                       <div className="flex justify-between text-[10px] text-slate-500">
                         <span>{swapDir === 'sell_falcon' ? 'Sell' : 'Buy'}</span>
-                        <span className="font-mono">{fmt(swapAmtNum, 4)} FALCON</span>
+                        <span className="font-mono">{fmt(swapAmtNum, 4)} FPL</span>
                       </div>
                     </div>
                   )}
 
                   {swapDir === 'buy_falcon' && !swapData.userBalance && (
                     <div className="text-xs text-amber-400 bg-amber-500/10 rounded-xl px-3 py-2">
-                      Add a {tokenLabel} trust line before buying FALCON.
+                      Add a {tokenLabel} trust line before buying FPL.
                     </div>
                   )}
 
@@ -909,16 +909,16 @@ export default function SwapPage() {
                     {busy ? (
                       <><Spinner /> Signing…</>
                     ) : swapDir === 'sell_falcon' ? (
-                      'Sell FALCON'
+                      'Sell FPL'
                     ) : (
-                      'Buy FALCON'
+                      'Buy FPL'
                     )}
                   </button>
                 </div>
               ) : tradeMode === 'instant' && swapData?.token.configured ? (
                 <div className="card p-4 text-sm text-slate-500 space-y-2">
                   <p>
-                    No liquidity for FALCON/{tokenLabel} instant swaps yet. Bridge in from the Wallet tab,
+                    No liquidity for FPL/{tokenLabel} instant swaps yet. Bridge in from the Wallet tab,
                     post a limit order, or create the AMM pool.
                   </p>
                   <div className="flex flex-wrap gap-3 text-xs">
@@ -954,7 +954,7 @@ export default function SwapPage() {
                   />
                   <div className="card p-5">
                     <h2 className="text-sm font-semibold text-white mb-4">
-                      Order Book — FALCON / {tokenLabel}
+                      Order Book — FPL / {tokenLabel}
                     </h2>
                     <OrderBookPanel
                       compact
