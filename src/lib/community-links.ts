@@ -22,7 +22,7 @@ export const COMMUNITY_SOCIALS: CommunitySocial[] = [
     id: 'discord',
     name: 'Discord',
     description: 'Chat with the community, ask questions, share builds.',
-    href: 'https://discord.gg/6QueNQ2KD',
+    href: 'https://discord.gg/rP7M5fG9ja',
     accent: '#5865F2',
   },
   {
