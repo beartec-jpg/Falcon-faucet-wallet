@@ -7,6 +7,7 @@
 
 import type { NextRequest } from 'next/server'
 import { clientIp } from '@/lib/security'
+import { envNumberFirst } from '@/lib/networks'
 
 export type NetworkKey = 'testnet' | 'mainnet'
 
@@ -231,6 +232,13 @@ export async function consumeFaucetSybilBudgets(opts: {
 }
 
 /** Mainnet-oriented drip defaults (env overrides still win in resolveFaucet). */
+export function recommendedMainnetDripFpl(): number {
+  return envNumberFirst(
+    ['MAINNET_FAUCET_DRIP_FPL', 'FAUCET_DRIP_FPL', 'MAINNET_FAUCET_DRIP_QXRP', 'FAUCET_DRIP_QXRP'],
+    10,
+  )
+}
+/** @deprecated Prefer recommendedMainnetDripFpl */
 export function recommendedMainnetDripQxrp(): number {
-  return parseFloat(process.env.MAINNET_FAUCET_DRIP_QXRP ?? process.env.FAUCET_DRIP_QXRP ?? '10')
+  return recommendedMainnetDripFpl()
 }

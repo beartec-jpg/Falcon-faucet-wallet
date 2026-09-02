@@ -547,7 +547,7 @@ export default function VaultPage() {
     setError(null)
     setBusy(true)
     try {
-      // Live on-chain snapshot (FALCON + F-USDC) for cold last-known balances
+      // Live on-chain snapshot (FPL + F-USDC) for cold last-known balances
       let accountSnap:
         | {
             balance: number

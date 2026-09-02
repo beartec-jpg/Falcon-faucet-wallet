@@ -182,7 +182,7 @@ export default function ArcadePage() {
         }
         setLastTx(data.txHash ?? null)
         setStatus(
-          `Claimed ${Number(data.amount).toLocaleString()} FALCON for ${game}`,
+          `Claimed ${Number(data.amount).toLocaleString()} FPL for ${game}`,
         )
         postToArcade({
           type: 'CLAIM_RESULT',

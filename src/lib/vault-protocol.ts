@@ -129,11 +129,11 @@ export interface VaultUnsignedPayment {
     /** Payment destination (r… or name → r…) */
     destination?: string
     /**
-     * Payment: native FALCON drops, or F-USDC human amount.
+     * Payment: native FPL drops, or F-USDC human amount.
      * TrustSet: unused (see limit*).
      */
     amountDrops?: string
-    /** Display asset for Payment; default FPL for older packages */
+    /** Display asset for Payment; default FPL. `FALCON` kept as a legacy alias. */
     asset?: 'FPL' | 'FALCON' | 'F-USDC'
     /** TrustSet limit */
     limitCurrency?: string

@@ -1,7 +1,7 @@
 import { withNetworkQuery } from '@/lib/network-query'
 import type { NetworkKey } from '@/lib/networks'
 
-/** AMMCreate charges one owner reserve as the transaction fee (~2 FALCON on testnet). */
+/** AMMCreate charges one owner reserve as the transaction fee (~2 FPL on testnet). */
 export const AMM_CREATE_FEE_DROPS = '2000000'
 
 /** Default number of ledgers ahead used for LastLedgerSequence when signing. */

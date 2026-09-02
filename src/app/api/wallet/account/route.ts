@@ -89,7 +89,7 @@ export interface TxRecord {
   hash:        string
   type:        string
   amount?:     string
-  /** FALCON | F-USDC | FETH | FBNB | … from parseTxAmount */
+  /** FPL | F-USDC | FETH | FBNB | … from parseTxAmount */
   amountAsset?: string
   destination?: string
   /** Human name for destination when known (AccountNames). */

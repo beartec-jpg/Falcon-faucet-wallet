@@ -12,7 +12,7 @@ export {
   hfStatus,
 }
 
-/** FALCON collateral required for a target health factor (default 150%). */
+/** FPL collateral required for a target health factor (default 150%). */
 export function collateralFalconForDebt(
   debtFusdc: number,
   falconPerFusdc: number,
@@ -23,7 +23,7 @@ export function collateralFalconForDebt(
   return (debtFusdc * minRatio) / falconPerFusdc
 }
 
-/** FALCON price drop % (debt unchanged) to reach liquidation threshold HF. */
+/** FPL price drop % (debt unchanged) to reach liquidation threshold HF. */
 export function liquidationPriceDropPct(hf: number | null): number | null {
   if (hf == null || !Number.isFinite(hf) || hf <= LEND_LIQUIDATION_THRESHOLD) return null
   return (1 - LEND_LIQUIDATION_THRESHOLD / hf) * 100
@@ -93,18 +93,18 @@ export function collateralBlockedReason(
     return null
   }
   if (falconPerFusdc == null || falconPerFusdc <= 0) {
-    return 'AMM price unavailable — cannot validate FALCON collateral.'
+    return 'AMM price unavailable — cannot validate FPL collateral.'
   }
   const collateral = collateralFalcon ?? 0
   if (!Number.isFinite(collateral) || collateral <= 0) {
-    return 'Enter how much FALCON you will post as collateral.'
+    return 'Enter how much FPL you will post as collateral.'
   }
   const min = collateralFalconForDebt(principalFusdc, falconPerFusdc)
   if (min != null && collateral + 1e-9 < min) {
-    return `Need at least ${min.toLocaleString(undefined, { maximumFractionDigits: 4 })} FALCON collateral (150% of borrow at current AMM price).`
+    return `Need at least ${min.toLocaleString(undefined, { maximumFractionDigits: 4 })} FPL collateral (150% of borrow at current AMM price).`
   }
   if (walletFalconBalance != null && collateral > walletFalconBalance + 1e-9) {
-    return `Insufficient FALCON in wallet (${walletFalconBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })} available).`
+    return `Insufficient FPL in wallet (${walletFalconBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })} available).`
   }
   const hf = healthFactor(collateral, principalFusdc, falconPerFusdc)
   if (hf != null && hf < LEND_LIQUIDATION_THRESHOLD) {

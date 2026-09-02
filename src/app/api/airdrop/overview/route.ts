@@ -12,13 +12,15 @@ export async function GET(req: NextRequest) {
   const overview = await getAirdropOverview(AIRDROP_SCORING_NETWORK)
   return NextResponse.json({
     ...overview,
+    poolFpl: overview.poolFalcon,
+    totalAllocatedFpl: overview.totalAllocatedFalcon,
     network: AIRDROP_SCORING_NETWORK,
     scoringNetwork: AIRDROP_SCORING_NETWORK,
     viewerNetwork: networkKey,
     testnetActivityCounts: false,
     note:
       networkKey === 'testnet'
-        ? 'Preview only: airdrop scores mainnet activity after genesis. Testnet does not earn mainnet FALCON.'
+        ? 'Preview only: airdrop scores mainnet activity after genesis. Testnet does not earn mainnet FPL.'
         : overview.notes,
   })
 }

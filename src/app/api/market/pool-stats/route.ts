@@ -134,7 +134,7 @@ export async function GET(req: NextRequest) {
       live: false,
       token: tokenOut,
       poolHint: mpt
-        ? 'SPV FBTC AMM not found — needs MPTokensV2 + FALCON/FBTC seed.'
+        ? 'SPV FBTC AMM not found — needs MPTokensV2 + FPL/FBTC seed.'
         : undefined,
       updatedAt: new Date().toISOString(),
     })
@@ -146,7 +146,7 @@ export async function GET(req: NextRequest) {
       live: false,
       token: tokenOut,
       poolHint: mpt
-        ? 'SPV FBTC AMM not found — needs MPTokensV2 + FALCON/FBTC seed.'
+        ? 'SPV FBTC AMM not found — needs MPTokensV2 + FPL/FBTC seed.'
         : undefined,
       updatedAt: new Date().toISOString(),
     })

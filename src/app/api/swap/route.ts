@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
             token,
             poolHint:
               token.mptIssuanceId
-                ? 'SPV FBTC AMM not found — seed FALCON+FBTC pool after MPTokensV2 is enabled.'
+                ? 'SPV FBTC AMM not found — seed FPL+FBTC pool after MPTokensV2 is enabled.'
                 : undefined,
           },
           { status: 404 },

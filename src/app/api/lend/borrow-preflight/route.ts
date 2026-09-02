@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Enter a positive borrow amount' }, { status: 400 })
   }
   if (!Number.isFinite(collateralFalcon) || collateralFalcon <= 0) {
-    return NextResponse.json({ error: 'Enter FALCON collateral amount' }, { status: 400 })
+    return NextResponse.json({ error: 'Enter FPL collateral amount' }, { status: 400 })
   }
 
   const loanEpochs = clampLoanEpochs(
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
   if (!ok) {
     return NextResponse.json(
       {
-        error: `Borrow would fail on-chain (${sim.engine_result ?? 'simulate error'}). Check vault liquidity${permissionless ? ' and FALCON collateral' : ' and broker cover'}.`,
+        error: `Borrow would fail on-chain (${sim.engine_result ?? 'simulate error'}). Check vault liquidity${permissionless ? ' and FPL collateral' : ' and broker cover'}.`,
         simulateResult: sim.engine_result,
         simulateMessage: sim.engine_result_message,
         principal,

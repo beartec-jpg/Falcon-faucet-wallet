@@ -170,6 +170,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       txHash: paid.txId || 'ok',
       amount: PL_DRIP,
+      amountFpl: PL_DRIP,
       account,
       remainingToday: unlimitedTestnet
         ? 999_999
@@ -283,7 +284,7 @@ export async function POST(req: NextRequest) {
     return err('Cannot reach Falcon Ledger node. Try again shortly.', 503)
   }
 
-  const amountDrops = dropsFromQxrp(faucet.dripAmountQxrp)
+  const amountDrops = dropsFromQxrp(faucet.dripAmountFpl)
   let tx_blob: string
   let txHash: string
   try {
@@ -390,7 +391,7 @@ export async function POST(req: NextRequest) {
   await logFaucetClaim({
     network: networkKey,
     address: account,
-    amountQxrp: faucet.dripAmountQxrp,
+    amountQxrp: faucet.dripAmountFpl,
     txHash,
     ipHash,
     dayUtc,
@@ -401,7 +402,8 @@ export async function POST(req: NextRequest) {
     : Math.max(0, (acctLimit.remainingToday ?? dayCap) - 1)
   return NextResponse.json({
     txHash,
-    amount: faucet.dripAmountQxrp,
+    amount: faucet.dripAmountFpl,
+    amountFpl: faucet.dripAmountFpl,
     account,
     network: networkKey,
     engine_result: validatedResult,

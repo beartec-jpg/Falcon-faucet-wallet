@@ -1,7 +1,7 @@
 /**
  * Airdrop scoring is mainnet-only.
  * Testnet faucet/validators/LP must never write into airdrop allocations or snapshots
- * that could be paid in mainnet FALCON.
+ * that could be paid in mainnet FPL.
  */
 
 import type { NetworkKey } from '@/lib/networks'
@@ -30,7 +30,7 @@ export function requireAirdropScoringNetwork(
     return {
       ok: false,
       error:
-        'Airdrop scoring refuses testnet. Only mainnet activity (post-genesis) counts toward mainnet FALCON airdrop. Use network=mainnet.',
+        'Airdrop scoring refuses testnet. Only mainnet activity (post-genesis) counts toward mainnet FPL airdrop. Use network=mainnet.',
     }
   }
   if (n !== 'mainnet') {

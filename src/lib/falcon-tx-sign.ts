@@ -90,7 +90,7 @@ export function baseTx(
   ) as TxCore
 }
 
-/** Build unsigned native FALCON Payment tx_json (no secret). Hot + vault cold path. */
+/** Build unsigned native FPL Payment tx_json (no secret). Hot + vault cold path. */
 export function buildPaymentTxJson(params: {
   account: string
   destination: string
@@ -437,7 +437,7 @@ export function nameStringToHex(name: string): string {
     .toUpperCase()
 }
 
-/** Claim a human-readable name (locks 100 FALCON bond). Requires AccountNames amendment. */
+/** Claim a human-readable name (locks 100 FPL bond). Requires AccountNames amendment. */
 export async function signNameSetTx(
   params: {
     account: string

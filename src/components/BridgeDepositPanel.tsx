@@ -1714,7 +1714,7 @@ export default function BridgeDepositPanel({
           `Your Falcon wallet already exists — this is not “need XRP”. ` +
           `Site config must point at the live ${assetLabel} issuer. Hard-refresh after deploy, then try again.`
       } else if (!ok && /XRP/i.test(msg)) {
-        msg = msg.replace(/XRP/g, 'FALCON')
+        msg = msg.replace(/XRP/g, 'FPL')
       }
       setTrustLineResult({
         ok,

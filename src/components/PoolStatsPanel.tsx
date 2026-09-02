@@ -122,7 +122,7 @@ export default function PoolStatsPanel({
       <div className="card p-6 border border-amber-500/20 bg-amber-500/5">
         <div className="text-sm font-semibold text-amber-200">No AMM pool yet</div>
         <p className="text-xs text-slate-400 mt-2">
-          Bridge {tokenSym} onto Falcon, then create the FALCON / {tokenSym} pool below. Stats appear
+          Bridge {tokenSym} onto Falcon, then create the FPL / {tokenSym} pool below. Stats appear
           once the pool is live on-ledger.
         </p>
       </div>
@@ -139,7 +139,7 @@ export default function PoolStatsPanel({
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded text-xs font-mono bg-purple-500/15 text-purple-300">AMM</span>
-              <span className="text-xs text-slate-500">FALCON / {tokenSym}</span>
+              <span className="text-xs text-slate-500">FPL / {tokenSym}</span>
             </div>
             <h2 className="text-lg font-bold text-white mt-2">Pool overview</h2>
           </div>
@@ -154,20 +154,20 @@ export default function PoolStatsPanel({
 
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2 sm:col-span-1 rounded-xl bg-slate-800/70 p-4">
-            <div className="text-xs text-slate-500 mb-1">Total value (FALCON terms)</div>
+            <div className="text-xs text-slate-500 mb-1">Total value (FPL terms)</div>
             <div className="text-3xl font-bold text-white">{fmt(p.tvlFalcon, 0)}</div>
-            <div className="text-[10px] text-slate-500 mt-1">FALCON + {tokenSym} at pool price</div>
+            <div className="text-[10px] text-slate-500 mt-1">FPL + {tokenSym} at pool price</div>
           </div>
           <div className="col-span-2 sm:col-span-1 rounded-xl bg-slate-800/70 p-4">
             <div className="text-xs text-slate-500 mb-1">Pool price</div>
             <div className="text-3xl font-bold text-white">{fmt(p.price, 4)}</div>
-            <div className="text-[10px] text-slate-500 mt-1">FALCON per {tokenSym}</div>
+            <div className="text-[10px] text-slate-500 mt-1">FPL per {tokenSym}</div>
           </div>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
           <div className="rounded-xl bg-slate-800/50 px-3 py-3">
-            <div className="text-[10px] uppercase tracking-wide text-slate-500">FALCON</div>
+            <div className="text-[10px] uppercase tracking-wide text-slate-500">FPL</div>
             <div className="text-lg font-bold text-white mt-1">{fmt(p.falcon, 0)}</div>
           </div>
           <div className="rounded-xl bg-slate-800/50 px-3 py-3">
@@ -187,7 +187,7 @@ export default function PoolStatsPanel({
         <div className="space-y-1.5">
           <div className="flex justify-between text-xs text-slate-500">
             <span>Asset mix (by value)</span>
-            <span>{fmt(p.falconSharePct, 1)}% FALCON · {fmt(p.usdcSharePct, 1)}% {tokenSym}</span>
+            <span>{fmt(p.falconSharePct, 1)}% FPL · {fmt(p.usdcSharePct, 1)}% {tokenSym}</span>
           </div>
           <div className="h-2 rounded-full bg-slate-800 overflow-hidden flex">
             <div className="bg-brand-500/80 h-full" style={{ width: `${p.falconSharePct}%` }} />
@@ -217,7 +217,7 @@ export default function PoolStatsPanel({
               <div className="font-mono text-slate-200">{fmt(data.viewer.lpBalance, 0)}</div>
             </div>
             <div>
-              <div className="text-slate-500">Withdrawable FALCON</div>
+              <div className="text-slate-500">Withdrawable FPL</div>
               <div className="font-mono text-slate-200">{fmt(data.viewer.estFalconOut, 4)}</div>
             </div>
             <div>

@@ -64,7 +64,7 @@ export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
         <p className="text-xs text-emerald-200/80">
           {protocol.txSigningReady
             ? protocol.lendingPermissionless && protocol.lendingCollateral
-              ? 'Supply, permissionless borrow (FALCON collateral, 150% HF), add collateral, claim, repay, and on-chain liquidation (LoanManage + HF monitor) are wired.'
+              ? 'Supply, permissionless borrow (FPL collateral, 150% HF), add collateral, claim, repay, and on-chain liquidation (LoanManage + HF monitor) are wired.'
               : lending.cosignReady
                 ? 'Supply, borrow (LoanSet + broker co-sign), claim, repay, and on-chain risk enforcement are wired. Enable LendingPermissionless on validators for collateral-only borrow.'
                 : 'Supply and claim work from the portal. Borrow needs LendingPermissionless on-chain, or TESTNET_LENDING_BROKER_SECRET for legacy co-sign.'
@@ -185,13 +185,13 @@ function BorrowLoanCard({
       ? loanHealthSnapshot(projectedCollateral, loanDebt, falconPerFusdc)
       : null
   const addCollateralBlocked = !addCollateralAmt.trim()
-    ? 'Enter how much FALCON to add above, then tap Add collateral.'
+    ? 'Enter how much FPL to add above, then tap Add collateral.'
     : (() => {
         if (!Number.isFinite(addCollateralNum) || addCollateralNum <= 0) {
-          return 'Enter how much FALCON to add.'
+          return 'Enter how much FPL to add.'
         }
         if (walletFalcon != null && addCollateralNum > walletFalcon + 1e-9) {
-          return `Insufficient FALCON in wallet (${walletFalcon.toLocaleString(undefined, { maximumFractionDigits: 4 })} available).`
+          return `Insufficient FPL in wallet (${walletFalcon.toLocaleString(undefined, { maximumFractionDigits: 4 })} available).`
         }
         return null
       })()
@@ -227,10 +227,10 @@ function BorrowLoanCard({
           <div className="font-mono text-slate-200 mt-0.5">{fmt(loanDebt, 2)} F-USDC</div>
         </div>
         <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-          <div className="text-slate-500">FALCON collateral</div>
+          <div className="text-slate-500">FPL collateral</div>
           <div className="font-mono text-brand-300 mt-0.5">
             {loan.collateralFalcon > 0
-              ? `${fmt(loan.collateralFalcon, 4)} FALCON`
+              ? `${fmt(loan.collateralFalcon, 4)} FPL`
               : 'None on-chain (pre-amendment loan)'}
           </div>
         </div>
@@ -247,7 +247,7 @@ function BorrowLoanCard({
           </div>
         </div>
         <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-          <div className="text-slate-500">Liquidation if FALCON drops</div>
+          <div className="text-slate-500">Liquidation if FPL drops</div>
           <div className="font-mono text-amber-300 mt-0.5">
             {loanHealth?.liquidationDropPct != null
               ? `${fmt(loanHealth.liquidationDropPct, 2)}%`
@@ -258,14 +258,14 @@ function BorrowLoanCard({
 
       {loanHealth?.liquidationDropPct != null && (
         <p className="text-[10px] text-slate-500">
-          A {fmt(loanHealth.liquidationDropPct, 2)}% FALCON price drop (debt unchanged) reaches liquidation
+          A {fmt(loanHealth.liquidationDropPct, 2)}% FPL price drop (debt unchanged) reaches liquidation
           threshold HF {LEND_LIQUIDATION_THRESHOLD}. Add collateral or repay to restore health.
         </p>
       )}
 
       {loan.collateralFalcon <= 0 && (
         <p className="text-[10px] text-amber-300/90">
-          This loan has no on-chain collateral (opened before LendingCollateral). Repay and re-borrow to lock FALCON.
+          This loan has no on-chain collateral (opened before LendingCollateral). Repay and re-borrow to lock FPL.
         </p>
       )}
 
@@ -274,9 +274,9 @@ function BorrowLoanCard({
           <div className="text-xs font-medium text-brand-200">Add collateral</div>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-              <div className="text-slate-500">Your FALCON balance</div>
+              <div className="text-slate-500">Your FPL balance</div>
               <div className="font-mono text-brand-300 mt-0.5">
-                {walletFalcon != null ? `${fmt(walletFalcon, 4)} FALCON` : '—'}
+                {walletFalcon != null ? `${fmt(walletFalcon, 4)} FPL` : '—'}
               </div>
             </div>
             <div className="bg-slate-950/60 rounded-lg px-3 py-2">
@@ -295,7 +295,7 @@ function BorrowLoanCard({
             </div>
           </div>
           <label className="block text-xs">
-            <span className="text-slate-500">Additional FALCON</span>
+            <span className="text-slate-500">Additional FPL</span>
             <input
               type="number"
               min="0"
@@ -400,10 +400,10 @@ export function LendPoolOverviewPanel({
           </div>
           <h2 className="text-sm font-semibold text-white mt-2">F-USDC lend pool</h2>
           <p className="text-xs text-slate-500 mt-1">
-            Only F-USDC goes in — users bridge or swap, then supply. No FALCON in this pool. Borrowers draw
+            Only F-USDC goes in — users bridge or swap, then supply. No FPL in this pool. Borrowers draw
             F-USDC when loans open
             {permissionless
-              ? '; permissionless loans lock borrower FALCON collateral on-chain (no broker co-sign).'
+              ? '; permissionless loans lock borrower FPL collateral on-chain (no broker co-sign).'
               : '; legacy path used broker first-loss cover (retired when permissionless is live).'}
           </p>
         </div>
@@ -475,10 +475,10 @@ export function LendPoolOverviewPanel({
                     </div>
                   ) : (
                     <div>
-                      <div className="text-slate-500">FALCON collateral</div>
+                      <div className="text-slate-500">FPL collateral</div>
                       <div className="font-mono text-brand-300">
                         {pool.borrow.totalCollateralFalcon > 0
-                          ? `${fmt(pool.borrow.totalCollateralFalcon, 4)} FALCON`
+                          ? `${fmt(pool.borrow.totalCollateralFalcon, 4)} FPL`
                           : '—'}
                       </div>
                       <div className="text-[10px] text-emerald-500/90 mt-0.5">Permissionless — no broker</div>
@@ -493,14 +493,14 @@ export function LendPoolOverviewPanel({
                     </div>
                   </div>
                   <div className="col-span-2">
-                    <div className="text-slate-500">FALCON collateral (on-chain)</div>
+                    <div className="text-slate-500">FPL collateral (on-chain)</div>
                     <div className="font-mono text-brand-300">
                       {pool.borrow.totalCollateralFalcon > 0
-                        ? `${fmt(pool.borrow.totalCollateralFalcon, 4)} FALCON`
+                        ? `${fmt(pool.borrow.totalCollateralFalcon, 4)} FPL`
                         : '—'}
                     </div>
                     <div className="text-[10px] text-slate-600 mt-0.5">
-                      FALCON locked on active loans (LendingCollateral amendment).
+                      FPL locked on active loans (LendingCollateral amendment).
                     </div>
                   </div>
                 </div>
@@ -610,7 +610,7 @@ export function LendPoolOverviewPanel({
                     <td className="py-2 pr-2 font-mono">{shortAddr(b.address)}</td>
                     <td className="text-right font-mono py-2 px-2 text-brand-300">
                       {b.collateralFalcon != null && b.collateralFalcon > 0
-                        ? `${fmt(b.collateralFalcon, 2)} FALCON`
+                        ? `${fmt(b.collateralFalcon, 2)} FPL`
                         : '—'}
                     </td>
                     <td className="text-right font-mono py-2 pl-2">{fmt(b.principalFusdc, 2)} F-USDC</td>
@@ -759,8 +759,8 @@ export function LendSupplyPanel({
         )}
       </div>
       <p className="text-[11px] text-slate-600">
-        Network fee is paid in <span className="text-slate-400">FALCON</span>, not F-USDC. Failed attempts
-        only cost a trace of FALCON.
+        Network fee is paid in <span className="text-slate-400">FPL</span>, not F-USDC. Failed attempts
+        only cost a trace of FPL.
       </p>
       <label className="block text-xs">
         <span className="text-slate-500">Amount to supply (F-USDC)</span>
@@ -856,7 +856,7 @@ export function LendBorrowPanel({
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
       <h2 className="text-sm font-semibold text-white">Borrow F-USDC</h2>
       <p className="text-xs text-slate-500">
-        Open a loan via <code className="text-slate-400">LoanSet</code>. You sign as borrower and lock FALCON collateral
+        Open a loan via <code className="text-slate-400">LoanSet</code>. You sign as borrower and lock FPL collateral
         on-chain{permissionless ? ' — no operator co-sign when LendingPermissionless is enabled' : '; the broker owner co-signs CounterpartySignature'}.
       </p>
       {!permissionless && !data?.lending.cosignReady && data?.protocol.txSigningReady && (
@@ -866,7 +866,7 @@ export function LendBorrowPanel({
       )}
       {permissionless && (
         <p className="text-xs text-emerald-300/90">
-          Permissionless borrow: post FALCON collateral (150% min at AMM price). No broker co-sign.
+          Permissionless borrow: post FPL collateral (150% min at AMM price). No broker co-sign.
         </p>
       )}
       {blocked && data?.protocol.txSigningReady && (
@@ -885,7 +885,7 @@ export function LendBorrowPanel({
           {permissionless ? (
             <>
               {' '}
-              · FALCON collateral required (150% min HF at AMM price) — no broker co-sign
+              · FPL collateral required (150% min HF at AMM price) — no broker co-sign
             </>
           ) : (
             <>
@@ -975,7 +975,7 @@ export function LendBorrowPanel({
       </label>
       <label className="block text-xs">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-slate-500">FALCON collateral</span>
+          <span className="text-slate-500">FPL collateral</span>
           {minCollateral != null && (
             <button
               type="button"
@@ -997,8 +997,8 @@ export function LendBorrowPanel({
         />
         {data?.wallet?.falconBalance != null && (
           <span className="text-[10px] text-slate-600 mt-1 block">
-            Wallet: {fmt(data.wallet.falconBalance, 4)} FALCON
-            {falconPerFusdc ? ` · AMM ≈ ${fmt(falconPerFusdc, 6)} F-USDC/FALCON` : ''}
+            Wallet: {fmt(data.wallet.falconBalance, 4)} FPL
+            {falconPerFusdc ? ` · AMM ≈ ${fmt(falconPerFusdc, 6)} F-USDC/FPL` : ''}
           </span>
         )}
       </label>
@@ -1020,7 +1020,7 @@ export function LendBorrowPanel({
           </div>
           {preview.liquidationDropPct != null && (
             <p className="text-[10px] text-slate-500 leading-relaxed">
-              If FALCON price drops{' '}
+              If FPL price drops{' '}
               <span className="font-mono text-amber-300">{fmt(preview.liquidationDropPct, 2)}%</span>{' '}
               (debt unchanged), health reaches {LEND_LIQUIDATION_THRESHOLD} — liquidation threshold.
             </p>
@@ -1133,7 +1133,7 @@ export function LendPositionsPanel({
             <span className="text-slate-500">Epoch reward estimate</span>
             <span className="font-mono text-brand-300">
               {lp.estEpochRewardFalcon != null
-                ? `${fmt(lp.estEpochRewardFalcon, 4)} FALCON`
+                ? `${fmt(lp.estEpochRewardFalcon, 4)} FPL`
                 : '—'}
             </span>
           </div>
@@ -1154,16 +1154,16 @@ export function LendPositionsPanel({
         className="w-full rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 text-sm font-medium disabled:opacity-50"
       >
         {lp?.canClaim
-          ? `Claim lender rewards${lp.estEpochRewardFalcon != null ? ` · ~${fmt(lp.estEpochRewardFalcon, 4)} FALCON` : ''}`
+          ? `Claim lender rewards${lp.estEpochRewardFalcon != null ? ` · ~${fmt(lp.estEpochRewardFalcon, 4)} FPL` : ''}`
           : 'Claim lender rewards (none available)'}
       </button>
 
       {lp && (lp.claimableLiquidationFalcon ?? 0) > 0.0001 && (
         <div className="rounded-lg border border-brand-500/30 bg-brand-500/5 px-3 py-2.5 space-y-2">
           <div className="flex justify-between gap-3 text-xs">
-            <span className="text-slate-500">Liquidation FALCON (claimable)</span>
+            <span className="text-slate-500">Liquidation FPL (claimable)</span>
             <span className="font-mono text-brand-300">
-              {fmt(lp.claimableLiquidationFalcon, 4)} FALCON
+              {fmt(lp.claimableLiquidationFalcon, 4)} FPL
             </span>
           </div>
           <p className="text-[10px] text-slate-500">
@@ -1175,7 +1175,7 @@ export function LendPositionsPanel({
             disabled={!ready || busy || !onClaimLiquidation}
             className="w-full rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
           >
-            {busy ? 'Signing…' : 'Claim liquidation FALCON'}
+            {busy ? 'Signing…' : 'Claim liquidation FPL'}
           </button>
         </div>
       )}
