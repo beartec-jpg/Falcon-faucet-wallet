@@ -13,6 +13,9 @@ const GAMES = [
   { slug: 'amendment-apocalypse', label: 'Shoot' },
 ] as const
 
+/** Arcade chrome and boards are Falcon PL 2300 testnet only. */
+const ARCADE_NETWORK = 'testnet' as const
+
 interface Entry {
   rank: number
   address: string
@@ -21,7 +24,7 @@ interface Entry {
 }
 
 export default function ArcadeLeaderboardPage() {
-  const { networkKey } = useNetwork()
+  const { networkKey, setNetworkKey } = useNetwork()
   const [game, setGame] = useState<string>('falcon-flight')
   const [entries, setEntries] = useState<Entry[]>([])
   const [loading, setLoading] = useState(true)
@@ -31,7 +34,7 @@ export default function ArcadeLeaderboardPage() {
     setLoading(true)
     try {
       const q = new URLSearchParams({
-        network: networkKey,
+        network: ARCADE_NETWORK,
         game,
         limit: '25',
       })
@@ -44,7 +47,11 @@ export default function ArcadeLeaderboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [networkKey, game])
+  }, [game])
+
+  useEffect(() => {
+    if (networkKey !== ARCADE_NETWORK) setNetworkKey(ARCADE_NETWORK)
+  }, [networkKey, setNetworkKey])
 
   useEffect(() => {
     void load()

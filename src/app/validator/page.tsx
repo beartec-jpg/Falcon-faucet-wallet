@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 
-const DRIP_AMOUNT = parseInt(
+const parsedDrip = parseInt(
   process.env.NEXT_PUBLIC_TESTNET_DRIP_FPL ??
     process.env.NEXT_PUBLIC_DRIP_AMOUNT_FPL ??
     process.env.NEXT_PUBLIC_TESTNET_DRIP_QXRP ??
@@ -12,6 +12,7 @@ const DRIP_AMOUNT = parseInt(
     '2000',
   10,
 )
+const DRIP_AMOUNT = Number.isFinite(parsedDrip) && parsedDrip > 0 ? parsedDrip : 2000
 
 const STEPS = [
   {
