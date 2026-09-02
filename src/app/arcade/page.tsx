@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
-import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { loadPrimaryWallet } from '@/lib/wallet-store'
 
@@ -283,7 +282,11 @@ export default function ArcadePage() {
         </div>
       </Header>
       <div className="shrink-0">
-        <NetworkBanner />
+        <div className="bg-amber-950/50 border-b border-amber-800/40 px-4 py-2 text-center text-xs text-amber-200/90">
+          <span className="font-medium">Falcon PL</span>
+          {' · '}Network ID 2300
+          {' · '}FPL testnet — no real value
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 bg-slate-950 relative">
