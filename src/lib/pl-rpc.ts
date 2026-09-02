@@ -14,6 +14,25 @@ export const PL_NETWORK_ID = _plNid === 1001 || _plNid === 2200 || !Number.isFin
 /** Public TCP proxy on the droplet → falcon1 :19301 archive. */
 export const PL_PUBLIC_PROXY = '192.241.247.158:19311'
 
+function isServerlessRuntime(): boolean {
+  return (
+    process.env.VERCEL === '1' ||
+    process.env.VERCEL === 'true' ||
+    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME)
+  )
+}
+
+function isLoopbackAddr(addr: string): boolean {
+  const host =
+    addr
+      .replace(/^tcp:\/\//i, '')
+      .split('/')[0]
+      ?.replace(/^\[(.*)\]$/, '$1')
+      .split(':')[0]
+      ?.toLowerCase() ?? ''
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1'
+}
+
 export function plRpcAddrs(): string[] {
   const fromEnv = [
     process.env.FALCON_PL_RPC,
@@ -22,11 +41,14 @@ export function plRpcAddrs(): string[] {
     .flatMap((v) => (v ?? '').split(','))
     .map((s) => s.trim())
     .filter(Boolean)
-  const fallbacks = ['127.0.0.1:19301', PL_PUBLIC_PROXY]
+  const serverless = isServerlessRuntime()
+  const fallbacks = serverless ? [PL_PUBLIC_PROXY] : ['127.0.0.1:19301', PL_PUBLIC_PROXY]
   const out: string[] = []
   for (const a of [...fromEnv, ...fallbacks]) {
+    if (serverless && isLoopbackAddr(a)) continue
     if (!out.includes(a)) out.push(a)
   }
+  if (out.length === 0) out.push(PL_PUBLIC_PROXY)
   return out
 }
 

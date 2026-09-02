@@ -1,7 +1,8 @@
 // Falcon Ledger Wallet — Service Worker
 // Network-first for API + WASM; stale-while-revalidate for static assets
 
-const CACHE = 'falcon-wallet-v9'
+const CACHE = 'falcon-wallet-v10'
+const API_TIMEOUT_MS = 10_000
 
 const PRECACHE_URLS = [
   '/',
@@ -29,16 +30,22 @@ self.addEventListener('activate', event => {
   )
 })
 
+function fetchWithTimeout(request, ms) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  return fetch(request, { signal: ctrl.signal }).finally(() => clearTimeout(timer))
+}
+
 self.addEventListener('fetch', event => {
   const { request } = event
   const url = new URL(request.url)
 
   if (url.origin !== self.location.origin) return
 
-  // API + Falcon WASM bundle: network-first
+  // API + Falcon WASM bundle: network-first, bounded so explorer cannot spin forever
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/wasm/') || url.pathname.includes('.wasm')) {
     event.respondWith(
-      fetch(request).catch(() =>
+      fetchWithTimeout(request, API_TIMEOUT_MS).catch(() =>
         new Response(
           JSON.stringify({ error: 'You are offline' }),
           { status: 503, headers: { 'Content-Type': 'application/json' } }
