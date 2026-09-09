@@ -354,15 +354,15 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'p',
-        text: 'Native FPL sits beside represented assets from hardcoded rails. On public testnet **2300**, ETH and USDC enter through a **dest-lock** Ethereum contract with no owner and no admin withdraw. BTC enters a FROST Taproot vault; peg-out is a dest-lock Kickoff, then the user’s Bitcoin key. That is not a federated “operator withdraw” key. Kickoff is still a 4-of-6 FROST signature — the same collusion class as forging the 2300 committee. After Kickoff, only dest CHECKSIG (CSV) or a published abort can spend the claim. This paper does not claim an external audit.',
+        text: 'Native FPL sits beside represented assets from hardcoded rails. On public testnet **2300**, ETH and USDC enter through a **dest-lock** Ethereum contract with no owner and no admin withdraw. BTC enters a BitVM2 instance (NUMS key-path dead). Peg-out is a claimer dest-lock Kickoff, then the user’s Bitcoin key after CSV. Setup n-of-n is used once to presign Challenge/abort, then those secrets are wiped. Live Kickoff is not FROST and not a federated operator withdraw key. After Kickoff, only dest CHECKSIG (CSV) or a published abort can spend the claim. This paper does not claim an external audit.',
       },
       {
         type: 'table',
         headers: ['Rail (2300 testnet)', 'Role'],
         rows: [
           ['Falcon PL', 'Settlement, FPL, lending, AMM, rewards'],
-          ['Bitcoin testnet', 'FROST P2TR vault + BitVM dest-lock Kickoff (FBTC)'],
-          ['Ethereum Sepolia', 'FalconBridge dest-lock ETH / USDC; Groth16 of 4-of-6 LC'],
+          ['Bitcoin testnet', 'BitVM2 instance + dest-lock Kickoff (FBTC); no FROST'],
+          ['Ethereum Sepolia', 'FalconDestLock: dest-lock Kickoff + dest take (no live n-of-n)'],
           ['BNB', 'Protocol rail exists; not a public dest-lock product'],
           ['XRP', 'Classic XRPL FXRP corridor — not 1001, not dest-lock'],
         ],
@@ -456,7 +456,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ],
           [
             'Stranger spend of BTC claim',
-            'After Kickoff, ELSE is dest CHECKSIG + CSV; IF is abort only after a valid FPL challenge. Kickoff itself still needs t-of-n FROST.',
+            'After Kickoff, ELSE is dest CHECKSIG + CSV; IF is abort only after a valid FPL challenge. Kickoff is claimer CHECKSIG on the instance (setup keys already wiped).',
           ],
         ],
       },

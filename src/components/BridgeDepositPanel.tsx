@@ -269,8 +269,6 @@ export default function BridgeDepositPanel({
   const [showSendScanner, setShowSendScanner] = useState(false)
   const [amount, setAmount] = useState('')
   const [withdrawAmount, setWithdrawAmount] = useState('')
-  /** WP2 F2 scaffolding: preferred BTC network fee (sats). Fleet fee wallet covers until user multi-input lands. */
-  const [userNetworkFeeSats, setUserNetworkFeeSats] = useState('1500')
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -1306,8 +1304,16 @@ export default function BridgeDepositPanel({
         return
       }
       const amountSats = Math.round(amt * 1e8)
-      if (amountSats < 546) {
-        setError('Amount too small (dust)')
+      const minOut = Number(spvStatus?.pegOut?.minSats ?? 2000)
+      if (amountSats < minOut) {
+        setError(`Amount too small (min ${minOut} sats)`)
+        return
+      }
+      const maxOut = spvStatus?.pegOut?.maxSats
+      if (maxOut != null && amountSats > maxOut) {
+        setError(
+          `Instance can pay at most ${maxOut} sats this Kickoff (hold ${spvStatus?.pegOut?.instanceSats ?? 0} − fee). Peg in more BTC or unwrap less.`,
+        )
         return
       }
       if (isPl2300) {
@@ -1356,7 +1362,7 @@ export default function BridgeDepositPanel({
 
     if (isPl2300 && destLockCfg && !isFxrpRoute && !isFbnbRoute) {
       if (!destLockOutReady) {
-        setError('ETH/USDC dest-lock is waiting for Groth16 Falcon-512 headers on Sepolia. Do not burn yet.')
+        setError('ETH/USDC dest-lock contract is not ready.')
         return
       }
       if (!wallet.evmAddress || !wallet.evmEncrypted) {
@@ -2729,9 +2735,13 @@ export default function BridgeDepositPanel({
                     {(fbtcSpvLive ?? fbtcLive ?? 0) > 0 && (
                       <button
                         type="button"
-                        onClick={() =>
-                          setWithdrawAmount(String(fbtcSpvLive ?? fbtcLive ?? 0))
-                        }
+                        onClick={() => {
+                          const avail = fbtcSpvLive ?? fbtcLive ?? 0
+                          const maxSats = spvStatus?.pegOut?.maxSats
+                          const capped =
+                            maxSats != null ? Math.min(avail, maxSats / 1e8) : avail
+                          setWithdrawAmount(String(capped))
+                        }}
                         className="text-brand-500"
                       >
                         Max
@@ -2746,36 +2756,13 @@ export default function BridgeDepositPanel({
                 )}
                 {spvLive && (
                   <div className="space-y-1.5 rounded-xl border border-slate-700/60 bg-slate-900/40 px-3 py-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <label className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
-                        BTC network fee (sats)
-                      </label>
-                      <span className="text-[10px] text-slate-600">WP2 · not from vault</span>
-                    </div>
-                    <input
-                      type="number"
-                      value={userNetworkFeeSats}
-                      onChange={(e) => setUserNetworkFeeSats(e.target.value)}
-                      placeholder="1500"
-                      min="500"
-                      max="100000"
-                      step="100"
-                      className="input-field text-sm"
-                      disabled={busy}
-                    />
                     <p className="text-[11px] text-slate-500 leading-snug">
-                      You receive the <span className="text-slate-400">full</span> burn amount on BTC.
-                      Network fee is paid by the fee wallet today; this value is preferred fee for the
-                      redeemer (and will attach from your BTC UTXO when user multi-input ships).
-                      {(() => {
-                        const f = parseInt(userNetworkFeeSats, 10)
-                        if (!Number.isFinite(f) || f < 500) return null
-                        return (
-                          <span className="block mt-0.5 text-slate-600">
-                            ≈ {(f / 1e8).toFixed(8)} BTC network fee
-                          </span>
-                        )
-                      })()}
+                      Peg-out burns FBTC, then a dest-lock Kickoff (claimer CHECKSIG, no FROST). After
+                      CSV={spvStatus?.pegOut?.csv ?? 6} your Bitcoin key takes. Instance can pay{' '}
+                      {spvStatus?.pegOut?.maxSats != null
+                        ? `${spvStatus.pegOut.maxSats} sats`
+                        : 'the live UTXO minus fee'}
+                      .
                     </p>
                   </div>
                 )}
@@ -2913,7 +2900,7 @@ export default function BridgeDepositPanel({
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 leading-snug">
-                      No trust line step — first deposit claim auto-enables your FBTC MPT on Falcon.
+                      Send testnet BTC to the BitVM2 instance + FALC memo. Peg-out is dest-lock Kickoff, then your key. No FROST.
                     </p>
                   </div>
                 ) : (
@@ -3084,7 +3071,14 @@ export default function BridgeDepositPanel({
                       {isFbtcRoute && (
                         <>
                           <div>
-                            SPV {isPl2300 ? (spvStatus?.spv === 'bitcoin' || spvLive ? 'Bitcoin headers live' : 'waiting for headers') : spvLive ? 'live' : 'pending'}
+                            BitVM2 instance · SPV{' '}
+                            {isPl2300
+                              ? spvStatus?.spv === 'bitcoin' || spvLive
+                                ? 'Bitcoin headers live'
+                                : 'waiting for headers'
+                              : spvLive
+                                ? 'live'
+                                : 'pending'}
                             {spvStatus?.bridge?.minConfirmations != null
                               ? ` · ${String(spvStatus.bridge.minConfirmations)} conf`
                               : ''}
@@ -3119,9 +3113,9 @@ export default function BridgeDepositPanel({
                 {withdrawResult.amount}{' '}
                 {isFbtcRoute
                   ? withdrawResult.btcClaimTxid
-                    ? 'FBTC burned · BTC paid from protocol reserve'
+                    ? 'FBTC burned · dest-lock Kickoff + your Bitcoin key took after CSV'
                     : isPl2300
-                      ? 'FBTC burned on Falcon PL. Testnet does not auto-send BTC — a withdraw note is open for the payout address.'
+                      ? 'FBTC burned. Dest-lock Kickoff is on Bitcoin — wait CSV then take with your key.'
                       : 'FBTC · shared-reserve redeem (any holder)'
                   : isPl2300
                     ? isFethRoute

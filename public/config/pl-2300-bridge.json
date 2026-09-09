@@ -2,7 +2,7 @@
   "version": 1,
   "status": "live",
   "network_id": 2300,
-  "description": "Falcon PL 2300 dest-lock. ETH/USDC: FalconQcBridge depositEth/depositUsdc + Groth16 Falcon-512 headers. BTC: NUMS even-Y dest+watch Kickoff.",
+  "description": "Falcon PL 2300 dest-lock. ETH/USDC: FalconDestLock deposit + claimer Kickoff + dest take after CSV. No live n-of-n. BTC: BitVM2 instance dest-lock Kickoff (no FROST).",
   "sepolia": {
     "chain_id": 11155111,
     "chain_name": "Sepolia",
@@ -10,12 +10,11 @@
     "explorer_url": "https://sepolia.etherscan.io",
     "usdc_token": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
     "usdc_decimals": 6,
-    "bridge": "0x8d0c0798055774532088549eaCC0581713BE53E2",
-    "verifier": "0xA37Ba477CB4a46794342c77d7e83883FF25CC45C",
+    "bridge": "0xdBF6855b00B78c047A729A21E13bfE5f4C991C05",
+    "claimer": "0xDb52847EE70cEd3128f49309c3DC65b69d7466f4",
+    "claim_delay": 6,
     "eth_lock": "0xc1113d2059c5d73f45968910fadfff7d88a3c4a4d8a0f754f15faa495d2c467b",
     "usdc_lock": "0xc8927e1f8b56b080b015ccf240c5d27c6f1525d52a6545a1c03c84326e483c1c",
-    "falcon_key_root": "0x04a9ad1908569884ff307f63291c592af16fe345fb471c22104d0c0717bcfd8a",
-    "proofs_needed": 4,
     "start_height": 0
   },
   "dest20": "sha256(lowercase PL account)[:20]"

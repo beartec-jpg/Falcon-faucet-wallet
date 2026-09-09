@@ -6,6 +6,11 @@ import { getNetwork } from '@/lib/networks'
 import { verifyBitcoinMerkleProof } from '@/lib/btc-merkle'
 import {
   assertLiveWatchAddress,
+  BITVM2_CLAIM_CSV,
+  BITVM2_INSTANCE_ADDRESS,
+  BITVM2_INSTANCE_SPK,
+  BITVM2_KICKOFF_FEE_SATS,
+  BITVM2_MIN_PEGOUT_SATS,
   claimAllowedForDeposit,
   isRetiredWatchAddress,
 } from '@/lib/btc-spv-policy'
@@ -202,33 +207,38 @@ export async function GET(req: NextRequest) {
       const st = await plStatus(false)
       const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
       const btc = rails.find((r) => String(r.asset) === 'BTC') ?? {}
-      const vp = (btc.vault_pub as Record<string, unknown> | undefined) ?? {}
-      const watchAddress = String(
-        btc.vault_address ||
-          vp.address ||
+      let watchAddress = String(
+        process.env.BITVM2_INSTANCE_ADDRESS ||
           (fileCfg.watch_address as string | undefined) ||
-          '',
+          BITVM2_INSTANCE_ADDRESS,
       ).trim()
-      const paymentScriptHex = String(
-        vp.spk_hex || (fileCfg.payment_script_hex as string | undefined) || '',
+      let paymentScriptHex = String(
+        process.env.BITVM2_INSTANCE_SPK ||
+          (fileCfg.payment_script_hex as string | undefined) ||
+          BITVM2_INSTANCE_SPK,
       )
         .trim()
         .replace(/^0x/i, '')
-      if (
-        !watchAddress ||
-        /tb1q7dnl/i.test(watchAddress) ||
-        /tb1qesum/i.test(watchAddress) ||
-        /tb1pq9mgl/i.test(watchAddress)
-      ) {
-        return NextResponse.json(
-          {
-            ready: false,
-            error: 'BTC vault is not the live NUMS dest+watch pool — refusing retired holds',
-            watchAddress: '',
-            retired: true,
-          },
-          { status: 503 },
-        )
+      try {
+        const walletApi =
+          process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
+        const dep = await fetch(`${walletApi.replace(/\/$/, '')}/btc-deposit`, {
+          cache: 'no-store',
+          signal: AbortSignal.timeout(4_000),
+        })
+        if (dep.ok) {
+          const d = (await dep.json()) as { address?: string; spk?: string }
+          if (d.address && !isRetiredWatchAddress(d.address)) {
+            watchAddress = d.address.trim()
+          }
+          if (d.spk) paymentScriptHex = String(d.spk).trim().replace(/^0x/i, '')
+        }
+      } catch {
+        /* overlay from env/config */
+      }
+      if (!watchAddress || isRetiredWatchAddress(watchAddress)) {
+        watchAddress = BITVM2_INSTANCE_ADDRESS
+        paymentScriptHex = BITVM2_INSTANCE_SPK
       }
       const { loadZeroPoint, offsetRail } = await import('@/lib/pl-zero-point')
       const zp = await loadZeroPoint()
@@ -239,7 +249,7 @@ export async function GET(req: NextRequest) {
         Number(btc.total_burned ?? 0),
       )
       const tipHeight = Number(btc.tip_height ?? 0)
-      const minConf = Number(btc.min_confirmations ?? 6) || 6
+      const minConf = Number(btc.min_confirmations ?? fileCfg.min_confirmations ?? 1) || 1
       const spv = String(btc.spv ?? 'protocol') === 'bitcoin' ? 'bitcoin' : 'protocol'
       let btcTipHeight: number | null = null
       let btcTipHash: string | null = null
@@ -255,19 +265,44 @@ export async function GET(req: NextRequest) {
         tipHeight > 0 && btcTipHeight != null ? Math.max(0, btcTipHeight - tipHeight) : null
       const lagLevel =
         lagBlocks == null ? 'unknown' : lagBlocks >= 100 ? 'critical' : lagBlocks >= 20 ? 'warn' : 'ok'
+      let instanceSats: number | null = null
+      try {
+        const utxoR = await explorerGet(`/address/${watchAddress}/utxo`, 'testnet')
+        if (utxoR.ok) {
+          const utxos = (await utxoR.json()) as Array<{ value?: number; status?: { confirmed?: boolean } }>
+          instanceSats = utxos
+            .filter((u) => u.status?.confirmed)
+            .reduce((n, u) => n + Math.floor(Number(u.value ?? 0)), 0)
+        }
+      } catch {
+        /* explorer lag */
+      }
+      const pegOutMaxSats =
+        instanceSats != null
+          ? Math.max(0, instanceSats - BITVM2_KICKOFF_FEE_SATS)
+          : null
       return NextResponse.json({
         amendment: { supported: true, enabled: true, majority: true },
         activated: true,
         ready: spv === 'bitcoin',
         mode: spv === 'bitcoin' ? 'bitcoin-spv' : 'pl-rail',
         spv,
+        holdKind: 'bitvm2-instance',
         message:
           spv === 'bitcoin'
-            ? 'Falcon PL Bitcoin SPV — send testnet BTC to the hold + FALC memo, then mint after 6 confirmations'
+            ? 'Falcon PL Bitcoin SPV — send testnet BTC to the BitVM2 instance + FALC memo, then mint. Peg-out is dest-lock Kickoff + your key after CSV. No FROST.'
             : 'Header submitter has not reanchored onto Bitcoin yet',
         btcNetwork: 'testnet',
         watchAddress,
         paymentScriptHex,
+        pegOut: {
+          mode: 'bitvm2-dest-lock',
+          csv: BITVM2_CLAIM_CSV,
+          minSats: BITVM2_MIN_PEGOUT_SATS,
+          kickoffFeeSats: BITVM2_KICKOFF_FEE_SATS,
+          instanceSats,
+          maxSats: pegOutMaxSats,
+        },
         rail: {
           asset: 'BTC',
           tip_height: tipHeight,
@@ -790,9 +825,9 @@ export async function POST(req: NextRequest) {
     if (purpose === 'deposit') {
       const fileCfg = await loadFileConfig()
       const watchAddress =
+        process.env.BITVM2_INSTANCE_ADDRESS?.trim() ||
         (fileCfg.watch_address as string | undefined)?.trim() ||
-        process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
-        null
+        BITVM2_INSTANCE_ADDRESS
       const outAddr = status.vout?.[vout]?.scriptpubkey_address?.trim()
       if (outAddr && isRetiredWatchAddress(outAddr)) {
         return NextResponse.json(
@@ -947,7 +982,9 @@ export async function POST(req: NextRequest) {
         btcTip: tip || null,
         confirmations,
         amountSats,
-        protocolMinConf: undefined,
+        protocolMinConf: Number(
+          (await loadFileConfig()).min_confirmations ?? 1,
+        ) || 1,
       })
       if (!gate.ok) {
         return NextResponse.json(

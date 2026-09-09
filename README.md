@@ -32,9 +32,9 @@ Official public portal for **Falcon PL** testnet (network ID **2300**) — Falco
 
 Paperwork: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
 
-- **Dest-lock ETH/USDC** — `FalconBridge` `depositEth(bytes20)` / `depositUsdc` auto-mints on Falcon PL. Bridge out: burn → LC header → `openClaim` / `take` dest-locked to your 0x. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: live`).
-- **Live contract:** `0x7eB72974F2d2a4AaDFabAf0975a29470fcd163E4` (Sepolia). Groth16 verifier `0x7db9b1862AE7D04cE9ff85447390bDdfa972a9d0`.
-- **BTC** — BitVM dest-lock + FROST P2TR vault on 2300. Wallet flag `BTC_RAIL_LIVE = true` (operator e2e 2026-08-21). Kickoff is still 4-of-6 FROST; after Kickoff only the dest key takes.
+- **Dest-lock ETH/USDC** — `FalconDestLock` `depositEth(bytes20)` / `depositUsdc` auto-mints on Falcon PL. Bridge out: burn → claimer dest-lock Kickoff → dest `take` after CSV=6. No live n-of-n. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: live`).
+- **Live contract:** `0xdBF6855b00B78c047A729A21E13bfE5f4C991C05` (Sepolia).
+- **BTC** — BitVM2 instance dest-lock on 2300. Wallet flag `BTC_RAIL_LIVE = true`. Peg-in: instance + FALC memo. Peg-out: burn FBTC, claimer dest-lock Kickoff, dest key takes after CSV. No FROST.
 - **Classic XRPL FXRP** — separate corridor; not the 1001 Falcon Ledger fork.
 - **Passkey Sepolia wallet** — no MetaMask; EVM keys encrypted on-device.
 - **Send Out** — move Sepolia ETH or USDC to any external `0x` address.

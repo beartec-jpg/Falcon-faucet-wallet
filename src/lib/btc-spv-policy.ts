@@ -3,6 +3,18 @@
  * No node SSH required — used by Bridge UI + claim preflight.
  */
 
+/** Live BitVM2 instance (2300 testnet). Packed NUMS vault is not this. */
+export const BITVM2_INSTANCE_ADDRESS =
+  'tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5'
+export const BITVM2_INSTANCE_SPK =
+  '512051b99b1a94717ff365ea891fe7fd3155acf11fd19b341865fd723d4fffdf2c5f'
+/** Kickoff fee from the instance; dest-lock take fee after CSV. */
+export const BITVM2_KICKOFF_FEE_SATS = 1000
+export const BITVM2_TAKE_FEE_SATS = 1000
+export const BITVM2_CLAIM_CSV = 6
+/** Dest-lock must cover take fee + dust. */
+export const BITVM2_MIN_PEGOUT_SATS = 2000
+
 /** Retired hold / custody addresses that must never accept new claims */
 export const RETIRED_BTC_WATCH_ADDRESSES = [
   // Legacy keyed custody
@@ -17,6 +29,10 @@ export const RETIRED_BTC_WATCH_ADDRESSES = [
   'tb1qesum00x0jm6w2a0dt5vksckhyt45430c0yg5sj',
   // Odd-Y v1 NUMS — BIP341 unspendable
   'tb1pq9mgl62e4dskkc9h4jxwfsfdt56hn9vl22u9xhqgz2l8jxfpwsascq6098',
+  // Packed even-Y NUMS dest+watch pool (~369k). Overlay mint does not spend this.
+  'tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34',
+  // Old FROST P2TR vault
+  'tb1pj9d6d6eaayw7f7hc3mr2lm3xhuscuhtw6kpjqz5jvvuf4mh2lduq2pqytm',
 ].map((a) => a.toLowerCase())
 
 /** Dust floor (sats) for peg-in / peg-out */
@@ -50,15 +66,14 @@ export function confTierForSats(amountSats: number): ConfTier {
   return CONF_TIERS[CONF_TIERS.length - 1]
 }
 
-/** Prefer tier mins but never below protocol minConfirmations when set */
+/** Protocol min is source of truth on 2300 (live overlay is 1 conf). */
 export function effectiveMinConfirmations(
   amountSats: number,
   protocolMin?: number | null,
 ): number {
-  const tier = confTierForSats(amountSats)
   const p = Number(protocolMin)
-  if (Number.isFinite(p) && p > 0) return Math.max(tier.minConfirmations, p)
-  return tier.minConfirmations
+  if (Number.isFinite(p) && p > 0) return Math.floor(p)
+  return confTierForSats(amountSats).minConfirmations
 }
 
 export type HeaderLag = {

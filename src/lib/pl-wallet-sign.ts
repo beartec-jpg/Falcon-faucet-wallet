@@ -241,7 +241,7 @@ export async function signRailWithdraw(opts: {
   fee?: number
   networkId?: number
   falconSecret: string
-  /** BTC dest-lock Kickoff hex. Required for BTC; omit for ETH/USDC. */
+  /** Watch/FROST Kickoff hex. Omit on BitVM2 — node rejects signed_btc_tx. */
   signedBtcTx?: string
 }): Promise<SignedPlTx> {
   const amountExact = typeof opts.amount === 'bigint' ? opts.amount.toString() : String(opts.amount).split('.')[0]
@@ -252,8 +252,8 @@ export async function signRailWithdraw(opts: {
   const fee = opts.fee ?? 2
   const dest = opts.externalTo.trim()
   const kickoff = (opts.signedBtcTx || '').trim().toLowerCase()
-  if (opts.asset === 'BTC' && !/^[0-9a-f]+$/.test(kickoff)) {
-    throw new Error('BTC withdraw needs a dest-lock Kickoff tx')
+  if (kickoff && !/^[0-9a-f]+$/.test(kickoff)) {
+    throw new Error('signed_btc_tx must be hex')
   }
   const kickoffJson = kickoff ? `,"signed_btc_tx":${JSON.stringify(kickoff)}` : ''
   const bodyJson =

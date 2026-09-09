@@ -20,7 +20,9 @@ export interface Pl2300BridgeConfig {
     usdc_token: string
     usdc_decimals: number
     bridge: string
-    verifier: string
+    claimer?: string
+    claim_delay?: number
+    verifier?: string
     start_height: number
   }
 }
@@ -28,12 +30,11 @@ export interface Pl2300BridgeConfig {
 export const DEST_LOCK_ABI = [
   'function depositEth(bytes20 dest20) payable',
   'function depositUsdc(bytes20 dest20, uint256 amount)',
-  'function openClaim(bytes32 noteId, address dest, uint256 amount, bool isUsdc, bytes32[] proof, uint32 index, uint64 fplHeight)',
+  'function kickoff(bytes32 noteId, address dest, uint256 amount, bool isUsdc)',
   'function take(bytes32 noteId)',
-  'function submitHeaderWithProof(uint64 height, bytes32 hash, bytes32 parent, bytes32 claimRoot, uint256[2] a, uint256[2][2] b, uint256[2] c)',
-  'function fplTip() view returns (uint64)',
-  'function headers(uint64) view returns (bytes32 hash, bytes32 parent, bytes32 claimRoot, bool finalized)',
-  'function claims(bytes32) view returns (address dest, uint256 amount, bool usdc, uint64 readyBlock, uint64 fplHeight, bytes32 leaf, bool open, bool challenged, bool taken)',
+  'function claimDelay() view returns (uint64)',
+  'function claimer() view returns (address)',
+  'function claims(bytes32) view returns (address dest, uint256 amount, bool usdc, uint64 readyBlock, bool open, bool taken)',
   'function ethPool() view returns (uint256)',
   'function usdcPool() view returns (uint256)',
   'event Deposit(bytes32 indexed dest20, address indexed token, uint256 amount, bytes32 lockId)',
@@ -86,8 +87,8 @@ async function withSepolia<T>(rpcUrl: string, fn: (p: JsonRpcProvider) => Promis
 export async function fetchFplTip(cfg: Pl2300BridgeConfig): Promise<number> {
   return withSepolia(cfg.sepolia.rpc_url, async (p) => {
     const c = new Contract(cfg.sepolia.bridge, DEST_LOCK_ABI, p)
-    const tip = await c.fplTip()
-    return Number(tip)
+    const delay = await c.claimDelay()
+    return Number(delay) > 0 ? 1 : 0
   })
 }
 
@@ -99,12 +100,9 @@ export function destLockContractReady(cfg: Pl2300BridgeConfig | null): boolean {
   )
 }
 
-/** Peg-out needs Groth16 Falcon-512 headers on the live FalconQc contract. Peg-in does not. */
-export function destLockHeadersReady(cfg: Pl2300BridgeConfig | null, fplTip: number | null): boolean {
-  if (!destLockContractReady(cfg)) return false
-  if (fplTip == null) return false
-  const start = cfg!.sepolia.start_height || 0
-  return fplTip > start && fplTip > 0
+/** Peg-out is dest-lock Kickoff + dest take. Groth16 headers are not required. */
+export function destLockHeadersReady(cfg: Pl2300BridgeConfig | null, _fplTip?: number | null): boolean {
+  return destLockContractReady(cfg)
 }
 
 export type DestLockMintJob = {
@@ -328,95 +326,42 @@ export async function pegOutDestLock(opts: {
   if (!proof?.noteId) {
     throw new Error('Burn submitted but the withdraw note did not pack. Keep this panel open and retry Bridge out.')
   }
-  const proveHeight = Number(proof.fplTip || 0)
-  if (!proveHeight) {
-    throw new Error('Burn packed but no FPL height yet. Retry Bridge out in a moment.')
-  }
-  opts.onStep?.(`Proving Falcon-512 header ${proveHeight} (you pay Sepolia gas)…`)
-  type HeaderProof = {
-    height: number
-    header: string
-    parent: string
-    claimRoot: string
-    a: [string, string]
-    b: [[string, string], [string, string]]
-    c: [string, string]
-    error?: string
-  }
-  let headerProof: HeaderProof | null = null
-  const tPr = Date.now()
-  while (Date.now() - tPr < 3 * 60_000) {
-    const res = await fetch('/api/wallet/pl', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'header-proof', height: proveHeight }),
-    })
-    const d = (await res.json()) as HeaderProof
-    if (res.ok && d && d.a && d.header) {
-      headerProof = d
-      break
-    }
-    opts.onStep?.(d?.error || 'Waiting for 4 Falcon-512 attestations + Groth16…')
-    await new Promise((r) => setTimeout(r, 4000))
-  }
-  if (!headerProof) {
-    throw new Error('Header proof did not land. Do not burn again — retry Bridge out.')
-  }
-  const fplHeight = Number(headerProof.height)
-  try {
-    const fresh = await postClaimProof({
-      account: opts.account,
-      asset: opts.asset,
+  opts.onStep?.('Dest-lock Kickoff (claimer CHECKSIG analogue, no n-of-n)…')
+  const kick = await fetch('/api/wallet/pl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'eth-kickoff',
+      noteId: proof.noteId,
       dest,
       amount: opts.amountExact.toString(),
-      noteId: proof.noteId,
-    })
-    if (fresh.claimRoot) proof = fresh
-  } catch {
-    /* keep packed proof */
-  }
-  opts.onStep?.(`Checking Sepolia header ${fplHeight}…`)
-  const already = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
-    const c = new Contract(opts.cfg.sepolia.bridge, DEST_LOCK_ABI, p)
-    const row = await c.headers(fplHeight)
-    return Boolean(row?.finalized ?? row?.[3])
+      asset: opts.asset,
+    }),
   })
-  if (!already) {
-    opts.onStep?.(`submitHeaderWithProof h=${fplHeight} — gas from your Sepolia key…`)
-    await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
-      const signer = new Wallet(opts.evmPrivateKey, p)
-      const c = new Contract(opts.cfg.sepolia.bridge, DEST_LOCK_ABI, signer)
-      const tx = await c.submitHeaderWithProof(
-        fplHeight,
-        headerProof!.header,
-        headerProof!.parent,
-        headerProof!.claimRoot,
-        headerProof!.a,
-        headerProof!.b,
-        headerProof!.c,
-      )
-      const rc = await tx.wait(1)
-      if (!rc || rc.status !== 1) throw new Error(`submitHeaderWithProof failed (${tx.hash})`)
-      return tx.hash as string
+  const kickJ = (await kick.json()) as { error?: string; tx?: string }
+  if (!kick.ok) throw new Error(kickJ.error || 'Dest-lock Kickoff failed')
+  const openHash = kickJ.tx || ''
+
+  const delay = Number(opts.cfg.sepolia.claim_delay ?? 6) || 6
+  opts.onStep?.(`Waiting CSV=${delay} Sepolia blocks, then dest take…`)
+  const tCsv = Date.now()
+  while (Date.now() - tCsv < 15 * 60_000) {
+    const ready = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
+      const c = new Contract(opts.cfg.sepolia.bridge, DEST_LOCK_ABI, p)
+      const row = await c.claims(proof!.noteId)
+      const readyBlock = Number(row?.readyBlock ?? row?.[3] ?? 0)
+      const open = Boolean(row?.open ?? row?.[4])
+      const taken = Boolean(row?.taken ?? row?.[5])
+      const bn = await p.getBlockNumber()
+      return { readyBlock, open, taken, bn }
     })
-  }
-  opts.onStep?.(`openClaim at FPL height ${fplHeight}…`)
-  const openHash = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
-    const signer = new Wallet(opts.evmPrivateKey, p)
-    const c = new Contract(opts.cfg.sepolia.bridge, DEST_LOCK_ABI, signer)
-    const tx = await c.openClaim(
-      proof!.noteId,
-      dest,
-      opts.amountExact,
-      opts.asset === 'USDC',
-      proof!.proof,
-      proof!.index,
-      fplHeight,
+    if (ready.taken) break
+    if (ready.open && ready.bn >= ready.readyBlock) break
+    opts.onStep?.(
+      `Kickoff CSV ${ready.bn} / ${ready.readyBlock || '…'} (need ${delay} blocks)…`,
     )
-    const rc = await tx.wait(1)
-    if (!rc || rc.status !== 1) throw new Error(`openClaim failed (${tx.hash})`)
-    return tx.hash as string
-  })
+    await new Promise((r) => setTimeout(r, 8000))
+  }
   opts.onStep?.('take() dest-locked funds…')
   const takeHash = await takeDestLockClaim({
     cfg: opts.cfg,

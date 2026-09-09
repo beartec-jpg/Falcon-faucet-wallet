@@ -205,6 +205,15 @@ export interface SpvStatus {
   btcNetwork: BtcNetwork
   ready: boolean
   message: string
+  holdKind?: string
+  pegOut?: {
+    mode?: string
+    csv?: number
+    minSats?: number
+    kickoffFeeSats?: number
+    instanceSats?: number | null
+    maxSats?: number | null
+  }
   /** FPL 2300: "bitcoin" after the header submitter reanchors. */
   spv?: string
   mode?: string

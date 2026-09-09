@@ -6,11 +6,15 @@
  */
 
 import { signPlPay, signRailDeposit, signRailWithdraw } from './pl-wallet-sign'
+import {
+  BITVM2_CLAIM_CSV,
+  BITVM2_MIN_PEGOUT_SATS,
+} from './btc-spv-policy'
 
 const RAIL = 'BTC'
 const FEE = 2
 const NETWORK_ID = 2300
-/** Dest-lock mint + Kickoff + CSV take e2e passed. Kickoff coordinator uses Bitcoin UTXOs. */
+/** BitVM2 dest-lock Kickoff + CSV take. No FROST. */
 export const BTC_RAIL_LIVE = true
 
 export type PlBtcRail = {
@@ -265,7 +269,9 @@ export async function pegOutPlBtc(opts: {
     throw new Error('BTC rail is not live — e2e not passed (BTC_RAIL_LIVE=false)')
   }
   const amount = Math.floor(opts.amountSats)
-  if (amount < 10_000) throw new Error('Amount too small (min 10000 sats)')
+  if (amount < BITVM2_MIN_PEGOUT_SATS) {
+    throw new Error(`Amount too small (min ${BITVM2_MIN_PEGOUT_SATS} sats)`)
+  }
   const dest = opts.btcAddress.trim()
   if (dest.length < 26) throw new Error('Need a Bitcoin payout address')
   const destSecret = opts.destSecretHex.replace(/^0x/i, '').toLowerCase()
@@ -277,7 +283,20 @@ export async function pegOutPlBtc(opts: {
     throw new Error(`Insufficient FBTC (have ${(snap.btcSats / 1e8).toFixed(8)})`)
   }
   if (snap.balance < FEE) throw new Error(`Need ${FEE} FPL for the withdraw fee`)
-  opts.onStep?.('Building dest+watch Kickoff…')
+
+  opts.onStep?.('Burning FBTC (no FROST Kickoff)…')
+  const tx = await signRailWithdraw({
+    account: opts.account,
+    sequence: snap.sequence,
+    asset: RAIL,
+    amount,
+    externalTo: dest,
+    falconSecret: opts.falconSecret,
+  })
+  await postTx(tx, opts.network)
+  await waitSeq(opts.account, opts.network, snap.sequence + 1)
+
+  opts.onStep?.('Signing dest-lock Kickoff (claimer CHECKSIG)…')
   const kick = await fetch('/api/wallet/pl', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -286,7 +305,6 @@ export async function pegOutPlBtc(opts: {
       account: opts.account,
       amount,
       dest,
-      destSecret,
     }),
   })
   const kickJ = (await kick.json()) as {
@@ -296,22 +314,11 @@ export async function pegOutPlBtc(opts: {
     utxo?: string
   }
   if (!kick.ok || !kickJ.signed_btc_tx) {
-    throw new Error(kickJ.error || 'Kickoff coordinator failed')
+    throw new Error(kickJ.error || 'Dest-lock Kickoff failed')
   }
-  const tx = await signRailWithdraw({
-    account: opts.account,
-    sequence: snap.sequence,
-    asset: RAIL,
-    amount,
-    externalTo: dest,
-    falconSecret: opts.falconSecret,
-    signedBtcTx: kickJ.signed_btc_tx,
-  })
-  await postTx(tx, opts.network)
-  await waitSeq(opts.account, opts.network, snap.sequence + 1)
 
   const { broadcastBtcTx } = await import('@/lib/btc-client')
-  opts.onStep?.('Broadcasting Kickoff to Bitcoin testnet…')
+  opts.onStep?.('Broadcasting dest-lock Kickoff to Bitcoin testnet…')
   let kickoffTxid = ''
   try {
     kickoffTxid = (await broadcastBtcTx(kickJ.signed_btc_tx, 'testnet')).trim()
@@ -325,8 +332,8 @@ export async function pegOutPlBtc(opts: {
   }
 
   const { pollSpvConfirmations } = await import('@/lib/btc-spv-pending')
-  const csv = 6
-  const need = csv + 1
+  const csv = BITVM2_CLAIM_CSV
+  const need = csv
   const t0 = Date.now()
   let confs = 0
   while (Date.now() - t0 < 45 * 60_000) {
@@ -342,7 +349,7 @@ export async function pegOutPlBtc(opts: {
   }
   if (confs < need || !kickoffTxid) {
     throw new Error(
-      `FBTC burned and Kickoff posted. Wait for ${need} Bitcoin confirmations then retry take (txid ${kickoffTxid || 'pending'}).`,
+      `FBTC burned and dest-lock Kickoff posted. Wait for ${need} Bitcoin confirmations then retry take (txid ${kickoffTxid || 'pending'}).`,
     )
   }
 
