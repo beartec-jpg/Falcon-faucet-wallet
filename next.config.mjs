@@ -19,10 +19,11 @@ const nextConfig = {
   ],
 
   webpack: (config, { isServer }) => {
-    // ripple-address-codec is ESM-only; Next collect page data require()s it and fails.
+    // ripple-address-codec pulls ESM-only @scure/base (ERR_REQUIRE_ESM on collect).
+    // Alias to a CJS facade so ripple-keypairs `require(...).encodeSeed` is a function.
     config.resolve.alias = {
       ...config.resolve.alias,
-      'ripple-address-codec': path.join(__dirname, 'src/lib/classic-address.ts'),
+      'ripple-address-codec': path.join(__dirname, 'src/lib/ripple-address-codec-shim.js'),
     }
     if (!isServer) {
       config.experiments = {

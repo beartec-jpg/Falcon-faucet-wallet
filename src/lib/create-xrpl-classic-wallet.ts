@@ -9,6 +9,10 @@
  * Stored encrypted under the same passkey vault as ETH/BTC keys.
  */
 
+import { ed25519 } from '@noble/curves/ed25519'
+import { sha256, sha512 } from '@noble/hashes/sha2.js'
+import { ripemd160 } from '@noble/hashes/legacy.js'
+import { decodeSeed, encodeAccountID, encodeSeed } from '@/lib/classic-address'
 import { authenticatePasskey } from '@/lib/passkey'
 import { encryptSeed, type EncryptedSeed } from '@/lib/wallet-crypto'
 import { loadPrimaryWallet, saveWallet, type StoredWallet } from '@/lib/wallet-store'
@@ -40,19 +44,74 @@ async function xrplWallet() {
   return Wallet
 }
 
+function bytesToHexUpper(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase()
+}
+
+function randomClassicSeed(type: 'ed25519' | 'secp256k1' = 'ed25519'): string {
+  const entropy = new Uint8Array(16)
+  if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+    throw new Error('Secure randomness is not available')
+  }
+  crypto.getRandomValues(entropy)
+  return encodeSeed(entropy, type)
+}
+
+/** XRPL ed25519 family-seed → keypair + classic r-address. Does not use xrpl.js. */
+function deriveEd25519Classic(seed: string): {
+  seed: string
+  address: string
+  publicKey: string
+} {
+  const decoded = decodeSeed(seed)
+  if (decoded.type !== 'ed25519') {
+    throw new Error('Classic XRP seed is not ed25519')
+  }
+  const rawPrivateKey = sha512(decoded.bytes).subarray(0, 32)
+  const rawPublicKey = ed25519.getPublicKey(rawPrivateKey)
+  const publicKey = `ED${bytesToHexUpper(rawPublicKey)}`
+  const pubBytes = new Uint8Array(33)
+  pubBytes[0] = 0xed
+  pubBytes.set(rawPublicKey, 1)
+  return {
+    seed,
+    address: encodeAccountID(ripemd160(sha256(pubBytes))),
+    publicKey,
+  }
+}
+
+async function walletFromClassicSeed(seed: string): Promise<{
+  seed: string
+  address: string
+  publicKey: string
+}> {
+  const trimmed = seed.trim()
+  try {
+    const Wallet = await xrplWallet()
+    const w = Wallet.fromSeed(trimmed)
+    if (w.seed && w.classicAddress && w.publicKey) {
+      return { seed: w.seed, address: w.classicAddress, publicKey: w.publicKey }
+    }
+  } catch {
+    /* ripple-keypairs require(encodeSeed) can still fail under the webpack alias */
+  }
+  return deriveEd25519Classic(trimmed)
+}
+
 export async function createRandomXrplClassicWallet(): Promise<{
   seed: string
   address: string
   publicKey: string
 }> {
-  const Wallet = await xrplWallet()
-  const w = Wallet.generate()
-  if (!w.seed) throw new Error('Failed to generate classic XRPL seed')
-  return {
-    seed: w.seed,
-    address: w.classicAddress,
-    publicKey: w.publicKey,
-  }
+  // Encode the family seed ourselves. Wallet.generate() goes through
+  // ripple-keypairs `require('ripple-address-codec').encodeSeed`, which was
+  // undefined under the webpack alias (`(0 , i.encodeSeed) is not a function`).
+  const seed = randomClassicSeed('ed25519')
+  const w = await walletFromClassicSeed(seed)
+  if (!w.seed || !w.address) throw new Error('Failed to generate classic XRPL seed')
+  return w
 }
 
 export async function encryptXrplClassicSeedForPasskey(
@@ -61,11 +120,10 @@ export async function encryptXrplClassicSeedForPasskey(
   hasPrf: boolean,
 ): Promise<{ address: string; publicKey: string; xrplClassicEncrypted: EncryptedSeed }> {
   const trimmed = seed.trim()
-  const Wallet = await xrplWallet()
-  const w = Wallet.fromSeed(trimmed)
+  const w = await walletFromClassicSeed(trimmed)
   const xrplClassicEncrypted = await encryptSeed(trimmed, keyBytes, hasPrf)
   return {
-    address: w.classicAddress,
+    address: w.address,
     publicKey: w.publicKey,
     xrplClassicEncrypted,
   }

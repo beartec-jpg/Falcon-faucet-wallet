@@ -376,3 +376,28 @@ export const codec = {
     return payload
   },
 }
+
+/** CJS `require('ripple-address-codec').encodeSeed` — named ESM exports are not enough. */
+const rippleAddressCodec = {
+  encodeSeed,
+  decodeSeed,
+  encodeAccountID,
+  decodeAccountID,
+  encodeNodePublic,
+  decodeNodePublic,
+  encodeAccountPublic,
+  decodeAccountPublic,
+  encodeXAddress,
+  decodeXAddress,
+  classicAddressToXAddress,
+  xAddressToClassicAddress,
+  isValidClassicAddress,
+  isValidXAddress,
+  isClassicAddress,
+  encodeAddress,
+  decodeAddress,
+  codec,
+  CLASSIC_ADDRESS_RE,
+}
+
+export default rippleAddressCodec

@@ -657,11 +657,9 @@ export default function WalletPage() {
       const { address: evmAddress, privateKeyHex: evmPrivateKeyHex } = createRandomEvmWallet()
       const evmEncrypted = await encryptSeed(evmPrivateKeyHex, keyBytes, hasPrf)
       const btc = await createBtcWalletForPasskey(keyBytes, hasPrf)
-      let classic: Awaited<ReturnType<typeof createXrplClassicWalletForPasskey>> | null = null
-      try {
-        classic = await createXrplClassicWalletForPasskey(keyBytes, hasPrf)
-      } catch (classicErr) {
-        console.warn('Classic XRPL keys optional — Falcon wallet still created', classicErr)
+      const classic = await createXrplClassicWalletForPasskey(keyBytes, hasPrf)
+      if (!classic.address || !classic.seed || !classic.xrplClassicEncrypted) {
+        throw new Error('Classic XRP key was not created')
       }
 
       setPendingSave({
@@ -682,10 +680,10 @@ export default function WalletPage() {
         btcAddressMainnet: btc.addressMainnet,
         btcPrivateKeyHex: btc.privateKeyHex,
         btcEncrypted: btc.btcEncrypted,
-        xrplClassicAddress: classic?.address,
-        xrplClassicPublicKey: classic?.publicKey,
-        xrplClassicSeed: classic?.seed,
-        xrplClassicEncrypted: classic?.xrplClassicEncrypted,
+        xrplClassicAddress: classic.address,
+        xrplClassicPublicKey: classic.publicKey,
+        xrplClassicSeed: classic.seed,
+        xrplClassicEncrypted: classic.xrplClassicEncrypted,
       })
       setView('backup')
     } catch (e: unknown) {
@@ -705,6 +703,9 @@ export default function WalletPage() {
     try {
       if (!pendingSave.evmAddress || !pendingSave.evmEncrypted) {
         throw new Error('Sepolia bridge wallet was not created — please create the wallet again')
+      }
+      if (!pendingSave.xrplClassicAddress || !pendingSave.xrplClassicEncrypted) {
+        throw new Error('Classic XRP wallet was not created — please create the wallet again')
       }
 
       const {
@@ -734,6 +735,9 @@ export default function WalletPage() {
       const verified = await loadPrimaryWallet()
       if (!verified || !hasBridgeWallet(verified)) {
         throw new Error('Wallet saved but Sepolia bridge keys did not persist — try again in this browser tab')
+      }
+      if (!hasXrplClassicWallet(verified)) {
+        throw new Error('Wallet saved but classic XRP keys did not persist — try again in this browser tab')
       }
       setWallet(verified)
       setBridgeMissing(false)
