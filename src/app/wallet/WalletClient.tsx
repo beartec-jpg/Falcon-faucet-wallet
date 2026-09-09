@@ -657,7 +657,12 @@ export default function WalletPage() {
       const { address: evmAddress, privateKeyHex: evmPrivateKeyHex } = createRandomEvmWallet()
       const evmEncrypted = await encryptSeed(evmPrivateKeyHex, keyBytes, hasPrf)
       const btc = await createBtcWalletForPasskey(keyBytes, hasPrf)
-      const classic = await createXrplClassicWalletForPasskey(keyBytes, hasPrf)
+      let classic: Awaited<ReturnType<typeof createXrplClassicWalletForPasskey>> | null = null
+      try {
+        classic = await createXrplClassicWalletForPasskey(keyBytes, hasPrf)
+      } catch (classicErr) {
+        console.warn('Classic XRPL keys optional — Falcon wallet still created', classicErr)
+      }
 
       setPendingSave({
         credentialId,
@@ -677,10 +682,10 @@ export default function WalletPage() {
         btcAddressMainnet: btc.addressMainnet,
         btcPrivateKeyHex: btc.privateKeyHex,
         btcEncrypted: btc.btcEncrypted,
-        xrplClassicAddress: classic.address,
-        xrplClassicPublicKey: classic.publicKey,
-        xrplClassicSeed: classic.seed,
-        xrplClassicEncrypted: classic.xrplClassicEncrypted,
+        xrplClassicAddress: classic?.address,
+        xrplClassicPublicKey: classic?.publicKey,
+        xrplClassicSeed: classic?.seed,
+        xrplClassicEncrypted: classic?.xrplClassicEncrypted,
       })
       setView('backup')
     } catch (e: unknown) {

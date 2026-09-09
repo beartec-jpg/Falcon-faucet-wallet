@@ -186,3 +186,193 @@ export function isValidClassicAddress(value: string): boolean {
 export function isClassicAddress(value: string): boolean {
   return isValidClassicAddress(value)
 }
+
+export const encodeAddress = encodeAccountID
+export const decodeAddress = decodeAccountID
+
+const FAMILY_SEED = 0x21
+const ED25519_SEED = [0x01, 0xe1, 0x4b]
+const NODE_PUBLIC = 0x1c
+const ACCOUNT_PUBLIC = 0x23
+
+function encodeVersioned(bytes: Uint8Array, versions: number[], expectedLength: number): string {
+  if (bytes.length !== expectedLength) {
+    throw new Error('unexpected_payload_length: bytes.length does not match expectedLength')
+  }
+  const payload = new Uint8Array(versions.length + bytes.length)
+  payload.set(versions, 0)
+  payload.set(bytes, versions.length)
+  const checksum = sha256(sha256(payload)).subarray(0, 4)
+  return encodeBase58(concatBytes(payload, checksum))
+}
+
+function decodeVersioned(
+  encoded: string,
+  versions: number[][],
+  types: Array<string | null>,
+  expectedLength: number,
+): { bytes: Uint8Array; type: string | null; version: number[] } {
+  const decoded = decodeBase58(encoded.trim())
+  if (decoded.length < 5) throw new Error('invalid_input_size')
+  const payload = decoded.subarray(0, decoded.length - 4)
+  const checksum = decoded.subarray(decoded.length - 4)
+  const expect = sha256(sha256(payload)).subarray(0, 4)
+  if (
+    checksum[0] !== expect[0] ||
+    checksum[1] !== expect[1] ||
+    checksum[2] !== expect[2] ||
+    checksum[3] !== expect[3]
+  ) {
+    throw new Error('checksum_invalid')
+  }
+  for (let i = 0; i < versions.length; i++) {
+    const ver = versions[i]
+    if (payload.length !== ver.length + expectedLength) continue
+    if (ver.every((b, j) => payload[j] === b)) {
+      return { bytes: payload.subarray(ver.length), type: types[i] ?? null, version: ver }
+    }
+  }
+  throw new Error('version_invalid: version bytes do not match')
+}
+
+/** Family seed (`s…`). Used by `xrpl.Wallet.generate` via the webpack alias. */
+export function encodeSeed(entropy: Uint8Array, type: 'ed25519' | 'secp256k1' = 'secp256k1'): string {
+  const bytes = asBytes(entropy)
+  if (bytes.length !== 16) throw new Error('entropy must have length 16')
+  return encodeVersioned(bytes, type === 'ed25519' ? ED25519_SEED : [FAMILY_SEED], 16)
+}
+
+export function decodeSeed(seed: string): {
+  bytes: Uint8Array
+  type: 'ed25519' | 'secp256k1'
+  version: number[]
+} {
+  const out = decodeVersioned(seed, [ED25519_SEED, [FAMILY_SEED]], ['ed25519', 'secp256k1'], 16)
+  return {
+    bytes: out.bytes,
+    type: out.type === 'ed25519' ? 'ed25519' : 'secp256k1',
+    version: out.version,
+  }
+}
+
+export function encodeNodePublic(bytes: Uint8Array): string {
+  return encodeVersioned(asBytes(bytes), [NODE_PUBLIC], 33)
+}
+export function decodeNodePublic(base58: string): Uint8Array {
+  return decodeVersioned(base58, [[NODE_PUBLIC]], [null], 33).bytes
+}
+export function encodeAccountPublic(bytes: Uint8Array): string {
+  return encodeVersioned(asBytes(bytes), [ACCOUNT_PUBLIC], 33)
+}
+export function decodeAccountPublic(base58: string): Uint8Array {
+  return decodeVersioned(base58, [[ACCOUNT_PUBLIC]], [null], 33).bytes
+}
+
+const X_PREFIX_MAIN = Uint8Array.from([0x05, 0x44])
+const X_PREFIX_TEST = Uint8Array.from([0x04, 0x93])
+
+export function encodeXAddress(
+  accountId: Uint8Array,
+  tag: number | false,
+  test: boolean,
+): string {
+  const id = asBytes(accountId)
+  if (id.length !== 20) throw new Error('Account ID must be 20 bytes')
+  if (tag !== false && tag != null && tag > 0xffffffff) throw new Error('Invalid tag')
+  const theTag = tag || 0
+  const flag = tag === false || tag == null ? 0 : 1
+  const payload = new Uint8Array(2 + 20 + 8)
+  payload.set(test ? X_PREFIX_TEST : X_PREFIX_MAIN, 0)
+  payload.set(id, 2)
+  payload[22] = flag
+  payload[23] = theTag & 0xff
+  payload[24] = (theTag >> 8) & 0xff
+  payload[25] = (theTag >> 16) & 0xff
+  payload[26] = (theTag >> 24) & 0xff
+  const checksum = sha256(sha256(payload)).subarray(0, 4)
+  return encodeBase58(concatBytes(payload, checksum))
+}
+
+export function decodeXAddress(xAddress: string): {
+  accountId: Uint8Array
+  tag: number | false
+  test: boolean
+} {
+  const decoded = decodeBase58(xAddress.trim())
+  if (decoded.length < 5) throw new Error('Invalid X-address')
+  const payload = decoded.subarray(0, decoded.length - 4)
+  const checksum = decoded.subarray(decoded.length - 4)
+  const expect = sha256(sha256(payload)).subarray(0, 4)
+  if (
+    checksum[0] !== expect[0] ||
+    checksum[1] !== expect[1] ||
+    checksum[2] !== expect[2] ||
+    checksum[3] !== expect[3]
+  ) {
+    throw new Error('checksum_invalid')
+  }
+  const test =
+    payload[0] === X_PREFIX_TEST[0] && payload[1] === X_PREFIX_TEST[1]
+      ? true
+      : payload[0] === X_PREFIX_MAIN[0] && payload[1] === X_PREFIX_MAIN[1]
+        ? false
+        : (() => {
+            throw new Error('Invalid X-address: bad prefix')
+          })()
+  const accountId = payload.subarray(2, 22)
+  const flag = payload[22]
+  if (flag >= 2) throw new Error('Unsupported X-address')
+  const tag =
+    flag === 1
+      ? payload[23] + payload[24] * 0x100 + payload[25] * 0x10000 + payload[26] * 0x1000000
+      : false
+  return { accountId, tag, test }
+}
+
+export function classicAddressToXAddress(
+  classicAddress: string,
+  tag: number | false,
+  test: boolean,
+): string {
+  return encodeXAddress(decodeAccountID(classicAddress), tag, test)
+}
+
+export function xAddressToClassicAddress(xAddress: string): {
+  classicAddress: string
+  tag: number | false
+  test: boolean
+} {
+  const { accountId, tag, test } = decodeXAddress(xAddress)
+  return { classicAddress: encodeAccountID(accountId), tag, test }
+}
+
+export function isValidXAddress(xAddress: string): boolean {
+  try {
+    decodeXAddress(xAddress)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export const codec = {
+  encodeChecked(bytes: Uint8Array): string {
+    const checksum = sha256(sha256(bytes)).subarray(0, 4)
+    return encodeBase58(concatBytes(bytes, checksum))
+  },
+  decodeChecked(encoded: string): Uint8Array {
+    const decoded = decodeBase58(encoded)
+    const payload = decoded.subarray(0, decoded.length - 4)
+    const checksum = decoded.subarray(decoded.length - 4)
+    const expect = sha256(sha256(payload)).subarray(0, 4)
+    if (
+      checksum[0] !== expect[0] ||
+      checksum[1] !== expect[1] ||
+      checksum[2] !== expect[2] ||
+      checksum[3] !== expect[3]
+    ) {
+      throw new Error('checksum_invalid')
+    }
+    return payload
+  },
+}
