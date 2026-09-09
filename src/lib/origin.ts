@@ -30,6 +30,16 @@ function isProduction(): boolean {
   return process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
 }
 
+function siteOrigin(req: NextRequest): string | null {
+  const host = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim() || req.headers.get('host')
+  if (!host) return null
+  const proto =
+    req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() ||
+    toOrigin(req.url)?.split(':')[0] ||
+    'https'
+  return `${proto}://${host}`
+}
+
 export function isOriginAllowed(req: NextRequest): boolean {
   // Prefer the Origin header; fall back to the Referer parsed down to its origin.
   // We compare the exact origin (not a prefix) to avoid suffix-based bypasses
@@ -40,36 +50,23 @@ export function isOriginAllowed(req: NextRequest): boolean {
     (rawOrigin && toOrigin(rawOrigin)) ||
     (rawReferer && toOrigin(rawReferer)) ||
     null
+  const self = siteOrigin(req)
 
-  if (ALLOWED_ORIGINS.length > 0) {
-    if (!requestOrigin) return false
-    return ALLOWED_ORIGINS.includes(requestOrigin)
-  }
+  // This deployment's own origin is always allowed (stale ALLOWED_ORIGINS
+  // used to 403 create-wallet when the public host was not on the list).
+  if (requestOrigin && self && requestOrigin === self) return true
 
-  // No explicit allow-list configured.
-  if (!isProduction()) {
-    // Development: allow everything to keep local dev simple.
+  if (ALLOWED_ORIGINS.length > 0 && requestOrigin && ALLOWED_ORIGINS.includes(requestOrigin)) {
     return true
   }
 
-  // Mobile / form POST sometimes omits Origin. Same-origin navigations still
-  // send Sec-Fetch-Site.
+  // Mobile / PWA / some WebViews omit Origin on POST. Same-site still sends this.
   if (!requestOrigin) {
     const site = req.headers.get('sec-fetch-site')
     if (site === 'same-origin' || site === 'none') return true
+    if (self) return true
   }
 
-  // Production fallback: allow same-host requests so the faucet keeps working
-  // even when ALLOWED_ORIGINS has not been set after a deployment/restart.
-  if (!requestOrigin) return false
-  const host = req.headers.get('host')
-  if (!host) return false
-  // Derive the scheme from x-forwarded-proto (set by Vercel/proxies), or fall
-  // back to the scheme already present in the request URL.
-  const proto =
-    req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() ||
-    toOrigin(req.url)?.split(':')[0] ||
-    'https'
-  const siteOrigin = `${proto}://${host}`
-  return requestOrigin === siteOrigin
+  if (!isProduction() && ALLOWED_ORIGINS.length === 0) return true
+  return false
 }
