@@ -16,6 +16,7 @@ const nextConfig = {
     'ripple-binary-codec',
     '@xrplf/isomorphic',
     '@noble/hashes',
+    '@noble/curves',
   ],
 
   webpack: (config, { isServer }) => {

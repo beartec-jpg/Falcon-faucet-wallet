@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "@noble/curves": "1.2.0",
     "@noble/hashes": "^2.2.0",
     "@openforge-sh/liboqs": "^0.14.5",
     "@upstash/ratelimit": "^2.0.0",
