@@ -1591,7 +1591,7 @@ export default function WalletPage() {
                   Falcon <span className="text-brand-500">Wallet</span>
                 </h1>
                 <p className="text-slate-400 text-sm">
-                  One passkey creates your Falcon and Sepolia bridge wallets together. One backup file restores both.
+                  One passkey creates Falcon, ETH/BNB, BTC, and classic XRP keys together. One backup file restores them all.
                 </p>
               </div>
 
@@ -1668,7 +1668,7 @@ export default function WalletPage() {
               <div className="text-center space-y-2 pb-1">
                 <h2 className="text-xl font-bold text-white">Save your wallet backup</h2>
                 <p className="text-slate-400 text-sm">
-                  One backup file holds both your Falcon and Sepolia bridge keys. Download it, then tap Continue.
+                  One backup file holds Falcon, ETH/BNB, BTC, and classic XRP keys. Download it, then tap Continue.
                 </p>
               </div>
 
@@ -1702,12 +1702,23 @@ export default function WalletPage() {
                     Unpaid names return to the pool.
                   </p>
                 </div>
-                <div className="space-y-1">
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">Sepolia bridge address</div>
-                  <div className="font-mono text-xs text-cyan-300 break-all">{pendingSave.evmAddress}</div>
-                  <p className="text-[10px] text-slate-600">
-                    ETH, BTC, BNB, and classic XRP keys are in the same backup file.
-                  </p>
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wide">ETH / USDC / BNB (Sepolia + BSC)</div>
+                    <div className="font-mono text-xs text-cyan-300 break-all">{pendingSave.evmAddress}</div>
+                  </div>
+                  {pendingSave.btcAddress && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wide">BTC testnet</div>
+                      <div className="font-mono text-xs text-cyan-300 break-all">{pendingSave.btcAddress}</div>
+                    </div>
+                  )}
+                  {pendingSave.xrplClassicAddress && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wide">Classic XRP (XRPL testnet)</div>
+                      <div className="font-mono text-xs text-cyan-300 break-all">{pendingSave.xrplClassicAddress}</div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -1824,7 +1835,7 @@ export default function WalletPage() {
               </div>
 
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200 leading-snug">
-                Upload your <span className="font-mono">falcon-backup-….json</span> file (Falcon + Sepolia keys in one file).
+                Upload your <span className="font-mono">falcon-backup-….json</span> file (Falcon, ETH/BNB, BTC, and classic XRP keys in one file).
               </div>
 
               <div className="card p-6 space-y-4">
