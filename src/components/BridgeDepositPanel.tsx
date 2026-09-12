@@ -29,10 +29,17 @@ import {
   destLockHeadersReady,
   fetchFplTip,
   fetchPl2300BridgeConfig,
+  fetchDestLockMintStatus,
   mintAfterDestLockDeposit,
   pegOutDestLock,
   type Pl2300BridgeConfig,
 } from '@/lib/pl-dest-lock'
+import {
+  clearDestLockPending,
+  getDestLockPending,
+  upsertDestLockPending,
+  type DestLockPending,
+} from '@/lib/dest-lock-pending'
 import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
 import { fetchBtcBalance } from '@/lib/btc-client'
 import {
@@ -304,6 +311,7 @@ export default function BridgeDepositPanel({
   const [xrplBal, setXrplBal] = useState<string | null>(null)
   const [spvStatus, setSpvStatus] = useState<SpvStatus | null>(null)
   const [spvPending, setSpvPending] = useState<SpvPendingDeposit | null>(null)
+  const [destLockPending, setDestLockPending] = useState<DestLockPending | null>(null)
   const [spvResumeTxid, setSpvResumeTxid] = useState('')
   /** Open SPV peg-outs (burn → reserve BTC → prove) — survives refresh like Bridge In */
   const [spvWithdraws, setSpvWithdraws] = useState<SpvPendingWithdraw[]>([])
@@ -620,6 +628,61 @@ export default function BridgeDepositPanel({
       clearInterval(t)
     }
   }, [bridgeCfg])
+
+  // Restore ETH/USDC dest-lock mint after refresh (status is otherwise React-only).
+  useEffect(() => {
+    if (!isPl2300 || !falconId) return
+    const saved = getDestLockPending(falconId)
+    if (saved) setDestLockPending(saved)
+  }, [isPl2300, falconId])
+
+  useEffect(() => {
+    if (!destLockPending || destLockPending.status === 'done' || destLockPending.status === 'error') {
+      return
+    }
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const st = await fetchDestLockMintStatus({
+          account: destLockPending.falconAccount,
+          txHash: destLockPending.txHash,
+          asset: destLockPending.asset,
+        })
+        if (cancelled) return
+        if (st.status === 'done') {
+          const next = upsertDestLockPending(destLockPending.falconAccount, {
+            txHash: destLockPending.txHash,
+            asset: destLockPending.asset,
+            explorerUrl: destLockPending.explorerUrl,
+            status: 'done',
+          })
+          setDestLockPending(next)
+          refreshFusdcBalance()
+          onFalconRefresh?.()
+          return
+        }
+        if (st.status === 'error') {
+          const next = upsertDestLockPending(destLockPending.falconAccount, {
+            txHash: destLockPending.txHash,
+            asset: destLockPending.asset,
+            explorerUrl: destLockPending.explorerUrl,
+            status: 'error',
+            lastError: st.error || 'Mint failed',
+          })
+          setDestLockPending(next)
+          return
+        }
+      } catch {
+        /* keep last known status */
+      }
+    }
+    void tick()
+    const t = setInterval(() => void tick(), 4000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
+  }, [destLockPending?.txHash, destLockPending?.falconAccount, destLockPending?.explorerUrl, destLockPending?.asset])
 
   // Auto-restore open SPV job: localStorage layers + chain FALC deposits if lost.
   useEffect(() => {
@@ -1897,12 +1960,32 @@ export default function BridgeDepositPanel({
             plAccount: falconId,
             onStep: setStep,
           })
+          const explorer = `${destLockCfg.sepolia.explorer_url}/tx/${d.depositHash}`
+          setDestLockPending(
+            upsertDestLockPending(falconId, {
+              txHash: d.depositHash,
+              asset: 'ETH',
+              amountLabel: amount,
+              explorerUrl: explorer,
+              status: 'minting',
+            }),
+          )
           const minted = await mintAfterDestLockDeposit({
             account: falconId,
             txHash: d.depositHash,
             asset: 'ETH',
             onStep: setStep,
           })
+          if (minted.status === 'done') {
+            setDestLockPending(
+              upsertDestLockPending(falconId, {
+                txHash: d.depositHash,
+                asset: 'ETH',
+                explorerUrl: explorer,
+                status: 'done',
+              }),
+            )
+          }
           res = {
             depositHash: d.depositHash,
             depositId: minted.status === 'done' ? 'FETH minted on Falcon PL' : `dest20 ${d.dest20}`,
@@ -1915,12 +1998,32 @@ export default function BridgeDepositPanel({
             plAccount: falconId,
             onStep: setStep,
           })
+          const explorer = `${destLockCfg.sepolia.explorer_url}/tx/${d.depositHash}`
+          setDestLockPending(
+            upsertDestLockPending(falconId, {
+              txHash: d.depositHash,
+              asset: 'USDC',
+              amountLabel: amount,
+              explorerUrl: explorer,
+              status: 'minting',
+            }),
+          )
           const minted = await mintAfterDestLockDeposit({
             account: falconId,
             txHash: d.depositHash,
             asset: 'USDC',
             onStep: setStep,
           })
+          if (minted.status === 'done') {
+            setDestLockPending(
+              upsertDestLockPending(falconId, {
+                txHash: d.depositHash,
+                asset: 'USDC',
+                explorerUrl: explorer,
+                status: 'done',
+              }),
+            )
+          }
           res = {
             depositHash: d.depositHash,
             approveHash: d.approveHash,
@@ -2085,6 +2188,72 @@ export default function BridgeDepositPanel({
                 Portal watch hash does not match on-chain BtcBridgeState — check config cutover.
               </span>
             )}
+          </div>
+        )}
+
+        {/* ETH/USDC dest-lock mint — survives page refresh */}
+        {destLockPending && destLockPending.status !== 'done' && (
+          <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-white">
+                  {destLockPending.asset === 'USDC' ? 'USDC → F-USDC' : 'ETH → FETH'}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {destLockPending.status === 'error'
+                    ? destLockPending.lastError || 'Mint failed'
+                    : destLockPending.status === 'minting'
+                      ? 'Locked on Sepolia — minting on Falcon PL (headers catch up, then F-USDC lands). Refresh keeps this tracker.'
+                      : 'Deposit in progress'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  clearDestLockPending(falconId)
+                  setDestLockPending(null)
+                }}
+                className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
+              >
+                Dismiss
+              </button>
+            </div>
+            <a
+              href={destLockPending.explorerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-[11px] font-mono text-brand-400/90 hover:text-brand-300 truncate"
+              title={destLockPending.txHash}
+            >
+              {destLockPending.txHash.slice(0, 10)}…{destLockPending.txHash.slice(-8)}
+            </a>
+            {destLockPending.amountLabel && (
+              <p className="text-xs text-slate-500">
+                {destLockPending.amountLabel} {destLockPending.asset}
+              </p>
+            )}
+          </div>
+        )}
+        {destLockPending?.status === 'done' && (
+          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-emerald-300">
+                {destLockPending.asset === 'USDC' ? 'F-USDC minted' : 'FETH minted'}
+              </div>
+              <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                {destLockPending.txHash.slice(0, 12)}…
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                clearDestLockPending(falconId)
+                setDestLockPending(null)
+              }}
+              className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+            >
+              Done
+            </button>
           </div>
         )}
 

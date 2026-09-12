@@ -151,9 +151,17 @@ export async function mintAfterDestLockDeposit(opts: {
     const elapsed = Math.round((Date.now() - t0) / 1000)
     opts.onStep?.(`Minting on Falcon PL… ${st.status ?? 'queued'} (${elapsed}s)`)
   }
-  throw new Error(
-    `Mint still running after 3 minutes. Keep this txid: ${txHash}. Do not deposit again.`,
-  )
+  // Keep the job; UI restores from localStorage + mint-status after refresh.
+  opts.onStep?.(`Mint still running. Tx ${txHash.slice(0, 10)}… — keep this tab or refresh; do not deposit again.`)
+  return { ...queued, status: 'running', txid: txHash, account, asset: opts.asset }
+}
+
+export async function fetchDestLockMintStatus(opts: {
+  account: string
+  txHash: string
+  asset: 'ETH' | 'USDC'
+}): Promise<DestLockMintJob> {
+  return postMint('mint-status', opts.account.trim(), opts.txHash.trim(), opts.asset)
 }
 
 async function postMint(
