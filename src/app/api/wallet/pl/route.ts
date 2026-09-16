@@ -157,6 +157,17 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'eth-kickoff') {
+    const v2Live = Boolean(
+      process.env.FALCON_QC_V2_BRIDGE ||
+        process.env.FPL_SEPOLIA_QC_V2_BRIDGE ||
+        process.env.QC_V2_LIVE === '1',
+    )
+    if (v2Live && process.env.DESTLOCK_EXIT !== '1') {
+      return NextResponse.json(
+        { error: 'claimer Kickoff is leftover-only after V2; set DESTLOCK_EXIT=1' },
+        { status: 403 },
+      )
+    }
     const noteId = String(body.noteId ?? '').trim()
     const dest = String(body.dest ?? body.externalTo ?? '').trim()
     const amount = String(body.amount ?? '').trim()
@@ -181,6 +192,42 @@ export async function POST(req: NextRequest) {
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
+      return NextResponse.json(d)
+    } catch (e) {
+      return NextResponse.json(
+        { error: String(e instanceof Error ? e.message : e) },
+        { status: 503 },
+      )
+    }
+  }
+
+  if (action === 'eth-open-claim') {
+    const noteId = String(body.noteId ?? '').trim()
+    const dest = String(body.dest ?? body.externalTo ?? '').trim()
+    const amount = String(body.amount ?? '').trim()
+    const asset = String(body.asset ?? 'ETH').trim().toUpperCase()
+    const account = String(body.account ?? '').trim()
+    if (!account) {
+      return NextResponse.json({ error: 'account required' }, { status: 400 })
+    }
+    try {
+      const r = await fetch(WALLET_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'eth-open-claim',
+          noteId,
+          dest,
+          amount,
+          asset,
+          account,
+        }),
+      })
+      const d = await r.json()
+      if (r.status === 409 || d.waiting) {
+        return NextResponse.json(d, { status: 409 })
+      }
+      if (!r.ok) throw new Error(d.error ?? d.message ?? `wallet api ${r.status}`)
       return NextResponse.json(d)
     } catch (e) {
       return NextResponse.json(

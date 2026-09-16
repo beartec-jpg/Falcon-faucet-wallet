@@ -40,7 +40,7 @@
     "token_symbol": "FBNB",
     "token_currency": "BNB",
     "token_issuer": "rf8NZLdcwxrXAnPppttTeenQcAJW75uj7E",
-    "status": "live"
+    "status": "not_public"
   },
   "deposit_flow": {
     "type": "passkey_evm_wallet",

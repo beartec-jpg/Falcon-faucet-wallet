@@ -29,14 +29,15 @@ import {
   destLockHeadersReady,
   fetchFplTip,
   fetchPl2300BridgeConfig,
+  PL2300_BRIDGE_FALLBACK,
   fetchDestLockMintStatus,
-  mintAfterDestLockDeposit,
+  queueDestLockMint,
   pegOutDestLock,
   type Pl2300BridgeConfig,
 } from '@/lib/pl-dest-lock'
 import {
   clearDestLockPending,
-  getDestLockPending,
+  listDestLockPending,
   upsertDestLockPending,
   type DestLockPending,
 } from '@/lib/dest-lock-pending'
@@ -82,10 +83,14 @@ import {
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
 import { plAccountId } from '@/lib/pl-names'
 import { BTC_RAIL_LIVE, pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
+import { hasBtcWallet, provisionBtcWalletForStoredWallet } from '@/lib/create-btc-wallet'
+import {
+  BITVM2_INSTANCE_ADDRESS,
+  BITVM2_INSTANCE_SPK,
+} from '@/lib/btc-spv-policy'
 import {
   signBridgeWithdraw,
   signFusdcPayment,
-  signTrustSet,
 } from '@/lib/wallet-sign-client'
 
 const AddressQrScanner = dynamic(() => import('@/components/AddressQrScanner'), { ssr: false })
@@ -93,7 +98,6 @@ import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@
 import {
   etherscanAddressUrl,
   etherscanTokenUrl,
-  fbnbLockReady,
   fethLockReady,
   lockContractReady,
   type UsdcBridgeManifest,
@@ -156,17 +160,25 @@ interface Props {
   onFalconRefresh?: () => void
   /** Open on Bridge In (deposit) or Bridge Out (withdraw). Default deposit. */
   initialMode?: 'deposit' | 'withdraw' | 'send' | 'receive'
-  /** Which bridge route to open (e.g. FETH / FBNB / FBTC / FXRP from Falcon tab). */
+  /** Which bridge route to open (e.g. FETH / FBTC / FXRP from Falcon tab). */
   initialRoute?: BridgeRouteId
 }
 
-/** All bridge corridors — labels flip with In/Out. */
+/** All bridge corridors — labels flip with In/Out. `fbnb-bsc` is kept for type compat only (not public). */
 export type BridgeRouteId =
   | 'fusdc-sepolia'
   | 'feth-sepolia'
   | 'fbnb-bsc'
   | 'fbtc-btc'
   | 'fxrp-xrpl'
+
+/** Public dest-lock / BitVM2 corridors. FBNB/BSC is not a public dest-lock product. */
+const PUBLIC_BRIDGE_ROUTES: BridgeRouteId[] = [
+  'fusdc-sepolia',
+  'feth-sepolia',
+  'fbtc-btc',
+  'fxrp-xrpl',
+]
 
 type BridgeMode = 'bridge' | 'send' | 'receive'
 type BridgeDirection = 'deposit' | 'withdraw'
@@ -221,7 +233,9 @@ function routeOptionLabel(
     return `${base} (out soon)`
   }
   if (!opts.walletReady) return `${base} (${opts.walletHint})`
-  if (!opts.ready) return `${base} (config missing)`
+  if (!opts.ready) {
+    return id === 'fbtc-btc' ? `${base} (waiting for Bitcoin headers)` : `${base} (config missing)`
+  }
   return base
 }
 
@@ -259,7 +273,9 @@ export default function BridgeDepositPanel({
   const { networkKey, network } = useNetwork()
   const isPl2300 = network.networkId === 2300
   const falconId = plAccountId(wallet)
-  const [destLockCfg, setDestLockCfg] = useState<Pl2300BridgeConfig | null>(null)
+  const [destLockCfg, setDestLockCfg] = useState<Pl2300BridgeConfig | null>(
+    isPl2300 ? PL2300_BRIDGE_FALLBACK : null,
+  )
   const [destLockTip, setDestLockTip] = useState<number | null>(null)
   const [balances, setBalances] = useState<{ eth: string; usdc: string } | null>(null)
   const [balanceError, setBalanceError] = useState<string | null>(null)
@@ -291,9 +307,9 @@ export default function BridgeDepositPanel({
   const [fusdcLive, setFusdcLive] = useState<number | null>(fusdcBalance ?? null)
   const [fusdcLoading, setFusdcLoading] = useState(false)
   const [fusdcError, setFusdcError] = useState<string | null>(null)
-  const [hasFusdcTrustLine, setHasFusdcTrustLine] = useState(false)
+  const [hasFusdcTrustLine, setHasFusdcTrustLine] = useState(isPl2300)
   const [fethLive, setFethLive] = useState<number | null>(null)
-  const [hasFethTrustLine, setHasFethTrustLine] = useState(false)
+  const [hasFethTrustLine, setHasFethTrustLine] = useState(isPl2300)
   const [fbnbLive, setFbnbLive] = useState<number | null>(null)
   const [hasFbnbTrustLine, setHasFbnbTrustLine] = useState(false)
   const [bnbBal, setBnbBal] = useState<string | null>(null)
@@ -311,37 +327,33 @@ export default function BridgeDepositPanel({
   const [xrplBal, setXrplBal] = useState<string | null>(null)
   const [spvStatus, setSpvStatus] = useState<SpvStatus | null>(null)
   const [spvPending, setSpvPending] = useState<SpvPendingDeposit | null>(null)
-  const [destLockPending, setDestLockPending] = useState<DestLockPending | null>(null)
+  const [destLockJobs, setDestLockJobs] = useState<DestLockPending[]>([])
   const [spvResumeTxid, setSpvResumeTxid] = useState('')
   /** Open SPV peg-outs (burn → reserve BTC → prove) — survives refresh like Bridge In */
   const [spvWithdraws, setSpvWithdraws] = useState<SpvPendingWithdraw[]>([])
-  const [trustLineResult, setTrustLineResult] = useState<{ ok: boolean; msg: string } | null>(null)
   /** Live bridge routes — honour initialRoute from Falcon / Multi-chain buttons */
   const [bridgeRoute, setBridgeRoute] = useState<BridgeRouteId>(() => {
-    const allowed: BridgeRouteId[] = [
-      'fusdc-sepolia',
-      'feth-sepolia',
-      'fbnb-bsc',
-      'fbtc-btc',
-      'fxrp-xrpl',
-    ]
-    return allowed.includes(initialRoute as BridgeRouteId)
+    return PUBLIC_BRIDGE_ROUTES.includes(initialRoute as BridgeRouteId)
       ? (initialRoute as BridgeRouteId)
       : 'fusdc-sepolia'
   })
 
-  const destLockInReady = isPl2300 && destLockContractReady(destLockCfg)
-  const destLockOutReady = isPl2300 && destLockHeadersReady(destLockCfg, destLockTip)
+  const destLockInReady = isPl2300 && destLockContractReady(destLockCfg ?? PL2300_BRIDGE_FALLBACK)
+  const destLockOutReady = isPl2300 && destLockHeadersReady(destLockCfg ?? PL2300_BRIDGE_FALLBACK, destLockTip)
   const destLockLive = destLockInReady
   const bridgeReady = isPl2300 ? destLockInReady : lockContractReady(bridgeCfg)
   const fethReady = isPl2300 ? destLockInReady : fethLockReady(bridgeCfg)
-  const fbnbReady = fbnbLockReady(bridgeCfg)
-  const spvLive = !!(
-    spvStatus?.ready &&
-    (spvStatus.paymentScriptHex || spvStatus.watchAddress)
-  )
-  /** Falcon PL 2300 BTC rail only — Falcon Ledger / custody paths retired. */
-  const fbtcReady = isPl2300 && spvLive && BTC_RAIL_LIVE
+  /** FBNB/BSC is not a public dest-lock product. */
+  const fbnbReady = false
+  const btcWatchAddress =
+    spvStatus?.watchAddress ||
+    (isPl2300 && BTC_RAIL_LIVE ? BITVM2_INSTANCE_ADDRESS : '')
+  const btcPaymentScriptHex =
+    spvStatus?.paymentScriptHex ||
+    (isPl2300 && BTC_RAIL_LIVE ? BITVM2_INSTANCE_SPK : '')
+  /** BitVM2 dest-lock is live. Header lag is a warning, not “unconfigured”. */
+  const fbtcReady = isPl2300 && BTC_RAIL_LIVE
+  const spvLive = fbtcReady && !!(btcWatchAddress || btcPaymentScriptHex)
   const fxrpReady = !!(fxrpIssuer && fxrpCustody)
   const hasEvm = !!(wallet.evmAddress && wallet.evmEncrypted)
   const hasBtc = !!(wallet.btcAddress && wallet.btcEncrypted)
@@ -352,6 +364,10 @@ export default function BridgeDepositPanel({
   const fethCurrency = bridgeCfg.feth?.token_currency?.trim() ?? 'ETH'
   const fbnbIssuer = bridgeCfg.fbnb?.token_issuer?.trim() ?? ''
   const fbnbCurrency = bridgeCfg.fbnb?.token_currency?.trim() ?? 'BNB'
+  useEffect(() => {
+    if (bridgeRoute === 'fbnb-bsc') setBridgeRoute('fusdc-sepolia')
+  }, [bridgeRoute])
+
   const isFethRoute = bridgeRoute === 'feth-sepolia'
   const isFbnbRoute = bridgeRoute === 'fbnb-bsc'
   const isFbtcRoute = bridgeRoute === 'fbtc-btc'
@@ -375,17 +391,21 @@ export default function BridgeDepositPanel({
         : isFethRoute
           ? fethCurrency
           : falconCurrency
-  const activeTrust = isFbtcRoute
-    ? isPl2300
-    : isFxrpRoute
-      ? hasFxrpTrustLine
-      : isFbnbRoute
-        ? hasFbnbTrustLine
-        : isFethRoute
-          ? hasFethTrustLine
-          : hasFusdcTrustLine
+  /** PL 2300 ETH/USDC/FBTC are native rails — no classic IOU TrustSet. */
+  const skipTrustLine = isPl2300 && !isFxrpRoute
+  const activeTrust = skipTrustLine
+    ? true
+    : isFbtcRoute
+      ? isPl2300
+      : isFxrpRoute
+        ? hasFxrpTrustLine
+        : isFbnbRoute
+          ? hasFbnbTrustLine
+          : isFethRoute
+            ? hasFethTrustLine
+            : hasFusdcTrustLine
   const activeLockReady = isFbtcRoute
-    ? fbtcReady && hasBtc
+    ? fbtcReady
     : isFxrpRoute
       ? fxrpReady && hasXrpl
       : isFbnbRoute
@@ -632,49 +652,60 @@ export default function BridgeDepositPanel({
   // Restore ETH/USDC dest-lock mint after refresh (status is otherwise React-only).
   useEffect(() => {
     if (!isPl2300 || !falconId) return
-    const saved = getDestLockPending(falconId)
-    if (saved) setDestLockPending(saved)
+    setDestLockJobs(listDestLockPending(falconId))
   }, [isPl2300, falconId])
 
   useEffect(() => {
-    if (!destLockPending || destLockPending.status === 'done' || destLockPending.status === 'error') {
-      return
-    }
+    const open = destLockJobs.filter((j) => j.status !== 'done' && j.status !== 'error')
+    if (open.length === 0) return
     let cancelled = false
     const tick = async () => {
-      try {
-        const st = await fetchDestLockMintStatus({
-          account: destLockPending.falconAccount,
-          txHash: destLockPending.txHash,
-          asset: destLockPending.asset,
-        })
-        if (cancelled) return
-        if (st.status === 'done') {
-          const next = upsertDestLockPending(destLockPending.falconAccount, {
-            txHash: destLockPending.txHash,
-            asset: destLockPending.asset,
-            explorerUrl: destLockPending.explorerUrl,
-            status: 'done',
+      for (const job of open) {
+        try {
+          const st = await fetchDestLockMintStatus({
+            account: job.falconAccount,
+            txHash: job.txHash,
+            asset: job.asset,
           })
-          setDestLockPending(next)
-          refreshFusdcBalance()
-          onFalconRefresh?.()
-          return
-        }
-        if (st.status === 'error') {
-          const next = upsertDestLockPending(destLockPending.falconAccount, {
-            txHash: destLockPending.txHash,
-            asset: destLockPending.asset,
-            explorerUrl: destLockPending.explorerUrl,
-            status: 'error',
-            lastError: st.error || 'Mint failed',
+          if (cancelled) return
+          if (st.status === 'done') {
+            upsertDestLockPending(job.falconAccount, {
+              txHash: job.txHash,
+              asset: job.asset,
+              explorerUrl: job.explorerUrl,
+              status: 'done',
+              depositBlock: st.deposit_block ?? job.depositBlock,
+              lcExecution: st.lc_execution ?? job.lcExecution,
+            })
+            refreshFusdcBalance()
+            onFalconRefresh?.()
+            continue
+          }
+          if (st.status === 'error') {
+            upsertDestLockPending(job.falconAccount, {
+              txHash: job.txHash,
+              asset: job.asset,
+              explorerUrl: job.explorerUrl,
+              status: 'error',
+              lastError: st.error || 'Mint failed',
+              depositBlock: st.deposit_block ?? job.depositBlock,
+              lcExecution: st.lc_execution ?? job.lcExecution,
+            })
+            continue
+          }
+          upsertDestLockPending(job.falconAccount, {
+            txHash: job.txHash,
+            asset: job.asset,
+            explorerUrl: job.explorerUrl,
+            status: job.status,
+            depositBlock: st.deposit_block ?? job.depositBlock,
+            lcExecution: st.lc_execution ?? job.lcExecution,
           })
-          setDestLockPending(next)
-          return
+        } catch {
+          /* keep last known status */
         }
-      } catch {
-        /* keep last known status */
       }
+      if (!cancelled && falconId) setDestLockJobs(listDestLockPending(falconId))
     }
     void tick()
     const t = setInterval(() => void tick(), 4000)
@@ -682,7 +713,7 @@ export default function BridgeDepositPanel({
       cancelled = true
       clearInterval(t)
     }
-  }, [destLockPending?.txHash, destLockPending?.falconAccount, destLockPending?.explorerUrl, destLockPending?.asset])
+  }, [destLockJobs.map((j) => `${j.txHash}:${j.status}`).join('|'), falconId])
 
   // Auto-restore open SPV job: localStorage layers + chain FALC deposits if lost.
   useEffect(() => {
@@ -695,7 +726,7 @@ export default function BridgeDepositPanel({
 
     const minConf = Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6
     const net = spvStatus?.btcNetwork || 'testnet'
-    const watch = spvStatus?.watchAddress || ''
+    const watch = btcWatchAddress
 
     const applyJob = (p: ReturnType<typeof ensureSpvPendingTracked>) => {
       if (cancelled || !p) {
@@ -738,7 +769,7 @@ export default function BridgeDepositPanel({
     }
 
     // 2) chain restore — unspent FALC deposits for this account on hold
-    if (!spvStatus?.watchAddress) {
+    if (!watch) {
       setSpvPending(null)
       return
     }
@@ -746,7 +777,7 @@ export default function BridgeDepositPanel({
       try {
         const open = await fetchOpenDepositsForAccount({
           falconAccount: falconId,
-          holdAddress: spvStatus.watchAddress!,
+          holdAddress: watch,
           btcNetwork: net,
         })
         if (cancelled) return
@@ -769,7 +800,7 @@ export default function BridgeDepositPanel({
           falconAccount: falconId,
           txid: pick.txid,
           watchVout: pick.vout,
-          watchAddress: spvStatus.watchAddress!,
+          watchAddress: watch,
           amountSats: pick.amountSats,
           minConfirmations: minConf,
           btcNetwork: net,
@@ -786,7 +817,7 @@ export default function BridgeDepositPanel({
     return () => {
       cancelled = true
     }
-  }, [wallet.address, falconId, isPl2300, spvStatus?.watchAddress, spvStatus?.bridge?.minConfirmations, spvStatus?.btcNetwork])
+  }, [wallet.address, falconId, isPl2300, btcWatchAddress, spvStatus?.bridge?.minConfirmations, spvStatus?.btcNetwork])
 
   // Load + poll Bridge Out trackers. Hide is durable — poll must not resurrect.
   useEffect(() => {
@@ -1675,6 +1706,23 @@ export default function BridgeDepositPanel({
     }
   }
 
+  const handleProvisionBtc = async () => {
+    if (hasBtcWallet(wallet) || busy) return
+    setBusy(true)
+    setError(null)
+    setStep('Passkey to create Bitcoin keys…')
+    try {
+      const updated = await provisionBtcWalletForStoredWallet(wallet)
+      onWalletUpdate(updated)
+      setStep(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not create Bitcoin keys')
+    } finally {
+      setBusy(false)
+      setStep(null)
+    }
+  }
+
   const handleSpvResumeTxid = async () => {
     // Full 64-char hex only (partial prefixes from explorers will not work)
     const raw = spvResumeTxid.trim().toLowerCase().replace(/^0x/, '')
@@ -1707,7 +1755,7 @@ export default function BridgeDepositPanel({
     const pending = createSpvPending({
       falconAccount: wallet.address,
       txid: raw,
-      watchAddress: spvStatus?.watchAddress || '',
+      watchAddress: btcWatchAddress,
       amountSats: 0,
       minConfirmations: minConf,
       btcNetwork: net,
@@ -1742,71 +1790,6 @@ export default function BridgeDepositPanel({
     setStep(null)
   }
 
-  const handleTrustLine = async () => {
-    if (!activeIssuer || !network.live) return
-    setBusy(true)
-    setError(null)
-    setTrustLineResult(null)
-    try {
-      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-      const data = await submitWithSequenceRetry({
-        networkKey,
-        fetchSequence: async () => {
-          const a = await fetchSequenceInfo(wallet.address, networkKey)
-          if (!a.exists) throw new Error('Failed to refresh account')
-          return { sequence: a.sequence, currentLedger: a.currentLedger }
-        },
-        sign: ({ sequence, lastLedgerSequence }) =>
-          signTrustSet(
-            {
-              account: wallet.address,
-              currency: activeCurrency,
-              issuer: activeIssuer,
-              limit: isWrapRoute ? '1000000000' : '10000000',
-              sequence,
-              lastLedgerSequence,
-              networkId: network.networkId,
-            },
-            falcon_secret,
-          ),
-      }).catch((e: unknown): SubmitResult => ({
-        success: false,
-        message: e instanceof Error ? e.message : 'Failed',
-      }))
-      const ok = !!data.success
-      let msg =
-        [data.result, data.message].filter(Boolean).join(' — ') || (ok ? 'Trust line ready' : 'TrustSet failed')
-      if (!ok && /tecNO_DST/i.test(msg)) {
-        msg =
-          `Issuer account not found on this network (${activeIssuer.slice(0, 8)}…). ` +
-          `Your Falcon wallet already exists — this is not “need XRP”. ` +
-          `Site config must point at the live ${assetLabel} issuer. Hard-refresh after deploy, then try again.`
-      } else if (!ok && /XRP/i.test(msg)) {
-        msg = msg.replace(/XRP/g, 'FPL')
-      }
-      setTrustLineResult({
-        ok,
-        msg,
-      })
-      if (ok) {
-        if (isFbtcRoute) setHasFbtcTrustLine(true)
-        if (isFxrpRoute) setHasFxrpTrustLine(true)
-        else if (isFbnbRoute) setHasFbnbTrustLine(true)
-        else if (isFethRoute) setHasFethTrustLine(true)
-        else setHasFusdcTrustLine(true)
-        setTimeout(() => {
-          refreshFusdcBalance()
-          onFalconRefresh?.()
-        }, 4000)
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Trust line failed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const handleDeposit = async () => {
     if (!activeLockReady) return
     if (!isFbtcRoute && (!wallet.evmEncrypted || !wallet.evmAddress)) return
@@ -1818,7 +1801,7 @@ export default function BridgeDepositPanel({
             ? destLockInReady
               ? 'Open the Sepolia EVM wallet on Multi-chain first.'
               : 'ETH/USDC dest-lock config missing live FalconQcBridge. Do not send yet.'
-            : `Add a ${assetLabel} trust line on this page before bridging in — otherwise minted tokens cannot be delivered.`,
+            : 'Open the Sepolia EVM wallet on Multi-chain first.',
       )
       return
     }
@@ -1894,7 +1877,7 @@ export default function BridgeDepositPanel({
 
         if (isPl2300) {
           setStep('Sending testnet BTC…')
-          const watch = spvStatus?.watchAddress
+          const watch = btcWatchAddress
           if (!watch) throw new Error('BTC watch address missing — refresh and try again')
           const dep = await sendSpvDeposit({
             privateKeyHex: btcPk,
@@ -1902,7 +1885,7 @@ export default function BridgeDepositPanel({
             falconAccount: falconId,
             amountBtc: amount.trim(),
             network: spvStatus?.btcNetwork || 'testnet',
-            paymentScriptHex: spvStatus?.paymentScriptHex || undefined,
+            paymentScriptHex: btcPaymentScriptHex || undefined,
           })
           const pending = createSpvPending({
             falconAccount: falconId,
@@ -1961,34 +1944,34 @@ export default function BridgeDepositPanel({
             onStep: setStep,
           })
           const explorer = `${destLockCfg.sepolia.explorer_url}/tx/${d.depositHash}`
-          setDestLockPending(
-            upsertDestLockPending(falconId, {
-              txHash: d.depositHash,
-              asset: 'ETH',
-              amountLabel: amount,
-              explorerUrl: explorer,
-              status: 'minting',
-            }),
-          )
-          const minted = await mintAfterDestLockDeposit({
+          upsertDestLockPending(falconId, {
+            txHash: d.depositHash,
+            asset: 'ETH',
+            amountLabel: amount,
+            explorerUrl: explorer,
+            status: 'minting',
+          })
+          setStep('Queuing Falcon PL mint…')
+          const queued = await queueDestLockMint({
             account: falconId,
             txHash: d.depositHash,
             asset: 'ETH',
-            onStep: setStep,
           })
-          if (minted.status === 'done') {
-            setDestLockPending(
-              upsertDestLockPending(falconId, {
-                txHash: d.depositHash,
-                asset: 'ETH',
-                explorerUrl: explorer,
-                status: 'done',
-              }),
-            )
-          }
+          upsertDestLockPending(falconId, {
+            txHash: d.depositHash,
+            asset: 'ETH',
+            explorerUrl: explorer,
+            status: queued.status === 'done' ? 'done' : 'minting',
+            depositBlock: queued.deposit_block,
+            lcExecution: queued.lc_execution,
+          })
+          setDestLockJobs(listDestLockPending(falconId))
           res = {
             depositHash: d.depositHash,
-            depositId: minted.status === 'done' ? 'FETH minted on Falcon PL' : `dest20 ${d.dest20}`,
+            depositId:
+              queued.status === 'done'
+                ? 'FETH minted on Falcon PL'
+                : 'Locked on Sepolia — minting FETH in the background. You can bridge USDC now.',
           }
         } else {
           const d = await depositUsdcDestLock({
@@ -1999,35 +1982,35 @@ export default function BridgeDepositPanel({
             onStep: setStep,
           })
           const explorer = `${destLockCfg.sepolia.explorer_url}/tx/${d.depositHash}`
-          setDestLockPending(
-            upsertDestLockPending(falconId, {
-              txHash: d.depositHash,
-              asset: 'USDC',
-              amountLabel: amount,
-              explorerUrl: explorer,
-              status: 'minting',
-            }),
-          )
-          const minted = await mintAfterDestLockDeposit({
+          upsertDestLockPending(falconId, {
+            txHash: d.depositHash,
+            asset: 'USDC',
+            amountLabel: amount,
+            explorerUrl: explorer,
+            status: 'minting',
+          })
+          setStep('Queuing Falcon PL mint…')
+          const queued = await queueDestLockMint({
             account: falconId,
             txHash: d.depositHash,
             asset: 'USDC',
-            onStep: setStep,
           })
-          if (minted.status === 'done') {
-            setDestLockPending(
-              upsertDestLockPending(falconId, {
-                txHash: d.depositHash,
-                asset: 'USDC',
-                explorerUrl: explorer,
-                status: 'done',
-              }),
-            )
-          }
+          upsertDestLockPending(falconId, {
+            txHash: d.depositHash,
+            asset: 'USDC',
+            explorerUrl: explorer,
+            status: queued.status === 'done' ? 'done' : 'minting',
+            depositBlock: queued.deposit_block,
+            lcExecution: queued.lc_execution,
+          })
+          setDestLockJobs(listDestLockPending(falconId))
           res = {
             depositHash: d.depositHash,
             approveHash: d.approveHash,
-            depositId: minted.status === 'done' ? 'F-USDC minted on Falcon PL' : `dest20 ${d.dest20}`,
+            depositId:
+              queued.status === 'done'
+                ? 'F-USDC minted on Falcon PL'
+                : 'Locked on Sepolia — minting F-USDC in the background. You can bridge ETH now.',
           }
         }
       } else if (isFbnbRoute) {
@@ -2119,7 +2102,7 @@ export default function BridgeDepositPanel({
           : `${fusdcLoading ? '…' : fmt(fusdcAvail, 2)} F-USDC`
   const bnbAvail = bnbBal != null ? parseFloat(bnbBal) : 0
   const btcAvail = btcBal != null ? parseFloat(btcBal) : 0
-  const canUseBridge = hasEvm || hasBtc || hasXrpl
+  const canUseBridge = hasEvm || hasBtc || hasXrpl || (isPl2300 && BTC_RAIL_LIVE)
   const xrplAvail = xrplBal != null ? parseFloat(xrplBal) : 0
 
   return (
@@ -2191,27 +2174,34 @@ export default function BridgeDepositPanel({
           </div>
         )}
 
-        {/* ETH/USDC dest-lock mint — survives page refresh */}
-        {destLockPending && destLockPending.status !== 'done' && (
-          <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3">
+        {/* ETH/USDC dest-lock mint — survives page refresh; ETH and USDC can run together */}
+        {destLockJobs.filter((j) => j.status !== 'done').map((job) => (
+          <div
+            key={job.txHash}
+            className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3"
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-white">
-                  {destLockPending.asset === 'USDC' ? 'USDC → F-USDC' : 'ETH → FETH'}
+                  {job.asset === 'USDC' ? 'USDC → F-USDC' : 'ETH → FETH'}
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {destLockPending.status === 'error'
-                    ? destLockPending.lastError || 'Mint failed'
-                    : destLockPending.status === 'minting'
-                      ? 'Locked on Sepolia — minting on Falcon PL (headers catch up, then F-USDC lands). Refresh keeps this tracker.'
-                      : 'Deposit in progress'}
+                  {job.status === 'error'
+                    ? job.lastError || 'Mint failed'
+                    : job.depositBlock &&
+                        job.lcExecution != null &&
+                        job.lcExecution < job.depositBlock
+                      ? `Locked on Sepolia. Waiting for Ethereum finality (light client block ${job.lcExecution} / deposit ${job.depositBlock}). ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} is not lost — do not send the same asset again.`
+                      : job.status === 'minting'
+                        ? `Locked on Sepolia — minting ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} on Falcon PL. You can bridge the other asset now.`
+                        : 'Deposit in progress'}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => {
-                  clearDestLockPending(falconId)
-                  setDestLockPending(null)
+                  clearDestLockPending(falconId, job.txHash)
+                  setDestLockJobs(listDestLockPending(falconId))
                 }}
                 className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
               >
@@ -2219,43 +2209,46 @@ export default function BridgeDepositPanel({
               </button>
             </div>
             <a
-              href={destLockPending.explorerUrl}
+              href={job.explorerUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="block text-[11px] font-mono text-brand-400/90 hover:text-brand-300 truncate"
-              title={destLockPending.txHash}
+              title={job.txHash}
             >
-              {destLockPending.txHash.slice(0, 10)}…{destLockPending.txHash.slice(-8)}
+              {job.txHash.slice(0, 10)}…{job.txHash.slice(-8)}
             </a>
-            {destLockPending.amountLabel && (
+            {job.amountLabel && (
               <p className="text-xs text-slate-500">
-                {destLockPending.amountLabel} {destLockPending.asset}
+                {job.amountLabel} {job.asset}
               </p>
             )}
           </div>
-        )}
-        {destLockPending?.status === 'done' && (
-          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 flex items-center justify-between gap-3">
+        ))}
+        {destLockJobs.filter((j) => j.status === 'done').map((job) => (
+          <div
+            key={`done-${job.txHash}`}
+            className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 flex items-center justify-between gap-3"
+          >
             <div>
               <div className="text-sm font-medium text-emerald-300">
-                {destLockPending.asset === 'USDC' ? 'F-USDC minted' : 'FETH minted'}
+                {job.asset === 'USDC' ? 'F-USDC minted' : 'FETH minted'}
               </div>
-              <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-                {destLockPending.txHash.slice(0, 12)}…
+              <p className="text-[11px] font-mono text-slate-500 mt-0.5">
+                {job.txHash.slice(0, 12)}…
               </p>
             </div>
             <button
               type="button"
               onClick={() => {
-                clearDestLockPending(falconId)
-                setDestLockPending(null)
+                clearDestLockPending(falconId, job.txHash)
+                setDestLockJobs(listDestLockPending(falconId))
               }}
               className="text-xs font-semibold text-brand-400 hover:text-brand-300"
             >
               Done
             </button>
           </div>
-        )}
+        ))}
 
         {/* Active BTC deposit */}
         {spvPending && spvPending.status !== 'claimed' && (
@@ -2544,7 +2537,6 @@ export default function BridgeDepositPanel({
                 setResult(null)
                 setAmount('')
                 setWithdrawAmount('')
-                setTrustLineResult(null)
                 // Out not available for this corridor → stay on In
                 if (direction === 'withdraw' && !ROUTE_SUPPORTS_OUT[v]) {
                   setDirection('deposit')
@@ -2580,26 +2572,12 @@ export default function BridgeDepositPanel({
                 })}
               </option>
               <option
-                value="fbnb-bsc"
-                disabled={direction === 'withdraw' || !hasEvm || !fbnbReady}
-              >
-                {routeOptionLabel('fbnb-bsc', direction, {
-                  ready: fbnbReady,
-                  walletReady: hasEvm,
-                  walletHint: 'open Multi-chain BNB first',
-                })}
-              </option>
-              <option
                 value="fbtc-btc"
-                disabled={
-                  direction === 'deposit'
-                    ? !hasBtc || !fbtcReady
-                    : !hasBtc || !fbtcReady || !ROUTE_SUPPORTS_OUT['fbtc-btc']
-                }
+                disabled={direction === 'withdraw' && !ROUTE_SUPPORTS_OUT['fbtc-btc']}
               >
                 {routeOptionLabel('fbtc-btc', direction, {
                   ready: fbtcReady,
-                  walletReady: hasBtc,
+                  walletReady: true,
                   walletHint: 'open Multi-chain BTC first',
                 })}
               </option>
@@ -2619,29 +2597,17 @@ export default function BridgeDepositPanel({
           </div>
         )}
 
-        {canUseBridge && !activeLockReady && (
+        {canUseBridge && !activeLockReady && isFxrpRoute && (
           <div className="text-xs text-amber-400/90 bg-amber-500/10 rounded-xl px-3 py-2.5">
-            {isFxrpRoute
-              ? !hasXrpl
-                ? 'Add XRP under Multi-chain first'
-                : !fxrpReady
-                  ? 'FXRP bridge not configured'
-                  : 'FXRP bridge not ready'
-              : isFbtcRoute
-              ? !hasBtc
-                ? 'Add BTC under Multi-chain first'
-                : !spvLive
-                  ? 'BTC rail waiting for Bitcoin headers'
-                  : 'FBTC bridge not ready'
-              : isFbnbRoute
-                ? 'FBNB lock not ready — refresh shortly'
-                : isFethRoute
-                  ? 'FETH lock not configured'
-                  : 'USDC lock not configured'}
+            {!hasXrpl
+              ? 'Add XRP under Multi-chain first'
+              : !fxrpReady
+                ? 'FXRP bridge not configured'
+                : 'FXRP bridge not ready'}
           </div>
         )}
 
-        {!hasEvm && !(isFbtcRoute && hasBtc) && !(isFxrpRoute && hasXrpl) ? (
+        {!hasEvm && !isFbtcRoute && !isFxrpRoute ? (
           evmPanel === 'restore' ? (
             <div className="space-y-4">
               <button
@@ -3032,35 +2998,22 @@ export default function BridgeDepositPanel({
 
             {mode === 'bridge' && direction === 'deposit' && (
               <>
-                {!activeTrust && !(isPl2300 && isFbtcRoute) ? (
-                  <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 space-y-3">
-                    <div>
-                      <p className="text-sm font-medium text-amber-100">
-                        Enable {assetLabel} on Falcon
-                      </p>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Required once before first bridge in.
-                      </p>
-                    </div>
+                {isFbtcRoute && !hasBtc && (
+                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-3 space-y-2">
+                    <p className="text-xs text-slate-300">
+                      BTC → FBTC is live. Create Bitcoin keys with your passkey to send testnet BTC.
+                    </p>
                     <button
                       type="button"
-                      onClick={handleTrustLine}
-                      disabled={busy || !activeIssuer || !network.live}
-                      className="w-full py-2.5 rounded-xl bg-amber-500 text-slate-950 text-sm font-semibold hover:bg-amber-400 disabled:opacity-50 flex items-center justify-center gap-2"
+                      onClick={() => void handleProvisionBtc()}
+                      disabled={busy}
+                      className="btn-primary w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500"
                     >
-                      {busy ? (
-                        <><Spinner /> Adding trust line…</>
-                      ) : (
-                        `Add ${assetLabel} trust line (passkey)`
-                      )}
+                      {busy ? <><Spinner /> {step ?? 'Creating keys…'}</> : 'Create Bitcoin keys'}
                     </button>
-                    {trustLineResult && (
-                      <p className={`text-xs ${trustLineResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {trustLineResult.msg}
-                      </p>
-                    )}
                   </div>
-                ) : isFbtcRoute && spvLive ? (
+                )}
+                {isFbtcRoute && spvLive ? (
                   <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5 text-xs text-emerald-200/90 space-y-1">
                     <div className="flex justify-between gap-2">
                       <span>FBTC ready (SPV)</span>
@@ -3199,9 +3152,11 @@ export default function BridgeDepositPanel({
                     'Bridge in'
                   )}
                 </button>
-                {!openSpvBlocksIn && !canBridgeIn && (
+                {!openSpvBlocksIn && !canBridgeIn && !isFbtcRoute && (
                   <p className="text-xs text-slate-500">
-                    Enable {assetLabel} above to continue
+                    {isFxrpRoute
+                      ? 'Open Multi-chain XRP first'
+                      : 'Open Multi-chain ETH first'}
                   </p>
                 )}
 
@@ -3242,9 +3197,9 @@ export default function BridgeDepositPanel({
                           <div>
                             BitVM2 instance · SPV{' '}
                             {isPl2300
-                              ? spvStatus?.spv === 'bitcoin' || spvLive
+                              ? spvStatus?.spv === 'bitcoin'
                                 ? 'Bitcoin headers live'
-                                : 'waiting for headers'
+                                : 'dest-lock live'
                               : spvLive
                                 ? 'live'
                                 : 'pending'}
@@ -3252,9 +3207,9 @@ export default function BridgeDepositPanel({
                               ? ` · ${String(spvStatus.bridge.minConfirmations)} conf`
                               : ''}
                           </div>
-                          {spvLive && spvStatus?.watchAddress ? (
+                          {spvLive && btcWatchAddress ? (
                             <div className="font-mono break-all text-slate-600">
-                              {spvStatus.watchAddress}
+                              {btcWatchAddress}
                             </div>
                           ) : null}
                         </>

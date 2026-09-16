@@ -62,6 +62,7 @@ async function waitForTx(
 
 /** Public Sepolia RPC fallbacks — rpc.sepolia.org often returns 404 from browsers/serverless. */
 export const SEPOLIA_RPC_FALLBACKS = [
+  'https://sepolia.gateway.tenderly.co',
   'https://ethereum-sepolia-rpc.publicnode.com',
   'https://1rpc.io/sepolia',
   'https://sepolia.drpc.org',

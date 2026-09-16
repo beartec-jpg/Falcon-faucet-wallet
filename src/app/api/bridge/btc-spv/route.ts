@@ -284,14 +284,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         amendment: { supported: true, enabled: true, majority: true },
         activated: true,
-        ready: spv === 'bitcoin',
+        ready: !!(watchAddress && paymentScriptHex),
         mode: spv === 'bitcoin' ? 'bitcoin-spv' : 'pl-rail',
         spv,
         holdKind: 'bitvm2-instance',
         message:
           spv === 'bitcoin'
             ? 'Falcon PL Bitcoin SPV — send testnet BTC to the BitVM2 instance + FALC memo, then mint. Peg-out is dest-lock Kickoff + your key after CSV. No FROST.'
-            : 'Header submitter has not reanchored onto Bitcoin yet',
+            : 'BitVM2 dest-lock is live. You can send testnet BTC now; mint waits until Bitcoin headers are on Falcon.',
         btcNetwork: 'testnet',
         watchAddress,
         paymentScriptHex,

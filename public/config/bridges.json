@@ -1,5 +1,5 @@
 {
-  "note": "Multi-asset lock-mint routes. fusdc/feth/fbnb live on testnet (bridge-in). See docs/MULTI-CHAIN-IMPLEMENTATION.md.",
+  "note": "Public dest-lock routes: fusdc/feth/fbtc. FBNB/BSC is not a public dest-lock product. See docs/MULTI-CHAIN-IMPLEMENTATION.md.",
   "routes": [
     {
       "id": "fusdc-sepolia",
@@ -76,7 +76,7 @@
     },
     {
       "id": "fbnb-bsc",
-      "status": "live",
+      "status": "not_public",
       "direction_labels": {
         "in": "BSC Testnet · BNB/WBNB → Falcon FBNB",
         "out": "Falcon FBNB → BSC WBNB (soon)"

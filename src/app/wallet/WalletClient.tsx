@@ -61,6 +61,12 @@ import {
 } from '@/lib/create-evm-wallet'
 import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
+import { fetchDestLockMintStatus } from '@/lib/pl-dest-lock'
+import {
+  listDestLockPending,
+  upsertDestLockPending,
+  type DestLockPending,
+} from '@/lib/dest-lock-pending'
 import WalletAssetPicker from '@/components/WalletAssetPicker'
 import {
   FALCON_WALLET_ASSETS,
@@ -70,10 +76,10 @@ import {
   type MultiChainAssetId,
 } from '@/lib/multi-chain-assets'
 import {
-  FALCON_ROW_IDS,
   FALCON_ROW_LABELS,
-  MULTI_ROW_IDS,
   MULTI_ROW_LABELS,
+  PUBLIC_FALCON_ROW_IDS,
+  PUBLIC_MULTI_ROW_IDS,
   loadFalconVisibility,
   loadMultiVisibility,
   saveFalconVisibility,
@@ -265,13 +271,13 @@ export default function WalletPage() {
     fusdc: true,
     feth: true,
     fbtc: true,
-    fbnb: true,
+    fbnb: false,
   })
   const [multiVisible, setMultiVisible] = useState<Record<MultiChainRowId, boolean>>({
     eth: true,
     usdc: true,
     btc: true,
-    bnb: true,
+    bnb: false,
     xrp: true,
   })
   const [hideZeroBalances, setHideZeroBalances] = useState(false)
@@ -303,8 +309,8 @@ export default function WalletPage() {
   }, [])
 
   useEffect(() => {
-    setFalconVisible(loadFalconVisibility())
-    setMultiVisible(loadMultiVisibility())
+    setFalconVisible({ ...loadFalconVisibility(), fbnb: false })
+    setMultiVisible({ ...loadMultiVisibility(), bnb: false })
     try {
       if (localStorage.getItem('falcon-wallet-hide-zero-v1') === '1') setHideZeroBalances(true)
     } catch { /* ignore */ }
@@ -368,6 +374,7 @@ export default function WalletPage() {
   const [exportPassphrase,   setExportPassphrase]   = useState('')
   const [exportPassConfirm,  setExportPassConfirm]  = useState('')
   const [showExportBackup,   setShowExportBackup]   = useState(false)
+  const [destLockHomeJobs, setDestLockHomeJobs] = useState<DestLockPending[]>([])
 
   // ── Fetch account balance ─────────────────────────────────────────────────
 
@@ -466,6 +473,52 @@ export default function WalletPage() {
   }, [networkKey, wallet, refreshBalance])
 
   useEffect(() => {
+    if (!wallet || network.networkId !== 2300) return
+    setDestLockHomeJobs(listDestLockPending(plAccountId(wallet)))
+  }, [wallet, network.networkId])
+
+  useEffect(() => {
+    const open = destLockHomeJobs.filter((j) => j.status !== 'done' && j.status !== 'error')
+    if (open.length === 0) return
+    let cancelled = false
+    const tick = async () => {
+      for (const job of open) {
+        try {
+          const st = await fetchDestLockMintStatus({
+            account: job.falconAccount,
+            txHash: job.txHash,
+            asset: job.asset,
+          })
+          if (cancelled) return
+          upsertDestLockPending(job.falconAccount, {
+            txHash: job.txHash,
+            asset: job.asset,
+            explorerUrl: job.explorerUrl,
+            status: st.status === 'done' ? 'done' : st.status === 'error' ? 'error' : job.status,
+            lastError: st.error,
+            depositBlock: st.deposit_block ?? job.depositBlock,
+            lcExecution: st.lc_execution ?? job.lcExecution,
+          })
+          if (st.status === 'done' && wallet) void refreshBalance(plAccountId(wallet))
+        } catch {
+          /* keep last known */
+        }
+      }
+      if (!cancelled && wallet) setDestLockHomeJobs(listDestLockPending(plAccountId(wallet)))
+    }
+    void tick()
+    const t = setInterval(() => void tick(), 4000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
+  }, [
+    destLockHomeJobs.map((j) => j.txHash).join('|'),
+    refreshBalance,
+    wallet,
+  ])
+
+  useEffect(() => {
     if (!wallet || view === 'loading' || view === 'no-wallet') return
     fetch('/api/bridge/config')
       .then((r) => r.json())
@@ -514,14 +567,14 @@ export default function WalletPage() {
     return () => { cancelled = true }
   }, [walletSection, wallet?.evmAddress, wallet?.btcAddress, wallet?.xrplClassicAddress, bridgeCfg, wallet, nativeRefreshKey])
 
-  // Auto-provision missing BTC deposit key (same passkey vault)
+  // Auto-provision missing BTC deposit key (same passkey vault) as soon as
+  // the dashboard is up — not only after opening Multi-chain / Bridge.
   useEffect(() => {
     if (!wallet || hasBtcWallet(wallet) || busy || view !== 'dashboard') return
-    if (walletSection !== 'multichain' && walletSection !== 'bridge') return
     void provisionBtcWalletForStoredWallet(wallet)
       .then((w) => setWallet(w))
-      .catch(() => { /* user can retry via Open Bridge */ })
-  }, [wallet, walletSection, view, busy])
+      .catch(() => { /* user can retry from Bridge → BTC */ })
+  }, [wallet, view, busy])
 
   // Auto-provision classic XRPL (secp/ed25519) multi-chain XRP
   useEffect(() => {
@@ -1396,7 +1449,7 @@ export default function WalletPage() {
         setError('Insufficient FPL balance'); return
       }
     } else if (sendAsset === 'feth') {
-      if (!fethTok?.issuer || fethTok.hasTrustLine === false) {
+      if (network.networkId !== 2300 && (!fethTok?.issuer || fethTok.hasTrustLine === false)) {
         setError('Add a FETH trust line on Bridge before sending'); return
       }
       if (amt > fethBal) {
@@ -1423,7 +1476,7 @@ export default function WalletPage() {
         setError('Insufficient FBTC balance'); return
       }
     } else {
-      if (!fusdc?.issuer || fusdc.hasTrustLine === false) {
+      if (network.networkId !== 2300 && (!fusdc?.issuer || fusdc.hasTrustLine === false)) {
         setError('Add a F-USDC trust line on Swap or Bridge before sending'); return
       }
       if (amt > fusdcBal) {
@@ -2124,7 +2177,7 @@ export default function WalletPage() {
                         </div>
                         {walletSection === 'multichain' && (
                           <p className="text-[11px] text-slate-500 mt-1">
-                            ETH · USDC · BTC · BNB · XRP · spot rates when available
+                            ETH · USDC · BTC · XRP · spot rates when available
                           </p>
                         )}
                         {walletSection === 'falcon' && (
@@ -2202,6 +2255,58 @@ export default function WalletPage() {
                           {walletSection === 'falcon' ? 'Bridge out' : 'Bridge in'}
                         </button>
                       </div>
+
+                      {walletSection !== 'bridge' && destLockHomeJobs.filter((j) => j.status !== 'done').map((job) => (
+                        <div
+                          key={job.txHash}
+                          className="rounded-xl border border-brand-500/25 bg-brand-500/5 px-4 py-3 space-y-2"
+                        >
+                          <div className="text-sm font-semibold text-white">
+                            {job.asset === 'USDC' ? 'USDC → F-USDC' : 'ETH → FETH'}
+                          </div>
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                            {job.status === 'error'
+                              ? job.lastError || 'Mint failed'
+                              : job.depositBlock &&
+                                  job.lcExecution != null &&
+                                  job.lcExecution < job.depositBlock
+                                ? `Locked on Sepolia. Waiting for Ethereum finality (light client ${job.lcExecution} / deposit ${job.depositBlock}). Not lost — you can still bridge the other asset.`
+                                : 'Locked on Sepolia — minting on Falcon PL. You can bridge ETH and USDC at the same time.'}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBridgeInitialMode('deposit')
+                              setBridgeInitialRoute(
+                                job.asset === 'ETH' ? 'feth-sepolia' : 'fusdc-sepolia',
+                              )
+                              setWalletSection('bridge')
+                            }}
+                            className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+                          >
+                            Open Bridge tracker
+                          </button>
+                        </div>
+                      ))}
+                      {walletSection !== 'bridge' && destLockHomeJobs.filter((j) => j.status === 'done').map((job) => (
+                        <div
+                          key={`done-${job.txHash}`}
+                          className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 flex items-center justify-between gap-3"
+                        >
+                          <div className="text-sm font-medium text-emerald-300">
+                            {job.asset === 'USDC' ? 'F-USDC minted' : 'FETH minted'}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDestLockHomeJobs((prev) => prev.filter((j) => j.txHash !== job.txHash))
+                            }
+                            className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      ))}
 
                       {walletSection === 'falcon' && emptyFalcon && (
                         <div className="rounded-xl border border-brand-500/20 bg-brand-500/5 px-4 py-4 text-center space-y-2">
@@ -2318,7 +2423,7 @@ export default function WalletPage() {
                         Choose which rows appear. Hidden assets stay in your wallet — only the list is filtered.
                       </p>
                       <div className="flex flex-wrap gap-2">
-                        {(walletSection === 'falcon' ? FALCON_ROW_IDS.filter((id) => id !== 'falcon') : MULTI_ROW_IDS).map((id) => {
+                        {(walletSection === 'falcon' ? PUBLIC_FALCON_ROW_IDS.filter((id) => id !== 'falcon') : PUBLIC_MULTI_ROW_IDS).map((id) => {
                           const on =
                             walletSection === 'falcon'
                               ? falconVisible[id as FalconAssetId]
@@ -2368,17 +2473,16 @@ export default function WalletPage() {
                         className="text-[11px] text-slate-500 hover:text-brand-400"
                         onClick={() => {
                           if (walletSection === 'falcon') {
-                            const all = Object.fromEntries(FALCON_ROW_IDS.map((id) => [id, true])) as Record<
-                              FalconAssetId,
-                              boolean
-                            >
+                            const all = {
+                              ...Object.fromEntries(PUBLIC_FALCON_ROW_IDS.map((id) => [id, true])),
+                              fbnb: false,
+                            } as Record<FalconAssetId, boolean>
                             setFalconVisible(all)
                             saveFalconVisibility(all)
                           } else {
-                            const all = Object.fromEntries(MULTI_ROW_IDS.map((id) => [id, true])) as Record<
-                              MultiChainRowId,
-                              boolean
-                            >
+                            const all = Object.fromEntries(
+                              PUBLIC_MULTI_ROW_IDS.map((id) => [id, true]),
+                            ) as Record<MultiChainRowId, boolean>
                             setMultiVisible(all)
                             saveMultiVisibility(all)
                           }
@@ -2404,7 +2508,7 @@ export default function WalletPage() {
                   {/* ── Falcon Ledger rows ── */}
                   {walletSection === 'falcon' && (
                   <div className="space-y-2">
-                    {FALCON_WALLET_ASSETS.filter((asset) => {
+                    {FALCON_WALLET_ASSETS.filter((asset) => asset.id !== 'fbnb').filter((asset) => {
                       // Top card is FPL — list only bridged assets under it
                       if (asset.id === 'falcon') return false
                       if (!falconVisible[asset.id]) return false
@@ -2427,7 +2531,7 @@ export default function WalletPage() {
                         balanceLabel = (account?.assets?.fusdc?.balance ?? 0).toLocaleString(undefined, {
                           maximumFractionDigits: 4,
                         })
-                        if (account?.assets?.fusdc?.hasTrustLine === false) {
+                        if (network.networkId !== 2300 && account?.assets?.fusdc?.hasTrustLine === false) {
                           detail = (
                             <span>
                               Need trust line — open Bridge or{' '}
@@ -2442,7 +2546,7 @@ export default function WalletPage() {
                         balanceLabel = (fethTok?.balance ?? 0).toLocaleString(undefined, {
                           maximumFractionDigits: 6,
                         })
-                        if (fethTok && !fethTok.hasTrustLine) {
+                        if (network.networkId !== 2300 && fethTok && !fethTok.hasTrustLine) {
                           detail = (
                             <span>
                               Need trust line — open Bridge · FETH
@@ -2459,11 +2563,7 @@ export default function WalletPage() {
                           maximumFractionDigits: 6,
                         })
                         if (fbnbTok && !fbnbTok.hasTrustLine) {
-                          detail = (
-                            <span>
-                              Need trust line — open Bridge · FBNB
-                            </span>
-                          )
+                          detail = 'Not a public dest-lock product'
                         } else if (!fbnbTok) {
                           detail = asset.subtitle
                         }
@@ -2541,7 +2641,7 @@ export default function WalletPage() {
                         to create one with your passkey (used for ETH, USDC, and BNB).
                       </div>
                     )}
-                    {NATIVE_CHAIN_WALLETS.filter((chain) => {
+                    {NATIVE_CHAIN_WALLETS.filter((chain) => chain.id !== 'bnb').filter((chain) => {
                       if (!multiVisible[chain.id]) return false
                       const q = assetSearch.trim().toLowerCase()
                       if (
@@ -2925,7 +3025,7 @@ export default function WalletPage() {
                       : receiveAssetId === 'usdc'
                         ? 'USDC on Ethereum (Sepolia). Same 0x as your ETH address — only send Sepolia USDC here, then Bridge → F-USDC.'
                       : receiveAssetId === 'bnb'
-                        ? 'Same 0x as ETH. On BSC testnet this receives BNB. Bridge → FBNB.'
+                        ? 'Same 0x as ETH. On BSC testnet this receives BNB. There is no public Falcon dest-lock for BNB.'
                       : receiveAssetId === 'btc'
                         ? 'Native Bitcoin testnet P2PKH address. Only send testnet BTC. Bridge → FBTC.'
                       : receiveAssetId === 'xrp'
@@ -3103,13 +3203,6 @@ export default function WalletPage() {
                       className={`flex-1 py-2 ${sendAsset === 'feth' ? 'bg-sky-500/10 text-sky-400' : 'text-slate-500'}`}
                     >
                       FETH
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSendAsset('fbnb'); setSendAmount(''); setError(null) }}
-                      className={`flex-1 py-2 ${sendAsset === 'fbnb' ? 'bg-yellow-500/10 text-yellow-400' : 'text-slate-500'}`}
-                    >
-                      FBNB
                     </button>
                   </div>
                   )}
@@ -3459,7 +3552,7 @@ export default function WalletPage() {
                             )}
                           </div>
                         )}
-                        {sendAsset === 'fusdc' && account?.assets?.fusdc?.hasTrustLine === false && (
+                        {network.networkId !== 2300 && sendAsset === 'fusdc' && account?.assets?.fusdc?.hasTrustLine === false && (
                           <p className="text-xs text-amber-400">
                             Recipient and sender both need a F-USDC trust line. Add yours on{' '}
                             <Link href="/wallet?bridge=1" className="text-brand-400 underline">Bridge</Link>
@@ -3469,7 +3562,9 @@ export default function WalletPage() {
                         )}
                       </div>
                       <p className="text-xs text-slate-500">
-                        Peer-to-peer transfer on Falcon Ledger — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.
+                        {network.networkId === 2300
+                          ? 'Peer-to-peer on Falcon PL — not a bridge.'
+                          : 'Peer-to-peer transfer on Falcon Ledger — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.'}
                       </p>
                       <button
                         type="submit"
@@ -3516,7 +3611,7 @@ export default function WalletPage() {
               {/* Asset picker for Send / Receive */}
               {transferPicker && wallet && (() => {
                 const fb = parseFalconBalances(account)
-                const falconOpts = FALCON_WALLET_ASSETS.map((a) => {
+                const falconOpts = FALCON_WALLET_ASSETS.filter((a) => a.id !== 'fbnb').map((a) => {
                   const bal = falconRowBalance(a.id, fb)
                   return {
                     id: a.id,
@@ -3537,7 +3632,7 @@ export default function WalletPage() {
                     balanceLabel: bal.toLocaleString(undefined, { maximumFractionDigits: 6 }),
                   }
                 })
-                const multiOpts = NATIVE_CHAIN_WALLETS.map((c) => {
+                const multiOpts = NATIVE_CHAIN_WALLETS.filter((c) => c.id !== 'bnb').map((c) => {
                   const bal =
                     multiRowBalance(c.id, {
                       eth: ethNativeBal != null ? Number(ethNativeBal) : null,
