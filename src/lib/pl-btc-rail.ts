@@ -69,14 +69,16 @@ async function accountSnap(account: string, network: string): Promise<{
   return { sequence: Number(j.sequence ?? 0), balance: Number(j.balance ?? 0), btcSats }
 }
 
-async function waitSeq(account: string, network: string, want: number, timeoutMs = 60_000): Promise<void> {
+async function waitSeq(account: string, network: string, want: number, timeoutMs = 90_000): Promise<void> {
   const t0 = Date.now()
   while (Date.now() - t0 < timeoutMs) {
     const s = await accountSnap(account, network)
     if (s.sequence >= want) return
-    await new Promise((r) => setTimeout(r, 300))
+    await new Promise((r) => setTimeout(r, 400))
   }
-  throw new Error('Ledger did not commit the rail tx — wait and retry')
+  throw new Error(
+    'Ledger did not commit the rail tx — wait and retry. Deposit is still on Bitcoin; do not re-send BTC.',
+  )
 }
 
 export async function fetchPlBtcRail(): Promise<PlBtcRail> {

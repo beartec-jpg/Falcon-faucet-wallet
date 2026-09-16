@@ -398,7 +398,7 @@ export function ensureSpvPendingTracked(
 export function isSpvWaitMessage(msg: string): boolean {
   const m = msg.toLowerCase()
   return (
-    /failed to fetch|networkerror|load failed|fetch failed|econnreset|etimedout|aborterror|timeout/i.test(
+    /failed to fetch|networkerror|load failed|fetch failed|econnreset|etimedout|aborterror|timeout|offline|unreachable/i.test(
       m,
     ) ||
     /tx not found|not found yet|not confirmed yet|wait for|mempool|indexer|unavailable|raw tx not found|merkle proof unavailable|status \d+|502|503|504|404|409/i.test(
@@ -429,6 +429,40 @@ export function spvWaitUserMessage(msg?: string): string {
   return `Still waiting: ${msg}`
 }
 
+async function explorerTxStatus(
+  txid: string,
+  network: 'testnet' | 'mainnet',
+): Promise<{ confirmed: boolean; confirmations: number; blockHeight?: number } | null> {
+  const bases =
+    network === 'mainnet'
+      ? ['https://mempool.space/api', 'https://blockstream.info/api']
+      : ['https://mempool.space/testnet/api', 'https://blockstream.info/testnet/api']
+  for (const base of bases) {
+    try {
+      const txR = await fetch(`${base}/tx/${txid}`, { cache: 'no-store' })
+      if (!txR.ok) continue
+      const tx = (await txR.json()) as {
+        status?: { confirmed?: boolean; block_height?: number }
+      }
+      const height = Number(tx.status?.block_height ?? 0)
+      const confirmed = !!tx.status?.confirmed && height > 0
+      let tip = 0
+      try {
+        const tipR = await fetch(`${base}/blocks/tip/height`, { cache: 'no-store' })
+        if (tipR.ok) tip = parseInt(await tipR.text(), 10) || 0
+      } catch {
+        /* ignore */
+      }
+      const confirmations =
+        confirmed && tip > 0 ? Math.max(1, tip - height + 1) : confirmed ? 1 : 0
+      return { confirmed, confirmations, blockHeight: confirmed ? height : undefined }
+    } catch {
+      /* next explorer */
+    }
+  }
+  return null
+}
+
 export async function pollSpvConfirmations(
   txid: string,
   network: 'testnet' | 'mainnet' = 'testnet',
@@ -446,6 +480,17 @@ export async function pollSpvConfirmations(
       blockHeight?: number
       error?: string
     }
+    if (r.ok) {
+      return {
+        confirmed: !!j.confirmed,
+        confirmations: typeof j.confirmations === 'number' ? j.confirmations : 0,
+        blockHeight: j.blockHeight,
+      }
+    }
+    // API blip / indexer lag: ask Bitcoin explorers directly so Claim FBTC
+    // is not stuck on 0 confirmations.
+    const expl = await explorerTxStatus(txid, network)
+    if (expl) return expl
     if (r.status === 404 || r.status === 409) {
       return {
         confirmed: false,
@@ -453,23 +498,18 @@ export async function pollSpvConfirmations(
         waiting: spvWaitUserMessage(j.error || 'Tx not found yet'),
       }
     }
-    if (!r.ok) {
-      if (isSpvWaitMessage(j.error || String(r.status))) {
-        return {
-          confirmed: false,
-          confirmations: 0,
-          waiting: spvWaitUserMessage(j.error || `Status ${r.status}`),
-        }
+    if (isSpvWaitMessage(j.error || String(r.status))) {
+      return {
+        confirmed: false,
+        confirmations: typeof j.confirmations === 'number' ? j.confirmations : 0,
+        waiting: spvWaitUserMessage(j.error || `Status ${r.status}`),
       }
-      throw new Error(j.error || `Status ${r.status}`)
     }
-    return {
-      confirmed: !!j.confirmed,
-      confirmations: typeof j.confirmations === 'number' ? j.confirmations : 0,
-      blockHeight: j.blockHeight,
-    }
+    throw new Error(j.error || `Status ${r.status}`)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
+    const expl = await explorerTxStatus(txid, network)
+    if (expl) return expl
     if (isSpvWaitMessage(msg)) {
       return { confirmed: false, confirmations: 0, waiting: spvWaitUserMessage(msg) }
     }
