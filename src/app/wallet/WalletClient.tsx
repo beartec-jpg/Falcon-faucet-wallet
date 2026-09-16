@@ -2256,7 +2256,7 @@ export default function WalletPage() {
                         </button>
                       </div>
 
-                      {walletSection !== 'bridge' && destLockHomeJobs.filter((j) => j.status !== 'done').map((job) => (
+                      {destLockHomeJobs.filter((j) => j.status !== 'done').map((job) => (
                         <div
                           key={job.txHash}
                           className="rounded-xl border border-brand-500/25 bg-brand-500/5 px-4 py-3 space-y-2"
@@ -2288,7 +2288,7 @@ export default function WalletPage() {
                           </button>
                         </div>
                       ))}
-                      {walletSection !== 'bridge' && destLockHomeJobs.filter((j) => j.status === 'done').map((job) => (
+                      {destLockHomeJobs.filter((j) => j.status === 'done').map((job) => (
                         <div
                           key={`done-${job.txHash}`}
                           className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 flex items-center justify-between gap-3"
