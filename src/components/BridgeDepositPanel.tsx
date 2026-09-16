@@ -53,15 +53,18 @@ import {
 import {
   clearSpvPending,
   createSpvPending,
+  dismissSpvDeposit,
   ensureSpvPendingTracked,
   fetchOpenDepositsForAccount,
   getSpvPending,
   hasOpenSpvBridge,
+  isDeadSpvTxid,
   isDepositClaimedLocally,
   isSpvWaitMessage,
   listRememberedDepositTxids,
   markDepositClaimed,
   pollSpvConfirmations,
+  shouldSkipSpvRestore,
   spvWaitUserMessage,
   type SpvPendingDeposit,
   updateSpvPending,
@@ -327,6 +330,7 @@ export default function BridgeDepositPanel({
   const [xrplBal, setXrplBal] = useState<string | null>(null)
   const [spvStatus, setSpvStatus] = useState<SpvStatus | null>(null)
   const [spvPending, setSpvPending] = useState<SpvPendingDeposit | null>(null)
+  const spvRestoreGen = useRef(0)
   const [destLockJobs, setDestLockJobs] = useState<DestLockPending[]>([])
   const [spvResumeTxid, setSpvResumeTxid] = useState('')
   /** Open SPV peg-outs (burn → reserve BTC → prove) — survives refresh like Bridge In */
@@ -718,6 +722,7 @@ export default function BridgeDepositPanel({
   // Auto-restore open SPV job: localStorage layers + chain FALC deposits if lost.
   useEffect(() => {
     let cancelled = false
+    const gen = spvRestoreGen.current
     try {
       localStorage.removeItem('falcon-spv-pending-v1')
     } catch {
@@ -735,12 +740,12 @@ export default function BridgeDepositPanel({
       }
       if (
         p.status === 'claimed' ||
-        /tecDUPLICATE/i.test(p.lastError || '') ||
-        p.txid.startsWith('0ac5c315') ||
-        p.txid.startsWith('c04373f5') ||
-        p.txid.startsWith('9d02624d')
+        /tecDUPLICATE|already spent|already minted/i.test(p.lastError || '') ||
+        shouldSkipSpvRestore(wallet.address, p.txid) ||
+        shouldSkipSpvRestore(falconId, p.txid)
       ) {
         clearSpvPending(wallet.address)
+        clearSpvPending(falconId)
         setSpvPending(null)
         return
       }
@@ -780,10 +785,12 @@ export default function BridgeDepositPanel({
           holdAddress: watch,
           btcNetwork: net,
         })
-        if (cancelled) return
-        // Drop anything we already claimed successfully (local + API should agree)
+        if (cancelled || gen !== spvRestoreGen.current) return
+        // Bitcoin vault UTXO stays unspent after mint — skip Falcon-spent / dismissed.
         const unclaimed = open.filter(
-          (d) => !isDepositClaimedLocally(falconId, d.txid) && !isDepositClaimedLocally(wallet.address, d.txid),
+          (d) =>
+            !shouldSkipSpvRestore(falconId, d.txid) &&
+            !shouldSkipSpvRestore(wallet.address, d.txid),
         )
         // Prefer newest remembered txid if still open on chain
         const remembered = listRememberedDepositTxids(falconId).concat(
@@ -796,6 +803,7 @@ export default function BridgeDepositPanel({
           setSpvPending(null)
           return
         }
+        if (gen !== spvRestoreGen.current) return
         const pending = createSpvPending({
           falconAccount: falconId,
           txid: pick.txid,
@@ -808,9 +816,10 @@ export default function BridgeDepositPanel({
           status:
             pick.confirmations >= minConf ? 'ready_to_claim' : 'waiting_confs',
         })
-        if (!cancelled) setSpvPending(pending)
+        if (gen !== spvRestoreGen.current) return
+        applyJob(pending)
       } catch {
-        if (!cancelled) setSpvPending(null)
+        if (!cancelled && gen === spvRestoreGen.current) setSpvPending(null)
       }
     })()
 
@@ -1607,8 +1616,11 @@ export default function BridgeDepositPanel({
       /* ignore */
     }
     // Permanent local tombstone — chain restore must not re-open Claim for this txid
+    spvRestoreGen.current += 1
     markDepositClaimed(falconId, txid)
     markDepositClaimed(wallet.address, txid)
+    dismissSpvDeposit(falconId, txid)
+    dismissSpvDeposit(wallet.address, txid)
     clearSpvPending(falconId)
     clearSpvPending(wallet.address)
     setSpvPending(null)
@@ -1682,7 +1694,7 @@ export default function BridgeDepositPanel({
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Claim failed'
       // Already minted (double-click / refresh) — success, clear open card
-      if (/tecDUPLICATE/i.test(msg)) {
+      if (/tecDUPLICATE|already spent|already minted/i.test(msg)) {
         finishSpvClaimSuccess(
           txid,
           undefined,
@@ -1734,6 +1746,10 @@ export default function BridgeDepositPanel({
       )
       return
     }
+    if (isDeadSpvTxid(raw)) {
+      setError('This Bitcoin deposit already minted FBTC — nothing to claim. Do not re-send BTC.')
+      return
+    }
     if (hasOpenSpvBridge(wallet.address) && getSpvPending(wallet.address)?.txid !== raw) {
       setError('Finish or clear the open bridge before resuming another txid')
       return
@@ -1771,19 +1787,29 @@ export default function BridgeDepositPanel({
 
   const handleSpvClearPending = () => {
     if (!spvPending) return
-    const isDead =
-      spvPending.txid === 'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524' ||
-      spvPending.txid === '9d02624da5e96706d22c0dcd067454f916841212c0c1dd9486e5680cfe8e246c'
+    const txid = spvPending.txid
+    const alreadyDone =
+      isDeadSpvTxid(txid) ||
+      spvPending.status === 'claimed' ||
+      /tecDUPLICATE|already spent|already minted/i.test(spvPending.lastError || '')
     if (
-      !isDead &&
-      spvPending.status !== 'claimed' &&
+      !alreadyDone &&
       !window.confirm(
         'Dismiss this deposit tracker?\n\nThis only clears the browser bar so you can start a new Bridge In.\nIt does not cancel BTC already sent. Paste the full tx id under Resume if you still need to Claim.',
       )
     ) {
       return
     }
-    // clearSpvPending removes per-account + map + last-open for this wallet only
+    // Durable hide — Bitcoin UTXO stays unspent after mint, so chain restore
+    // must not reopen this card. Resume paste undoes dismiss.
+    spvRestoreGen.current += 1
+    dismissSpvDeposit(falconId, txid)
+    dismissSpvDeposit(wallet.address, txid)
+    if (alreadyDone) {
+      markDepositClaimed(falconId, txid)
+      markDepositClaimed(wallet.address, txid)
+    }
+    clearSpvPending(falconId)
     clearSpvPending(wallet.address)
     setSpvPending(null)
     setError(null)

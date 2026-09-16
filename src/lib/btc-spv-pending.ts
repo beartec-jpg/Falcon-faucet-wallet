@@ -40,13 +40,36 @@ const JOB_PREFIX = 'falcon-spv-job-v3:'
 const HISTORY_PREFIX = 'falcon-spv-history-v1:'
 /** Successful claims — never re-open Claim UI for these txids */
 const CLAIMED_PREFIX = 'falcon-spv-claimed-v1:'
+/** User hid the tracker — chain restore must not resurrect. Resume paste undoes this. */
+const DISMISS_PREFIX = 'falcon-spv-dismissed-v1:'
 const LEGACY_KEYS = ['falcon-spv-pending-v1'] as const
 
+/**
+ * Closed peg-ins: Bitcoin vault UTXO stays unspent after mint, so list_deposits
+ * cannot treat "unspent on Bitcoin" as "still claimable". Falcon spent_deposits
+ * plus this set are the source of truth.
+ */
 const DEAD_SPV_TXIDS = new Set([
   'c04373f599000e888720d074e9e6ec04ec817dd2e052b1ccce762c8469a81524',
   '0ac5c315c05858ca284c9587b62acba144a540e97a8f6d2e4f3ddd7aebd3fb2d',
   '9d02624da5e96706d22c0dcd067454f916841212c0c1dd9486e5680cfe8e246c',
+  // Falcon BTC rail spent_deposits (already minted FBTC)
+  '1c7a16c2cb063474c6213ace0845fd6527a10fd828d5e7bd1fd2ed29037fbbf2',
+  '3f27e639bf9581efe1c4846c4fe020ba3a468b7cd2c18f43b15a7d5a0cf6acbf',
+  '7c900f51ecf059af62744da8a8b379f7ea9dc2d9e6337da155fab5d730f95f44',
+  'b2997d9cd67c6d6b043a32d2ded0d534f6762499051a3cc158f1fcc5d2936829',
+  'c31e1894f9ef0efa019e9a40b44343ac6fe4f7920824f1aca5e9c55086e3d11a',
+  'f12678178476276e43eba5e3a95f8f9e199c42e880d1f7285ef48a35c66a343c',
 ])
+
+function normTxid(txid: string): string {
+  return txid.toLowerCase().replace(/^0x/, '')
+}
+
+export function isDeadSpvTxid(txid: string): boolean {
+  const id = normTxid(txid)
+  return /^[0-9a-f]{64}$/.test(id) && DEAD_SPV_TXIDS.has(id)
+}
 
 function isBrowser(): boolean {
   return typeof window !== 'undefined'
@@ -235,7 +258,7 @@ export function markDepositClaimed(falconAccount: string, txid: string): void {
 
 export function isDepositClaimedLocally(falconAccount: string, txid: string): boolean {
   if (!isBrowser()) return false
-  const id = txid.toLowerCase().replace(/^0x/, '')
+  const id = normTxid(txid)
   if (!/^[0-9a-f]{64}$/.test(id)) return false
   if (DEAD_SPV_TXIDS.has(id)) return true
   try {
@@ -246,6 +269,64 @@ export function isDepositClaimedLocally(falconAccount: string, txid: string): bo
   } catch {
     return false
   }
+}
+
+function dismissedKey(falconAccount: string): string {
+  return `${DISMISS_PREFIX}${falconAccount}`
+}
+
+function readDismissed(falconAccount: string): string[] {
+  if (!isBrowser()) return []
+  try {
+    const raw = safeGet(localStorage, dismissedKey(falconAccount))
+    if (!raw) return []
+    const list = JSON.parse(raw) as string[]
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
+/** Hide this deposit tracker. Chain restore must not reopen it. Resume paste undoes. */
+export function dismissSpvDeposit(falconAccount: string, txid: string): void {
+  if (!isBrowser()) return
+  const id = normTxid(txid)
+  if (!/^[0-9a-f]{64}$/.test(id)) return
+  try {
+    const next = [id, ...readDismissed(falconAccount).filter((x) => x !== id)].slice(0, 50)
+    safeSet(localStorage, dismissedKey(falconAccount), JSON.stringify(next))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function undismissSpvDeposit(falconAccount: string, txid: string): void {
+  if (!isBrowser()) return
+  const id = normTxid(txid)
+  if (!/^[0-9a-f]{64}$/.test(id)) return
+  try {
+    const next = readDismissed(falconAccount).filter((x) => x !== id)
+    safeSet(localStorage, dismissedKey(falconAccount), JSON.stringify(next))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function isSpvDepositDismissed(falconAccount: string, txid: string): boolean {
+  const id = normTxid(txid)
+  if (!/^[0-9a-f]{64}$/.test(id)) return false
+  if (DEAD_SPV_TXIDS.has(id)) return true
+  return readDismissed(falconAccount).includes(id)
+}
+
+/** Do not auto-restore this txid (dead / minted / user dismissed). */
+export function shouldSkipSpvRestore(falconAccount: string, txid: string): boolean {
+  const id = normTxid(txid)
+  if (!/^[0-9a-f]{64}$/.test(id)) return true
+  if (isDeadSpvTxid(id)) return true
+  if (isDepositClaimedLocally(falconAccount, id)) return true
+  if (isSpvDepositDismissed(falconAccount, id)) return true
+  return false
 }
 
 export function getSpvPending(falconAccount: string): SpvPendingDeposit | null {
@@ -264,7 +345,11 @@ export function getSpvPending(falconAccount: string): SpvPendingDeposit | null {
     }
   }
   if (!p) return null
-  if (DEAD_SPV_TXIDS.has(p.txid.toLowerCase())) {
+  if (
+    DEAD_SPV_TXIDS.has(p.txid.toLowerCase()) ||
+    isDepositClaimedLocally(falconAccount, p.txid) ||
+    isSpvDepositDismissed(falconAccount, p.txid)
+  ) {
     clearSpvPending(falconAccount)
     return null
   }
@@ -334,13 +419,15 @@ export function createSpvPending(input: {
   confirmations?: number
 }): SpvPendingDeposit {
   const btcNetwork = input.btcNetwork ?? 'testnet'
-  const txid = input.txid.toLowerCase().replace(/^0x/, '')
+  const txid = normTxid(input.txid)
   if (DEAD_SPV_TXIDS.has(txid)) {
     throw new Error('This deposit cannot be claimed (spent or closed)')
   }
   if (!/^[0-9a-f]{64}$/.test(txid)) {
     throw new Error('Invalid Bitcoin transaction id')
   }
+  // Explicit resume/create undoes a prior Dismiss so the user can Claim.
+  undismissSpvDeposit(input.falconAccount, txid)
   const now = Date.now()
   const p: SpvPendingDeposit = {
     v: 1,
@@ -371,8 +458,8 @@ export function ensureSpvPendingTracked(
 ): SpvPendingDeposit | null {
   const existing = getSpvPending(falconAccount)
   if (existing && existing.status !== 'claimed') {
-    // Never keep an active card for a tx we already claimed successfully
-    if (isDepositClaimedLocally(falconAccount, existing.txid)) {
+    // Never keep an active card for a tx we already claimed or dismissed
+    if (shouldSkipSpvRestore(falconAccount, existing.txid)) {
       clearSpvPending(falconAccount)
       return null
     }
@@ -380,7 +467,7 @@ export function ensureSpvPendingTracked(
   }
   const last = readLastOpen()
   if (last && last.falconAccount === falconAccount && last.status !== 'claimed') {
-    if (isDepositClaimedLocally(falconAccount, last.txid)) {
+    if (shouldSkipSpvRestore(falconAccount, last.txid)) {
       writeLastOpen(null)
       return null
     }
@@ -546,7 +633,7 @@ export async function fetchOpenDepositsForAccount(opts: {
       error?: string
     }
     if (!r.ok) return []
-    return j.deposits || []
+    return (j.deposits || []).filter((d) => !isDeadSpvTxid(d.txid))
   } catch {
     return []
   }

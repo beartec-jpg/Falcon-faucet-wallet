@@ -14,6 +14,7 @@ import {
   claimAllowedForDeposit,
   isRetiredWatchAddress,
 } from '@/lib/btc-spv-policy'
+import { isDeadSpvTxid } from '@/lib/btc-spv-pending'
 
 /**
  * Bitcoin SPV light-client bridge status + claim proof helper.
@@ -181,6 +182,29 @@ async function fetchPlBtcRailTip(): Promise<{ height: number; spv: string }> {
   throw lastErr instanceof Error ? lastErr : new Error('PL BTC rail tip unavailable')
 }
 
+/** Falcon-minted BTC peg-ins. Bitcoin vault UTXO remains unspent after mint. */
+async function falconSpentBtcTxids(): Promise<Set<string>> {
+  const out = new Set<string>()
+  try {
+    const { plStatus } = await import('@/lib/pl-rpc')
+    const st = await plStatus(false)
+    const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
+    const btc = rails.find((r) => String(r.asset) === 'BTC') ?? {}
+    const spent = btc.spent_deposits
+    if (Array.isArray(spent)) {
+      for (const x of spent) {
+        const id = String(x || '')
+          .toLowerCase()
+          .replace(/^0x/, '')
+        if (/^[0-9a-f]{64}$/.test(id)) out.add(id)
+      }
+    }
+  } catch {
+    /* status may omit spent_deposits until the node is rolled */
+  }
+  return out
+}
+
 /** FALC dest id: classic AccountID or sha256(lowercase name)[:20]. */
 async function falcDest20(account: string): Promise<Buffer | null> {
   const trimmed = account.trim()
@@ -254,9 +278,11 @@ export async function GET(req: NextRequest) {
       let btcTipHeight: number | null = null
       let btcTipHash: string | null = null
       try {
-        const tipH = await explorerGet('/blocks/tip/height', 'testnet')
+        const [tipH, tipHashR] = await Promise.all([
+          explorerGet('/blocks/tip/height', 'testnet'),
+          explorerGet('/blocks/tip/hash', 'testnet'),
+        ])
         if (tipH.ok) btcTipHeight = parseInt(await tipH.text(), 10) || null
-        const tipHashR = await explorerGet('/blocks/tip/hash', 'testnet')
         if (tipHashR.ok) btcTipHash = (await tipHashR.text()).trim() || null
       } catch {
         /* explorer lag */
@@ -401,6 +427,7 @@ export async function POST(req: NextRequest) {
       if (!hold) {
         return NextResponse.json({ deposits: [], error: 'No hold address configured' })
       }
+      const spentOnFalcon = await falconSpentBtcTxids()
       const tipR = await explorerGet('/blocks/tip/height', network)
       const tip = tipR.ok ? parseInt(await tipR.text(), 10) || 0 : 0
       const txsR = await explorerGet(`/address/${hold}/txs`, network)
@@ -455,7 +482,9 @@ export async function POST(req: NextRequest) {
           }
         }
         if (!falcMatch || holdVout < 0 || holdVal < 546) continue
-        // only unspent on Bitcoin (hold keeps the UTXO after claim — that alone ≠ open claim)
+        const txid = String(t.txid || '').toLowerCase()
+        // Vault UTXO stays unspent after FBTC mint — Bitcoin unspent ≠ open claim.
+        if (isDeadSpvTxid(txid) || spentOnFalcon.has(txid)) continue
         try {
           const osR = await explorerGet(`/tx/${t.txid}/outspend/${holdVout}`, network)
           if (osR.ok) {
@@ -465,7 +494,6 @@ export async function POST(req: NextRequest) {
         } catch {
           /* include if outspend check fails */
         }
-        // Old Falcon Ledger deposit objects are gone with network 1001.
         deposits.push({
           txid: t.txid,
           vout: holdVout,
