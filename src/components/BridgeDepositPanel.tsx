@@ -2329,21 +2329,34 @@ export default function BridgeDepositPanel({
               {spvPending.status === 'ready_to_claim' && 'Ready to claim on Falcon'}
               {spvPending.status === 'claiming' && (step || 'Claiming…')}
               {spvPending.status === 'broadcast' && 'Confirming…'}
-              {spvPending.status === 'failed' && (spvPending.lastError || 'Failed')}
+              {spvPending.status === 'failed' &&
+                spvWaitUserMessage(spvPending.lastError || 'Failed')}
             </p>
+            {spvPending.lastError &&
+              spvPending.status !== 'failed' &&
+              (isSpvWaitMessage(spvPending.lastError) ||
+                /waiting|still need|explorers|mempool|confirmations|econn|blip|retrying/i.test(
+                  spvPending.lastError,
+                )) && (
+                <p className="text-[11px] text-slate-500 break-words">
+                  {spvWaitUserMessage(spvPending.lastError)}
+                </p>
+              )}
             {spvPending.lastError &&
               spvPending.status !== 'failed' &&
               !(
                 isSpvWaitMessage(spvPending.lastError) ||
-                /waiting|still need|explorers|mempool|confirmations/i.test(spvPending.lastError)
+                /waiting|still need|explorers|mempool|confirmations|econn|blip|retrying/i.test(
+                  spvPending.lastError,
+                )
               ) && (
                 <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
-                  {spvPending.lastError}
+                  {spvWaitUserMessage(spvPending.lastError)}
                 </div>
               )}
             {error && !isSpvWaitMessage(error) && !spvPending.lastError && (
               <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
-                {error}
+                {spvWaitUserMessage(error)}
               </div>
             )}
             {/* Claim only when there is outstanding work — never for completed claims */}

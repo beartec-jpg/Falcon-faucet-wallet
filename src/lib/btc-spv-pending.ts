@@ -590,10 +590,18 @@ export function spvWaitUserMessage(msg?: string): string {
   if (/tx not found|not found yet|raw tx not found/i.test(m)) {
     return 'Deposit broadcast — explorers still catching up (this can take a few minutes)…'
   }
-  if (/failed to fetch|network|timeout|unavailable|502|503|504/i.test(m)) {
+  if (
+    /failed to fetch|networkerror|network|timeout|unavailable|offline|unreachable|aborterror|econnreset|econnrefused|etimedout|epipe|socket|502|503|504|read econn/i.test(
+      m,
+    )
+  ) {
     return 'Temporary network blip while checking status — deposit is not cancelled. Retrying…'
   }
-  return `Still waiting: ${msg}`
+  // Never surface raw Node/fetch errors under Bridge In
+  if (/^still waiting:/i.test(msg.trim())) {
+    return 'Still checking deposit status — deposit is not cancelled. Retrying…'
+  }
+  return 'Still checking deposit status — deposit is not cancelled. Retrying…'
 }
 
 async function explorerTxStatus(
