@@ -67,6 +67,7 @@ import {
   upsertDestLockPending,
   type DestLockPending,
 } from '@/lib/dest-lock-pending'
+import { getSpvPending, type SpvPendingDeposit } from '@/lib/btc-spv-pending'
 import WalletAssetPicker from '@/components/WalletAssetPicker'
 import {
   FALCON_WALLET_ASSETS,
@@ -375,6 +376,7 @@ export default function WalletPage() {
   const [exportPassConfirm,  setExportPassConfirm]  = useState('')
   const [showExportBackup,   setShowExportBackup]   = useState(false)
   const [destLockHomeJobs, setDestLockHomeJobs] = useState<DestLockPending[]>([])
+  const [spvHomePending, setSpvHomePending] = useState<SpvPendingDeposit | null>(null)
 
   // ── Fetch account balance ─────────────────────────────────────────────────
 
@@ -474,7 +476,19 @@ export default function WalletPage() {
 
   useEffect(() => {
     if (!wallet || network.networkId !== 2300) return
-    setDestLockHomeJobs(listDestLockPending(plAccountId(wallet)))
+    const id = plAccountId(wallet)
+    setDestLockHomeJobs(listDestLockPending(id))
+    setSpvHomePending(getSpvPending(id) || getSpvPending(wallet.address))
+  }, [wallet, network.networkId, walletSection])
+
+  useEffect(() => {
+    if (!wallet || network.networkId !== 2300) return
+    const tick = () => {
+      const id = plAccountId(wallet)
+      setSpvHomePending(getSpvPending(id) || getSpvPending(wallet.address))
+    }
+    const t = setInterval(tick, 5000)
+    return () => clearInterval(t)
   }, [wallet, network.networkId])
 
   useEffect(() => {
@@ -2256,57 +2270,108 @@ export default function WalletPage() {
                         </button>
                       </div>
 
-                      {destLockHomeJobs.filter((j) => j.status !== 'done').map((job) => (
-                        <div
-                          key={job.txHash}
-                          className="rounded-xl border border-brand-500/25 bg-brand-500/5 px-4 py-3 space-y-2"
-                        >
-                          <div className="text-sm font-semibold text-white">
-                            {job.asset === 'USDC' ? 'USDC → F-USDC' : 'ETH → FETH'}
+                      {(() => {
+                        const openDest = destLockHomeJobs.filter((j) => j.status !== 'done')
+                        const doneDest = destLockHomeJobs.filter((j) => j.status === 'done')
+                        const openBtc =
+                          spvHomePending && spvHomePending.status !== 'claimed'
+                            ? spvHomePending
+                            : null
+                        const openN = openDest.length + (openBtc ? 1 : 0)
+                        if (openN + doneDest.length === 0) return null
+                        return (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between px-0.5">
+                              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                                Active bridges
+                              </p>
+                              <p className="text-[10px] text-slate-600 tabular-nums">
+                                {openN} open
+                                {doneDest.length > 0 ? ` · ${doneDest.length} done` : ''}
+                              </p>
+                            </div>
+                            <div className="space-y-2.5">
+                              {openDest.map((job) => (
+                                <div
+                                  key={job.txHash}
+                                  className="rounded-xl border border-brand-500/25 bg-brand-500/5 px-4 py-3 space-y-2"
+                                >
+                                  <div className="text-sm font-semibold text-white">
+                                    {job.asset === 'USDC' ? 'USDC → F-USDC' : 'ETH → FETH'}
+                                  </div>
+                                  <p className="text-xs text-slate-400 leading-relaxed">
+                                    {job.status === 'error'
+                                      ? job.lastError || 'Mint failed'
+                                      : job.depositBlock &&
+                                          job.lcExecution != null &&
+                                          job.lcExecution < job.depositBlock
+                                        ? `Locked on Sepolia. Waiting for Ethereum finality (light client ${job.lcExecution} / deposit ${job.depositBlock}). Not lost — you can still bridge another asset.`
+                                        : 'Locked on Sepolia — minting on Falcon PL. BTC, ETH, and USDC can run at the same time.'}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setBridgeInitialMode('deposit')
+                                      setBridgeInitialRoute(
+                                        job.asset === 'ETH' ? 'feth-sepolia' : 'fusdc-sepolia',
+                                      )
+                                      setWalletSection('bridge')
+                                    }}
+                                    className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+                                  >
+                                    Open Bridge tracker
+                                  </button>
+                                </div>
+                              ))}
+                              {openBtc && (
+                                <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 px-4 py-3 space-y-2">
+                                  <div className="text-sm font-semibold text-white">BTC → FBTC</div>
+                                  <p className="text-xs text-slate-400 leading-relaxed">
+                                    {openBtc.status === 'ready_to_claim'
+                                      ? 'Ready to claim on Falcon'
+                                      : `Confirming on Bitcoin (${openBtc.confirmations}/${openBtc.minConfirmations})`}
+                                  </p>
+                                  <p className="text-[11px] font-mono text-brand-400/90 truncate">
+                                    {openBtc.txid.slice(0, 10)}…{openBtc.txid.slice(-8)}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setBridgeInitialMode('deposit')
+                                      setBridgeInitialRoute('fbtc-btc')
+                                      setWalletSection('bridge')
+                                    }}
+                                    className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+                                  >
+                                    Open Bridge tracker
+                                  </button>
+                                </div>
+                              )}
+                              {doneDest.map((job) => (
+                                <div
+                                  key={`done-${job.txHash}`}
+                                  className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 flex items-center justify-between gap-3"
+                                >
+                                  <div className="text-sm font-medium text-emerald-300">
+                                    {job.asset === 'USDC' ? 'F-USDC minted' : 'FETH minted'}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setDestLockHomeJobs((prev) =>
+                                        prev.filter((j) => j.txHash !== job.txHash),
+                                      )
+                                    }
+                                    className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+                                  >
+                                    Done
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                          <p className="text-xs text-slate-400 leading-relaxed">
-                            {job.status === 'error'
-                              ? job.lastError || 'Mint failed'
-                              : job.depositBlock &&
-                                  job.lcExecution != null &&
-                                  job.lcExecution < job.depositBlock
-                                ? `Locked on Sepolia. Waiting for Ethereum finality (light client ${job.lcExecution} / deposit ${job.depositBlock}). Not lost — you can still bridge the other asset.`
-                                : 'Locked on Sepolia — minting on Falcon PL. You can bridge ETH and USDC at the same time.'}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setBridgeInitialMode('deposit')
-                              setBridgeInitialRoute(
-                                job.asset === 'ETH' ? 'feth-sepolia' : 'fusdc-sepolia',
-                              )
-                              setWalletSection('bridge')
-                            }}
-                            className="text-xs font-semibold text-brand-400 hover:text-brand-300"
-                          >
-                            Open Bridge tracker
-                          </button>
-                        </div>
-                      ))}
-                      {destLockHomeJobs.filter((j) => j.status === 'done').map((job) => (
-                        <div
-                          key={`done-${job.txHash}`}
-                          className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 flex items-center justify-between gap-3"
-                        >
-                          <div className="text-sm font-medium text-emerald-300">
-                            {job.asset === 'USDC' ? 'F-USDC minted' : 'FETH minted'}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDestLockHomeJobs((prev) => prev.filter((j) => j.txHash !== job.txHash))
-                            }
-                            className="text-xs font-semibold text-brand-400 hover:text-brand-300"
-                          >
-                            Done
-                          </button>
-                        </div>
-                      ))}
+                        )
+                      })()}
 
                       {walletSection === 'falcon' && emptyFalcon && (
                         <div className="rounded-xl border border-brand-500/20 bg-brand-500/5 px-4 py-4 text-center space-y-2">

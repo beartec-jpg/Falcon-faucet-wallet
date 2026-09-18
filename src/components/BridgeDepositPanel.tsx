@@ -2207,212 +2207,233 @@ export default function BridgeDepositPanel({
           </div>
         )}
 
-        {/* ETH/USDC dest-lock mint — survives page refresh; ETH and USDC can run together */}
-        {destLockJobs.filter((j) => j.status !== 'done').map((job) => (
-          <div
-            key={job.txHash}
-            className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-white">
-                  {job.asset === 'USDC' ? 'USDC → F-USDC' : 'ETH → FETH'}
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {job.status === 'error'
-                    ? job.lastError || 'Mint failed'
-                    : job.depositBlock &&
-                        job.lcExecution != null &&
-                        job.lcExecution < job.depositBlock
-                      ? `Locked on Sepolia. Waiting for Ethereum finality (light client block ${job.lcExecution} / deposit ${job.depositBlock}). ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} is not lost — do not send the same asset again.`
-                      : job.status === 'minting'
-                        ? `Locked on Sepolia — minting ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} on Falcon PL. You can bridge the other asset now.`
-                        : 'Deposit in progress'}
+        {/* Stacked trackers — BTC / ETH / USDC (and peg-out) can all run together */}
+        {(() => {
+          const openDest = destLockJobs.filter((j) => j.status !== 'done')
+          const doneDest = destLockJobs.filter((j) => j.status === 'done')
+          const openBtc = spvPending && spvPending.status !== 'claimed' ? spvPending : null
+          const doneBtc = spvPending?.status === 'claimed' ? spvPending : null
+          const openN = openDest.length + (openBtc ? 1 : 0)
+          const doneN = doneDest.length + (doneBtc ? 1 : 0)
+          if (openN + doneN === 0) return null
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 px-0.5">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                  Active bridges
+                </p>
+                <p className="text-[10px] text-slate-600 tabular-nums">
+                  {openN} open{doneN > 0 ? ` · ${doneN} done` : ''}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  clearDestLockPending(falconId, job.txHash)
-                  setDestLockJobs(listDestLockPending(falconId))
-                }}
-                className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
-              >
-                Dismiss
-              </button>
-            </div>
-            <a
-              href={job.explorerUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-[11px] font-mono text-brand-400/90 hover:text-brand-300 truncate"
-              title={job.txHash}
-            >
-              {job.txHash.slice(0, 10)}…{job.txHash.slice(-8)}
-            </a>
-            {job.amountLabel && (
-              <p className="text-xs text-slate-500">
-                {job.amountLabel} {job.asset}
-              </p>
-            )}
-          </div>
-        ))}
-        {destLockJobs.filter((j) => j.status === 'done').map((job) => (
-          <div
-            key={`done-${job.txHash}`}
-            className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 flex items-center justify-between gap-3"
-          >
-            <div>
-              <div className="text-sm font-medium text-emerald-300">
-                {job.asset === 'USDC' ? 'F-USDC minted' : 'FETH minted'}
-              </div>
-              <p className="text-[11px] font-mono text-slate-500 mt-0.5">
-                {job.txHash.slice(0, 12)}…
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                clearDestLockPending(falconId, job.txHash)
-                setDestLockJobs(listDestLockPending(falconId))
-              }}
-              className="text-xs font-semibold text-brand-400 hover:text-brand-300"
-            >
-              Done
-            </button>
-          </div>
-        ))}
+              <div className="space-y-2.5">
+                {openDest.map((job) => (
+                  <div
+                    key={job.txHash}
+                    className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-white">
+                          {job.asset === 'USDC' ? 'USDC → F-USDC' : 'ETH → FETH'}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {job.status === 'error'
+                            ? job.lastError || 'Mint failed'
+                            : job.depositBlock &&
+                                job.lcExecution != null &&
+                                job.lcExecution < job.depositBlock
+                              ? `Locked on Sepolia. Waiting for Ethereum finality (light client block ${job.lcExecution} / deposit ${job.depositBlock}). ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} is not lost — do not send the same asset again.`
+                              : job.status === 'minting'
+                                ? `Locked on Sepolia — minting ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} on Falcon PL. You can bridge another asset now.`
+                                : 'Deposit in progress'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearDestLockPending(falconId, job.txHash)
+                          setDestLockJobs(listDestLockPending(falconId))
+                        }}
+                        className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                    <a
+                      href={job.explorerUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-[11px] font-mono text-brand-400/90 hover:text-brand-300 truncate"
+                      title={job.txHash}
+                    >
+                      {job.txHash.slice(0, 10)}…{job.txHash.slice(-8)}
+                    </a>
+                    {job.amountLabel && (
+                      <p className="text-xs text-slate-500">
+                        {job.amountLabel} {job.asset}
+                      </p>
+                    )}
+                  </div>
+                ))}
 
-        {/* Active BTC deposit */}
-        {spvPending && spvPending.status !== 'claimed' && (
-          <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-white">BTC → FBTC</div>
-                <p className="text-xs text-slate-500 mt-0.5">Deposit in progress</p>
-              </div>
-              <button
-                type="button"
-                onClick={handleSpvClearPending}
-                className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
-              >
-                Dismiss
-              </button>
-            </div>
-            <a
-              href={spvPending.explorerUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-[11px] font-mono text-brand-400/90 hover:text-brand-300 truncate"
-              title={spvPending.txid}
-            >
-              {spvPending.txid.slice(0, 10)}…{spvPending.txid.slice(-8)}
-            </a>
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                <div
-                  className="h-full bg-brand-400 transition-all duration-500"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      (100 * spvPending.confirmations) / Math.max(1, spvPending.minConfirmations),
-                    )}%`,
-                  }}
-                />
-              </div>
-              <div className="text-xs font-semibold tabular-nums text-slate-300 shrink-0">
-                {spvPending.confirmations}/{spvPending.minConfirmations}
-              </div>
-            </div>
-            <p className="text-xs text-slate-500">
-              {spvPending.status === 'waiting_confs' && 'Waiting for confirmations…'}
-              {spvPending.status === 'ready_to_claim' && 'Ready to claim on Falcon'}
-              {spvPending.status === 'claiming' && (step || 'Claiming…')}
-              {spvPending.status === 'broadcast' && 'Confirming…'}
-              {spvPending.status === 'failed' &&
-                spvWaitUserMessage(spvPending.lastError || 'Failed')}
-            </p>
-            {spvPending.lastError &&
-              spvPending.status !== 'failed' &&
-              (isSpvWaitMessage(spvPending.lastError) ||
-                /waiting|still need|explorers|mempool|confirmations|econn|blip|retrying/i.test(
-                  spvPending.lastError,
-                )) && (
-                <p className="text-[11px] text-slate-500 break-words">
-                  {spvWaitUserMessage(spvPending.lastError)}
-                </p>
-              )}
-            {spvPending.lastError &&
-              spvPending.status !== 'failed' &&
-              !(
-                isSpvWaitMessage(spvPending.lastError) ||
-                /waiting|still need|explorers|mempool|confirmations|econn|blip|retrying/i.test(
-                  spvPending.lastError,
-                )
-              ) && (
-                <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
-                  {spvWaitUserMessage(spvPending.lastError)}
-                </div>
-              )}
-            {error && !isSpvWaitMessage(error) && !spvPending.lastError && (
-              <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
-                {spvWaitUserMessage(error)}
-              </div>
-            )}
-            {/* Claim only when there is outstanding work — never for completed claims */}
-            {spvPending.status === 'ready_to_claim' ||
-            (spvPending.status === 'claiming' &&
-              spvPending.confirmations >= spvPending.minConfirmations) ? (
-              <button
-                type="button"
-                onClick={handleSpvCompleteClaim}
-                // Only gate on live busy — never localStorage "claiming" (stuck after refresh)
-                disabled={busy}
-                className="btn-primary w-full"
-              >
-                {busy ? (
-                  <>
-                    <Spinner /> {step ?? 'Claiming…'}
-                  </>
-                ) : (
-                  'Claim FBTC'
+                {openBtc && (
+                  <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-white">BTC → FBTC</div>
+                        <p className="text-xs text-slate-500 mt-0.5">Deposit in progress</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleSpvClearPending}
+                        className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                    <a
+                      href={openBtc.explorerUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-[11px] font-mono text-brand-400/90 hover:text-brand-300 truncate"
+                      title={openBtc.txid}
+                    >
+                      {openBtc.txid.slice(0, 10)}…{openBtc.txid.slice(-8)}
+                    </a>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                        <div
+                          className="h-full bg-brand-400 transition-all duration-500"
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              (100 * openBtc.confirmations) /
+                                Math.max(1, openBtc.minConfirmations),
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                      <div className="text-xs font-semibold tabular-nums text-slate-300 shrink-0">
+                        {openBtc.confirmations}/{openBtc.minConfirmations}
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {openBtc.status === 'waiting_confs' && 'Waiting for confirmations…'}
+                      {openBtc.status === 'ready_to_claim' && 'Ready to claim on Falcon'}
+                      {openBtc.status === 'claiming' && (step || 'Claiming…')}
+                      {openBtc.status === 'broadcast' && 'Confirming…'}
+                      {openBtc.status === 'failed' &&
+                        spvWaitUserMessage(openBtc.lastError || 'Failed')}
+                    </p>
+                    {openBtc.lastError &&
+                      openBtc.status !== 'failed' &&
+                      (isSpvWaitMessage(openBtc.lastError) ||
+                        /waiting|still need|explorers|mempool|confirmations|econn|blip|retrying/i.test(
+                          openBtc.lastError,
+                        )) && (
+                        <p className="text-[11px] text-slate-500 break-words">
+                          {spvWaitUserMessage(openBtc.lastError)}
+                        </p>
+                      )}
+                    {openBtc.lastError &&
+                      openBtc.status !== 'failed' &&
+                      !(
+                        isSpvWaitMessage(openBtc.lastError) ||
+                        /waiting|still need|explorers|mempool|confirmations|econn|blip|retrying/i.test(
+                          openBtc.lastError,
+                        )
+                      ) && (
+                        <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
+                          {spvWaitUserMessage(openBtc.lastError)}
+                        </div>
+                      )}
+                    {error && !isSpvWaitMessage(error) && !openBtc.lastError && (
+                      <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300 break-words">
+                        {spvWaitUserMessage(error)}
+                      </div>
+                    )}
+                    {openBtc.status === 'ready_to_claim' ||
+                    (openBtc.status === 'claiming' &&
+                      openBtc.confirmations >= openBtc.minConfirmations) ? (
+                      <button
+                        type="button"
+                        onClick={handleSpvCompleteClaim}
+                        disabled={busy}
+                        className="btn-primary w-full"
+                      >
+                        {busy ? (
+                          <>
+                            <Spinner /> {step ?? 'Claiming…'}
+                          </>
+                        ) : (
+                          'Claim FBTC'
+                        )}
+                      </button>
+                    ) : openBtc.status === 'waiting_confs' ||
+                      openBtc.status === 'broadcast' ||
+                      (openBtc.confirmations < openBtc.minConfirmations &&
+                        openBtc.status !== 'failed') ? (
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <Spinner className="w-3.5 h-3.5" />
+                        Confirming on Bitcoin
+                        <span className="tabular-nums text-slate-400">
+                          ({openBtc.confirmations}/{openBtc.minConfirmations})
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
                 )}
-              </button>
-            ) : spvPending.status === 'waiting_confs' ||
-              spvPending.status === 'broadcast' ||
-              (spvPending.confirmations < spvPending.minConfirmations &&
-                spvPending.status !== 'failed') ? (
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <Spinner className="w-3.5 h-3.5" />
-                Confirming on Bitcoin
-                <span className="tabular-nums text-slate-400">
-                  ({spvPending.confirmations}/{spvPending.minConfirmations})
-                </span>
+
+                {doneDest.map((job) => (
+                  <div
+                    key={`done-${job.txHash}`}
+                    className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <div className="text-sm font-medium text-emerald-300">
+                        {job.asset === 'USDC' ? 'F-USDC minted' : 'FETH minted'}
+                      </div>
+                      <p className="text-[11px] font-mono text-slate-500 mt-0.5">
+                        {job.txHash.slice(0, 12)}…
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        clearDestLockPending(falconId, job.txHash)
+                        setDestLockJobs(listDestLockPending(falconId))
+                      }}
+                      className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+                    >
+                      Done
+                    </button>
+                  </div>
+                ))}
+
+                {doneBtc && (
+                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-emerald-300">FBTC claimed</div>
+                      <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                        {doneBtc.txid.slice(0, 12)}…
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSpvClearPending}
+                      className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+                    >
+                      Done
+                    </button>
+                  </div>
+                )}
               </div>
-            ) : null}
-          </div>
-        )}
-
-        {/* Success banner only while status is claimed (brief); not a second Claim CTA */}
-        {spvPending?.status === 'claimed' && (
-          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-medium text-emerald-300">FBTC claimed</div>
-              <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-                {spvPending.txid.slice(0, 12)}…
-              </p>
             </div>
-            <button
-              type="button"
-              onClick={handleSpvClearPending}
-              className="text-xs font-semibold text-brand-400 hover:text-brand-300"
-            >
-              Done
-            </button>
-          </div>
-        )}
+          )
+        })()}
 
-        {/* Bridge Out — single card: amount + progress bar + short state */}
+        {/* Bridge Out — sits in the stack flow below active peg-ins */}
         {spvWithdraws[0] && (() => {
           const w = spvWithdraws[0]
           const stepN = phaseStepIndex(w.phase)

@@ -1,7 +1,7 @@
 // Falcon Ledger Wallet — Service Worker
 // Network-first for GET API + WASM; never intercept POST (Claim / submit).
 
-const CACHE = 'falcon-wallet-v14'
+const CACHE = 'falcon-wallet-v15'
 const API_TIMEOUT_MS = 30_000
 
 const PRECACHE_URLS = [
