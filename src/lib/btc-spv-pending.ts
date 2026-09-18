@@ -329,6 +329,86 @@ export function shouldSkipSpvRestore(falconAccount: string, txid: string): boole
   return false
 }
 
+/**
+ * Wipe already-minted / closed peg-ins from every localStorage layer.
+ * Bitcoin vault UTXOs stay unspent after mint, so without this the Bridge
+ * card can look “in progress” forever even though FBTC was credited.
+ */
+export function purgeDeadSpvStorage(accounts: string[] = []): void {
+  if (!isBrowser()) return
+  const accountsTouched = new Set(accounts.filter(Boolean))
+
+  const scrubJob = (job: SpvPendingDeposit | null | undefined): boolean => {
+    if (!job?.txid) return false
+    if (!isDeadSpvTxid(job.txid) && job.status !== 'claimed') return false
+    if (job.falconAccount) accountsTouched.add(job.falconAccount)
+    if (isDeadSpvTxid(job.txid)) {
+      for (const a of accountsTouched) {
+        markDepositClaimed(a, job.txid)
+        dismissSpvDeposit(a, job.txid)
+      }
+    }
+    return true
+  }
+
+  try {
+    const map = readMap()
+    let dirty = false
+    for (const [k, raw] of Object.entries(map)) {
+      const job = normalizeJob(raw)
+      if (!job || scrubJob(job) || isDeadSpvTxid(job.txid)) {
+        delete map[k]
+        dirty = true
+        if (job?.falconAccount) accountsTouched.add(job.falconAccount)
+        if (job?.txid && isDeadSpvTxid(job.txid)) {
+          markDepositClaimed(k, job.txid)
+          dismissSpvDeposit(k, job.txid)
+        }
+      }
+    }
+    if (dirty) writeMap(map)
+
+    const last = readLastOpen()
+    if (last && (isDeadSpvTxid(last.txid) || last.status === 'claimed')) {
+      if (isDeadSpvTxid(last.txid) && last.falconAccount) {
+        markDepositClaimed(last.falconAccount, last.txid)
+        dismissSpvDeposit(last.falconAccount, last.txid)
+      }
+      writeLastOpen(null)
+    }
+
+    for (const a of accountsTouched) {
+      const per = readPerAccount(a)
+      if (per && (isDeadSpvTxid(per.txid) || per.status === 'claimed')) {
+        if (isDeadSpvTxid(per.txid)) {
+          markDepositClaimed(a, per.txid)
+          dismissSpvDeposit(a, per.txid)
+        }
+        clearSpvPending(a)
+      }
+    }
+
+    // Sweep any leftover keyed blobs that still embed a dead txid
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (!key || !key.includes('falcon-spv')) continue
+      if (key.includes('claimed') || key.includes('dismissed') || key.includes('remember')) continue
+      try {
+        const raw = safeGet(localStorage, key)
+        if (!raw) continue
+        if ([...DEAD_SPV_TXIDS].some((id) => raw.toLowerCase().includes(id))) {
+          safeSet(localStorage, key, key.includes('map') ? '{}' : '')
+          if (!key.includes('map')) localStorage.removeItem(key)
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 export function getSpvPending(falconAccount: string): SpvPendingDeposit | null {
   // 1) per-account
   let p = readPerAccount(falconAccount)

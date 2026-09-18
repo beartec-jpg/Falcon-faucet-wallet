@@ -64,6 +64,7 @@ import {
   listRememberedDepositTxids,
   markDepositClaimed,
   pollSpvConfirmations,
+  purgeDeadSpvStorage,
   shouldSkipSpvRestore,
   spvWaitUserMessage,
   type SpvPendingDeposit,
@@ -728,6 +729,12 @@ export default function BridgeDepositPanel({
     } catch {
       /* ignore */
     }
+    // Already-minted peg-ins (Bitcoin UTXO still unspent) must never reopen.
+    purgeDeadSpvStorage([falconId, wallet.address])
+    setSpvPending((cur) => {
+      if (cur && (isDeadSpvTxid(cur.txid) || cur.status === 'claimed')) return null
+      return cur
+    })
 
     const minConf = Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6
     const net = spvStatus?.btcNetwork || 'testnet'
