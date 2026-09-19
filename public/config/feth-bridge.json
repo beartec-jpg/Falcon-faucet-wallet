@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "status": "testnet",
-  "description": "Sepolia WETH ↔ Falcon FETH. Bridge In wraps ETH→WETH, locks WETH, relay mints FETH (currency ETH). No free bootstrap mint.",
+  "status": "historical",
+  "description": "Sepolia WETH \u2194 Falcon FETH. Bridge In wraps ETH\u2192WETH, locks WETH, relay mints FETH (currency ETH). No free bootstrap mint.",
   "sepolia": {
     "chain_id": 11155111,
     "chain_name": "Sepolia",
@@ -21,12 +21,14 @@
   "deposit_flow": {
     "type": "passkey_evm_wallet",
     "steps": [
-      "Open Wallet → Bridge, ensure ETH deposit wallet exists",
+      "Open Wallet \u2192 Bridge, ensure ETH deposit wallet exists",
       "Add FETH trust line (required before Bridge In)",
       "Fund Sepolia address with test ETH (gas + amount to wrap)",
-      "Bridge In FETH: wrap ETH→WETH, approve, lock; relay mints FETH",
+      "Bridge In FETH: wrap ETH\u2192WETH, approve, lock; relay mints FETH",
       "Send FETH on Falcon like any IOU"
     ],
-    "note": "Bridge Out (FETH→WETH) not enabled yet — deposit mint path is live."
-  }
+    "note": "Bridge Out (FETH\u2192WETH) not enabled yet \u2014 deposit mint path is live."
+  },
+  "historical": true,
+  "historical_note": "HISTORICAL \u2014 Falcon Ledger network 1001 lock-mint. Not live on 2300. Live Sepolia rail: public/config/pl-2300-bridge.json."
 }

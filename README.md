@@ -32,9 +32,9 @@ Official public portal for **Falcon PL** testnet (network ID **2300**) — Falco
 
 Paperwork: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
 
-- **Dest-lock ETH/USDC** — `FalconDestLock` `depositEth(bytes20)` / `depositUsdc` auto-mints on Falcon PL. Bridge out: burn → claimer dest-lock Kickoff → dest `take` after CSV=6. No live n-of-n. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: live`).
-- **Live contract:** `0xdBF6855b00B78c047A729A21E13bfE5f4C991C05` (Sepolia).
-- **BTC** — BitVM2 instance dest-lock on 2300. Wallet flag `BTC_RAIL_LIVE = true`. Peg-in: instance + FALC memo. Peg-out: burn FBTC, claimer dest-lock Kickoff, dest key takes after CSV. No FROST.
+- **ETH/USDC (FalconQcBridge)** — `depositEth(bytes20)` / `depositUsdc` on `0xf8F1471643792eb1cD5d0C31061629777E55bc48`; Groth16 verifier `0x9992cD8e45A2b7983E2b7f8fC725308a0E4845EC`. Peg-out: burn → Falcon-512 proofs → `openClaim` / `take`. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: live`).
+- **Legacy DestLock (Kickoff only):** `0xdBF6855b00B78c047A729A21E13bfE5f4C991C05` — not the live peg-in.
+- **BTC** — even-Y NUMS pool `tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34` (primary). Peg-out live: BitVM2 A1 operator-fronting (`BTC_EXIT_MODE=bitvm2`) — **not** custodialess. `BTC_RAIL_LIVE = true`. Prior instance `tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5` is historical.
 - **Classic XRPL FXRP** — separate corridor; not the 1001 Falcon Ledger fork.
 - **Passkey Sepolia wallet** — no MetaMask; EVM keys encrypted on-device.
 - **Send Out** — move Sepolia ETH or USDC to any external `0x` address.
@@ -95,7 +95,7 @@ F-USDC and Sepolia USDC are **not** the same token — the bridge converts betwe
 |------|-------|
 | Name | Falcon PL public testnet |
 | Network ID | **`2300`** |
-| Product | Falcon PL · Falcon Consensus · Falcon-512 (`product_version` 2.9.36) |
+| Product | Falcon PL · Falcon Consensus · Falcon-512 (`product_version` 2.9.43) |
 | Public RPC | operator hub on falcon1 port **19301** (Tailscale mesh; not the retired 1001 `:6005`) |
 | Epoch | 7 days; first claimable epoch **1** on testnet |
 | Min validator bond | 1,000 FPL |

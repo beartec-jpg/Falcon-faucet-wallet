@@ -3,10 +3,10 @@
   "network": "falcon-pl",
   "network_id": 2300,
   "btc_network": "testnet",
-  "watch_address": "tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5",
-  "payment_script_hex": "512051b99b1a94717ff365ea891fe7fd3155acf11fd19b341865fd723d4fffdf2c5f",
+  "watch_address": "tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34",
+  "payment_script_hex": "51206ebeb0289c396f1f0ace996500600f831350d95c0cc89f412ed0eca650abb38f",
   "min_confirmations": 1,
-  "peg_out": "bitvm2-dest-lock",
+  "peg_out": "bitvm2-operator-fronting",
   "claim_csv": 6,
   "retired_watch_addresses": [
     "mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik",
@@ -14,8 +14,15 @@
     "tb1q40fswfaq0e5nvnmayutp7qw3s0r0ctgy62p48w0k4zq79wx6w27s6ulwpv",
     "tb1q7dnlzumm50hke3yl75rywds3gtfu2swqwu4xa08kx0ctxs00rv4q8hrkwu",
     "tb1pq9mgl62e4dskkc9h4jxwfsfdt56hn9vl22u9xhqgz2l8jxfpwsascq6098",
-    "tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34",
-    "tb1pj9d6d6eaayw7f7hc3mr2lm3xhuscuhtw6kpjqz5jvvuf4mh2lduq2pqytm"
+    "tb1pj9d6d6eaayw7f7hc3mr2lm3xhuscuhtw6kpjqz5jvvuf4mh2lduq2pqytm",
+    "tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5"
   ],
-  "notes": "Falcon PL 2300 BitVM2 instance. Peg-in: this address + FALC OP_RETURN. Peg-out: burn FBTC, claimer dest-lock Kickoff, dest CHECKSIG after CSV. No FROST. Do not send to the packed NUMS vault or retired holds."
+  "notes": "STATUS SoT 2.9.43: NUMS P2TR even-Y pool is primary peg-in. Peg-out live today = bitvm2 A1 operator-fronting \u2014 not custodialess. Odd-Y v1 and prior BitVM2 instance are historical.",
+  "btc_exit_mode": "bitvm2",
+  "trust_note": "Live BTC exit is A1 operator-fronting (BTC_EXIT_MODE=bitvm2). Not Bitcoin Disprove. Not custodialess.",
+  "historical_watch_addresses": {
+    "prior_bitvm2_instance": "tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5",
+    "odd_y_v1": "tb1pq9mgl62e4dskkc9h4jxwfsfdt56hn9vl22u9xhqgz2l8jxfpwsascq6098"
+  },
+  "sot": "Falcon-PL docs/BRIDGES_2300_STATUS.md (product 2.9.43)"
 }

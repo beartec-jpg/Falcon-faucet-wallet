@@ -2,7 +2,7 @@
   "version": 1,
   "status": "live",
   "network_id": 2300,
-  "description": "Falcon PL 2300 peg-in: FalconQcBridgeV2 depositEth/depositUsdc. Peg-out: V2 openClaim + dest take. Dest-lock leftover Kickoff only (DESTLOCK_EXIT, dest = burn external_to). No operator self-dest. Dest-lock 0.1 ETH+20 USDC and v1 QC 0.018 ETH+8 USDC are stranded testnet funds.",
+  "description": "Falcon PL 2300 peg-in: FalconQcBridge depositEth/depositUsdc (STATUS SoT product 2.9.43). Peg-out: openClaim + dest take (Groth16 Falcon-512). legacy_destlock = FalconDestLock Kickoff leftover only. legacy_qc_v2 = prior interim FalconQcBridgeV2 (not STATUS live). No operator self-dest. Do not market BTC exits as custodialess.",
   "sepolia": {
     "chain_id": 11155111,
     "chain_name": "Sepolia",
@@ -10,15 +10,19 @@
     "explorer_url": "https://sepolia.etherscan.io",
     "usdc_token": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
     "usdc_decimals": 6,
-    "bridge": "0x811854827627024B38926Ea9DCc0f88ACd5fB23e",
+    "bridge": "0xf8F1471643792eb1cD5d0C31061629777E55bc48",
     "legacy_destlock": "0xdBF6855b00B78c047A729A21E13bfE5f4C991C05",
     "qc_version": 2,
-    "verifier": "0x2Cb70e9f082F2DF91E9A5e6E7C9DF6b8b11B4F80",
+    "verifier": "0x9992cD8e45A2b7983E2b7f8fC725308a0E4845EC",
     "claimer": "0xDb52847EE70cEd3128f49309c3DC65b69d7466f4",
     "claim_delay": 6,
     "eth_lock": "0xc1113d2059c5d73f45968910fadfff7d88a3c4a4d8a0f754f15faa495d2c467b",
     "usdc_lock": "0xc8927e1f8b56b080b015ccf240c5d27c6f1525d52a6545a1c03c84326e483c1c",
-    "start_height": 353110
+    "start_height": 353110,
+    "falcon_key_root": "0x04a9ad1908569884ff307f63291c592af16fe345fb471c22104d0c0717bcfd8a",
+    "legacy_qc_v2": "0x811854827627024B38926Ea9DCc0f88ACd5fB23e",
+    "legacy_verifier_v2": "0x2Cb70e9f082F2DF91E9A5e6E7C9DF6b8b11B4F80"
   },
-  "dest20": "sha256(lowercase PL account)[:20]"
+  "dest20": "sha256(lowercase PL account)[:20]",
+  "sot": "Falcon-PL docs/BRIDGES_2300_STATUS.md (product 2.9.43)"
 }
