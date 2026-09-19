@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "status": "testnet",
-  "description": "Sepolia USDC ↔ Falcon F-USDC bridge. Bridge In from Sepolia; Bridge Out returns F-USDC to Sepolia USDC via the lock contract relay.",
+  "status": "historical",
+  "description": "Sepolia USDC \u2194 Falcon F-USDC bridge. Bridge In from Sepolia; Bridge Out returns F-USDC to Sepolia USDC via the lock contract relay.",
   "sepolia": {
     "chain_id": 11155111,
     "chain_name": "Sepolia",
@@ -45,7 +45,7 @@
   "deposit_flow": {
     "type": "passkey_evm_wallet",
     "steps": [
-      "Open Wallet → Bridge and create a Sepolia wallet with your passkey",
+      "Open Wallet \u2192 Bridge and create a Sepolia wallet with your passkey",
       "Add F-USDC trust line on the Bridge tab (required before Bridge In)",
       "Fund the Sepolia address with test ETH (gas) and Sepolia USDC",
       "Bridge In: approve + lock USDC; relay mints F-USDC on Falcon",
@@ -58,5 +58,7 @@
     "memo_type": "sepolia-withdraw",
     "relay_script": "scripts/bridge-withdraw-relay.py",
     "note": "Lock contract must include withdraw(). Redeploy with deploy-falcon-lock.js if bridge-out fails on-chain."
-  }
+  },
+  "historical": true,
+  "historical_note": "HISTORICAL \u2014 Falcon Ledger network 1001 lock-mint. Not live on 2300. Live Sepolia rail: public/config/pl-2300-bridge.json."
 }

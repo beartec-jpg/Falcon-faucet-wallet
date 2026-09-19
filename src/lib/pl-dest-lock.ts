@@ -1,5 +1,5 @@
 /**
- * Falcon PL 2300 dest-lock (FalconBridge). Not Falcon Ledger 1001 collateral lock.
+ * Falcon PL 2300 FalconQcBridge (STATUS SoT). Not Falcon Ledger 1001 collateral lock.
  * dest20 = sha256(lowercase PL account)[:20]
  */
 
@@ -25,6 +25,9 @@ export interface Pl2300BridgeConfig {
     verifier?: string
     qc_version?: number
     legacy_destlock?: string
+    legacy_qc_v2?: string
+    legacy_verifier_v2?: string
+    falcon_key_root?: string
     start_height: number
     eth_lock?: string
     usdc_lock?: string
@@ -61,7 +64,7 @@ export function dest20FromAccount(account: string): string {
 
 let cached: Pl2300BridgeConfig | null = null
 
-/** Live V2 bridge — used so the Bridge tab is ready before /config fetch. */
+/** Live FalconQcBridge (STATUS SoT) — Bridge tab ready before /config fetch. */
 export const PL2300_BRIDGE_FALLBACK: Pl2300BridgeConfig = {
   version: 1,
   status: 'live',
@@ -73,12 +76,15 @@ export const PL2300_BRIDGE_FALLBACK: Pl2300BridgeConfig = {
     explorer_url: 'https://sepolia.etherscan.io',
     usdc_token: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
     usdc_decimals: 6,
-    bridge: '0x811854827627024B38926Ea9DCc0f88ACd5fB23e',
+    bridge: '0xf8F1471643792eb1cD5d0C31061629777E55bc48',
     qc_version: 2,
-    verifier: '0x2Cb70e9f082F2DF91E9A5e6E7C9DF6b8b11B4F80',
+    verifier: '0x9992cD8e45A2b7983E2b7f8fC725308a0E4845EC',
     claimer: '0xDb52847EE70cEd3128f49309c3DC65b69d7466f4',
     claim_delay: 6,
     legacy_destlock: '0xdBF6855b00B78c047A729A21E13bfE5f4C991C05',
+    legacy_qc_v2: '0x811854827627024B38926Ea9DCc0f88ACd5fB23e',
+    legacy_verifier_v2: '0x2Cb70e9f082F2DF91E9A5e6E7C9DF6b8b11B4F80',
+    falcon_key_root: '0x04a9ad1908569884ff307f63291c592af16fe345fb471c22104d0c0717bcfd8a',
     start_height: 353110,
   },
 }
@@ -112,7 +118,7 @@ async function withSepolia<T>(rpcUrl: string, fn: (p: JsonRpcProvider) => Promis
   throw last instanceof Error ? last : new Error('Sepolia RPC unavailable')
 }
 
-/** PR9: new peg-in is FalconQcBridgeV2. Dest-lock is leftover Kickoff only. */
+/** Peg-in/out: FalconQcBridge (STATUS SoT). legacy_destlock = Kickoff leftover only. */
 export function pegInBridge(cfg: Pl2300BridgeConfig): string {
   return cfg.sepolia.bridge
 }
