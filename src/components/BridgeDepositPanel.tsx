@@ -67,6 +67,7 @@ import {
   purgeDeadSpvStorage,
   shouldSkipSpvRestore,
   spvWaitUserMessage,
+  undismissSpvDeposit,
   type SpvPendingDeposit,
   updateSpvPending,
 } from '@/lib/btc-spv-pending'
@@ -166,6 +167,8 @@ interface Props {
   initialMode?: 'deposit' | 'withdraw' | 'send' | 'receive'
   /** Which bridge route to open (e.g. FETH / FBTC / FXRP from Falcon tab). */
   initialRoute?: BridgeRouteId
+  /** Home / deep-link: open this Bitcoin deposit tracker without pasting the tx id. */
+  initialSpvTxid?: string
 }
 
 /** All bridge corridors — labels flip with In/Out. `fbnb-bsc` is kept for type compat only (not public). */
@@ -273,6 +276,7 @@ export default function BridgeDepositPanel({
   onFalconRefresh,
   initialMode = 'deposit',
   initialRoute = 'fusdc-sepolia',
+  initialSpvTxid = '',
 }: Props) {
   const { networkKey, network } = useNetwork()
   const isPl2300 = network.networkId === 2300
@@ -720,10 +724,72 @@ export default function BridgeDepositPanel({
     }
   }, [destLockJobs.map((j) => `${j.txHash}:${j.status}`).join('|'), falconId])
 
+  // Home "Open Bridge tracker" — open this exact BTC deposit without paste/search.
+  useEffect(() => {
+    const raw = (initialSpvTxid || '').trim().toLowerCase().replace(/^0x/, '')
+    if (!/^[0-9a-f]{64}$/.test(raw)) return
+    let cancelled = false
+    ;(async () => {
+      setBridgeRoute('fbtc-btc')
+      setDirection('deposit')
+      if (isDeadSpvTxid(raw)) {
+        purgeDeadSpvStorage([falconId, wallet.address])
+        setSpvPending(null)
+        setError(
+          'This Bitcoin deposit already minted FBTC — nothing to claim. Do not re-send BTC.',
+        )
+        return
+      }
+      // Opening from Home undoes a prior Dismiss so the tracker is visible again.
+      undismissSpvDeposit(falconId, raw)
+      undismissSpvDeposit(wallet.address, raw)
+      const minConf = Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6
+      const net = spvStatus?.btcNetwork || 'testnet'
+      let conf = 0
+      try {
+        const st = await pollSpvConfirmations(raw, net)
+        if (cancelled) return
+        conf = st.confirmations
+      } catch {
+        conf = 0
+      }
+      if (cancelled) return
+      const pending = createSpvPending({
+        falconAccount: falconId,
+        txid: raw,
+        watchAddress: btcWatchAddress,
+        amountSats: 0,
+        minConfirmations: minConf,
+        btcNetwork: net,
+        confirmations: conf,
+        status: conf >= minConf ? 'ready_to_claim' : 'waiting_confs',
+      })
+      // Also mirror under wallet.address so Home and Bridge share one job.
+      createSpvPending({
+        falconAccount: wallet.address,
+        txid: raw,
+        watchAddress: btcWatchAddress,
+        amountSats: pending.amountSats,
+        minConfirmations: minConf,
+        btcNetwork: net,
+        confirmations: conf,
+        status: pending.status,
+      })
+      setSpvPending(pending)
+      setError(null)
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open once per deep-link txid
+  }, [initialSpvTxid, falconId, wallet.address, btcWatchAddress])
+
   // Auto-restore open SPV job: localStorage layers + chain FALC deposits if lost.
   useEffect(() => {
     let cancelled = false
     const gen = spvRestoreGen.current
+    // Deep-link from Home owns restore for this mount.
+    if ((initialSpvTxid || '').trim()) return
     try {
       localStorage.removeItem('falcon-spv-pending-v1')
     } catch {

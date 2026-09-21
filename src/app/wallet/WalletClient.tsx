@@ -67,7 +67,13 @@ import {
   upsertDestLockPending,
   type DestLockPending,
 } from '@/lib/dest-lock-pending'
-import { getSpvPending, type SpvPendingDeposit } from '@/lib/btc-spv-pending'
+import {
+  getSpvPending,
+  isDeadSpvTxid,
+  purgeDeadSpvStorage,
+  shouldSkipSpvRestore,
+  type SpvPendingDeposit,
+} from '@/lib/btc-spv-pending'
 import WalletAssetPicker from '@/components/WalletAssetPicker'
 import {
   FALCON_WALLET_ASSETS,
@@ -291,6 +297,7 @@ export default function WalletPage() {
   const [bridgeInitialRoute, setBridgeInitialRoute] = useState<
     'fusdc-sepolia' | 'feth-sepolia' | 'fbnb-bsc' | 'fbtc-btc' | 'fxrp-xrpl'
   >('fusdc-sepolia')
+  const [bridgeInitialSpvTxid, setBridgeInitialSpvTxid] = useState('')
   const [receiveAssetId, setReceiveAssetId] = useState<MultiChainAssetId>('falcon')
   const [ethNativeBal, setEthNativeBal] = useState<string | null>(null)
   const [usdcNativeBal, setUsdcNativeBal] = useState<string | null>(null)
@@ -477,15 +484,33 @@ export default function WalletPage() {
   useEffect(() => {
     if (!wallet || network.networkId !== 2300) return
     const id = plAccountId(wallet)
+    purgeDeadSpvStorage([id, wallet.address])
     setDestLockHomeJobs(listDestLockPending(id))
-    setSpvHomePending(getSpvPending(id) || getSpvPending(wallet.address))
+    const spv = getSpvPending(id) || getSpvPending(wallet.address)
+    setSpvHomePending(
+      spv &&
+        !isDeadSpvTxid(spv.txid) &&
+        !shouldSkipSpvRestore(id, spv.txid) &&
+        spv.status !== 'claimed'
+        ? spv
+        : null,
+    )
   }, [wallet, network.networkId, walletSection])
 
   useEffect(() => {
     if (!wallet || network.networkId !== 2300) return
     const tick = () => {
       const id = plAccountId(wallet)
-      setSpvHomePending(getSpvPending(id) || getSpvPending(wallet.address))
+      purgeDeadSpvStorage([id, wallet.address])
+      const spv = getSpvPending(id) || getSpvPending(wallet.address)
+      setSpvHomePending(
+        spv &&
+          !isDeadSpvTxid(spv.txid) &&
+          !shouldSkipSpvRestore(id, spv.txid) &&
+          spv.status !== 'claimed'
+          ? spv
+          : null,
+      )
     }
     const t = setInterval(tick, 5000)
     return () => clearInterval(t)
@@ -2023,7 +2048,10 @@ export default function WalletPage() {
                       onClick={() => {
                         setWalletSection(tab.id)
                         setPanelKey((k) => k + 1)
-                        if (tab.id === 'bridge') setBridgeInitialMode('deposit')
+                        if (tab.id === 'bridge') {
+                          setBridgeInitialMode('deposit')
+                          setBridgeInitialSpvTxid('')
+                        }
                         refreshBalance(plAccountId(wallet))
                       }}
                       className={`wallet-tab-pill ${
@@ -2339,6 +2367,7 @@ export default function WalletPage() {
                                     onClick={() => {
                                       setBridgeInitialMode('deposit')
                                       setBridgeInitialRoute('fbtc-btc')
+                                      setBridgeInitialSpvTxid(openBtc.txid)
                                       setWalletSection('bridge')
                                     }}
                                     className="text-xs font-semibold text-brand-400 hover:text-brand-300"
@@ -2929,7 +2958,7 @@ export default function WalletPage() {
 
               {view === 'dashboard' && walletSection === 'bridge' && bridgeCfg && (
                 <BridgeDepositPanel
-                  key={`bridge-${bridgeInitialMode}-${bridgeInitialRoute}`}
+                  key={`bridge-${bridgeInitialMode}-${bridgeInitialRoute}-${bridgeInitialSpvTxid || 'none'}`}
                   wallet={wallet}
                   bridgeCfg={bridgeCfg}
                   fusdcBalance={account?.assets?.fusdc?.balance ?? null}
@@ -2937,6 +2966,7 @@ export default function WalletPage() {
                   onFalconRefresh={() => refreshBalance(plAccountId(wallet))}
                   initialMode={bridgeInitialMode}
                   initialRoute={bridgeInitialRoute}
+                  initialSpvTxid={bridgeInitialSpvTxid}
                 />
               )}
 
