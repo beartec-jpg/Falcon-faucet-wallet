@@ -162,23 +162,32 @@ function isPl2300Request(req: NextRequest, bodyNetwork?: string | null): boolean
 }
 
 async function fetchPlBtcRailTip(): Promise<{ height: number; spv: string }> {
-  const { plRpc } = await import('@/lib/pl-rpc')
+  // Take the *highest* BTC tip across configured peers so a wedged archive
+  // (e.g. falcon1 left on a dead tip) cannot false-trigger critical lag.
+  const { plRpc, plRpcAddrs } = await import('@/lib/pl-rpc')
   let lastErr: unknown
-  for (let i = 0; i < 3; i++) {
-    try {
-      const r = await plRpc({ type: 'status_req', include_accounts: false }, { timeoutMs: 15_000 })
-      if (r.type === 'err') throw new Error(String(r.msg ?? 'status error'))
-      const st = (r.body ?? r) as Record<string, unknown>
-      const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
-      const btcRail = rails.find((row) => String(row.asset) === 'BTC') ?? {}
-      const height = Number(btcRail.tip_height ?? 0) || 0
-      const spv = String(btcRail.spv ?? '')
-      if (height > 0) return { height, spv }
-      lastErr = new Error('PL BTC rail tip_height missing')
-    } catch (e) {
-      lastErr = e
+  let best: { height: number; spv: string } | null = null
+  for (const addr of plRpcAddrs()) {
+    for (let i = 0; i < 2; i++) {
+      try {
+        const r = await plRpc(
+          { type: 'status_req', include_accounts: false },
+          { addr, timeoutMs: 12_000 },
+        )
+        if (r.type === 'err') throw new Error(String(r.msg ?? 'status error'))
+        const st = (r.body ?? r) as Record<string, unknown>
+        const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
+        const btcRail = rails.find((row) => String(row.asset) === 'BTC') ?? {}
+        const height = Number(btcRail.tip_height ?? 0) || 0
+        const spv = String(btcRail.spv ?? '')
+        if (height > 0 && (!best || height > best.height)) best = { height, spv }
+        break
+      } catch (e) {
+        lastErr = e
+      }
     }
   }
+  if (best) return best
   throw lastErr instanceof Error ? lastErr : new Error('PL BTC rail tip unavailable')
 }
 
