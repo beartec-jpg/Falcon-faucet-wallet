@@ -1712,84 +1712,110 @@ export default function BridgeDepositPanel({
     }, 2_000)
   }
 
-  const handleSpvCompleteClaim = async () => {
-    if (!spvPending || spvPending.status === 'claimed') return
-    if (spvPending.confirmations < spvPending.minConfirmations) {
-      // Soft message — not a failed payment
-      const wait = `Still need ${spvPending.minConfirmations} Bitcoin confirmations (have ${spvPending.confirmations}). Your deposit is fine — wait for the bar to fill.`
-      updateSpvPending(wallet.address, { lastError: wait })
-      setSpvPending((p) => (p ? { ...p, lastError: wait } : p))
-      setError(null)
-      return
-    }
-    setBusy(true)
-    setError(null)
-    setStep(isPl2300 ? 'Passkey to mint FBTC on Falcon PL…' : 'Passkey to submit BTCDepositClaim…')
-    // Do NOT write status=claiming to localStorage until after passkey succeeds.
-    // Cancelled/aborted passkey used to leave "claiming" forever → grey Claim FBTC.
-    const txid = spvPending.txid
-    try {
-      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-      updateSpvPending(wallet.address, { status: 'claiming', lastError: undefined })
-      setSpvPending((p) => (p ? { ...p, status: 'claiming', lastError: undefined } : p))
+const handleSpvCompleteClaim = async () => {
+  if (!spvPending || spvPending.status === 'claimed') return;
+  if (spvPending.confirmations < spvPending.minConfirmations) {
+    // Soft message — not a failed payment
+    const wait = `Still need ${spvPending.minConfirmations} Bitcoin confirmations (have ${spvPending.confirmations}). Your deposit is fine — wait for the bar to fill.`;
+    updateSpvPending(wallet.address, { lastError: wait });
+    setSpvPending((p) => (p ? { ...p, lastError: wait } : p));
+    setError(null);
+    return;
+  }
+  setBusy(true);
+  setError(null);
+  setStep(isPl2300 ? 'Passkey to mint FBTC on Falcon PL…' : 'Passkey to submit BTCDepositClaim…');
+  // Do NOT write status=claiming to localStorage until after passkey succeeds.
+  // Cancelled/aborted passkey used to leave "claiming" forever → grey Claim FBTC.
+  const txid = spvPending.txid;
+  try {
+    const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf);
+    const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes);
+    updateSpvPending(wallet.address, { status: 'claiming', lastError: undefined });
+    setSpvPending((p) => (p ? { ...p, status: 'claiming', lastError: undefined } : p));
 
-      if (isPl2300) {
-        let sats = spvPending.amountSats
-        if (!sats || sats < 546) {
-          setStep('Looking up BTC amount…')
-          const expl = await fetch(
-            `https://mempool.space/${spvPending.btcNetwork === 'mainnet' ? '' : 'testnet/'}api/tx/${txid}`,
-          )
-          if (expl.ok) {
-            const raw = (await expl.json()) as { vout?: Array<{ value?: number }> }
-            const v = raw.vout?.[spvPending.watchVout] ?? raw.vout?.[0]
-            const val = Number(v?.value ?? 0)
-            sats = val > 1e6 ? Math.round(val) : Math.round(val * 1e8)
+    if (isPl2300) {
+      let sats = spvPending.amountSats;
+      if (!sats || sats < 546) {
+        setStep('Looking up BTC amount…');
+        const expl = await fetch(
+          `https://mempool.space/${spvPending.btcNetwork === 'mainnet' ? '' : 'testnet/'}api/tx/${txid}`,
+        );
+        if (expl.ok) {
+          const raw = (await expl.json()) as { vout?: Array<{ value?: number }> };
+          const v = raw.vout?.[spvPending.watchVout] ?? raw.vout?.[0];
+          const val = Number(v?.value ?? 0);
+          sats = val > 1e6 ? Math.round(val) : Math.round(val * 1e8);
+        }
+      }
+      if (!sats || sats < 546) {
+        throw new Error('Could not read the BTC amount for this tx — set the amount and try again');
+      }
+      let minted;
+      let lastWait: string | undefined;
+      let retryCount = 0;
+      const maxRetries = 3;
+      const delay = 2000;
+      while (retryCount < maxRetries) {
+        try {
+          minted = await pegInPlBtc({
+            account: falconId,
+            falconSecret: falcon_secret,
+            network: networkKey,
+            externalTxid: txid,
+            amountSats: sats,
+            onStep: (m) => setStep(m),
+          });
+          break;
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : 'Claim failed';
+          if (isSpvWaitMessage(msg)) {
+            lastWait = msg;
+            retryCount++;
+            await new Promise((r) => setTimeout(r, delay));
+          } else {
+            throw e;
           }
         }
-        if (!sats || sats < 546) {
-          throw new Error('Could not read the BTC amount for this tx — set the amount and try again')
-        }
-        const minted = await pegInPlBtc({
-          account: falconId,
-          falconSecret: falcon_secret,
-          network: networkKey,
-          externalTxid: txid,
-          amountSats: sats,
-          onStep: (m) => setStep(m),
-        })
-        finishSpvClaimSuccess(txid, minted.depositTxId, `FBTC minted — ${minted.depositTxId.slice(0, 12)}…`)
-        return
       }
-
-      throw new Error('Falcon Ledger BTCDepositClaim is retired. Use Falcon PL 2300.')
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Claim failed'
-      // Already minted (double-click / refresh) — success, clear open card
-      if (/tecDUPLICATE|already spent|already minted/i.test(msg)) {
-        finishSpvClaimSuccess(
-          txid,
-          undefined,
-          'FBTC already minted for this deposit — bridge complete',
-        )
-        return
+      if (!minted) {
+        const wait = spvWaitUserMessage(lastWait || 'Failed to fetch');
+        updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: wait });
+        setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: wait } : p));
+        setError(null);
+        return;
       }
-      if (isSpvWaitMessage(msg)) {
-        const wait = spvWaitUserMessage(msg)
-        updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: wait })
-        setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: wait } : p))
-        setError(null)
-      } else {
-        updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: msg })
-        setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: msg } : p))
-        setError(msg)
-      }
-    } finally {
-      setBusy(false)
-      setStep(null)
+      finishSpvClaimSuccess(txid, minted.depositTxId, `FBTC minted — ${minted.depositTxId.slice(0, 12)}…`);
+      return;
     }
+
+    throw new Error('Falcon Ledger BTCDepositClaim is retired. Use Falcon PL 2300.');
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Claim failed';
+    // Already minted (double-click / refresh) — success, clear open card
+    if (/tecDUPLICATE|already spent|already minted/i.test(msg)) {
+      finishSpvClaimSuccess(
+        txid,
+        undefined,
+        'FBTC already minted for this deposit — bridge complete',
+      );
+      return;
+    }
+    if (isSpvWaitMessage(msg)) {
+      const wait = spvWaitUserMessage(msg);
+      updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: wait });
+      setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: wait } : p));
+      setError(null);
+    } else {
+      updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: msg });
+      setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: msg } : p));
+      setError(msg);
+    }
+  } finally {
+    setBusy(false);
+    setStep(null);
   }
+};
 
   const handleProvisionBtc = async () => {
     if (hasBtcWallet(wallet) || busy) return
