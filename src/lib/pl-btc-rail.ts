@@ -169,6 +169,9 @@ async function pegInBitcoinSpv(opts: {
   const needConfs = Math.max(1, opts.rail0.min_confirmations);
   const proofT0 = Date.now();
   while (!materials) {
+    if (Date.now() - proofT0 > 30 * 60_000) {
+      throw new Error('Timed out waiting for the Bitcoin merkle proof');
+    }
     try {
       const got = await fetchSpvClaimMaterials(opts.txid, 'testnet', 0, 'deposit');
       if (got.confirmations < needConfs) {
@@ -188,9 +191,6 @@ async function pegInBitcoinSpv(opts: {
       }
       throw e;
     }
-    if (Date.now() - proofT0 > 30 * 60_000) {
-      throw new Error('Timed out waiting for the Bitcoin merkle proof');
-    }
     await new Promise((r) => setTimeout(r, 8_000));
   }
   const maybeRoot = (materials as { merkleRoot?: string }).merkleRoot;
@@ -206,8 +206,13 @@ async function pegInBitcoinSpv(opts: {
 
   const needTip = materials.blockHeight + Math.max(1, opts.rail0.min_confirmations) - 1;
   const t0 = Date.now();
+  let rail;
   while (true) {
-    let rail;
+    if (Date.now() - t0 > 20 * 60_000) {
+      throw new Error(
+        `Header submitter has not reached Bitcoin height ${needTip} (tip ${rail?.tip_height})`,
+      );
+    }
     try {
       rail = await fetchPlBtcRail();
       if (rail.spv !== 'bitcoin') {
@@ -225,11 +230,6 @@ async function pegInBitcoinSpv(opts: {
         continue;
       }
       throw e;
-    }
-    if (Date.now() - t0 > 20 * 60_000) {
-      throw new Error(
-        `Header submitter has not reached Bitcoin height ${needTip} (tip ${rail.tip_height})`,
-      );
     }
     await new Promise((r) => setTimeout(r, 8_000));
   }
