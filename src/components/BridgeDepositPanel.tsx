@@ -1807,6 +1807,33 @@ const handleSpvCompleteClaim = async () => {
       setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: wait } : p));
       setError(null);
     } else {
+      // Check if the required signer asset is missing
+      if (msg.includes('signer asset missing')) {
+        try {
+          const issueTitle = 'Missing Required Signer Asset';
+          const issueBody = `The required signer asset is missing for the transaction ID: ${txid}. Please resolve this issue.`;
+          const response = await fetch('https://api.github.com/repos/your-repo/your-repo/issues', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `token YOUR_GITHUB_TOKEN`,
+            },
+            body: JSON.stringify({
+              title: issueTitle,
+              body: issueBody,
+              assignees: ['team-member-username'],
+            }),
+          });
+          if (!response.ok) {
+            throw new Error('Failed to create issue');
+          }
+          const issue = await response.json();
+          console.log('Issue created:', issue);
+        } catch (issueError: unknown) {
+          const issueMsg = issueError instanceof Error ? issueError.message : 'Failed to create issue';
+          console.error('Error creating issue:', issueMsg);
+        }
+      }
       updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: msg });
       setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: msg } : p));
       setError(msg);
@@ -1815,7 +1842,7 @@ const handleSpvCompleteClaim = async () => {
     setBusy(false);
     setStep(null);
   }
-};
+};;
 
   const handleProvisionBtc = async () => {
     if (hasBtcWallet(wallet) || busy) return
