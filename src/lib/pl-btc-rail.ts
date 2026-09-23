@@ -55,10 +55,11 @@ async function postTx(tx: unknown, network: string): Promise<void> {
       }
       return;
     } catch (e) {
+      retryCount++;
       if (retryCount >= maxRetries) {
         throw e;
       }
-      await new Promise((r) => setTimeout(r, lastWait));
+      await new Promise((r) => setTimeout(r, lastWait || delay));
     }
   }
   throw new Error('Failed to post transaction after retries');
