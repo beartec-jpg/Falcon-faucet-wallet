@@ -187,6 +187,9 @@ async function pegInBitcoinSpv(opts: {
       if (/not confirmed|wait|indexing|header|mempool|unavailable|404|409/i.test(msg)) {
         opts.onStep?.(msg);
         await new Promise((r) => setTimeout(r, 8_000));
+        if (Date.now() - proofT0 > 30 * 60_000) {
+          throw new Error('Timed out waiting for the Bitcoin merkle proof');
+        }
         continue;
       }
       throw e;
@@ -227,6 +230,11 @@ async function pegInBitcoinSpv(opts: {
       if (/Failed to fetch|NetworkError|timeout|502|503|504/i.test(msg)) {
         opts.onStep?.(msg);
         await new Promise((r) => setTimeout(r, 8_000));
+        if (Date.now() - t0 > 20 * 60_000) {
+          throw new Error(
+            `Header submitter has not reached Bitcoin height ${needTip} (tip ${rail ? rail.tip_height : 'unknown'})`,
+          );
+        }
         continue;
       }
       throw e;
