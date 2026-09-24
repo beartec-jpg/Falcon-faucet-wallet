@@ -33,6 +33,7 @@ async function postTx(tx: unknown, network: string): Promise<void> {
   let retryCount = 0;
   const maxRetries = 3;
   const delay = 2000;
+  let lastWait = 0;
   while (retryCount < maxRetries) {
     try {
       const res = await fetch('/api/wallet/submit', {
@@ -41,7 +42,15 @@ async function postTx(tx: unknown, network: string): Promise<void> {
         body: JSON.stringify({ tx, network }),
       });
       const out = (await res.json()) as { success?: boolean; error?: string; message?: string };
-      if (!res.ok || out.success === false) {
+      if (!res.ok) {
+        if (res.status >= 500 && res.status < 600) {
+          retryCount++;
+          lastWait = delay;
+          continue;
+        }
+        throw new Error(out.error || out.message || 'Submit failed');
+      }
+      if (out.success === false) {
         throw new Error(out.error || out.message || 'Submit failed');
       }
       return;
@@ -50,7 +59,7 @@ async function postTx(tx: unknown, network: string): Promise<void> {
       if (retryCount >= maxRetries) {
         throw e;
       }
-      await new Promise((r) => setTimeout(r, delay));
+      await new Promise((r) => setTimeout(r, lastWait || delay));
     }
   }
   throw new Error('Failed to post transaction after retries');
