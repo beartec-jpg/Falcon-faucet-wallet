@@ -1756,26 +1756,43 @@ const handleSpvCompleteClaim = async () => {
       let retryCount = 0;
       const maxRetries = 3;
       const delay = 2000;
-      while (retryCount < maxRetries) {
-        try {
-          minted = await pegInPlBtc({
-            account: falconId,
-            falconSecret: falcon_secret,
-            network: networkKey,
-            externalTxid: txid,
-            amountSats: sats,
-            onStep: (m) => setStep(m),
-          });
-          break;
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : 'Claim failed';
-          if (isSpvWaitMessage(msg)) {
-            lastWait = msg;
-            retryCount++;
-            await new Promise((r) => setTimeout(r, delay));
-          } else {
-            throw e;
+      try {
+        minted = await pegInPlBtc({
+          account: falconId,
+          falconSecret: falcon_secret,
+          network: networkKey,
+          externalTxid: txid,
+          amountSats: sats,
+          onStep: (m) => setStep(m),
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'Claim failed';
+        if (isSpvWaitMessage(msg)) {
+          lastWait = msg;
+          while (retryCount < maxRetries) {
+            try {
+              minted = await pegInPlBtc({
+                account: falconId,
+                falconSecret: falcon_secret,
+                network: networkKey,
+                externalTxid: txid,
+                amountSats: sats,
+                onStep: (m) => setStep(m),
+              });
+              break;
+            } catch (e: unknown) {
+              const msg = e instanceof Error ? e.message : 'Claim failed';
+              if (isSpvWaitMessage(msg)) {
+                lastWait = msg;
+                retryCount++;
+                await new Promise((r) => setTimeout(r, delay));
+              } else {
+                throw e;
+              }
+            }
           }
+        } else {
+          throw e;
         }
       }
       if (!minted) {
@@ -1815,7 +1832,7 @@ const handleSpvCompleteClaim = async () => {
     setBusy(false);
     setStep(null);
   }
-};
+};;
 
   const handleProvisionBtc = async () => {
     if (hasBtcWallet(wallet) || busy) return
