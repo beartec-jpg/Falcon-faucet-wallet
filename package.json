@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "copy:wasm": "mkdir -p public/wasm && if [ -f node_modules/@openforge-sh/liboqs/dist/falcon-512.min.js ]; then cp node_modules/@openforge-sh/liboqs/dist/falcon-512.min.js public/wasm/falcon-512.min.js; elif [ -s public/wasm/falcon-512.min.js ]; then echo 'copy:wasm: using existing public/wasm'; else echo 'copy:wasm: skipped (no liboqs dist)'; fi",
+    "copy:wasm": "mkdir -p public/wasm && if [ -f node_modules/@openforge-sh/liboqs/dist/falcon-512.min.js ]; then cp node_modules/@openforge-sh/liboqs/dist/falcon-512.min.js public/wasm/falcon-512.min.js; else echo 'copy:wasm: failed (no liboqs dist)' && exit 1; fi",
     "copy:docs": "mkdir -p public/Docs && cp -f Docs/*.pdf Docs/*.md public/Docs/ 2>/dev/null || true",
     "pdf:lending": "npx --yes md-to-pdf Docs/LENDING-IMPLEMENTATION-REPORT.md --stylesheet Docs/lending-report-pdf.css --document-title 'Falcon Ledger — Lending Implementation Report' --pdf-options '{\"format\":\"A4\",\"printBackground\":true}' && mv -f Docs/LENDING-IMPLEMENTATION-REPORT.pdf Docs/FALCON-LENDING-IMPLEMENTATION-REPORT.pdf",
     "postinstall": "npm run copy:wasm && npm run copy:docs",
