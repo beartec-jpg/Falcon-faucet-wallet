@@ -754,22 +754,53 @@ export default function BridgeDepositPanel({
         conf = 0
       }
       if (cancelled) return
+      let amountSats = 0
+      let watchVout = 0
+      try {
+        const pr = await fetch('/api/bridge/btc-spv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'proof',
+            btc_txid: raw,
+            network: net,
+            vout: 0,
+            purpose: 'deposit',
+          }),
+        })
+        const pj = (await pr.json().catch(() => ({}))) as {
+          amountSats?: number
+          vout?: number
+          error?: string
+        }
+        if (pr.ok) {
+          if (Number(pj.amountSats) >= 546) amountSats = Math.floor(Number(pj.amountSats))
+          if (Number.isFinite(Number(pj.vout))) watchVout = Math.floor(Number(pj.vout))
+        } else if (pj.error && /already minted|retired watch|not a live/i.test(pj.error)) {
+          throw new Error(pj.error)
+        }
+      } catch (e) {
+        if (e instanceof Error && /already minted|retired watch|not a live/i.test(e.message)) {
+          throw e
+        }
+      }
       const pending = createSpvPending({
         falconAccount: falconId,
         txid: raw,
         watchAddress: btcWatchAddress,
-        amountSats: 0,
+        watchVout,
+        amountSats,
         minConfirmations: minConf,
         btcNetwork: net,
         confirmations: conf,
         status: conf >= minConf ? 'ready_to_claim' : 'waiting_confs',
       })
-      // Also mirror under wallet.address so Home and Bridge share one job.
       createSpvPending({
         falconAccount: wallet.address,
         txid: raw,
         watchAddress: btcWatchAddress,
-        amountSats: pending.amountSats,
+        watchVout,
+        amountSats,
         minConfirmations: minConf,
         btcNetwork: net,
         confirmations: conf,
@@ -1735,21 +1766,38 @@ const handleSpvCompleteClaim = async () => {
     setSpvPending((p) => (p ? { ...p, status: 'claiming', lastError: undefined } : p));
 
     if (isPl2300) {
-      let sats = spvPending.amountSats;
+      let sats = spvPending.amountSats
       if (!sats || sats < 546) {
-        setStep('Looking up BTC amount…');
-        const expl = await fetch(
-          `https://mempool.space/${spvPending.btcNetwork === 'mainnet' ? '' : 'testnet/'}api/tx/${txid}`,
-        );
-        if (expl.ok) {
-          const raw = (await expl.json()) as { vout?: Array<{ value?: number }> };
-          const v = raw.vout?.[spvPending.watchVout] ?? raw.vout?.[0];
-          const val = Number(v?.value ?? 0);
-          sats = val > 1e6 ? Math.round(val) : Math.round(val * 1e8);
+        // Same-origin API — browser CSP blocks mempool.space, which left amount at 0
+        // and Claim only flashed a blip / failed silently.
+        setStep('Looking up BTC amount…')
+        const pr = await fetch('/api/bridge/btc-spv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'proof',
+            btc_txid: txid,
+            network: spvPending.btcNetwork || 'testnet',
+            vout: spvPending.watchVout ?? 0,
+            purpose: 'deposit',
+          }),
+        })
+        const pj = (await pr.json().catch(() => ({}))) as {
+          amountSats?: number
+          error?: string
+        }
+        if (pr.ok && Number(pj.amountSats) >= 546) {
+          sats = Math.floor(Number(pj.amountSats))
+          updateSpvPending(falconId, { amountSats: sats })
+          updateSpvPending(wallet.address, { amountSats: sats })
+        } else if (!pr.ok && pj.error) {
+          throw new Error(pj.error)
         }
       }
       if (!sats || sats < 546) {
-        throw new Error('Could not read the BTC amount for this tx — set the amount and try again')
+        throw new Error(
+          'Could not read the BTC amount for this deposit. Open the tracker from Home again, then Claim.',
+        )
       }
       let minted: { depositTxId: string } | null = null
       let lastWait: unknown
@@ -1761,6 +1809,7 @@ const handleSpvCompleteClaim = async () => {
             network: networkKey,
             externalTxid: txid,
             amountSats: sats,
+            watchVout: spvPending.watchVout ?? 0,
             onStep: (m) => setStep(attempt > 1 ? `Retry ${attempt}/5: ${m}` : m),
           })
           break

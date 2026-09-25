@@ -158,6 +158,7 @@ async function pegInBitcoinSpv(opts: {
   txid: string
   rail0: PlBtcRail
   snap: { sequence: number; balance: number; btcSats: number }
+  watchVout?: number
   onStep?: (msg: string) => void
 }): Promise<{ depositTxId: string; headerHeight: number }> {
   opts.onStep?.('Fetching Bitcoin merkle proof…')
@@ -165,10 +166,11 @@ async function pegInBitcoinSpv(opts: {
   const { verifyBitcoinMerkleProof } = await import('@/lib/btc-merkle')
   let materials: Awaited<ReturnType<typeof fetchSpvClaimMaterials>> | null = null
   const needConfs = Math.max(1, opts.rail0.min_confirmations)
+  const watchVout = Number.isFinite(Number(opts.watchVout)) ? Math.max(0, Math.floor(Number(opts.watchVout))) : 0
   const proofT0 = Date.now()
   while (!materials) {
     try {
-      const got = await fetchSpvClaimMaterials(opts.txid, 'testnet', 0, 'deposit')
+      const got = await fetchSpvClaimMaterials(opts.txid, 'testnet', watchVout, 'deposit')
       if (got.confirmations < needConfs) {
         opts.onStep?.(
           `Bitcoin confirmations ${got.confirmations} / ${needConfs}…`,
@@ -258,6 +260,8 @@ export async function pegInPlBtc(opts: {
   network: string
   externalTxid: string
   amountSats: number
+  /** Bitcoin vout that paid the Falcon watch script (default 0). */
+  watchVout?: number
   onStep?: (msg: string) => void
 }): Promise<{ depositTxId: string; headerHeight: number }> {
   if (!BTC_RAIL_LIVE) {
@@ -296,7 +300,14 @@ export async function pegInPlBtc(opts: {
   if (rail0.spv !== 'bitcoin') {
     throw new Error('BTC rail is not in Bitcoin SPV mode — header submitter has not reanchored yet')
   }
-  return pegInBitcoinSpv({ ...opts, amount, txid, rail0, snap })
+  return pegInBitcoinSpv({
+    ...opts,
+    amount,
+    txid,
+    rail0,
+    snap,
+    watchVout: opts.watchVout ?? 0,
+  })
 }
 
 export async function pegOutPlBtc(opts: {

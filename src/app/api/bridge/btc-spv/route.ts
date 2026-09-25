@@ -1060,6 +1060,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const amountSatsOut = Math.floor(Number(status.vout?.[vout]?.value ?? 0))
     return NextResponse.json({
       rawTxHex,
       merkleProofHex,
@@ -1068,6 +1069,7 @@ export async function POST(req: NextRequest) {
       vout,
       confirmations,
       blockHeight,
+      amountSats: amountSatsOut > 0 ? amountSatsOut : undefined,
       confirmed: true,
       headerReady: true,
       falconTipHeight: falconTipHeight || undefined,
