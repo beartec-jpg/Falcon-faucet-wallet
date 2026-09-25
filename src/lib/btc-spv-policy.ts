@@ -3,10 +3,15 @@
  * No node SSH required — used by Bridge UI + claim preflight.
  */
 
-/** Live STATUS SoT even-Y NUMS P2TR pool (2300). Prior BitVM2 instance is historical. */
+/** Live BitVM2 instance (2300) — Bridge In send-to address + FALC memo. */
 export const BITVM2_INSTANCE_ADDRESS =
-  'tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34'
+  'tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5'
 export const BITVM2_INSTANCE_SPK =
+  '512051b99b1a94717ff365ea891fe7fd3155acf11fd19b341865fd723d4fffdf2c5f'
+/** Even-Y NUMS P2TR vault (rail packed vault). Also accepted for mint proofs. */
+export const NUMS_VAULT_ADDRESS =
+  'tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34'
+export const NUMS_VAULT_SPK =
   '51206ebeb0289c396f1f0ace996500600f831350d95c0cc89f412ed0eca650abb38f'
 /** Kickoff fee from the instance; dest-lock take fee after CSV. */
 export const BITVM2_KICKOFF_FEE_SATS = 1000
@@ -177,6 +182,24 @@ export function isRetiredWatchAddress(addr: string | null | undefined): boolean 
   return RETIRED_BTC_WATCH_ADDRESSES.includes(addr.trim().toLowerCase())
 }
 
+/** Addresses the node will accept for BTC RailDeposit mint proofs. */
+export function liveBtcWatchAddresses(extra?: string | null): string[] {
+  const out = new Set<string>()
+  for (const a of [
+    BITVM2_INSTANCE_ADDRESS,
+    NUMS_VAULT_ADDRESS,
+    process.env.BITVM2_INSTANCE_ADDRESS,
+    process.env.NUMS_VAULT_ADDRESS,
+    extra,
+  ]) {
+    const t = String(a || '')
+      .trim()
+      .toLowerCase()
+    if (t && !isRetiredWatchAddress(t)) out.add(t)
+  }
+  return [...out]
+}
+
 export function assertLiveWatchAddress(
   paidTo: string | null | undefined,
   expectedWatch: string | null | undefined,
@@ -185,8 +208,9 @@ export function assertLiveWatchAddress(
   if (isRetiredWatchAddress(paidTo)) {
     return `Deposit paid retired watch address ${paidTo}. This bridge no longer claims those deposits.`
   }
-  if (expectedWatch && paidTo.toLowerCase() !== expectedWatch.toLowerCase()) {
-    return `Deposit paid ${paidTo}, not live watch ${expectedWatch}.`
+  const allowed = liveBtcWatchAddresses(expectedWatch)
+  if (allowed.length && !allowed.includes(paidTo.toLowerCase())) {
+    return `Deposit paid ${paidTo}, not a live Falcon BTC watch (${allowed.join(' | ')}).`
   }
   return null
 }

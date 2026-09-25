@@ -13,6 +13,7 @@ import {
   BITVM2_MIN_PEGOUT_SATS,
   claimAllowedForDeposit,
   isRetiredWatchAddress,
+  liveBtcWatchAddresses,
 } from '@/lib/btc-spv-policy'
 import { isDeadSpvTxid } from '@/lib/btc-spv-pending'
 
@@ -861,10 +862,27 @@ export async function POST(req: NextRequest) {
     }
     if (purpose === 'deposit') {
       const fileCfg = await loadFileConfig()
-      const watchAddress =
+      // Same resolution as GET status: env → config → walletd overlay → defaults.
+      let watchAddress =
         process.env.BITVM2_INSTANCE_ADDRESS?.trim() ||
         (fileCfg.watch_address as string | undefined)?.trim() ||
         BITVM2_INSTANCE_ADDRESS
+      try {
+        const walletApi =
+          process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
+        const dep = await fetch(`${walletApi.replace(/\/$/, '')}/btc-deposit`, {
+          cache: 'no-store',
+          signal: AbortSignal.timeout(4_000),
+        })
+        if (dep.ok) {
+          const d = (await dep.json()) as { address?: string }
+          if (d.address && !isRetiredWatchAddress(d.address)) {
+            watchAddress = d.address.trim()
+          }
+        }
+      } catch {
+        /* keep env/config */
+      }
       const outAddr = status.vout?.[vout]?.scriptpubkey_address?.trim()
       if (outAddr && isRetiredWatchAddress(outAddr)) {
         return NextResponse.json(
@@ -877,6 +895,7 @@ export async function POST(req: NextRequest) {
           { status: 400 },
         )
       }
+      // Accept BitVM2 instance and NUMS vault (node mint dests).
       const watchErr = assertLiveWatchAddress(outAddr, watchAddress)
       if (watchErr) {
         return NextResponse.json(
@@ -885,6 +904,7 @@ export async function POST(req: NextRequest) {
             wrongWatchAddress: true,
             paidTo: outAddr,
             expectedWatch: watchAddress,
+            allowedWatch: liveBtcWatchAddresses(watchAddress),
           },
           { status: 400 },
         )

@@ -29,128 +29,117 @@ export type PlBtcRail = {
   spv: 'bitcoin' | 'protocol'
 }
 
+function isTransientFetch(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e)
+  return /failed to fetch|networkerror|load failed|timeout|econnreset|etimedout|aborterror|502|503|504/i.test(
+    m,
+  )
+}
+
+async function withFetchRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
+  let last: unknown
+  for (let i = 1; i <= tries; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      last = e
+      if (!isTransientFetch(e) || i === tries) throw e
+      await new Promise((r) => setTimeout(r, 2000 * i))
+    }
+  }
+  throw last instanceof Error ? last : new Error(String(last))
+}
+
 async function postTx(tx: unknown, network: string): Promise<void> {
-  let retryCount = 0;
-  const maxRetries = 3;
-  const delay = 2000;
-  let lastWait = 0;
-  while (retryCount < maxRetries) {
-    try {
-      const res = await fetch('/api/wallet/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tx, network }),
-      });
-      const out = (await res.json()) as { success?: boolean; error?: string; message?: string };
-      if (!res.ok) {
-        if (res.status >= 500 && res.status < 600) {
-          retryCount++;
-          lastWait = delay;
-          continue;
-        }
-        throw new Error(out.error || out.message || 'Submit failed');
-      }
-      if (out.success === false) {
-        throw new Error(out.error || out.message || 'Submit failed');
-      }
-      return;
-    } catch (e) {
-      retryCount++;
-      if (retryCount >= maxRetries) {
-        throw e;
-      }
-      await new Promise((r) => setTimeout(r, lastWait || delay));
+  await withFetchRetry(async () => {
+    const res = await fetch('/api/wallet/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tx, network }),
+    })
+    const out = (await res.json()) as { success?: boolean; error?: string; message?: string }
+    if (!res.ok || out.success === false) {
+      const err = new Error(out.error || out.message || 'Submit failed')
+      if ([502, 503, 504].includes(res.status)) throw err
+      throw err
     }
-  }
-  throw new Error('Failed to post transaction after retries');
+  })
 }
 
-async function accountSnap(account: string, network: string): Promise<{ sequence: number; balance: number; btcSats: number }> {
-  let retryCount = 0;
-  const maxRetries = 3;
-  const delay = 2000;
-  while (retryCount < maxRetries) {
-    try {
-      const res = await fetch(
-        `/api/wallet/account?address=${encodeURIComponent(account)}&network=${encodeURIComponent(network)}`,
-      );
-      const j = (await res.json()) as {
-        sequence?: number;
-        balance?: number;
-        assets?: { BTC?: number; btc?: number; fbtc?: { balance?: number } };
-        error?: string;
-      };
-      if (!res.ok) throw new Error(j.error || 'account lookup failed');
-      const raw = j.assets?.BTC ?? j.assets?.btc;
-      const fbtc = j.assets?.fbtc?.balance;
-      const btcSats =
-        typeof raw === 'number'
-          ? raw
-          : typeof fbtc === 'number' && fbtc < 1_000
-            ? Math.round(fbtc * 1e8)
-            : typeof fbtc === 'number'
-              ? fbtc
-              : 0;
-      return { sequence: Number(j.sequence ?? 0), balance: Number(j.balance ?? 0), btcSats };
-    } catch (e) {
-      retryCount++;
-      if (retryCount >= maxRetries) {
-        throw e;
-      }
-      await new Promise((r) => setTimeout(r, delay));
+async function accountSnap(account: string, network: string): Promise<{
+  sequence: number
+  balance: number
+  btcSats: number
+}> {
+  const { res, j } = await withFetchRetry(async () => {
+    const res = await fetch(
+      `/api/wallet/account?address=${encodeURIComponent(account)}&network=${encodeURIComponent(network)}`,
+    )
+    const j = (await res.json()) as {
+      sequence?: number
+      balance?: number
+      assets?: { BTC?: number; btc?: number; fbtc?: { balance?: number } }
+      error?: string
     }
-  }
-  throw new Error('Failed to fetch account snapshot after retries');
+    if (!res.ok && [502, 503, 504].includes(res.status)) {
+      throw new Error(j.error || `account lookup ${res.status}`)
+    }
+    return { res, j }
+  })
+  if (!res.ok) throw new Error(j.error || 'account lookup failed')
+  const raw = j.assets?.BTC ?? j.assets?.btc
+  const fbtc = j.assets?.fbtc?.balance
+  const btcSats =
+    typeof raw === 'number'
+      ? raw
+      : typeof fbtc === 'number' && fbtc < 1_000
+        ? Math.round(fbtc * 1e8)
+        : typeof fbtc === 'number'
+          ? fbtc
+          : 0
+  return { sequence: Number(j.sequence ?? 0), balance: Number(j.balance ?? 0), btcSats }
 }
 
-async function waitSeq(account: string, network: string, want: number, timeoutMs = 90_000): Promise<void> {
+async function waitSeq(account: string, network: string, want: number, timeoutMs = 180_000): Promise<void> {
   const t0 = Date.now()
   while (Date.now() - t0 < timeoutMs) {
     const s = await accountSnap(account, network)
     if (s.sequence >= want) return
-    await new Promise((r) => setTimeout(r, 400))
+    await new Promise((r) => setTimeout(r, 600))
   }
   throw new Error(
-    'Ledger did not commit the rail tx — wait and retry. Deposit is still on Bitcoin; do not re-send BTC.',
+    'Ledger did not commit the rail tx — wait and retry Claim FBTC. Deposit is still on Bitcoin; do not re-send BTC.',
   )
 }
 
 export async function fetchPlBtcRail(): Promise<PlBtcRail> {
-  let retryCount = 0;
-  const maxRetries = 3;
-  const delay = 2000;
-  while (retryCount < maxRetries) {
-    try {
-      const res = await fetch('/api/bridge/btc-spv?network=testnet', { cache: 'no-store' });
-      const j = (await res.json()) as {
-        error?: string;
-        rail?: PlBtcRail;
-        spv?: string;
-        bridge?: { tipHeight?: number; tipHash?: string; minConfirmations?: number; lockId?: string };
-      };
-      if (!res.ok) throw new Error(j.error || 'rail status failed');
-      const rail = j.rail
-        ? { ...j.rail, spv: (j.rail.spv === 'bitcoin' || j.spv === 'bitcoin' ? 'bitcoin' : 'protocol') as PlBtcRail['spv'] }
-        : {
-            asset: RAIL,
-            tip_height: Number(j.bridge?.tipHeight ?? 0),
-            tip_hash: String(j.bridge?.tipHash ?? ''),
-            lock_id: String(j.bridge?.lockId ?? ''),
-            min_confirmations: Number(j.bridge?.minConfirmations ?? 6) || 6,
-            total_minted: 0,
-            total_burned: 0,
-            spv: (j.spv === 'bitcoin' ? 'bitcoin' : 'protocol') as PlBtcRail['spv'],
-          };
-      return rail;
-    } catch (e) {
-      retryCount++;
-      if (retryCount >= maxRetries) {
-        throw e;
-      }
-      await new Promise((r) => setTimeout(r, delay));
+  const { res, j } = await withFetchRetry(async () => {
+    const res = await fetch('/api/bridge/btc-spv?network=testnet', { cache: 'no-store' })
+    const parsed = (await res.json()) as {
+      error?: string
+      rail?: PlBtcRail
+      spv?: string
+      bridge?: { tipHeight?: number; tipHash?: string; minConfirmations?: number; lockId?: string }
     }
-  }
-  throw new Error('Failed to fetch PL BTC rail after retries');
+    if (!res.ok && [502, 503, 504].includes(res.status)) {
+      throw new Error(String(parsed.error || `rail status ${res.status}`))
+    }
+    return { res, j: parsed }
+  })
+  if (!res.ok) throw new Error(j.error || 'rail status failed')
+  const rail = j.rail
+    ? { ...j.rail, spv: (j.rail.spv === 'bitcoin' || j.spv === 'bitcoin' ? 'bitcoin' : 'protocol') as PlBtcRail['spv'] }
+    : {
+        asset: RAIL,
+        tip_height: Number(j.bridge?.tipHeight ?? 0),
+        tip_hash: String(j.bridge?.tipHash ?? ''),
+        lock_id: String(j.bridge?.lockId ?? ''),
+        min_confirmations: Number(j.bridge?.minConfirmations ?? 6) || 6,
+        total_minted: 0,
+        total_burned: 0,
+        spv: (j.spv === 'bitcoin' ? 'bitcoin' : 'protocol') as PlBtcRail['spv'],
+      }
+  return rail
 }
 
 function merklePathFromProofHex(proofHex: string): string[] {
@@ -162,97 +151,80 @@ function merklePathFromProofHex(proofHex: string): string[] {
 }
 
 async function pegInBitcoinSpv(opts: {
-  account: string;
-  falconSecret: string;
-  network: string;
-  amount: number;
-  txid: string;
-  rail0: PlBtcRail;
-  snap: { sequence: number; balance: number; btcSats: number };
-  onStep?: (msg: string) => void;
+  account: string
+  falconSecret: string
+  network: string
+  amount: number
+  txid: string
+  rail0: PlBtcRail
+  snap: { sequence: number; balance: number; btcSats: number }
+  onStep?: (msg: string) => void
 }): Promise<{ depositTxId: string; headerHeight: number }> {
-  opts.onStep?.('Fetching Bitcoin merkle proof…');
-  const { fetchSpvClaimMaterials } = await import('@/lib/btc-spv-client');
-  const { verifyBitcoinMerkleProof } = await import('@/lib/btc-merkle');
-  let materials: Awaited<ReturnType<typeof fetchSpvClaimMaterials>> | null = null;
-  const needConfs = Math.max(1, opts.rail0.min_confirmations);
-  const proofT0 = Date.now();
+  opts.onStep?.('Fetching Bitcoin merkle proof…')
+  const { fetchSpvClaimMaterials } = await import('@/lib/btc-spv-client')
+  const { verifyBitcoinMerkleProof } = await import('@/lib/btc-merkle')
+  let materials: Awaited<ReturnType<typeof fetchSpvClaimMaterials>> | null = null
+  const needConfs = Math.max(1, opts.rail0.min_confirmations)
+  const proofT0 = Date.now()
   while (!materials) {
-    if (Date.now() - proofT0 > 30 * 60_000) {
-      throw new Error('Timed out waiting for the Bitcoin merkle proof');
-    }
     try {
-      const got = await fetchSpvClaimMaterials(opts.txid, 'testnet', 0, 'deposit');
+      const got = await fetchSpvClaimMaterials(opts.txid, 'testnet', 0, 'deposit')
       if (got.confirmations < needConfs) {
         opts.onStep?.(
           `Bitcoin confirmations ${got.confirmations} / ${needConfs}…`,
-        );
+        )
       } else {
-        materials = got;
-        break;
+        materials = got
+        break
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (/not confirmed|wait|indexing|header|mempool|unavailable|404|409/i.test(msg)) {
-        opts.onStep?.(msg);
-        await new Promise((r) => setTimeout(r, 8_000));
-        if (Date.now() - proofT0 > 30 * 60_000) {
-          throw new Error('Timed out waiting for the Bitcoin merkle proof');
-        }
-        continue;
+      const msg = e instanceof Error ? e.message : String(e)
+      if (
+        !/not confirmed|wait|indexing|header|mempool|unavailable|404|409|failed to fetch|networkerror|timeout|502|503|504/i.test(
+          msg,
+        )
+      ) {
+        throw e
       }
-      throw e;
+      opts.onStep?.(msg)
     }
-    await new Promise((r) => setTimeout(r, 8_000));
+    if (Date.now() - proofT0 > 30 * 60_000) {
+      throw new Error('Timed out waiting for the Bitcoin merkle proof')
+    }
+    await new Promise((r) => setTimeout(r, 8_000))
   }
-  const maybeRoot = (materials as { merkleRoot?: string }).merkleRoot;
+  const maybeRoot = (materials as { merkleRoot?: string }).merkleRoot
   if (maybeRoot) {
     const v = verifyBitcoinMerkleProof({
       txidDisplay: opts.txid,
       merkleProofHex: materials.merkleProofHex,
       txIndex: materials.txIndex,
       merkleRootDisplay: maybeRoot,
-    });
-    if (!v.ok) throw new Error(v.error || 'Client Bitcoin merkle verify failed');
+    })
+    if (!v.ok) throw new Error(v.error || 'Client Bitcoin merkle verify failed')
   }
 
-  const needTip = materials.blockHeight + Math.max(1, opts.rail0.min_confirmations) - 1;
-  const t0 = Date.now();
-  let rail;
+  const needTip = materials.blockHeight + Math.max(1, opts.rail0.min_confirmations) - 1
+  const t0 = Date.now()
   while (true) {
+    const rail = await fetchPlBtcRail()
+    if (rail.spv !== 'bitcoin') {
+      throw new Error('BTC rail is not in Bitcoin SPV mode yet — header submitter not rolled')
+    }
+    if (rail.tip_height >= needTip) break
+    opts.onStep?.(
+      `Waiting for Bitcoin headers ${rail.tip_height} / ${needTip} (header submitter)…`,
+    )
     if (Date.now() - t0 > 20 * 60_000) {
       throw new Error(
-        `Header submitter has not reached Bitcoin height ${needTip} (tip ${rail?.tip_height})`,
-      );
+        `Header submitter has not reached Bitcoin height ${needTip} (tip ${rail.tip_height})`,
+      )
     }
-    try {
-      rail = await fetchPlBtcRail();
-      if (rail.spv !== 'bitcoin') {
-        throw new Error('BTC rail is not in Bitcoin SPV mode yet — header submitter not rolled');
-      }
-      if (rail.tip_height >= needTip) break;
-      opts.onStep?.(
-        `Waiting for Bitcoin headers ${rail.tip_height} / ${needTip} (header submitter)…`,
-      );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (/Failed to fetch|NetworkError|timeout|502|503|504/i.test(msg)) {
-        opts.onStep?.(msg);
-        await new Promise((r) => setTimeout(r, 8_000));
-        if (Date.now() - t0 > 20 * 60_000) {
-          throw new Error(
-            `Header submitter has not reached Bitcoin height ${needTip} (tip ${rail ? rail.tip_height : 'unknown'})`,
-          );
-        }
-        continue;
-      }
-      throw e;
-    }
-    await new Promise((r) => setTimeout(r, 8_000));
+    await new Promise((r) => setTimeout(r, 8_000))
   }
 
-  opts.onStep?.('Minting FBTC from Bitcoin SPV proof…');
-  const snap = await accountSnap(opts.account, opts.network);
+  opts.onStep?.('Minting FBTC from Bitcoin SPV proof…')
+  const snap = await accountSnap(opts.account, opts.network)
   const dep = await signRailDeposit({
     account: opts.account,
     sequence: snap.sequence,
@@ -274,10 +246,10 @@ async function pegInBitcoinSpv(opts: {
       raw_tx: materials.rawTxHex.replace(/^0x/i, '').toLowerCase(),
     },
     falconSecret: opts.falconSecret,
-  });
-  await postTx(dep, opts.network);
-  await waitSeq(opts.account, opts.network, snap.sequence + 1);
-  return { depositTxId: dep.tx_id, headerHeight: materials.blockHeight };
+  })
+  await postTx(dep, opts.network)
+  await waitSeq(opts.account, opts.network, snap.sequence + 1)
+  return { depositTxId: dep.tx_id, headerHeight: materials.blockHeight }
 }
 
 export async function pegInPlBtc(opts: {
@@ -291,7 +263,6 @@ export async function pegInPlBtc(opts: {
   if (!BTC_RAIL_LIVE) {
     throw new Error('BTC rail is not live — e2e not passed (BTC_RAIL_LIVE=false)')
   }
-
   const amount = Math.floor(opts.amountSats)
   if (amount < 546) throw new Error('Amount too small')
   if (!/^[0-9a-f]{64}$/i.test(opts.externalTxid.replace(/^0x/i, ''))) {

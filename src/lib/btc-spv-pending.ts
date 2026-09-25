@@ -564,6 +564,14 @@ export function ensureSpvPendingTracked(
 
 export function isSpvWaitMessage(msg: string): boolean {
   const m = msg.toLowerCase()
+  // Hard claim/config errors must never look like a soft "network blip"
+  if (
+    /wrong watch|retired watch|already minted|already spent|tecduplicate|amount too small|merkle verify|client bitcoin merkle|btc rail is not/i.test(
+      m,
+    )
+  ) {
+    return false
+  }
   return (
     /failed to fetch|networkerror|load failed|fetch failed|econnreset|etimedout|aborterror|timeout|offline|unreachable/i.test(
       m,
@@ -571,7 +579,9 @@ export function isSpvWaitMessage(msg: string): boolean {
     /tx not found|not found yet|not confirmed yet|wait for|mempool|indexer|unavailable|raw tx not found|merkle proof unavailable|status \d+|502|503|504|404|409/i.test(
       m,
     ) ||
-    /headers have not|header submitter|falcon tip|blocks behind|still catching up/i.test(m)
+    /headers have not|header submitter|falcon tip|blocks behind|still catching up|did not commit the rail/i.test(
+      m,
+    )
   )
 }
 
