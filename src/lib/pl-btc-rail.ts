@@ -225,7 +225,7 @@ async function pegInBitcoinSpv(opts: {
     await new Promise((r) => setTimeout(r, 8_000))
   }
 
-  opts.onStep?.('Minting FBTC from Bitcoin SPV proof…')
+  opts.onStep?.('Submitting RailDeposit to Falcon…')
   const snap = await accountSnap(opts.account, opts.network)
   const dep = await signRailDeposit({
     account: opts.account,
@@ -250,8 +250,23 @@ async function pegInBitcoinSpv(opts: {
     falconSecret: opts.falconSecret,
   })
   await postTx(dep, opts.network)
-  await waitSeq(opts.account, opts.network, snap.sequence + 1)
-  return { depositTxId: dep.tx_id, headerHeight: materials.blockHeight }
+  opts.onStep?.('Waiting for Falcon packers to mint FBTC (can take up to a few minutes)…')
+  const want = snap.sequence + 1
+  const tWait = Date.now()
+  while (Date.now() - tWait < 180_000) {
+    const s = await accountSnap(opts.account, opts.network)
+    if (s.sequence >= want) {
+      return { depositTxId: dep.tx_id, headerHeight: materials.blockHeight }
+    }
+    const sec = Math.floor((Date.now() - tWait) / 1000)
+    opts.onStep?.(
+      `Waiting for Falcon packers to mint FBTC… ${sec}s (do not re-send BTC)`,
+    )
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+  throw new Error(
+    'Ledger did not commit the rail tx — wait and retry Claim FBTC. Deposit is still on Bitcoin; do not re-send BTC.',
+  )
 }
 
 export async function pegInPlBtc(opts: {
