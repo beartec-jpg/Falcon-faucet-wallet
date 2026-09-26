@@ -31,8 +31,17 @@ type Market = {
   asset: string
   total_supply: string
   total_borrow: string
+  /** Share supply. Absent on older nodes, where it still matches total_supply. */
+  share_supply: string
   ltv_bps: number
   price_fpl: string
+}
+type Position = {
+  market_id: string
+  asset: string
+  shares: string
+  debt: string
+  collateral_fpl: string
 }
 
 const DECIMALS: Record<Asset, number> = {
@@ -74,14 +83,48 @@ function asPool(row: Record<string, unknown>): Pool {
 }
 
 function asMarket(row: Record<string, unknown>): Market {
+  const total = digitsOf(row.total_supply)
+  const issued = row.share_supply == null ? total : digitsOf(row.share_supply)
   return {
     id: String(row.id ?? ''),
     asset: String(row.asset ?? ''),
-    total_supply: digitsOf(row.total_supply),
+    total_supply: total,
     total_borrow: digitsOf(row.total_borrow),
+    share_supply: issued === '0' ? total : issued,
     ltv_bps: Number(row.ltv_bps ?? 5000) || 5000,
     price_fpl: digitsOf(row.price_fpl),
   }
+}
+
+function asPosition(row: Record<string, unknown>): Position {
+  return {
+    market_id: String(row.market_id ?? ''),
+    asset: String(row.asset ?? ''),
+    shares: digitsOf(row.shares),
+    debt: digitsOf(row.debt),
+    collateral_fpl: digitsOf(row.collateral_fpl),
+  }
+}
+
+/** Coin raw units this many shares can withdraw. */
+function sharesToCoin(shares: string, totalSupply: string, shareSupply: string): string {
+  const supply = BigInt(totalSupply || '0')
+  const issued = BigInt(shareSupply || '0')
+  if (supply === 0n || issued === 0n) return '0'
+  return ((BigInt(shares || '0') * supply) / issued).toString()
+}
+
+/** Shares to burn for a coin amount. Rejects a withdraw larger than this account's supply. */
+function coinToShares(raw: string, totalSupply: string, shareSupply: string, haveShares: string): string {
+  const supply = BigInt(totalSupply || '0')
+  const issued = BigInt(shareSupply && shareSupply !== '0' ? shareSupply : totalSupply || '0')
+  const have = BigInt(haveShares || '0')
+  if (have === 0n) throw new Error('You have nothing supplied on this market')
+  if (supply === 0n || issued === 0n) throw new Error('This market has no supply')
+  const want = (BigInt(raw) * issued) / supply
+  if (want === 0n) throw new Error('Amount is too small to withdraw')
+  if (want > have) throw new Error('That is more than you have supplied')
+  return want.toString()
 }
 
 /** FPL for one whole coin, from the pool reserves. */
@@ -174,6 +217,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
   const [wallet, setWallet] = useState<StoredWallet | null>(null)
   const [pools, setPools] = useState<Pool[]>([])
   const [markets, setMarkets] = useState<Market[]>([])
+  const [positions, setPositions] = useState<Position[]>([])
   const [sell, setSell] = useState<Asset>('FPL')
   const [buy, setBuy] = useState<Asset>('USDC')
   const [poolId, setPoolId] = useState('usdc-fpl')
@@ -186,19 +230,26 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
   const [err, setErr] = useState<string | null>(null)
 
   const load = useCallback(() => {
-    fetch('/api/pl2300/defi')
+    const id = wallet ? plAccountId(wallet) : ''
+    const q = id ? `?account=${encodeURIComponent(id)}` : ''
+    fetch('/api/pl2300/defi' + q)
       .then((r) => r.json())
       .then((j) => {
         const rows = (j.pools || []) as Record<string, unknown>[]
         const mk = (j.markets || []) as Record<string, unknown>[]
+        const pos = (j.positions || []) as Record<string, unknown>[]
         setPools(rows.map(asPool))
         setMarkets(mk.map(asMarket))
+        setPositions(pos.map(asPosition))
       })
       .catch(() => {})
-  }, [])
+  }, [wallet])
 
   useEffect(() => {
     void loadPrimaryWallet().then(setWallet)
+  }, [])
+
+  useEffect(() => {
     load()
     const t = setInterval(load, 8000)
     return () => clearInterval(t)
@@ -214,6 +265,11 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
   }
   const lendMarket = markets.find((m) => m.id === marketId)
   const lendAsset = (lendMarket?.asset as Asset) || null
+  const lendPos = positions.find((p) => p.market_id === marketId)
+  const suppliedRaw =
+    lendMarket && lendPos
+      ? sharesToCoin(lendPos.shares, lendMarket.total_supply, lendMarket.share_supply)
+      : '0'
   const lendHint =
     mode === 'lend' && lendAsset && lendAsset !== 'FPL'
       ? collateralFor(lendAsset, amount, priceFor(markets, pools, lendAsset), lendMarket?.ltv_bps ?? 5000)
@@ -285,7 +341,11 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
                 : 'lend_repay'
         const m = markets.find((x) => x.id === marketId)
         const asset = (m?.asset || 'USDC') as Asset
-        const raw = kind === 'withdraw' ? decimalToBaseUnits(amount, 0) : toRaw(asset, amount)
+        const pos = positions.find((p) => p.market_id === marketId)
+        const raw =
+          kind === 'withdraw'
+            ? coinToShares(toRaw(asset, amount), m?.total_supply || '0', m?.share_supply || '0', pos?.shares || '0')
+            : toRaw(asset, amount)
         const col = kind === 'borrow' ? decimalToBaseUnits(collateral || '0', 0) : '0'
         const tx = await signPlLend({
           account,
@@ -389,7 +449,14 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
               Supply {fromRaw(lendAsset, lendMarket.total_supply)} {lendAsset}. Borrowed {fromRaw(lendAsset, lendMarket.total_borrow)} {lendAsset}.
             </p>
           )}
-          <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder="Amount (withdraw = share count)" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          {lendAsset && (
+            <p className="text-xs text-slate-300">
+              {lendPos && (lendPos.shares !== '0' || lendPos.debt !== '0')
+                ? `You supplied ${fromRaw(lendAsset, suppliedRaw)} ${lendAsset}. Debt ${fromRaw(lendAsset, lendPos.debt)} ${lendAsset}. Collateral ${fromRaw('FPL', lendPos.collateral_fpl)} FPL.`
+                : 'You have no supply or debt on this market.'}
+            </p>
+          )}
+          <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} />
           <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder="FPL collateral (borrow only)" value={collateral} onChange={(e) => setCollateral(e.target.value)} />
           {lendHint && <p className="text-xs text-slate-400">{lendHint}</p>}
           <div className="grid grid-cols-2 gap-2">

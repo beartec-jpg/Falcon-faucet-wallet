@@ -25,17 +25,35 @@ function arrayOf(raw: string, key: string): unknown[] {
   return []
 }
 
+function accountName(raw: string | null): string {
+  const s = (raw || '').trim().toLowerCase()
+  return /^[a-z0-9._-]{1,64}$/.test(s) ? s : ''
+}
+
 /** Live Falcon PL AMM pools and lend markets. Matching happens in the ledger. */
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const account = accountName(new URL(req.url).searchParams.get('account'))
     const r = await plRpc({ type: 'status_req', include_accounts: false })
     if (r.type === 'err') throw new Error(String(r.msg ?? 'status error'))
     const raw = typeof r.raw === 'string' ? r.raw : ''
     const body = (r.body ?? {}) as { amm_pools?: number; lend_markets?: number }
+    let positions: unknown[] = []
+    let lp: unknown[] = []
+    if (account) {
+      const acct = await plRpc({ type: 'account_query', account })
+      if (acct.type !== 'err') {
+        const line = typeof acct.raw === 'string' ? acct.raw : ''
+        positions = arrayOf(line, 'lend_positions')
+        lp = arrayOf(line, 'lp')
+      }
+    }
     return NextResponse.json({
       ok: true,
       pools: arrayOf(raw, 'defi_pools'),
       markets: arrayOf(raw, 'defi_markets'),
+      positions,
+      lp,
       ammPools: body.amm_pools ?? 0,
       lendMarkets: body.lend_markets ?? 0,
     })
