@@ -1430,7 +1430,39 @@ export default function WalletPage() {
     const extracted = parseFalconAddressFromScan(to)
     if (extracted) to = extracted
 
-    const destNameNorm = !isValidFalconAddress(to) ? normalizeAccountName(to) : null
+    // On 2300 the name is the account. Do not run it through the signup
+    // block list — dave, alice, and the other test seats are real accounts.
+    if (network.networkId === 2300) {
+      const name = to.trim().toLowerCase()
+      if (
+        name.length < 2 ||
+        name.length > 64 ||
+        name.startsWith('.') ||
+        name.endsWith('.') ||
+        name.includes('..') ||
+        !/^[a-z0-9._-]+$/.test(name)
+      ) {
+        setError('Destination must be a Falcon name, for example alice.bob')
+        return
+      }
+      to = name
+      try {
+        const r = await fetch(
+          withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(name)}`, networkKey),
+        )
+        const j = (await r.json()) as { exists?: boolean }
+        if (r.ok && j.exists === false) {
+          setError(`No Falcon account named “${name}”`)
+          return
+        }
+      } catch {
+        /* a status blip should not block a send to a real name */
+      }
+    }
+
+    const destNameNorm = network.networkId === 2300 || isValidFalconAddress(to)
+      ? null
+      : normalizeAccountName(to)
     if (destNameNorm) {
       try {
         const r = await fetch(
@@ -1482,8 +1514,11 @@ export default function WalletPage() {
       setError('Invalid destination — use an r… address or a claimed name (e.g. alice.bob)')
       return
     }
-    if (to === wallet.address || to === plAccountId(wallet)) {
-      setError('Destination must be a different Falcon address')
+    if (
+      to === wallet.address ||
+      to.toLowerCase() === plAccountId(wallet).trim().toLowerCase()
+    ) {
+      setError('Destination must be a different Falcon account')
       return
     }
     if (isNaN(amt) || amt <= 0) {
