@@ -647,6 +647,9 @@ export default function LendPage() {
           </div>
         ) : (
           <>
+            <p className="text-xs text-slate-500">
+              Lend is the F-USDC vault only. FETH and FBTC trade in FPL pools, not here. FBNB is not listed.
+            </p>
             <LendProtocolBanner data={data} />
 
             {data && !data.lending.configured && (

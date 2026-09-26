@@ -19,7 +19,12 @@ import MarketLiquidityPanel from '@/components/MarketLiquidityPanel'
 import PoolStatsPanel from '@/components/PoolStatsPanel'
 
 /** Canonical pool tab order (must stay client-safe — no node:fs). */
-const POOL_PAIR_ORDER = ['F-USDC', 'FETH', 'FBNB', 'FBTC'] as const
+const POOL_PAIR_ORDER = ['F-USDC', 'FETH', 'FBTC'] as const
+const POOL_TAB_LABEL: Record<(typeof POOL_PAIR_ORDER)[number], string> = {
+  'F-USDC': 'F-USDC / FPL',
+  FETH: 'FETH / FPL',
+  FBTC: 'FBTC / FPL',
+}
 
 interface PairToken {
   symbol: string
@@ -136,7 +141,13 @@ export default function PoolPage() {
           },
         ]) => {
           const list = (m.tokens ?? [])
-            .filter((t) => t.issuer && t.currency)
+            .filter(
+              (t) =>
+                t.issuer &&
+                t.currency &&
+                t.symbol !== 'FBNB' &&
+                t.currency.toUpperCase() !== 'BNB',
+            )
             .map(mapConfigToken)
           // Prefer live SPV MPT for FBTC tab
           if (fbtc?.token?.mptIssuanceId || fbtc?.token?.configured) {
@@ -323,6 +334,9 @@ export default function PoolPage() {
       <NetworkBanner />
 
       <main className="flex-1 px-4 py-8 max-w-2xl mx-auto w-full space-y-5">
+        <p className="text-xs text-slate-500">
+          Public pools: F-USDC/FPL, FETH/FPL, and FBTC/FPL. FBNB is not listed.
+        </p>
         {/* Pair tabs */}
         {pairs.length > 0 && (
           <div className="flex rounded-xl overflow-hidden border border-slate-700 bg-slate-900/60">
@@ -349,7 +363,8 @@ export default function PoolPage() {
                       : 'text-slate-500 hover:text-slate-300'
                   }`}
                 >
-                  {p.displaySymbol}
+                  {POOL_TAB_LABEL[p.displaySymbol as keyof typeof POOL_TAB_LABEL] ??
+                    `${p.displaySymbol} / FPL`}
                 </button>
               )
             })}

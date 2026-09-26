@@ -27,7 +27,12 @@ import OrderBookPanel from '@/components/OrderBookPanel'
 const DROPS_PER_XRP = 1_000_000
 
 /** Canonical pair tab order (must stay client-safe — no node:fs). */
-const SWAP_PAIR_ORDER = ['F-USDC', 'FETH', 'FBNB', 'FBTC'] as const
+const SWAP_PAIR_ORDER = ['F-USDC', 'FETH', 'FBTC'] as const
+const SWAP_TAB_LABEL: Record<(typeof SWAP_PAIR_ORDER)[number], string> = {
+  'F-USDC': 'F-USDC / FPL',
+  FETH: 'FETH / FPL',
+  FBTC: 'FBTC / FPL',
+}
 
 interface PairToken {
   symbol: string
@@ -213,7 +218,13 @@ export default function SwapPage() {
           },
         ]) => {
           const list = (m.tokens ?? [])
-            .filter((t) => t.issuer && t.currency)
+            .filter(
+              (t) =>
+                t.issuer &&
+                t.currency &&
+                t.symbol !== 'FBNB' &&
+                t.currency.toUpperCase() !== 'BNB',
+            )
             .map(mapConfigToken)
 
           if (fbtc?.token?.mptIssuanceId || fbtc?.token?.configured) {
@@ -601,6 +612,9 @@ export default function SwapPage() {
       <NetworkBanner />
 
       <main className="flex-1 px-4 py-8 max-w-2xl mx-auto w-full space-y-5">
+        <p className="text-xs text-slate-500">
+          Swap against FPL: F-USDC, FETH, and FBTC. FBNB is not a public pair.
+        </p>
         {/* Pair tabs — Falcon-paired F-assets only */}
         {pairs.length > 0 && (
           <div className="flex rounded-xl overflow-hidden border border-slate-700 bg-slate-900/60">
@@ -632,7 +646,8 @@ export default function SwapPage() {
                       : 'text-slate-500 hover:text-slate-300'
                   }`}
                 >
-                  {p.displaySymbol}
+                  {SWAP_TAB_LABEL[p.displaySymbol as keyof typeof SWAP_TAB_LABEL] ??
+                    `${p.displaySymbol} / FPL`}
                 </button>
               )
             })}
