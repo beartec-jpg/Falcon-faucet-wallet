@@ -63,13 +63,16 @@ import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
 import { fetchDestLockMintStatus } from '@/lib/pl-dest-lock'
 import {
+  clearDestLockPending,
   listDestLockPending,
-  upsertDestLockPending,
   type DestLockPending,
 } from '@/lib/dest-lock-pending'
 import {
+  btcDepositAlreadyMinted,
+  clearSpvPending,
   getSpvPending,
   isDeadSpvTxid,
+  markDepositClaimed,
   purgeDeadSpvStorage,
   shouldSkipSpvRestore,
   type SpvPendingDeposit,
@@ -260,6 +263,24 @@ function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
+
+/** Decimal string to an integer base-unit count. Avoids 0.0012 * 1e8 float drift. */
+function decimalToBaseUnits(raw: string, decimals: number): number {
+  const s = raw.trim()
+  if (!/^\d+(\.\d+)?$/.test(s)) return NaN
+  const [whole, frac = ''] = s.split('.')
+  const padded = (frac + '0'.repeat(decimals)).slice(0, decimals)
+  return Number(whole) * 10 ** decimals + Number(padded || '0')
+}
+
+function sendFailureText(e: unknown): string {
+  const name = e instanceof DOMException ? e.name : ''
+  const msg = e instanceof Error ? e.message : ''
+  if (/system error|notallowed|not allowed|timed out|operationerror/i.test(`${name} ${msg}`)) {
+    return 'The passkey prompt did not finish. Stay on this page and try Send again.'
+  }
+  return msg || 'Transaction failed'
+}
 
 export default function WalletPage() {
   const { networkKey, network } = useNetwork()
@@ -483,79 +504,64 @@ export default function WalletPage() {
 
   useEffect(() => {
     if (!wallet || network.networkId !== 2300) return
-    const id = plAccountId(wallet)
-    purgeDeadSpvStorage([id, wallet.address])
-    setDestLockHomeJobs(listDestLockPending(id))
-    const spv = getSpvPending(id) || getSpvPending(wallet.address)
-    setSpvHomePending(
-      spv &&
-        !isDeadSpvTxid(spv.txid) &&
-        !shouldSkipSpvRestore(id, spv.txid) &&
-        spv.status !== 'claimed'
-        ? spv
-        : null,
-    )
-  }, [wallet, network.networkId, walletSection])
-
-  useEffect(() => {
-    if (!wallet || network.networkId !== 2300) return
-    const tick = () => {
-      const id = plAccountId(wallet)
-      purgeDeadSpvStorage([id, wallet.address])
-      const spv = getSpvPending(id) || getSpvPending(wallet.address)
-      setSpvHomePending(
-        spv &&
-          !isDeadSpvTxid(spv.txid) &&
-          !shouldSkipSpvRestore(id, spv.txid) &&
-          spv.status !== 'claimed'
-          ? spv
-          : null,
-      )
-    }
-    const t = setInterval(tick, 5000)
-    return () => clearInterval(t)
-  }, [wallet, network.networkId])
-
-  useEffect(() => {
-    const open = destLockHomeJobs.filter((j) => j.status !== 'done' && j.status !== 'error')
-    if (open.length === 0) return
     let cancelled = false
-    const tick = async () => {
-      for (const job of open) {
+    const id = plAccountId(wallet)
+    const sync = async () => {
+      purgeDeadSpvStorage([id, wallet.address])
+      const jobs = listDestLockPending(id)
+      const stillOpen: DestLockPending[] = []
+      for (const job of jobs) {
+        if (job.status === 'done') {
+          clearDestLockPending(id, job.txHash)
+          continue
+        }
         try {
           const st = await fetchDestLockMintStatus({
-            account: job.falconAccount,
+            account: job.falconAccount || id,
             txHash: job.txHash,
             asset: job.asset,
           })
           if (cancelled) return
-          upsertDestLockPending(job.falconAccount, {
-            txHash: job.txHash,
-            asset: job.asset,
-            explorerUrl: job.explorerUrl,
-            status: st.status === 'done' ? 'done' : st.status === 'error' ? 'error' : job.status,
-            lastError: st.error,
-            depositBlock: st.deposit_block ?? job.depositBlock,
-            lcExecution: st.lc_execution ?? job.lcExecution,
-          })
-          if (st.status === 'done' && wallet) void refreshBalance(plAccountId(wallet))
+          if (st.status === 'done') {
+            clearDestLockPending(id, job.txHash)
+            void refreshBalance(id)
+            continue
+          }
+          stillOpen.push(job)
         } catch {
-          /* keep last known */
+          stillOpen.push(job)
         }
       }
-      if (!cancelled && wallet) setDestLockHomeJobs(listDestLockPending(plAccountId(wallet)))
+      let spv = getSpvPending(id) || getSpvPending(wallet.address)
+      if (
+        spv &&
+        spv.status !== 'claimed' &&
+        !shouldSkipSpvRestore(id, spv.txid) &&
+        !shouldSkipSpvRestore(wallet.address, spv.txid)
+      ) {
+        if (await btcDepositAlreadyMinted(spv.txid)) {
+          markDepositClaimed(id, spv.txid)
+          markDepositClaimed(wallet.address, spv.txid)
+          clearSpvPending(id)
+          clearSpvPending(wallet.address)
+          spv = null
+        }
+      } else {
+        spv = null
+      }
+      if (cancelled) return
+      setDestLockHomeJobs(stillOpen)
+      setSpvHomePending(
+        spv && !isDeadSpvTxid(spv.txid) && spv.status !== 'claimed' ? spv : null,
+      )
     }
-    void tick()
-    const t = setInterval(() => void tick(), 4000)
+    void sync()
+    const t = setInterval(() => void sync(), 5000)
     return () => {
       cancelled = true
       clearInterval(t)
     }
-  }, [
-    destLockHomeJobs.map((j) => j.txHash).join('|'),
-    refreshBalance,
-    wallet,
-  ])
+  }, [wallet, network.networkId, walletSection, refreshBalance])
 
   useEffect(() => {
     if (!wallet || view === 'loading' || view === 'no-wallet') return
@@ -1558,12 +1564,15 @@ export default function WalletPage() {
               const seq = await fetchSequence()
               const rail =
                 sendAsset === 'fbtc'
-                  ? { asset: 'BTC' as const, amount: Math.round(amt * 1e8) }
+                  ? { asset: 'BTC' as const, amount: decimalToBaseUnits(sendAmount, 8) }
                   : sendAsset === 'feth'
-                    ? { asset: 'ETH' as const, amount: Math.round(amt * 1e18) }
+                    ? { asset: 'ETH' as const, amount: decimalToBaseUnits(sendAmount, 18) }
                     : sendAsset === 'fusdc'
-                      ? { asset: 'USDC' as const, amount: Math.round(amt * 1e6) }
+                      ? { asset: 'USDC' as const, amount: decimalToBaseUnits(sendAmount, 6) }
                       : null
+              if (rail && !Number.isSafeInteger(rail.amount)) {
+                throw new Error(`Amount is too large to send as ${rail.asset}`)
+              }
               const tx = rail
                 ? await signPlAssetPay({
                     account: plAccountId(wallet),
@@ -1640,10 +1649,16 @@ export default function WalletPage() {
         message: e instanceof Error ? e.message : 'Failed',
       }))
 
+      if (!data.success) {
+        setSendResult(null)
+        setError(data.message || data.error || 'Send failed')
+        return
+      }
+
       setSendResult({
-        success: !!data.success,
+        success: true,
         hash:    data.hash,
-        message: data.message ?? data.result ?? (data.success ? 'Submitted!' : 'Failed'),
+        message: data.message ?? data.result ?? 'Submitted!',
       })
 
       if (data.success) {
@@ -1654,7 +1669,7 @@ export default function WalletPage() {
         setTimeout(() => refreshBalance(plAccountId(wallet)), 4000)
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Transaction failed')
+      setError(sendFailureText(e))
     } finally {
       setBusy(false)
     }
@@ -2324,13 +2339,12 @@ export default function WalletPage() {
 
                       {(() => {
                         const openDest = destLockHomeJobs.filter((j) => j.status !== 'done')
-                        const doneDest = destLockHomeJobs.filter((j) => j.status === 'done')
                         const openBtc =
                           spvHomePending && spvHomePending.status !== 'claimed'
                             ? spvHomePending
                             : null
                         const openN = openDest.length + (openBtc ? 1 : 0)
-                        if (openN + doneDest.length === 0) return null
+                        if (openN === 0) return null
                         return (
                           <div className="space-y-2">
                             <div className="flex items-center justify-between px-0.5">
@@ -2339,7 +2353,6 @@ export default function WalletPage() {
                               </p>
                               <p className="text-[10px] text-slate-600 tabular-nums">
                                 {openN} open
-                                {doneDest.length > 0 ? ` · ${doneDest.length} done` : ''}
                               </p>
                             </div>
                             <div className="space-y-2.5">
@@ -2360,19 +2373,34 @@ export default function WalletPage() {
                                         ? `Locked on Sepolia. Waiting for Ethereum finality (light client ${job.lcExecution} / deposit ${job.depositBlock}). Not lost — you can still bridge another asset.`
                                         : 'Locked on Sepolia — minting on Falcon PL. BTC, ETH, and USDC can run at the same time.'}
                                   </p>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setBridgeInitialMode('deposit')
-                                      setBridgeInitialRoute(
-                                        job.asset === 'ETH' ? 'feth-sepolia' : 'fusdc-sepolia',
-                                      )
-                                      setWalletSection('bridge')
-                                    }}
-                                    className="text-xs font-semibold text-brand-400 hover:text-brand-300"
-                                  >
-                                    Open Bridge tracker
-                                  </button>
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setBridgeInitialMode('deposit')
+                                        setBridgeInitialRoute(
+                                          job.asset === 'ETH' ? 'feth-sepolia' : 'fusdc-sepolia',
+                                        )
+                                        setWalletSection('bridge')
+                                      }}
+                                      className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+                                    >
+                                      Open Bridge tracker
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const id = plAccountId(wallet)
+                                        clearDestLockPending(id, job.txHash)
+                                        setDestLockHomeJobs((prev) =>
+                                          prev.filter((j) => j.txHash !== job.txHash),
+                                        )
+                                      }}
+                                      className="text-xs text-slate-500 hover:text-slate-300"
+                                    >
+                                      Dismiss
+                                    </button>
+                                  </div>
                                 </div>
                               ))}
                               {openBtc && (
@@ -2386,41 +2414,36 @@ export default function WalletPage() {
                                   <p className="text-[11px] font-mono text-brand-400/90 truncate">
                                     {openBtc.txid.slice(0, 10)}…{openBtc.txid.slice(-8)}
                                   </p>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setBridgeInitialMode('deposit')
-                                      setBridgeInitialRoute('fbtc-btc')
-                                      setBridgeInitialSpvTxid(openBtc.txid)
-                                      setWalletSection('bridge')
-                                    }}
-                                    className="text-xs font-semibold text-brand-400 hover:text-brand-300"
-                                  >
-                                    Open Bridge tracker
-                                  </button>
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setBridgeInitialMode('deposit')
+                                        setBridgeInitialRoute('fbtc-btc')
+                                        setBridgeInitialSpvTxid(openBtc.txid)
+                                        setWalletSection('bridge')
+                                      }}
+                                      className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+                                    >
+                                      Open Bridge tracker
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const id = plAccountId(wallet)
+                                        markDepositClaimed(id, openBtc.txid)
+                                        markDepositClaimed(wallet.address, openBtc.txid)
+                                        clearSpvPending(id)
+                                        clearSpvPending(wallet.address)
+                                        setSpvHomePending(null)
+                                      }}
+                                      className="text-xs text-slate-500 hover:text-slate-300"
+                                    >
+                                      Dismiss
+                                    </button>
+                                  </div>
                                 </div>
                               )}
-                              {doneDest.map((job) => (
-                                <div
-                                  key={`done-${job.txHash}`}
-                                  className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 flex items-center justify-between gap-3"
-                                >
-                                  <div className="text-sm font-medium text-emerald-300">
-                                    {job.asset === 'USDC' ? 'F-USDC minted' : 'FETH minted'}
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setDestLockHomeJobs((prev) =>
-                                        prev.filter((j) => j.txHash !== job.txHash),
-                                      )
-                                    }
-                                    className="text-xs font-semibold text-brand-400 hover:text-brand-300"
-                                  >
-                                    Done
-                                  </button>
-                                </div>
-                              ))}
                             </div>
                           </div>
                         )
