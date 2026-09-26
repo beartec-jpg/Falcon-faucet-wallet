@@ -30,7 +30,7 @@ import {
   signFusdcPayment,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
-import { signPlPay } from '@/lib/pl-wallet-sign'
+import { signPlAssetPay, signPlPay } from '@/lib/pl-wallet-sign'
 import {
   normalizeAccountName,
   cacheAccountName,
@@ -1502,8 +1502,8 @@ export default function WalletPage() {
         setError('Insufficient FBNB balance'); return
       }
     } else if (sendAsset === 'fbtc') {
-      // SPV FBTC is MPT (auto-enabled on claim). IOU path still needs TrustSet.
-      if (!fbtcTok?.spvMpt && (!fbtcTok?.issuer || fbtcTok.hasTrustLine === false)) {
+      // PL 2300 FBTC is the bridged BTC balance. Older networks used an MPT/IOU.
+      if (network.networkId !== 2300 && !fbtcTok?.spvMpt && (!fbtcTok?.issuer || fbtcTok.hasTrustLine === false)) {
         setError(
           fbtcTok?.spvMpt === false
             ? 'Add a FBTC trust line on Bridge before sending'
@@ -1547,19 +1547,43 @@ export default function WalletPage() {
         }
       }
 
-      const data =
-        network.networkId === 2300 && sendAsset === 'falcon'
+      const plRail =
+        network.networkId === 2300 &&
+        (sendAsset === 'falcon' ||
+          sendAsset === 'fbtc' ||
+          sendAsset === 'feth' ||
+          sendAsset === 'fusdc')
+      const data = plRail
           ? await (async (): Promise<SubmitResult> => {
               const seq = await fetchSequence()
-              const tx = await signPlPay({
-                account: plAccountId(wallet),
-                destination: to,
-                amount: amt,
-                sequence: seq.sequence,
-                fee: 2,
-                networkId: network.networkId,
-                falconSecret: falcon_secret,
-              })
+              const rail =
+                sendAsset === 'fbtc'
+                  ? { asset: 'BTC' as const, amount: Math.round(amt * 1e8) }
+                  : sendAsset === 'feth'
+                    ? { asset: 'ETH' as const, amount: Math.round(amt * 1e18) }
+                    : sendAsset === 'fusdc'
+                      ? { asset: 'USDC' as const, amount: Math.round(amt * 1e6) }
+                      : null
+              const tx = rail
+                ? await signPlAssetPay({
+                    account: plAccountId(wallet),
+                    destination: to,
+                    asset: rail.asset,
+                    amount: rail.amount,
+                    sequence: seq.sequence,
+                    fee: 2,
+                    networkId: network.networkId,
+                    falconSecret: falcon_secret,
+                  })
+                : await signPlPay({
+                    account: plAccountId(wallet),
+                    destination: to,
+                    amount: amt,
+                    sequence: seq.sequence,
+                    fee: 2,
+                    networkId: network.networkId,
+                    falconSecret: falcon_secret,
+                  })
               const res = await fetch('/api/wallet/submit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

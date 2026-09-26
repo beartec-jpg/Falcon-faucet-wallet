@@ -102,6 +102,29 @@ export async function signPlPay(opts: {
   })
 }
 
+/** Send bridged BTC, ETH, or USDC. Amount is the ledger integer (sats, wei, or 6-dp USDC). */
+export async function signPlAssetPay(opts: {
+  account: string
+  destination: string
+  asset: 'BTC' | 'ETH' | 'USDC'
+  amount: number
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: opts.destination,
+    amount: Math.floor(opts.amount),
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'asset_pay', asset: opts.asset },
+    falconSecret: opts.falconSecret,
+  })
+}
+
 /** Convert this account to a vault locked to `destination`. */
 export async function signVaultOpen(opts: {
   account: string
