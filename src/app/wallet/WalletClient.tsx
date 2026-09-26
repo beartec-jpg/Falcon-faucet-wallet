@@ -3296,11 +3296,17 @@ export default function WalletPage() {
                               ? 'Send USDC (Sepolia)'
                               : sendAsset === 'xrp'
                                 ? 'Send XRP (classic XRPL testnet)'
-                                : 'Send on Falcon'}
+                                : sendAsset === 'fbtc'
+                                  ? 'Send FBTC'
+                                  : sendAsset === 'feth'
+                                    ? 'Send FETH'
+                                    : sendAsset === 'fusdc'
+                                      ? 'Send F-USDC'
+                                      : 'Send FPL'}
                     </h3>
                   </div>
 
-                  {(sendAsset === 'falcon' || sendAsset === 'fusdc' || sendAsset === 'feth' || sendAsset === 'fbnb') && (
+                  {(sendAsset === 'falcon' || sendAsset === 'fusdc' || sendAsset === 'feth' || sendAsset === 'fbtc' || sendAsset === 'fbnb') && (
                   <div className="flex rounded-xl overflow-hidden border border-slate-700 text-sm">
                     <button
                       type="button"
@@ -3322,6 +3328,13 @@ export default function WalletPage() {
                       className={`flex-1 py-2 ${sendAsset === 'feth' ? 'bg-sky-500/10 text-sky-400' : 'text-slate-500'}`}
                     >
                       FETH
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSendAsset('fbtc'); setSendAmount(''); setError(null) }}
+                      className={`flex-1 py-2 ${sendAsset === 'fbtc' ? 'bg-orange-500/10 text-orange-400' : 'text-slate-500'}`}
+                    >
+                      FBTC
                     </button>
                   </div>
                   )}
@@ -3439,23 +3452,18 @@ export default function WalletPage() {
                       <div className="space-y-1.5">
                         <label className="text-xs text-slate-400">
                           Amount (
-                          {sendAsset === 'falcon'
-                            ? 'FPL'
-                            : sendAsset === 'fusdc'
-                              ? 'F-USDC'
-                              : sendAsset === 'feth'
-                                ? 'FETH'
-                                : sendAsset === 'fbnb'
-                                  ? 'FBNB'
-                                  : sendAsset === 'btc'
-                                    ? 'BTC'
-                                    : sendAsset === 'bnb'
-                                      ? 'BNB'
-                                      : sendAsset === 'usdc'
-                                        ? 'USDC'
-                                        : sendAsset === 'xrp'
-                                          ? 'XRP'
-                                          : 'ETH'}
+                          {{
+                            falcon: 'FPL',
+                            fusdc: 'F-USDC',
+                            feth: 'FETH',
+                            fbtc: 'FBTC',
+                            fbnb: 'FBNB',
+                            btc: 'BTC',
+                            bnb: 'BNB',
+                            eth: 'ETH',
+                            usdc: 'USDC',
+                            xrp: 'XRP',
+                          }[sendAsset]}
                           )
                         </label>
                         <input
@@ -3519,6 +3527,40 @@ export default function WalletPage() {
                                     String(
                                       account.assets!.tokens!.find(
                                         (t) => t.currency === 'ETH' || t.symbol === 'FETH',
+                                      )!.balance,
+                                    ),
+                                  )
+                                }
+                                className="text-brand-500 hover:text-brand-400 transition-colors"
+                              >
+                                Max
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {account?.exists && sendAsset === 'fbtc' && (
+                          <div className="flex justify-between text-xs text-slate-600">
+                            <span>
+                              Available:{' '}
+                              {(
+                                account.assets?.tokens?.find(
+                                  (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+                                )?.balance ?? 0
+                              ).toLocaleString(undefined, { maximumFractionDigits: 8 })}{' '}
+                              FBTC
+                            </span>
+                            {(
+                              account.assets?.tokens?.find(
+                                (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+                              )?.balance ?? 0
+                            ) > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSendAmount(
+                                    String(
+                                      account.assets!.tokens!.find(
+                                        (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
                                       )!.balance,
                                     ),
                                   )

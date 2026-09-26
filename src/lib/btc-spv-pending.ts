@@ -579,7 +579,7 @@ export function isSpvWaitMessage(msg: string): boolean {
     /tx not found|not found yet|not confirmed yet|wait for|mempool|indexer|unavailable|raw tx not found|merkle proof unavailable|status \d+|502|503|504|404|409/i.test(
       m,
     ) ||
-    /headers have not|header submitter|falcon tip|blocks behind|still catching up|did not commit the rail/i.test(
+    /headers have not|header submitter|falcon tip|blocks behind|still catching up|did not commit the rail|no header at height|older block|no longer has bitcoin block/i.test(
       m,
     )
   )
@@ -588,8 +588,11 @@ export function isSpvWaitMessage(msg: string): boolean {
 export function spvWaitUserMessage(msg?: string): string {
   if (!msg) return 'Waiting for Bitcoin explorers to index your deposit…'
   const m = msg.toLowerCase()
-  if (/headers have not|header submitter|falcon tip|blocks behind/i.test(m)) {
-    return 'Bitcoin confirmations are OK, but Falcon has not imported this block header yet. Wait, then Claim FBTC again — do not re-send BTC.'
+  if (/no header at height|headers have not|header submitter|falcon tip|blocks behind|older block|no longer has bitcoin block/i.test(m)) {
+    return 'Bitcoin confirmations are OK. Falcon is loading the older block this deposit is in. Wait, then Claim FBTC again — do not re-send BTC.'
+  }
+  if (/did not commit the rail/i.test(m)) {
+    return 'Waiting for Falcon packers to mint FBTC. Deposit is still on Bitcoin — do not re-send BTC.'
   }
   if (/not confirmed|wait for a block|need \d+ confirmation|reserve payout|redeem/i.test(m)) {
     if (/reserve|redeem|payout|prove/i.test(m)) {
@@ -705,6 +708,25 @@ export async function pollSpvConfirmations(
 /**
  * Find open FALC deposits for this Falcon account on the hold (chain-side restore).
  */
+/** True when Falcon has already minted FBTC for this Bitcoin tx. */
+export async function btcDepositAlreadyMinted(txid: string): Promise<boolean> {
+  const id = normTxid(txid)
+  if (!/^[0-9a-f]{64}$/.test(id) || !isBrowser()) return false
+  if (isDeadSpvTxid(id)) return true
+  try {
+    const r = await fetch('/api/bridge/btc-spv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'deposit_spent', txid: id }),
+      cache: 'no-store',
+    })
+    const j = (await r.json().catch(() => ({}))) as { spent?: boolean }
+    return r.ok && j.spent === true
+  } catch {
+    return false
+  }
+}
+
 export async function fetchOpenDepositsForAccount(opts: {
   falconAccount: string
   holdAddress: string

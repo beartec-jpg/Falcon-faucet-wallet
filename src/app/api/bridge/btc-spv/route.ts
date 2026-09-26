@@ -162,12 +162,12 @@ function isPl2300Request(req: NextRequest, bodyNetwork?: string | null): boolean
   )
 }
 
-async function fetchPlBtcRailTip(): Promise<{ height: number; spv: string }> {
+async function fetchPlBtcRailTip(): Promise<{ height: number; spv: string; floor: number }> {
   // Take the *highest* BTC tip across configured peers so a wedged archive
   // (e.g. falcon1 left on a dead tip) cannot false-trigger critical lag.
   const { plRpc, plRpcAddrs } = await import('@/lib/pl-rpc')
   let lastErr: unknown
-  let best: { height: number; spv: string } | null = null
+  let best: { height: number; spv: string; floor: number } | null = null
   for (const addr of plRpcAddrs()) {
     for (let i = 0; i < 2; i++) {
       try {
@@ -181,7 +181,8 @@ async function fetchPlBtcRailTip(): Promise<{ height: number; spv: string }> {
         const btcRail = rails.find((row) => String(row.asset) === 'BTC') ?? {}
         const height = Number(btcRail.tip_height ?? 0) || 0
         const spv = String(btcRail.spv ?? '')
-        if (height > 0 && (!best || height > best.height)) best = { height, spv }
+        const floor = Number(btcRail.header_floor ?? 0) || 0
+        if (height > 0 && (!best || height > best.height)) best = { height, spv, floor }
         break
       } catch (e) {
         lastErr = e
@@ -390,6 +391,7 @@ export async function POST(req: NextRequest) {
   let body: {
     action?: string
     btc_txid?: string
+    txid?: string
     network?: BtcNetwork
     vout?: number
     account?: string
@@ -411,9 +413,21 @@ export async function POST(req: NextRequest) {
     action !== 'withdraw_status' &&
     action !== 'withdraw_list' &&
     action !== 'find_redeem' &&
-    action !== 'list_deposits'
+    action !== 'list_deposits' &&
+    action !== 'deposit_spent'
   ) {
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+  }
+
+  if (action === 'deposit_spent') {
+    const txid = String(body.txid || '')
+      .toLowerCase()
+      .replace(/^0x/, '')
+    if (!/^[0-9a-f]{64}$/.test(txid)) {
+      return NextResponse.json({ error: 'txid must be 32-byte hex' }, { status: 400 })
+    }
+    const spent = await falconSpentBtcTxids()
+    return NextResponse.json({ txid, spent: spent.has(txid) || isDeadSpvTxid(txid) })
   }
 
   // Open FALC peg-ins for an account (restore tracker if browser storage was lost)
@@ -919,10 +933,12 @@ export async function POST(req: NextRequest) {
     const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
     let falconTipHeight = 0
     let headerReady = isPl2300Request(req, body.network)
+    let headerFloor = 0
     if (headerReady) {
       try {
         const rail = await fetchPlBtcRailTip()
         falconTipHeight = rail.height
+        headerFloor = rail.floor
         headerReady = rail.spv === 'bitcoin' || falconTipHeight > 0
       } catch {
         // Proof can still return; do not 409 "tip unknown" on a healthy 2300 rail.
@@ -950,6 +966,47 @@ export async function POST(req: NextRequest) {
     } catch {
       /* RPC flaky — still return proof; claim may fail with tecNO_ENTRY */
     }
+    }
+
+    // Deposit block was pruned out of the kept window. Ask the header
+    // feeder to pull it back. The claim retries; do not re-send BTC.
+    if (
+      headerFloor > 0 &&
+      blockHeight > 0 &&
+      blockHeight < headerFloor &&
+      purpose === 'deposit'
+    ) {
+      try {
+        const fs = await import('fs')
+        const wantPath =
+          process.env.FPL_BTC_HEADER_WANT ||
+          '/home/falcon/falcon-pl-public-testnet-2300/run/btc-header-want'
+        let cur = 0
+        try {
+          cur = parseInt(fs.readFileSync(wantPath, 'utf8').trim(), 10) || 0
+        } catch {
+          cur = 0
+        }
+        const next = cur > 0 ? Math.min(cur, blockHeight) : blockHeight
+        fs.writeFileSync(wantPath, String(next))
+      } catch {
+        /* feeder host may differ; the error still tells the user to wait */
+      }
+      return NextResponse.json(
+        {
+          error:
+            `Falcon no longer has Bitcoin block ${blockHeight} in memory (kept headers start at ${headerFloor}). ` +
+            'It is loading that older block now. Wait, then Claim FBTC again — do not re-send BTC.',
+          waiting: true,
+          headerReady: false,
+          falconTipHeight: falconTipHeight || undefined,
+          headerFloor,
+          depositHeight: blockHeight,
+          confirmations,
+          confirmed: true,
+        },
+        { status: 409 },
+      )
     }
 
     if (!headerReady) {

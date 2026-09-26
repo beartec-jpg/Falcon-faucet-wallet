@@ -57,6 +57,7 @@ import {
   ensureSpvPendingTracked,
   fetchOpenDepositsForAccount,
   getSpvPending,
+  btcDepositAlreadyMinted,
   hasOpenSpvBridge,
   isDeadSpvTxid,
   isDepositClaimedLocally,
@@ -665,7 +666,7 @@ export default function BridgeDepositPanel({
   }, [isPl2300, falconId])
 
   useEffect(() => {
-    const open = destLockJobs.filter((j) => j.status !== 'done' && j.status !== 'error')
+    const open = destLockJobs.filter((j) => j.status !== 'done')
     if (open.length === 0) return
     let cancelled = false
     const tick = async () => {
@@ -678,14 +679,7 @@ export default function BridgeDepositPanel({
           })
           if (cancelled) return
           if (st.status === 'done') {
-            upsertDestLockPending(job.falconAccount, {
-              txHash: job.txHash,
-              asset: job.asset,
-              explorerUrl: job.explorerUrl,
-              status: 'done',
-              depositBlock: st.deposit_block ?? job.depositBlock,
-              lcExecution: st.lc_execution ?? job.lcExecution,
-            })
+            clearDestLockPending(job.falconAccount, job.txHash)
             refreshFusdcBalance()
             onFalconRefresh?.()
             continue
@@ -873,7 +867,18 @@ export default function BridgeDepositPanel({
       btcNetwork: net,
     })
     if (local) {
-      applyJob(local)
+      void (async () => {
+        if (await btcDepositAlreadyMinted(local.txid)) {
+          if (cancelled || gen !== spvRestoreGen.current) return
+          markDepositClaimed(falconId, local.txid)
+          markDepositClaimed(wallet.address, local.txid)
+          clearSpvPending(wallet.address)
+          clearSpvPending(falconId)
+          setSpvPending(null)
+          return
+        }
+        if (!cancelled && gen === spvRestoreGen.current) applyJob(local)
+      })()
       return
     }
 
