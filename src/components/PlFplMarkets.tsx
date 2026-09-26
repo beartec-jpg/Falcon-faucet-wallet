@@ -7,6 +7,7 @@ import { decryptSeed } from '@/lib/wallet-crypto'
 import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
 import { plAccountId } from '@/lib/pl-names'
 import {
+  decimalToBaseUnits,
   signPlAddLiquidity,
   signPlLend,
   signPlRemoveLiquidity,
@@ -21,32 +22,114 @@ type Pool = {
   id: string
   asset_a: string
   asset_b: string
-  reserve_a: number
-  reserve_b: number
-  lp_supply: number
+  reserve_a: string
+  reserve_b: string
+  lp_supply: string
 }
 type Market = {
   id: string
   asset: string
-  total_supply: number
-  total_borrow: number
+  total_supply: string
+  total_borrow: string
   ltv_bps: number
+  price_fpl: string
 }
 
-const SCALE: Record<Asset, number> = {
-  FPL: 1,
-  BTC: 1e8,
-  ETH: 1e18,
-  USDC: 1e6,
+const DECIMALS: Record<Asset, number> = {
+  FPL: 0,
+  BTC: 8,
+  ETH: 18,
+  USDC: 6,
 }
 
-function toRaw(asset: Asset, human: number): number {
-  return Math.floor(human * SCALE[asset])
+function digitsOf(v: unknown): string {
+  if (typeof v === 'string' && /^\d+$/.test(v)) return v.replace(/^0+(?=\d)/, '')
+  if (typeof v === 'number' && Number.isFinite(v) && v >= 0) return Math.trunc(v).toString()
+  return '0'
 }
-function fromRaw(asset: Asset, raw: number): string {
-  const n = raw / SCALE[asset]
-  if (!Number.isFinite(n)) return '0'
-  return n.toLocaleString(undefined, { maximumFractionDigits: asset === 'BTC' ? 8 : 6 })
+
+function toRaw(asset: Asset, human: string): string {
+  return decimalToBaseUnits(human, DECIMALS[asset])
+}
+
+function fromRaw(asset: Asset, raw: string): string {
+  const d = DECIMALS[asset]
+  const s = raw.replace(/^0+/, '') || '0'
+  if (d === 0) return s.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const pad = s.padStart(d + 1, '0')
+  const whole = pad.slice(0, -d).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const frac = pad.slice(-d).replace(/0+$/, '')
+  return frac ? `${whole}.${frac}` : whole
+}
+
+function asPool(row: Record<string, unknown>): Pool {
+  return {
+    id: String(row.id ?? ''),
+    asset_a: String(row.asset_a ?? ''),
+    asset_b: String(row.asset_b ?? ''),
+    reserve_a: digitsOf(row.reserve_a),
+    reserve_b: digitsOf(row.reserve_b),
+    lp_supply: digitsOf(row.lp_supply),
+  }
+}
+
+function asMarket(row: Record<string, unknown>): Market {
+  return {
+    id: String(row.id ?? ''),
+    asset: String(row.asset ?? ''),
+    total_supply: digitsOf(row.total_supply),
+    total_borrow: digitsOf(row.total_borrow),
+    ltv_bps: Number(row.ltv_bps ?? 5000) || 5000,
+    price_fpl: digitsOf(row.price_fpl),
+  }
+}
+
+/** FPL for one whole coin, from the pool reserves. */
+function poolPrice(p: Pool): { asset: Asset; price: string } | null {
+  const a = p.asset_a as Asset
+  const b = p.asset_b as Asset
+  let fpl = ''
+  let other = ''
+  let asset: Asset | null = null
+  if (a === 'FPL' && b in DECIMALS && b !== 'FPL') {
+    fpl = p.reserve_a
+    other = p.reserve_b
+    asset = b
+  } else if (b === 'FPL' && a in DECIMALS && a !== 'FPL') {
+    fpl = p.reserve_b
+    other = p.reserve_a
+    asset = a
+  }
+  if (!asset || other === '0') return null
+  const px = (BigInt(fpl) * 10n ** BigInt(DECIMALS[asset])) / BigInt(other)
+  if (px <= 0n) return null
+  return { asset, price: px.toString() }
+}
+
+function priceFor(markets: Market[], pools: Pool[], asset: Asset): string {
+  const m = markets.find((x) => x.asset === asset && x.price_fpl !== '0')
+  if (m) return m.price_fpl
+  for (const p of pools) {
+    const q = poolPrice(p)
+    if (q && q.asset === asset) return q.price
+  }
+  return '0'
+}
+
+function collateralFor(asset: Asset, human: string, priceFpl: string, ltvBps: number): string | null {
+  if (!human.trim() || priceFpl === '0') return null
+  let raw: string
+  try {
+    raw = toRaw(asset, human)
+  } catch {
+    return null
+  }
+  const scale = 10n ** BigInt(DECIMALS[asset])
+  const debt = (BigInt(raw) * BigInt(priceFpl)) / scale
+  if (debt === 0n) return 'That amount is under 1 FPL at this price.'
+  const ltv = BigInt(ltvBps > 0 ? ltvBps : 5000)
+  const need = (debt * 10000n + ltv - 1n) / ltv
+  return `About ${fromRaw('FPL', need.toString())} FPL collateral at ${fromRaw('FPL', priceFpl)} FPL per ${asset}.`
 }
 
 function quoteOut(rin: bigint, rout: bigint, amountIn: bigint): bigint {
@@ -56,6 +139,7 @@ function quoteOut(rin: bigint, rout: bigint, amountIn: bigint): bigint {
 }
 
 function poolSides(p: Pool, tokenIn: string): { rin: bigint; rout: bigint } | null {
+  if (p.reserve_a === '0' || p.reserve_b === '0') return null
   if (p.asset_a === tokenIn) return { rin: BigInt(p.reserve_a), rout: BigInt(p.reserve_b) }
   if (p.asset_b === tokenIn) return { rin: BigInt(p.reserve_b), rout: BigInt(p.reserve_a) }
   return null
@@ -74,11 +158,11 @@ function quoteRoute(pools: Pool[], tokenIn: Asset, tokenOut: Asset, amountIn: bi
   return 0n
 }
 
-async function submitSigned(tx: unknown, networkKey: string) {
+async function submitSigned(tx: { rawJson?: string }, networkKey: string) {
   const res = await fetch('/api/wallet/submit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tx, network: networkKey }),
+    body: JSON.stringify(tx.rawJson ? { tx_json: tx.rawJson, network: networkKey } : { tx, network: networkKey }),
   })
   const out = (await res.json().catch(() => ({}))) as { error?: string; success?: boolean; message?: string }
   if (!res.ok || out.error) throw new Error(out.error || out.message || 'Submit failed')
@@ -105,8 +189,10 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     fetch('/api/pl2300/defi')
       .then((r) => r.json())
       .then((j) => {
-        setPools(j.pools || [])
-        setMarkets(j.markets || [])
+        const rows = (j.pools || []) as Record<string, unknown>[]
+        const mk = (j.markets || []) as Record<string, unknown>[]
+        setPools(rows.map(asPool))
+        setMarkets(mk.map(asMarket))
       })
       .catch(() => {})
   }, [])
@@ -118,11 +204,20 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     return () => clearInterval(t)
   }, [load])
 
-  const human = parseFloat(amount)
-  const quoted =
-    mode === 'swap' && Number.isFinite(human) && human > 0
-      ? quoteRoute(pools, sell, buy, BigInt(toRaw(sell, human)))
-      : 0n
+  let quoted = 0n
+  if (mode === 'swap' && amount.trim()) {
+    try {
+      quoted = quoteRoute(pools, sell, buy, BigInt(toRaw(sell, amount)))
+    } catch {
+      quoted = 0n
+    }
+  }
+  const lendMarket = markets.find((m) => m.id === marketId)
+  const lendAsset = (lendMarket?.asset as Asset) || null
+  const lendHint =
+    mode === 'lend' && lendAsset && lendAsset !== 'FPL'
+      ? collateralFor(lendAsset, amount, priceFor(markets, pools, lendAsset), lendMarket?.ltv_bps ?? 5000)
+      : null
 
   async function act(kind: 'swap' | 'add' | 'remove' | 'supply' | 'withdraw' | 'borrow' | 'repay') {
     if (!wallet) {
@@ -137,30 +232,30 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       const falconSecret = await decryptSeed(wallet.encrypted, keyBytes)
       const account = plAccountId(wallet)
       const seq = await fetchSequenceInfo(account, network.key)
-      const n = toRaw(kind === 'swap' ? sell : marketAsset() || 'USDC', parseFloat(amount) || 0)
       if (kind === 'swap') {
         if (sell === buy) throw new Error('Pick two different assets')
+        const amountIn = toRaw(sell, amount)
         const minOut = quoted > 1n ? quoted - quoted / 50n : 1n
         const tx = await signPlSwapRoute({
           account,
           tokenIn: sell,
           tokenOut: buy,
-          amountIn: toRaw(sell, parseFloat(amount)),
-          minOut: Number(minOut),
+          amountIn,
+          minOut: minOut.toString(),
           sequence: seq.sequence,
           networkId: network.networkId,
           falconSecret,
         })
         await submitSigned(tx, network.key)
-        setMsg(`Swap submitted. You receive about ${fromRaw(buy, Number(quoted))} ${buy} if the pool price holds.`)
+        setMsg(`Swap submitted. You receive about ${fromRaw(buy, quoted.toString())} ${buy} if the pool price holds.`)
       } else if (kind === 'add') {
         const pool = pools.find((p) => p.id === poolId)
         if (!pool) throw new Error('Pool not found')
         const tx = await signPlAddLiquidity({
           account,
           poolId,
-          amtA: toRaw(pool.asset_a as Asset, parseFloat(amount) || 0),
-          amtB: toRaw(pool.asset_b as Asset, parseFloat(amountB) || 0),
+          amtA: toRaw(pool.asset_a as Asset, amount),
+          amtB: toRaw(pool.asset_b as Asset, amountB),
           sequence: seq.sequence,
           networkId: network.networkId,
           falconSecret,
@@ -168,10 +263,11 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
         await submitSigned(tx, network.key)
         setMsg('Liquidity add submitted.')
       } else if (kind === 'remove') {
+        const lpBurn = decimalToBaseUnits(amount, 0)
         const tx = await signPlRemoveLiquidity({
           account,
           poolId,
-          lpBurn: Math.floor(parseFloat(amount) || 0),
+          lpBurn,
           sequence: seq.sequence,
           networkId: network.networkId,
           falconSecret,
@@ -189,13 +285,14 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
                 : 'lend_repay'
         const m = markets.find((x) => x.id === marketId)
         const asset = (m?.asset || 'USDC') as Asset
-        const raw = kind === 'withdraw' ? Math.floor(parseFloat(amount) || 0) : toRaw(asset, parseFloat(amount) || 0)
+        const raw = kind === 'withdraw' ? decimalToBaseUnits(amount, 0) : toRaw(asset, amount)
+        const col = kind === 'borrow' ? decimalToBaseUnits(collateral || '0', 0) : '0'
         const tx = await signPlLend({
           account,
           kind: lendKind,
           marketId,
           amount: raw,
-          collateralFpl: Math.floor(parseFloat(collateral) || 0),
+          collateralFpl: col,
           sequence: seq.sequence,
           networkId: network.networkId,
           falconSecret,
@@ -211,11 +308,6 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     } finally {
       setBusy(false)
     }
-  }
-
-  function marketAsset(): Asset | null {
-    const m = markets.find((x) => x.id === marketId)
-    return (m?.asset as Asset) || null
   }
 
   return (
@@ -241,8 +333,14 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
           </div>
           <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder={`Amount of ${sell}`} value={amount} onChange={(e) => setAmount(e.target.value)} />
           <p className="text-xs text-slate-400">
-            Quote: {quoted > 0n ? fromRaw(buy, Number(quoted)) : '—'} {buy}
+            Quote: {quoted > 0n ? fromRaw(buy, quoted.toString()) : '—'} {buy}
             {sell !== 'FPL' && buy !== 'FPL' ? ' via FPL' : ''}
+            {sell !== 'FPL' && priceFor(markets, pools, sell) !== '0'
+              ? ` · ${fromRaw('FPL', priceFor(markets, pools, sell))} FPL per ${sell}`
+              : ''}
+            {buy !== 'FPL' && priceFor(markets, pools, buy) !== '0'
+              ? ` · ${fromRaw('FPL', priceFor(markets, pools, buy))} FPL per ${buy}`
+              : ''}
           </p>
           <button type="button" className="btn-primary w-full" disabled={busy} onClick={() => act('swap')}>
             {busy ? 'Submitting…' : 'Swap on ledger'}
@@ -259,11 +357,15 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
               ))}
             </select>
           </label>
-          {pools.filter((p) => p.id === poolId).map((p) => (
-            <p key={p.id} className="text-xs text-slate-400">
-              Reserves {fromRaw(p.asset_a as Asset, p.reserve_a)} {p.asset_a} · {fromRaw(p.asset_b as Asset, p.reserve_b)} {p.asset_b}
-            </p>
-          ))}
+          {pools.filter((p) => p.id === poolId).map((p) => {
+            const px = poolPrice(p)
+            return (
+              <p key={p.id} className="text-xs text-slate-400">
+                Reserves {fromRaw(p.asset_a as Asset, p.reserve_a)} {p.asset_a} · {fromRaw(p.asset_b as Asset, p.reserve_b)} {p.asset_b}
+                {px ? ` · ${fromRaw('FPL', px.price)} FPL per ${px.asset}` : ''}
+              </p>
+            )
+          })}
           <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder="Amount of first asset (FPL side)" value={amount} onChange={(e) => setAmount(e.target.value)} />
           <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder="Amount of second asset" value={amountB} onChange={(e) => setAmountB(e.target.value)} />
           <div className="flex gap-2">
@@ -278,11 +380,18 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
           <label className="text-xs text-slate-400">
             Market
             <select className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" value={marketId} onChange={(e) => setMarketId(e.target.value)}>
-              {markets.map((m) => <option key={m.id} value={m.id}>{m.asset} · supply {m.total_supply} borrowed {m.total_borrow}</option>)}
+              {markets.map((m) => <option key={m.id} value={m.id}>{m.asset}</option>)}
             </select>
           </label>
+          {lendMarket && lendAsset && (
+            <p className="text-xs text-slate-400">
+              {lendMarket.price_fpl !== '0' ? `${fromRaw('FPL', lendMarket.price_fpl)} FPL per ${lendAsset}. ` : ''}
+              Supply {fromRaw(lendAsset, lendMarket.total_supply)} {lendAsset}. Borrowed {fromRaw(lendAsset, lendMarket.total_borrow)} {lendAsset}.
+            </p>
+          )}
           <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder="Amount (withdraw = share count)" value={amount} onChange={(e) => setAmount(e.target.value)} />
           <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder="FPL collateral (borrow only)" value={collateral} onChange={(e) => setCollateral(e.target.value)} />
+          {lendHint && <p className="text-xs text-slate-400">{lendHint}</p>}
           <div className="grid grid-cols-2 gap-2">
             <button type="button" className="btn-primary" disabled={busy} onClick={() => act('supply')}>Supply</button>
             <button type="button" className="rounded-xl border border-slate-600 py-2 text-sm" disabled={busy} onClick={() => act('withdraw')}>Withdraw</button>
@@ -294,11 +403,15 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       {msg && <p className="text-sm text-emerald-300">{msg}</p>}
       {err && <p className="text-sm text-red-300">{err}</p>}
       <div className="space-y-2">
-        {pools.filter((p) => p.id !== 'fpl-btc').map((p) => (
-          <div key={p.id} className="rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-400">
-            {p.id}: {fromRaw(p.asset_a as Asset, p.reserve_a)} {p.asset_a} / {fromRaw(p.asset_b as Asset, p.reserve_b)} {p.asset_b}
-          </div>
-        ))}
+        {pools.filter((p) => p.id !== 'fpl-btc').map((p) => {
+          const px = poolPrice(p)
+          return (
+            <div key={p.id} className="rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-400">
+              {p.id}: {fromRaw(p.asset_a as Asset, p.reserve_a)} {p.asset_a} / {fromRaw(p.asset_b as Asset, p.reserve_b)} {p.asset_b}
+              {px ? ` · ${fromRaw('FPL', px.price)} FPL per ${px.asset}` : ''}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

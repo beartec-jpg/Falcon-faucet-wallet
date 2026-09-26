@@ -188,6 +188,7 @@ function plRpcOnce(
         }
         const t = String(parsed.type ?? '')
         if (GOSSIP.has(t)) continue
+        parsed.raw = line
         finish(undefined, parsed)
         return
       }
