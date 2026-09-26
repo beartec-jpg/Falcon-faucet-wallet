@@ -38,6 +38,7 @@ import { collateralDropsFromFalcon } from '@/lib/lend-loan-onchain'
 import { clampLoanEpochs, formatLoanDuration, paymentIntervalForEpochs } from '@/lib/lend-loan-terms'
 import { supplyBlockedReason } from '@/lib/lend-vault-deposit'
 import { withdrawBlockedReason } from '@/lib/lend-vault-withdraw'
+import PlFplMarkets from '@/components/PlFplMarkets'
 
 type Tab = 'overview' | 'supply' | 'borrow' | 'positions'
 
@@ -625,6 +626,18 @@ export default function LendPage() {
     },
     [data, wallet, withSecret, networkKey, network.networkId],
   )
+
+  if (network.networkId === 2300) {
+    return (
+      <ProductShell intensity={0.4} className="bg-slate-950 text-slate-100">
+        <Header current="lend" />
+        <NetworkBanner />
+        <main className="max-w-3xl mx-auto px-4 py-6">
+          <PlFplMarkets mode="lend" />
+        </main>
+      </ProductShell>
+    )
+  }
 
   return (
     <ProductShell intensity={0.4} className="bg-slate-950 text-slate-100">

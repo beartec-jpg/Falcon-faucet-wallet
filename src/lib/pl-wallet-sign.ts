@@ -102,6 +102,121 @@ export async function signPlPay(opts: {
   })
 }
 
+export async function signPlSwapRoute(opts: {
+  account: string
+  tokenIn: 'FPL' | 'BTC' | 'ETH' | 'USDC'
+  tokenOut: 'FPL' | 'BTC' | 'ETH' | 'USDC'
+  amountIn: number
+  minOut: number
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: {
+      kind: 'swap_route',
+      token_in: opts.tokenIn,
+      token_out: opts.tokenOut,
+      amount_in: Math.floor(opts.amountIn),
+      min_out: Math.floor(opts.minOut),
+    },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+export async function signPlAddLiquidity(opts: {
+  account: string
+  poolId: string
+  amtA: number
+  amtB: number
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: {
+      kind: 'add_liquidity',
+      pool_id: opts.poolId,
+      amt_a: Math.floor(opts.amtA),
+      amt_b: Math.floor(opts.amtB),
+    },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+export async function signPlRemoveLiquidity(opts: {
+  account: string
+  poolId: string
+  lpBurn: number
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: {
+      kind: 'remove_liquidity',
+      pool_id: opts.poolId,
+      lp_burn: Math.floor(opts.lpBurn),
+    },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+export async function signPlLend(opts: {
+  account: string
+  kind: 'lend_supply' | 'lend_withdraw' | 'lend_borrow' | 'lend_repay'
+  marketId: string
+  amount: number
+  collateralFpl?: number
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  const body: Record<string, unknown> =
+    opts.kind === 'lend_withdraw'
+      ? { kind: opts.kind, market_id: opts.marketId, shares: Math.floor(opts.amount) }
+      : opts.kind === 'lend_borrow'
+        ? {
+            kind: opts.kind,
+            market_id: opts.marketId,
+            amount: Math.floor(opts.amount),
+            collateral_fpl: Math.floor(opts.collateralFpl ?? 0),
+          }
+        : { kind: opts.kind, market_id: opts.marketId, amount: Math.floor(opts.amount) }
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body,
+    falconSecret: opts.falconSecret,
+  })
+}
+
 /** Send bridged BTC, ETH, or USDC. Amount is the ledger integer (sats, wei, or 6-dp USDC). */
 export async function signPlAssetPay(opts: {
   account: string

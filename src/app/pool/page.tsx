@@ -17,6 +17,7 @@ import { signTrustSet } from '@/lib/wallet-sign-client'
 import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
 import MarketLiquidityPanel from '@/components/MarketLiquidityPanel'
 import PoolStatsPanel from '@/components/PoolStatsPanel'
+import PlFplMarkets from '@/components/PlFplMarkets'
 
 /** Canonical pool tab order (must stay client-safe — no node:fs). */
 const POOL_PAIR_ORDER = ['F-USDC', 'FETH', 'FBTC'] as const
@@ -327,6 +328,18 @@ export default function PoolPage() {
   }
 
   const tokenLabel = selected?.displaySymbol ?? swapData?.token.symbol ?? 'token'
+
+  if (network.networkId === 2300) {
+    return (
+      <ProductShell intensity={0.4}>
+        <Header current="pool" />
+        <NetworkBanner />
+        <main className="flex-1 px-4 py-8 max-w-2xl mx-auto w-full">
+          <PlFplMarkets mode="pool" />
+        </main>
+      </ProductShell>
+    )
+  }
 
   return (
     <ProductShell intensity={0.4}>
