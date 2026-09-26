@@ -696,6 +696,18 @@ export default function BridgeDepositPanel({
             })
             continue
           }
+          if (st.status === 'queued' || st.status === 'running') {
+            upsertDestLockPending(job.falconAccount, {
+              txHash: job.txHash,
+              asset: job.asset,
+              explorerUrl: job.explorerUrl,
+              status: 'minting',
+              lastError: '',
+              depositBlock: st.deposit_block ?? job.depositBlock,
+              lcExecution: st.lc_execution ?? job.lcExecution,
+            })
+            continue
+          }
           upsertDestLockPending(job.falconAccount, {
             txHash: job.txHash,
             asset: job.asset,
