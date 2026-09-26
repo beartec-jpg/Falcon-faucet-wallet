@@ -264,13 +264,15 @@ function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-/** Decimal string to an integer base-unit count. Avoids 0.0012 * 1e8 float drift. */
-function decimalToBaseUnits(raw: string, decimals: number): number {
+/** Decimal string to exact base-unit digits. 0.1 ETH is 10^17 wei, which is not a safe JS integer. */
+function decimalToBaseUnits(raw: string, decimals: number): string {
   const s = raw.trim()
-  if (!/^\d+(\.\d+)?$/.test(s)) return NaN
+  if (!/^\d+(\.\d+)?$/.test(s)) throw new Error('Invalid amount')
   const [whole, frac = ''] = s.split('.')
-  const padded = (frac + '0'.repeat(decimals)).slice(0, decimals)
-  return Number(whole) * 10 ** decimals + Number(padded || '0')
+  if (frac.length > decimals) throw new Error('Too many decimal places')
+  const digits = (whole + (frac + '0'.repeat(decimals)).slice(0, decimals)).replace(/^0+/, '')
+  if (!digits) throw new Error('Amount must be greater than zero')
+  return digits
 }
 
 function sendFailureText(e: unknown): string {
@@ -1605,9 +1607,6 @@ export default function WalletPage() {
                     : sendAsset === 'fusdc'
                       ? { asset: 'USDC' as const, amount: decimalToBaseUnits(sendAmount, 6) }
                       : null
-              if (rail && !Number.isSafeInteger(rail.amount)) {
-                throw new Error(`Amount is too large to send as ${rail.asset}`)
-              }
               const tx = rail
                 ? await signPlAssetPay({
                     account: plAccountId(wallet),
@@ -1631,7 +1630,11 @@ export default function WalletPage() {
               const res = await fetch('/api/wallet/submit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tx, network: networkKey }),
+                body: JSON.stringify(
+                  tx.rawJson
+                    ? { tx_json: tx.rawJson, network: networkKey }
+                    : { tx, network: networkKey },
+                ),
               })
               const out = (await res.json().catch(() => ({}))) as SubmitResult
               if (out.error) throw new Error(out.error)

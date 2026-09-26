@@ -217,27 +217,56 @@ export async function signPlLend(opts: {
   })
 }
 
-/** Send bridged BTC, ETH, or USDC. Amount is the ledger integer (sats, wei, or 6-dp USDC). */
+/** Send bridged BTC, ETH, or USDC. Amount is the exact ledger integer as digits (sats, wei, or 6-dp USDC). */
 export async function signPlAssetPay(opts: {
   account: string
   destination: string
   asset: 'BTC' | 'ETH' | 'USDC'
-  amount: number
+  amount: string
   sequence: number
   fee?: number
   networkId?: number
   falconSecret: string
 }): Promise<SignedPlTx> {
-  return signPlBody({
+  const amountExact = opts.amount.trim()
+  if (!/^[1-9][0-9]*$/.test(amountExact)) {
+    throw new Error('Amount must be a positive integer')
+  }
+  const networkId = opts.networkId ?? DEFAULT_NETWORK_ID
+  const fee = opts.fee ?? 2
+  const dest = opts.destination
+  const bodyJson = `{"kind":"asset_pay","asset":${JSON.stringify(opts.asset)}}`
+  const payload = `pl-tx:v2|${opts.account}|${opts.sequence}|${dest}|${amountExact}|${fee}|${networkId}|${bodyJson}`
+  const decoded = decodeFalconSecret(opts.falconSecret)
+  const publicKey = bytesToHex(decoded.pubBlob.slice(1))
+  const falcon = await getFalcon512()
+  const msg = new TextEncoder().encode(payload)
+  let signature: Uint8Array
+  try {
+    signature = falcon.sign(msg, decoded.secretKey)
+  } finally {
+    zeroize(decoded.secretKey)
+  }
+  const sigHex = bytesToHex(signature)
+  const txId = await sha256HexBrowser(payload)
+  const rawJson =
+    `{"account":${JSON.stringify(opts.account)},"sequence":${opts.sequence},` +
+    `"destination":${JSON.stringify(dest)},"amount":${amountExact},"fee":${fee},` +
+    `"network_id":${networkId},"public_key":${JSON.stringify(publicKey)},` +
+    `"signature":${JSON.stringify(sigHex)},"tx_id":${JSON.stringify(txId)},"body":${bodyJson}}`
+  return {
     account: opts.account,
-    destination: opts.destination,
-    amount: Math.floor(opts.amount),
     sequence: opts.sequence,
-    fee: opts.fee ?? 2,
-    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    destination: dest,
+    amount: Number(amountExact),
+    fee,
+    network_id: networkId,
+    public_key: publicKey,
+    signature: sigHex,
+    tx_id: txId,
     body: { kind: 'asset_pay', asset: opts.asset },
-    falconSecret: opts.falconSecret,
-  })
+    rawJson,
+  }
 }
 
 /** Convert this account to a vault locked to `destination`. */
