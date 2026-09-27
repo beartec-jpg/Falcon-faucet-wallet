@@ -118,12 +118,16 @@ async function withSepolia<T>(rpcUrl: string, fn: (p: JsonRpcProvider) => Promis
   throw last instanceof Error ? last : new Error('Sepolia RPC unavailable')
 }
 
-/** Peg-in/out: FalconQcBridge (STATUS SoT). legacy_destlock = Kickoff leftover only. */
+/** Peg-in stays on the STATUS FalconQcBridge. Peg-out openClaim/take is FalconQcBridgeV2. */
 export function pegInBridge(cfg: Pl2300BridgeConfig): string {
   return cfg.sepolia.bridge
 }
 
 export function pegOutBridge(cfg: Pl2300BridgeConfig): string {
+  const v2 = cfg.sepolia.legacy_qc_v2?.trim()
+  if (Number(cfg.sepolia.qc_version ?? 0) >= 2 && v2 && /^0x[a-fA-F0-9]{40}$/.test(v2)) {
+    return v2
+  }
   return cfg.sepolia.bridge
 }
 

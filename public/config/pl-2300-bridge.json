@@ -2,7 +2,7 @@
   "version": 1,
   "status": "live",
   "network_id": 2300,
-  "description": "Falcon PL 2300 peg-in: FalconQcBridge depositEth/depositUsdc (STATUS SoT product 2.9.43). Peg-out: openClaim + dest take (Groth16 Falcon-512). legacy_destlock = FalconDestLock Kickoff leftover only. legacy_qc_v2 = prior interim FalconQcBridgeV2 (not STATUS live). No operator self-dest. Do not market BTC exits as custodialess.",
+  "description": "Falcon PL 2300 peg-in: FalconQcBridge depositEth/depositUsdc (bridge field). Peg-out openClaim + dest take uses legacy_qc_v2 (FalconQcBridgeV2), the contract whose fplTip is past start_height. legacy_destlock is Kickoff leftover only. No operator self-dest. Do not market BTC exits as custodialess.",
   "sepolia": {
     "chain_id": 11155111,
     "chain_name": "Sepolia",
