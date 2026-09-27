@@ -117,15 +117,21 @@ export async function GET(req: NextRequest) {
 
   try {
     if (isPl) {
-      const [st, acct, zp] = await Promise.all([plStatus(false), plAccount(address), loadZeroPoint()])
+      // Account query is one small RPC. Full chain status is several seconds and
+      // was timing out the FBTC claim poll, which the wallet showed as a network blip.
+      const [acct, zp] = await Promise.all([plAccount(address), loadZeroPoint()])
       const exists = Boolean(acct.exists)
+      const tip = await Promise.race([
+        plStatus(false).then((st) => num(st.tip_height)).catch(() => 0),
+        new Promise<number>((resolve) => setTimeout(() => resolve(0), 400)),
+      ])
       return NextResponse.json({
         address,
         balance: num(acct.balance),
         sequence: num(acct.sequence),
         exists,
         transactions: [],
-        currentLedger: num(st.tip_height),
+        currentLedger: tip,
         network: networkKey,
         accountType: String(acct.account_type ?? 'hot'),
         allowlist: Array.isArray(acct.allowlist) ? acct.allowlist : [],
