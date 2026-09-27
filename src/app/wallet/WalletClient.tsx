@@ -2162,11 +2162,11 @@ export default function WalletPage() {
                         : 'Network live · account not activated'
                       : 'Network offline'}
                   </span>
-                  {account?.currentLedger ? (
+                  {account && account.currentLedger > 0 ? (
                     <span className="font-mono text-slate-600">
                       ledger {account.currentLedger.toLocaleString()}
                     </span>
-                  )}
+                  ) : null}
                 </div>
               )}
 
