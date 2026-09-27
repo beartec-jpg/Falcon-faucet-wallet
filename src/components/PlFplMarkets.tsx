@@ -68,6 +68,35 @@ function assetLabel(asset: Asset): string {
   return 'FPL'
 }
 
+/** Markets the pool page always offers. The amount box follows this selection. */
+const POOL_MARKETS: { id: string; asset: Asset }[] = [
+  { id: 'usdc-fpl', asset: 'USDC' },
+  { id: 'eth-fpl', asset: 'ETH' },
+  { id: 'btc-fpl', asset: 'BTC' },
+]
+
+function assetFromPoolId(id: string): Asset | null {
+  const known = POOL_MARKETS.find((m) => m.id === id)
+  if (known) return known.asset
+  if (id.includes('usdc')) return 'USDC'
+  if (id.includes('eth')) return 'ETH'
+  if (id.includes('btc')) return 'BTC'
+  return null
+}
+
+function poolChoices(pools: Pool[]): { id: string; asset: Asset }[] {
+  const rank: Record<string, number> = { USDC: 0, ETH: 1, BTC: 2 }
+  const fromChain = pools
+    .filter((p) => p.id !== 'fpl-btc')
+    .map((p) => {
+      const asset = poolPair(p)?.fAsset ?? assetFromPoolId(p.id)
+      return asset ? { id: p.id, asset } : null
+    })
+    .filter((row): row is { id: string; asset: Asset } => row !== null)
+  const rows = fromChain.length ? fromChain : POOL_MARKETS
+  return [...rows].sort((a, b) => (rank[a.asset] ?? 9) - (rank[b.asset] ?? 9))
+}
+
 /** Amount string for an input. No thousands separators. */
 function plainAmount(asset: Asset, raw: string): string {
   const d = DECIMALS[asset]
@@ -300,15 +329,23 @@ function PoolAdd({
   onAdd: () => void
   onRemove: () => void
 }) {
+  const choices = poolChoices(pools)
   const pool = pools.find((p) => p.id === poolId) ?? null
   const pair = pool ? poolPair(pool) : null
-  const fAsset = pair?.fAsset ?? 'USDC'
-  const fBal = BigInt(balances[fAsset] || '0')
+  const fAsset = pair?.fAsset ?? assetFromPoolId(poolId)
+  const fBal = BigInt(fAsset ? balances[fAsset] || '0' : '0')
   const fplBal = BigInt(balances.FPL || '0')
   const px = pool ? poolPrice(pool) : null
 
+  useEffect(() => {
+    if (!pair || !fAsset || !amount.trim()) return
+    onFAsset(amount)
+    // Recompute the matched FPL once this pool's reserves arrive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool?.id])
+
   function fillPct(pct: number) {
-    if (!pair) return
+    if (!pair || !fAsset) return
     const quote = evenAdd(fBal, fplBal, BigInt(pair.fReserve), BigInt(pair.fplReserve), BigInt(pct * 100))
     onAmounts(
       quote.f === 0n ? '' : plainAmount(fAsset, quote.f.toString()),
@@ -317,7 +354,7 @@ function PoolAdd({
   }
 
   function onFAsset(raw: string) {
-    if (!pair) {
+    if (!pair || !fAsset) {
       onAmounts(raw, '')
       return
     }
@@ -344,23 +381,30 @@ function PoolAdd({
 
   return (
     <div className="card p-5 space-y-3">
-      <label className="text-xs text-slate-400">
-        Pool
-        <select
-          className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"
-          value={poolId}
-          onChange={(e) => setPoolId(e.target.value)}
-        >
-          {pools.filter((p) => p.id !== 'fpl-btc').map((p) => {
-            const side = poolPair(p)
-            const name = side ? `${assetLabel(side.fAsset)} / FPL` : `${p.asset_a} / ${p.asset_b}`
+      <div>
+        <div className="mb-1 text-xs text-slate-400">Pool</div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {choices.map((c) => {
+            const on = c.id === poolId
             return (
-              <option key={p.id} value={p.id}>{name}</option>
+              <button
+                key={c.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setPoolId(c.id)}
+                className={
+                  on
+                    ? 'rounded-lg border border-sky-400 bg-sky-500/15 py-2 text-sm font-medium text-white'
+                    : 'rounded-lg border border-slate-600 py-2 text-sm text-slate-200'
+                }
+              >
+                {assetLabel(c.asset)} / FPL
+              </button>
             )
           })}
-        </select>
-      </label>
-      {pool && pair && (
+        </div>
+      </div>
+      {pool && pair && fAsset && (
         <p className="text-xs text-slate-400">
           Reserves {fromRaw(fAsset, pair.fReserve)} {assetLabel(fAsset)} · {fromRaw('FPL', pair.fplReserve)} FPL
           {px ? ` · ${fromRaw('FPL', px.price)} FPL per ${assetLabel(fAsset)}` : ''}
@@ -368,13 +412,15 @@ function PoolAdd({
       )}
       <div>
         <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-          <span>{assetLabel(fAsset)}</span>
-          <span>Available {fromRaw(fAsset, balances[fAsset] || '0')}</span>
+          <span>{fAsset ? assetLabel(fAsset) : 'F-asset'}</span>
+          <span>
+            {fAsset ? `Available ${fromRaw(fAsset, balances[fAsset] || '0')}` : 'Choose a pool'}
+          </span>
         </div>
         <input
           className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"
           inputMode="decimal"
-          placeholder={`Amount of ${assetLabel(fAsset)}`}
+          placeholder={fAsset ? `Amount of ${assetLabel(fAsset)}` : 'Choose a pool'}
           value={amount}
           onChange={(e) => onFAsset(e.target.value)}
         />
@@ -485,6 +531,12 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     const t = setInterval(load, 8000)
     return () => clearInterval(t)
   }, [load])
+
+  useEffect(() => {
+    const visible = pools.filter((p) => p.id !== 'fpl-btc')
+    if (!visible.length) return
+    if (!visible.some((p) => p.id === poolId)) setPoolId(visible[0].id)
+  }, [pools, poolId])
 
   let quoted = 0n
   if (mode === 'swap' && amount.trim()) {

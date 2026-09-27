@@ -34,7 +34,7 @@ function accountName(raw: string | null): string {
 export async function GET(req: Request) {
   try {
     const account = accountName(new URL(req.url).searchParams.get('account'))
-    const r = await plRpc({ type: 'status_req', include_accounts: false })
+    const r = await plRpc({ type: 'status_req', include_accounts: false, brief: true })
     if (r.type === 'err') throw new Error(String(r.msg ?? 'status error'))
     const raw = typeof r.raw === 'string' ? r.raw : ''
     const body = (r.body ?? {}) as { amm_pools?: number; lend_markets?: number }
