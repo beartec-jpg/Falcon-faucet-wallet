@@ -61,6 +61,67 @@ function toRaw(asset: Asset, human: string): string {
   return decimalToBaseUnits(human, DECIMALS[asset])
 }
 
+function assetLabel(asset: Asset): string {
+  if (asset === 'USDC') return 'F-USDC'
+  if (asset === 'ETH') return 'FETH'
+  if (asset === 'BTC') return 'FBTC'
+  return 'FPL'
+}
+
+/** Amount string for an input. No thousands separators. */
+function plainAmount(asset: Asset, raw: string): string {
+  const d = DECIMALS[asset]
+  const s = raw.replace(/^0+/, '') || '0'
+  if (s === '0') return '0'
+  if (d === 0) return s
+  const pad = s.padStart(d + 1, '0')
+  const whole = pad.slice(0, -d)
+  const frac = pad.slice(-d).replace(/0+$/, '')
+  return frac ? `${whole}.${frac}` : whole
+}
+
+type PoolPair = { fAsset: Asset; fReserve: string; fplReserve: string }
+
+function poolPair(p: Pool): PoolPair | null {
+  if (p.asset_a === 'FPL' && p.asset_b !== 'FPL') {
+    return { fAsset: p.asset_b as Asset, fReserve: p.reserve_b, fplReserve: p.reserve_a }
+  }
+  if (p.asset_b === 'FPL' && p.asset_a !== 'FPL') {
+    return { fAsset: p.asset_a as Asset, fReserve: p.reserve_a, fplReserve: p.reserve_b }
+  }
+  return null
+}
+
+/** Largest add that matches the pool and fits both balances. 2 FPL stays back for the fee. */
+function evenAdd(
+  fBal: bigint,
+  fplBal: bigint,
+  fReserve: bigint,
+  fplReserve: bigint,
+  pctBps: bigint,
+): { f: bigint; fpl: bigint } {
+  const fee = 2n
+  const fplSpend = fplBal > fee ? fplBal - fee : 0n
+  if (fBal === 0n || fplSpend === 0n || fReserve === 0n || fplReserve === 0n || pctBps === 0n) {
+    return { f: 0n, fpl: 0n }
+  }
+  const fplForAll = (fBal * fplReserve) / fReserve
+  let f = fBal
+  let fpl = fplForAll
+  if (fplForAll > fplSpend) {
+    fpl = fplSpend
+    f = (fplSpend * fReserve) / fplReserve
+  }
+  f = (f * pctBps) / 10000n
+  fpl = f === 0n ? 0n : (f * fplReserve) / fReserve
+  if (fpl > fplSpend) {
+    fpl = fplSpend
+    f = (fpl * fReserve) / fplReserve
+  }
+  if (f > fBal) f = fBal
+  return { f, fpl }
+}
+
 function fromRaw(asset: Asset, raw: string): string {
   const d = DECIMALS[asset]
   const s = raw.replace(/^0+/, '') || '0'
@@ -212,6 +273,155 @@ async function submitSigned(tx: { rawJson?: string }, networkKey: string) {
   return out
 }
 
+function PoolAdd({
+  pools,
+  poolId,
+  setPoolId,
+  amount,
+  amountB,
+  balances,
+  busy,
+  onAmounts,
+  lpAmount,
+  onLpAmount,
+  onAdd,
+  onRemove,
+}: {
+  pools: Pool[]
+  poolId: string
+  setPoolId: (id: string) => void
+  amount: string
+  amountB: string
+  balances: Record<Asset, string>
+  busy: boolean
+  onAmounts: (fAsset: string, fpl: string) => void
+  lpAmount: string
+  onLpAmount: (v: string) => void
+  onAdd: () => void
+  onRemove: () => void
+}) {
+  const pool = pools.find((p) => p.id === poolId) ?? null
+  const pair = pool ? poolPair(pool) : null
+  const fAsset = pair?.fAsset ?? 'USDC'
+  const fBal = BigInt(balances[fAsset] || '0')
+  const fplBal = BigInt(balances.FPL || '0')
+  const px = pool ? poolPrice(pool) : null
+
+  function fillPct(pct: number) {
+    if (!pair) return
+    const quote = evenAdd(fBal, fplBal, BigInt(pair.fReserve), BigInt(pair.fplReserve), BigInt(pct * 100))
+    onAmounts(
+      quote.f === 0n ? '' : plainAmount(fAsset, quote.f.toString()),
+      quote.fpl === 0n ? '' : plainAmount('FPL', quote.fpl.toString()),
+    )
+  }
+
+  function onFAsset(raw: string) {
+    if (!pair) {
+      onAmounts(raw, '')
+      return
+    }
+    const cleaned = raw.trim()
+    if (!cleaned) {
+      onAmounts('', '')
+      return
+    }
+    let fRaw: bigint
+    try {
+      fRaw = BigInt(toRaw(fAsset, cleaned))
+    } catch {
+      onAmounts(raw, '')
+      return
+    }
+    const capped = fRaw > fBal ? fBal : fRaw
+    const quote = evenAdd(capped, fplBal, BigInt(pair.fReserve), BigInt(pair.fplReserve), 10000n)
+    const unchanged = quote.f === capped
+    onAmounts(
+      quote.f === 0n ? '' : unchanged ? raw : plainAmount(fAsset, quote.f.toString()),
+      quote.fpl === 0n ? '' : plainAmount('FPL', quote.fpl.toString()),
+    )
+  }
+
+  return (
+    <div className="card p-5 space-y-3">
+      <label className="text-xs text-slate-400">
+        Pool
+        <select
+          className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"
+          value={poolId}
+          onChange={(e) => setPoolId(e.target.value)}
+        >
+          {pools.filter((p) => p.id !== 'fpl-btc').map((p) => {
+            const side = poolPair(p)
+            const name = side ? `${assetLabel(side.fAsset)} / FPL` : `${p.asset_a} / ${p.asset_b}`
+            return (
+              <option key={p.id} value={p.id}>{name}</option>
+            )
+          })}
+        </select>
+      </label>
+      {pool && pair && (
+        <p className="text-xs text-slate-400">
+          Reserves {fromRaw(fAsset, pair.fReserve)} {assetLabel(fAsset)} · {fromRaw('FPL', pair.fplReserve)} FPL
+          {px ? ` · ${fromRaw('FPL', px.price)} FPL per ${assetLabel(fAsset)}` : ''}
+        </p>
+      )}
+      <div>
+        <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+          <span>{assetLabel(fAsset)}</span>
+          <span>Available {fromRaw(fAsset, balances[fAsset] || '0')}</span>
+        </div>
+        <input
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"
+          inputMode="decimal"
+          placeholder={`Amount of ${assetLabel(fAsset)}`}
+          value={amount}
+          onChange={(e) => onFAsset(e.target.value)}
+        />
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        {[25, 50, 75, 100].map((pct) => (
+          <button
+            key={pct}
+            type="button"
+            className="rounded-lg border border-slate-600 py-2 text-xs text-slate-200"
+            onClick={() => fillPct(pct)}
+          >
+            {pct === 100 ? 'Max' : `${pct}%`}
+          </button>
+        ))}
+      </div>
+      <div>
+        <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+          <span>FPL</span>
+          <span>Available {fromRaw('FPL', balances.FPL || '0')}</span>
+        </div>
+        <input
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"
+          inputMode="decimal"
+          placeholder="FPL matched to the pool"
+          value={amountB}
+          readOnly
+        />
+      </div>
+      <p className="text-[11px] text-slate-500">
+        Max uses the smaller side so the add matches the pool. 2 FPL stays back for the fee.
+      </p>
+      <div className="flex gap-2">
+        <button type="button" className="btn-primary flex-1" disabled={busy} onClick={onAdd}>Add</button>
+        <button type="button" className="flex-1 rounded-xl border border-slate-600 py-2 text-sm" disabled={busy} onClick={onRemove}>Remove LP</button>
+      </div>
+      <input
+        className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"
+        inputMode="numeric"
+        placeholder="LP tokens to remove"
+        value={lpAmount}
+        onChange={(e) => onLpAmount(e.target.value)}
+      />
+    </div>
+  )
+}
+
 export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' }) {
   const { network } = useNetwork()
   const [wallet, setWallet] = useState<StoredWallet | null>(null)
@@ -224,7 +434,14 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
   const [marketId, setMarketId] = useState('lend-usdc')
   const [amount, setAmount] = useState('')
   const [amountB, setAmountB] = useState('')
+  const [lpAmount, setLpAmount] = useState('')
   const [collateral, setCollateral] = useState('')
+  const [balances, setBalances] = useState<Record<Asset, string>>({
+    FPL: '0',
+    BTC: '0',
+    ETH: '0',
+    USDC: '0',
+  })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -243,7 +460,21 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
         setPositions(pos.map(asPosition))
       })
       .catch(() => {})
-  }, [wallet])
+    if (!wallet) return
+    const account = plAccountId(wallet)
+    fetch(`/api/wallet/account?address=${encodeURIComponent(account)}&network=${encodeURIComponent(network.key)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const assets = (j.assets || {}) as Record<string, unknown>
+        setBalances({
+          FPL: digitsOf(j.balance),
+          BTC: digitsOf(assets.BTC ?? assets.btc),
+          ETH: digitsOf(assets.ETH ?? assets.eth),
+          USDC: digitsOf(assets.USDC ?? assets.usdc),
+        })
+      })
+      .catch(() => {})
+  }, [wallet, network.key])
 
   useEffect(() => {
     void loadPrimaryWallet().then(setWallet)
@@ -307,11 +538,15 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       } else if (kind === 'add') {
         const pool = pools.find((p) => p.id === poolId)
         if (!pool) throw new Error('Pool not found')
+        const pair = poolPair(pool)
+        if (!pair) throw new Error('Pool has no FPL side')
+        const fRaw = toRaw(pair.fAsset, amount)
+        const fplRaw = toRaw('FPL', amountB)
         const tx = await signPlAddLiquidity({
           account,
           poolId,
-          amtA: toRaw(pool.asset_a as Asset, amount),
-          amtB: toRaw(pool.asset_b as Asset, amountB),
+          amtA: pool.asset_a === 'FPL' ? fplRaw : fRaw,
+          amtB: pool.asset_a === 'FPL' ? fRaw : fplRaw,
           sequence: seq.sequence,
           networkId: network.networkId,
           falconSecret,
@@ -319,7 +554,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
         await submitSigned(tx, network.key)
         setMsg('Liquidity add submitted.')
       } else if (kind === 'remove') {
-        const lpBurn = decimalToBaseUnits(amount, 0)
+        const lpBurn = decimalToBaseUnits(lpAmount, 0)
         const tx = await signPlRemoveLiquidity({
           account,
           poolId,
@@ -408,32 +643,27 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
         </div>
       )}
       {mode === 'pool' && (
-        <div className="card p-5 space-y-3">
-          <label className="text-xs text-slate-400">
-            Pool
-            <select className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" value={poolId} onChange={(e) => setPoolId(e.target.value)}>
-              {pools.filter((p) => p.id !== 'fpl-btc').map((p) => (
-                <option key={p.id} value={p.id}>{p.asset_a} / {p.asset_b}</option>
-              ))}
-            </select>
-          </label>
-          {pools.filter((p) => p.id === poolId).map((p) => {
-            const px = poolPrice(p)
-            return (
-              <p key={p.id} className="text-xs text-slate-400">
-                Reserves {fromRaw(p.asset_a as Asset, p.reserve_a)} {p.asset_a} · {fromRaw(p.asset_b as Asset, p.reserve_b)} {p.asset_b}
-                {px ? ` · ${fromRaw('FPL', px.price)} FPL per ${px.asset}` : ''}
-              </p>
-            )
-          })}
-          <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder="Amount of first asset (FPL side)" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder="Amount of second asset" value={amountB} onChange={(e) => setAmountB(e.target.value)} />
-          <div className="flex gap-2">
-            <button type="button" className="btn-primary flex-1" disabled={busy} onClick={() => act('add')}>Add</button>
-            <button type="button" className="flex-1 rounded-xl border border-slate-600 py-2 text-sm" disabled={busy} onClick={() => act('remove')}>Remove LP</button>
-          </div>
-          <p className="text-[11px] text-slate-500">Remove uses the LP token count, not the coin amount.</p>
-        </div>
+        <PoolAdd
+          pools={pools}
+          poolId={poolId}
+          setPoolId={(id) => {
+            setPoolId(id)
+            setAmount('')
+            setAmountB('')
+          }}
+          amount={amount}
+          amountB={amountB}
+          balances={balances}
+          busy={busy}
+          onAmounts={(fAmt, fplAmt) => {
+            setAmount(fAmt)
+            setAmountB(fplAmt)
+          }}
+          lpAmount={lpAmount}
+          onLpAmount={setLpAmount}
+          onAdd={() => act('add')}
+          onRemove={() => act('remove')}
+        />
       )}
       {mode === 'lend' && (
         <div className="card p-5 space-y-3">
