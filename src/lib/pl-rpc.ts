@@ -201,7 +201,7 @@ export async function plRpc(
   msg: Record<string, unknown>,
   opts?: { addr?: string; timeoutMs?: number },
 ): Promise<PlWire> {
-  const timeoutMs = opts?.timeoutMs ?? 8_000
+  const timeoutMs = opts?.timeoutMs ?? 20_000
   const addrs = opts?.addr ? [opts.addr] : plRpcAddrs()
   let last: Error | null = null
   for (const addr of addrs) {

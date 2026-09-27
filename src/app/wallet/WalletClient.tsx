@@ -2401,7 +2401,12 @@ export default function WalletPage() {
                                 >
                                   <div className="text-sm font-semibold text-white">
                                     {job.asset === 'USDC' ? 'USDC → F-USDC' : 'ETH → FETH'}
+                                    {job.amountLabel ? ` · ${job.amountLabel}` : ''}
                                   </div>
+                                  <p className="text-[11px] text-slate-500">
+                                    {job.depositBlock ? `Sepolia block ${job.depositBlock.toLocaleString()}` : 'Sepolia deposit'}
+                                    {job.createdAt ? ` · ${new Date(job.createdAt).toLocaleString()}` : ''}
+                                  </p>
                                   <p className="text-xs text-slate-400 leading-relaxed">
                                     {job.status === 'error'
                                       ? job.lastError || 'Mint failed'
@@ -2443,11 +2448,24 @@ export default function WalletPage() {
                               ))}
                               {openBtc && (
                                 <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 px-4 py-3 space-y-2">
-                                  <div className="text-sm font-semibold text-white">BTC → FBTC</div>
+                                  <div className="text-sm font-semibold text-white">
+                                    BTC → FBTC
+                                    {openBtc.amountSats >= 546
+                                      ? ` · ${(openBtc.amountSats / 1e8).toFixed(8)} BTC`
+                                      : ''}
+                                  </div>
+                                  <p className="text-[11px] text-slate-500">
+                                    {openBtc.blockHeight
+                                      ? `Bitcoin block ${openBtc.blockHeight.toLocaleString()}`
+                                      : 'Bitcoin deposit'}
+                                    {openBtc.blockTime
+                                      ? ` · sent ${new Date(openBtc.blockTime).toLocaleString()}`
+                                      : ''}
+                                  </p>
                                   <p className="text-xs text-slate-400 leading-relaxed">
-                                    {openBtc.status === 'ready_to_claim'
-                                      ? 'Ready to claim on Falcon'
-                                      : `Confirming on Bitcoin (${openBtc.confirmations}/${openBtc.minConfirmations})`}
+                                    {openBtc.confirmations >= openBtc.minConfirmations
+                                      ? `${openBtc.confirmations} confirmations · ready to claim`
+                                      : `${openBtc.confirmations} of ${openBtc.minConfirmations} confirmations`}
                                   </p>
                                   <p className="text-[11px] font-mono text-brand-400/90 truncate">
                                     {openBtc.txid.slice(0, 10)}…{openBtc.txid.slice(-8)}

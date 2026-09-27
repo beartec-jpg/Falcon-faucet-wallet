@@ -749,7 +749,8 @@ export default function BridgeDepositPanel({
       // Opening from Home undoes a prior Dismiss so the tracker is visible again.
       undismissSpvDeposit(falconId, raw)
       undismissSpvDeposit(wallet.address, raw)
-      const minConf = Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6
+      const railMin = Number(spvStatus?.bridge?.minConfirmations)
+    const minConf = Number.isFinite(railMin) && railMin > 0 ? railMin : 1
       const net = spvStatus?.btcNetwork || 'testnet'
       let conf = 0
       try {
@@ -839,7 +840,8 @@ export default function BridgeDepositPanel({
       return cur
     })
 
-    const minConf = Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6
+    const railMin = Number(spvStatus?.bridge?.minConfirmations)
+    const minConf = Number.isFinite(railMin) && railMin > 0 ? railMin : 1
     const net = spvStatus?.btcNetwork || 'testnet'
     const watch = btcWatchAddress
 
@@ -889,7 +891,28 @@ export default function BridgeDepositPanel({
           setSpvPending(null)
           return
         }
-        if (!cancelled && gen === spvRestoreGen.current) applyJob(local)
+        let job = local
+        if (!job.amountSats || !job.blockTime || job.minConfirmations !== minConf) {
+          try {
+            const open = await fetchOpenDepositsForAccount({
+              falconAccount: falconId,
+              holdAddress: watch,
+              btcNetwork: net,
+            })
+            const hit = open.find((d) => d.txid.toLowerCase() === job.txid.toLowerCase())
+            const patch: Partial<typeof job> = {}
+            if (hit && hit.amountSats >= 546) patch.amountSats = hit.amountSats
+            if (hit?.blockHeight) patch.blockHeight = hit.blockHeight
+            if (hit?.blockTime) patch.blockTime = hit.blockTime * 1000
+            if (job.minConfirmations !== minConf) patch.minConfirmations = minConf
+            if (Object.keys(patch).length) {
+              job = updateSpvPending(wallet.address, patch) ?? { ...job, ...patch }
+            }
+          } catch {
+            /* keep the stored card */
+          }
+        }
+        if (!cancelled && gen === spvRestoreGen.current) applyJob(job)
       })()
       return
     }
@@ -934,6 +957,8 @@ export default function BridgeDepositPanel({
           minConfirmations: minConf,
           btcNetwork: net,
           confirmations: pick.confirmations,
+          blockHeight: pick.blockHeight,
+          blockTime: pick.blockTime ? pick.blockTime * 1000 : undefined,
           status:
             pick.confirmations >= minConf ? 'ready_to_claim' : 'waiting_confs',
         })
@@ -1839,7 +1864,9 @@ const handleSpvCompleteClaim = async () => {
           setStep(
             /did not commit|rail tx/i.test(m)
               ? `Waiting for Falcon packers — retry ${attempt}/5…`
-              : `Temporary network blip — retry ${attempt}/5…`,
+              : /timeout|502|503|504|failed to fetch|pl rpc/i.test(m)
+                ? `Falcon is slow to answer — retry ${attempt}/5…`
+                : m,
           )
           await new Promise((r) => setTimeout(r, 2500 * attempt))
         }
@@ -1912,7 +1939,8 @@ const handleSpvCompleteClaim = async () => {
       setError('Finish or clear the open bridge before resuming another txid')
       return
     }
-    const minConf = Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6
+    const railMin = Number(spvStatus?.bridge?.minConfirmations)
+    const minConf = Number.isFinite(railMin) && railMin > 0 ? railMin : 1
     const net = spvStatus?.btcNetwork || 'testnet'
     let conf = 0
     try {
@@ -2077,7 +2105,10 @@ const handleSpvCompleteClaim = async () => {
             watchVout: dep.watchVout ?? 0,
             watchAddress: watch,
             amountSats: dep.amountSats,
-            minConfirmations: Number(spvStatus?.bridge?.minConfirmations ?? 6) || 6,
+            minConfirmations: (() => {
+              const n = Number(spvStatus?.bridge?.minConfirmations)
+              return Number.isFinite(n) && n > 0 ? n : 1
+            })(),
             btcNetwork: spvStatus?.btcNetwork || 'testnet',
             status: 'claiming',
             confirmations: 0,
@@ -2387,16 +2418,21 @@ const handleSpvCompleteClaim = async () => {
                       <div>
                         <div className="text-sm font-semibold text-white">
                           {job.asset === 'USDC' ? 'USDC → F-USDC' : 'ETH → FETH'}
+                          {job.amountLabel ? ` · ${job.amountLabel} ${job.asset}` : ''}
                         </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {job.depositBlock ? `Sepolia block ${job.depositBlock.toLocaleString()}` : 'Sepolia deposit'}
+                          {job.createdAt ? ` · started ${new Date(job.createdAt).toLocaleString()}` : ''}
+                        </p>
                         <p className="text-xs text-slate-500 mt-0.5">
                           {job.status === 'error'
                             ? job.lastError || 'Mint failed'
                             : job.depositBlock &&
                                 job.lcExecution != null &&
                                 job.lcExecution < job.depositBlock
-                              ? `Locked on Sepolia. Waiting for Ethereum finality (light client block ${job.lcExecution} / deposit ${job.depositBlock}). ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} is not lost — do not send the same asset again.`
+                              ? `Waiting for Ethereum finality. Light client is at block ${job.lcExecution.toLocaleString()}, deposit is in ${job.depositBlock.toLocaleString()}.`
                               : job.status === 'minting'
-                                ? `Locked on Sepolia — minting ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} on Falcon PL. You can bridge another asset now.`
+                                ? `Minting ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} on Falcon.`
                                 : 'Deposit in progress'}
                         </p>
                       </div>
@@ -2420,11 +2456,6 @@ const handleSpvCompleteClaim = async () => {
                     >
                       {job.txHash.slice(0, 10)}…{job.txHash.slice(-8)}
                     </a>
-                    {job.amountLabel && (
-                      <p className="text-xs text-slate-500">
-                        {job.amountLabel} {job.asset}
-                      </p>
-                    )}
                   </div>
                 ))}
 
@@ -2432,8 +2463,27 @@ const handleSpvCompleteClaim = async () => {
                   <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="text-sm font-semibold text-white">BTC → FBTC</div>
-                        <p className="text-xs text-slate-500 mt-0.5">Deposit in progress</p>
+                        <div className="text-sm font-semibold text-white">
+                          BTC → FBTC
+                          {openBtc.amountSats >= 546
+                            ? ` · ${(openBtc.amountSats / 1e8).toFixed(8)} BTC`
+                            : ''}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {openBtc.blockHeight
+                            ? `Bitcoin block ${openBtc.blockHeight.toLocaleString()}`
+                            : 'Bitcoin deposit'}
+                          {openBtc.blockTime
+                            ? ` · sent ${new Date(openBtc.blockTime).toLocaleString()}`
+                            : openBtc.createdAt
+                              ? ` · tracked ${new Date(openBtc.createdAt).toLocaleString()}`
+                              : ''}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {openBtc.confirmations >= openBtc.minConfirmations
+                            ? `${openBtc.confirmations} confirmations · ready to claim`
+                            : `${openBtc.confirmations} of ${openBtc.minConfirmations} confirmations`}
+                        </p>
                       </div>
                       <button
                         type="button"
@@ -2466,7 +2516,9 @@ const handleSpvCompleteClaim = async () => {
                         />
                       </div>
                       <div className="text-xs font-semibold tabular-nums text-slate-300 shrink-0">
-                        {openBtc.confirmations}/{openBtc.minConfirmations}
+                        {openBtc.confirmations >= openBtc.minConfirmations
+                          ? 'ready'
+                          : `${openBtc.confirmations}/${openBtc.minConfirmations}`}
                       </div>
                     </div>
                     <p className="text-xs text-slate-500">
@@ -3365,7 +3417,7 @@ const handleSpvCompleteClaim = async () => {
                       <Spinner /> {step ?? 'Signing…'}
                     </>
                   ) : openSpvBlocksIn ? (
-                    `Confirming ${spvPending?.confirmations ?? 0}/${spvPending?.minConfirmations ?? 6}`
+                    `Confirming ${spvPending?.confirmations ?? 0} of ${spvPending?.minConfirmations ?? 1}`
                   ) : (
                     'Bridge in'
                   )}

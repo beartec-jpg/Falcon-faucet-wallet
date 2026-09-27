@@ -488,6 +488,8 @@ export async function POST(req: NextRequest) {
         vout: number
         amountSats: number
         confirmations: number
+        blockHeight?: number
+        blockTime?: number
       }> = []
       for (const t of txs.slice(0, 40)) {
         const st = t.status || {}
@@ -539,6 +541,8 @@ export async function POST(req: NextRequest) {
           vout: holdVout,
           amountSats: holdVal,
           confirmations: confs,
+          blockHeight: h || undefined,
+          blockTime: Number((st as { block_time?: number }).block_time || 0) || undefined,
         })
       }
       return NextResponse.json({ deposits, hold: holds[0], account })

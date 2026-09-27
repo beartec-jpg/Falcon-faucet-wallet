@@ -28,6 +28,9 @@ export interface SpvPendingDeposit {
   explorerUrl: string
   status: SpvPendingStatus
   confirmations: number
+  /** Bitcoin block time in unix milliseconds, when the explorer knows it. */
+  blockTime?: number
+  blockHeight?: number
   claimHash?: string
   lastError?: string
   createdAt: number
@@ -497,6 +500,8 @@ export function createSpvPending(input: {
   btcNetwork?: 'testnet' | 'mainnet'
   status?: SpvPendingStatus
   confirmations?: number
+  blockTime?: number
+  blockHeight?: number
 }): SpvPendingDeposit {
   const btcNetwork = input.btcNetwork ?? 'testnet'
   const txid = normTxid(input.txid)
@@ -521,6 +526,8 @@ export function createSpvPending(input: {
     explorerUrl: explorerUrlFor(txid, btcNetwork),
     status: input.status ?? 'waiting_confs',
     confirmations: input.confirmations ?? 0,
+    blockTime: input.blockTime,
+    blockHeight: input.blockHeight,
     createdAt: now,
     updatedAt: now,
   }
@@ -731,7 +738,7 @@ export async function fetchOpenDepositsForAccount(opts: {
   falconAccount: string
   holdAddress: string
   btcNetwork?: 'testnet' | 'mainnet'
-}): Promise<Array<{ txid: string; vout: number; amountSats: number; confirmations: number }>> {
+}): Promise<Array<{ txid: string; vout: number; amountSats: number; confirmations: number; blockTime?: number; blockHeight?: number }>> {
   try {
     const r = await fetch('/api/bridge/btc-spv', {
       method: 'POST',
@@ -749,6 +756,8 @@ export async function fetchOpenDepositsForAccount(opts: {
         vout: number
         amountSats: number
         confirmations: number
+        blockTime?: number
+        blockHeight?: number
       }>
       error?: string
     }
