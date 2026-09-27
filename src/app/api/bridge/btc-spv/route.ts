@@ -303,20 +303,26 @@ export async function GET(req: NextRequest) {
       const lagLevel =
         lagBlocks == null ? 'unknown' : lagBlocks >= 100 ? 'critical' : lagBlocks >= 20 ? 'warn' : 'ok'
       let instanceSats: number | null = null
+      let pegOutLargest: number | null = null
       try {
         const utxoR = await explorerGet(`/address/${watchAddress}/utxo`, 'testnet')
         if (utxoR.ok) {
           const utxos = (await utxoR.json()) as Array<{ value?: number; status?: { confirmed?: boolean } }>
-          instanceSats = utxos
-            .filter((u) => u.status?.confirmed)
-            .reduce((n, u) => n + Math.floor(Number(u.value ?? 0)), 0)
+          const confirmed = utxos.filter((u) => u.status?.confirmed)
+          instanceSats = confirmed.reduce((n, u) => n + Math.floor(Number(u.value ?? 0)), 0)
+          // Kickoff spends one output, the largest confirmed coin, not the sum.
+          const largest = confirmed.reduce(
+            (n, u) => Math.max(n, Math.floor(Number(u.value ?? 0))),
+            0,
+          )
+          pegOutLargest = largest
         }
       } catch {
         /* explorer lag */
       }
       const pegOutMaxSats =
-        instanceSats != null
-          ? Math.max(0, instanceSats - BITVM2_KICKOFF_FEE_SATS)
+        pegOutLargest != null
+          ? Math.max(0, pegOutLargest - BITVM2_KICKOFF_FEE_SATS)
           : null
       return NextResponse.json({
         amendment: { supported: true, enabled: true, majority: true },

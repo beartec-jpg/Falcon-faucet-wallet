@@ -1561,7 +1561,7 @@ export default function BridgeDepositPanel({
       const maxOut = spvStatus?.pegOut?.maxSats
       if (maxOut != null && amountSats > maxOut) {
         setError(
-          `Instance can pay at most ${maxOut} sats this Kickoff (hold ${spvStatus?.pegOut?.instanceSats ?? 0} − fee). Peg in more BTC or unwrap less.`,
+          `This Kickoff can pay at most ${maxOut} sats. It spends one Bitcoin output, not the whole instance.`,
         )
         return
       }
@@ -3163,10 +3163,11 @@ const handleSpvCompleteClaim = async () => {
                   <div className="space-y-1.5 rounded-xl border border-slate-700/60 bg-slate-900/40 px-3 py-2.5">
                     <p className="text-[11px] text-slate-500 leading-snug">
                       Peg-out burns FBTC, then a dest-lock Kickoff (claimer CHECKSIG, no FROST). After
-                      CSV={spvStatus?.pegOut?.csv ?? 6} your Bitcoin key takes. Instance can pay{' '}
+                      CSV={spvStatus?.pegOut?.csv ?? 6} your Bitcoin key takes. One Kickoff spends one
+                      output and can pay{' '}
                       {spvStatus?.pegOut?.maxSats != null
                         ? `${spvStatus.pegOut.maxSats} sats`
-                        : 'the live UTXO minus fee'}
+                        : 'that output minus the fee'}
                       .
                     </p>
                   </div>
