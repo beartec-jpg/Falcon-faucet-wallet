@@ -215,7 +215,7 @@ export async function plRpc(
 }
 
 export async function plStatus(includeAccounts = false): Promise<Record<string, unknown>> {
-  const r = await plRpc({ type: 'status_req', include_accounts: includeAccounts })
+  const r = await plRpc({ type: 'status_req', include_accounts: includeAccounts, brief: true })
   if (r.type === 'err') throw new Error(String(r.msg ?? 'status error'))
   return (r.body ?? {}) as Record<string, unknown>
 }
@@ -236,7 +236,7 @@ export async function plSubmit(tx: PlTx): Promise<{ ok: boolean; msg: string }> 
 export async function plSubmitRaw(txJson: string): Promise<{ ok: boolean; msg: string }> {
   const tx = txJson.trim()
   if (!tx.startsWith('{')) throw new Error('tx_json must be an object')
-  const timeoutMs = 8_000
+  const timeoutMs = 20_000
   const addrs = plRpcAddrs()
   let last: Error | null = null
   for (const addr of addrs) {
