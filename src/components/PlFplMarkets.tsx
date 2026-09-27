@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useNetwork } from '@/components/NetworkProvider'
 import { authenticatePasskey } from '@/lib/passkey'
 import { decryptSeed } from '@/lib/wallet-crypto'
@@ -86,6 +86,34 @@ function assetFromPoolId(id: string): Asset | null {
   if (id.includes('eth')) return 'ETH'
   if (id.includes('btc')) return 'BTC'
   return null
+}
+
+const LEND_MARKETS: { id: string; asset: Asset }[] = [
+  { id: 'lend-usdc', asset: 'USDC' },
+  { id: 'lend-eth', asset: 'ETH' },
+  { id: 'lend-btc', asset: 'BTC' },
+]
+
+function assetFromLendId(id: string): Asset | null {
+  const known = LEND_MARKETS.find((m) => m.id === id)
+  if (known) return known.asset
+  if (id.includes('usdc')) return 'USDC'
+  if (id.includes('eth')) return 'ETH'
+  if (id.includes('btc')) return 'BTC'
+  return null
+}
+
+function lendChoices(markets: Market[]): { id: string; asset: Asset }[] {
+  const rank: Record<string, number> = { USDC: 0, ETH: 1, BTC: 2 }
+  const fromChain = markets
+    .map((m) => {
+      const asset = (m.asset as Asset) || assetFromLendId(m.id)
+      if (!asset || asset === 'FPL' || !(asset in DECIMALS)) return null
+      return { id: m.id, asset }
+    })
+    .filter((row): row is { id: string; asset: 'USDC' | 'ETH' | 'BTC' } => row !== null)
+  const rows = fromChain.length ? fromChain : LEND_MARKETS
+  return [...rows].sort((a, b) => (rank[a.asset] ?? 9) - (rank[b.asset] ?? 9))
 }
 
 function poolChoices(pools: Pool[]): { id: string; asset: Asset }[] {
@@ -277,6 +305,23 @@ function priceFor(markets: Market[], pools: Pool[], asset: Asset): string {
   return '0'
 }
 
+function maxBorrowRaw(asset: Asset, fplSpend: bigint, priceFpl: string, ltvBps: number): bigint {
+  if (fplSpend <= 0n || priceFpl === '0') return 0n
+  const ltv = BigInt(ltvBps > 0 ? ltvBps : 5000)
+  const debtFpl = (fplSpend * ltv) / 10000n
+  const scale = 10n ** BigInt(DECIMALS[asset])
+  return (debtFpl * scale) / BigInt(priceFpl)
+}
+
+function collateralRaw(asset: Asset, amountRaw: bigint, priceFpl: string, ltvBps: number): bigint {
+  if (amountRaw <= 0n || priceFpl === '0') return 0n
+  const scale = 10n ** BigInt(DECIMALS[asset])
+  const debt = (amountRaw * BigInt(priceFpl)) / scale
+  if (debt === 0n) return 0n
+  const ltv = BigInt(ltvBps > 0 ? ltvBps : 5000)
+  return (debt * 10000n + ltv - 1n) / ltv
+}
+
 function collateralFor(asset: Asset, human: string, priceFpl: string, ltvBps: number): string | null {
   if (!human.trim() || priceFpl === '0') return null
   let raw: string
@@ -330,6 +375,152 @@ async function submitSigned(tx: { rawJson?: string }, networkKey: string) {
   return out
 }
 
+function ChoiceBar({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string
+  options: { id: string; label: string }[]
+  value: string
+  onChange: (id: string) => void
+}) {
+  return (
+    <div>
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</div>
+      <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-slate-700/80 bg-slate-950/40">
+        {options.map((o) => {
+          const on = o.id === value
+          return (
+            <button
+              key={o.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onChange(o.id)}
+              className={
+                on
+                  ? 'bg-sky-500/15 px-1 py-2.5 text-[11px] font-semibold leading-tight text-white sm:text-sm'
+                  : 'px-1 py-2.5 text-[11px] font-medium leading-tight text-slate-400 hover:text-slate-200 sm:text-sm'
+              }
+            >
+              {o.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function PctRow({ onPick, disabled }: { onPick: (pct: number) => void; disabled?: boolean }) {
+  return (
+    <div className="grid grid-cols-4 gap-1.5">
+      {[25, 50, 75, 100].map((pct) => (
+        <button
+          key={pct}
+          type="button"
+          disabled={disabled}
+          onClick={() => onPick(pct)}
+          className="rounded-lg border border-slate-700/80 bg-slate-950/30 py-1.5 text-xs text-slate-300 hover:border-slate-500 hover:text-white disabled:opacity-40"
+        >
+          {pct === 100 ? 'Max' : `${pct}%`}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function AmountField({
+  label,
+  aside,
+  value,
+  onChange,
+  placeholder,
+  readOnly,
+  inputMode = 'decimal',
+}: {
+  label: string
+  aside?: string
+  value: string
+  onChange?: (v: string) => void
+  placeholder: string
+  readOnly?: boolean
+  inputMode?: 'decimal' | 'numeric'
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 flex items-center justify-between gap-3 text-xs text-slate-400">
+        <span>{label}</span>
+        {aside && <span className="text-right text-slate-500">{aside}</span>}
+      </span>
+      <input
+        className="w-full rounded-xl border border-slate-700/80 bg-slate-950/50 px-3 py-2.5 text-sm text-white outline-none focus:border-sky-500/70"
+        inputMode={inputMode}
+        placeholder={placeholder}
+        value={value}
+        readOnly={readOnly}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+      />
+    </label>
+  )
+}
+
+function GhostButton({
+  children,
+  disabled,
+  onClick,
+}: {
+  children: ReactNode
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="w-full rounded-xl border border-slate-700 py-2.5 text-sm font-medium text-slate-200 hover:border-slate-500 disabled:opacity-50"
+    >
+      {children}
+    </button>
+  )
+}
+
+function StatSection({ title, rows }: { title: string; rows: { k: string; v: string }[] }) {
+  return (
+    <section>
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</h3>
+      <dl className="mt-1 divide-y divide-slate-800/80">
+        {rows.map((row) => (
+          <div key={row.k} className="flex items-baseline justify-between gap-4 py-2">
+            <dt className="shrink-0 text-xs text-slate-500">{row.k}</dt>
+            <dd className="text-right text-sm text-slate-100 break-all">{row.v}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  )
+}
+
+function slicePct(bal: bigint, pct: number): bigint {
+  return (bal * BigInt(pct)) / 100n
+}
+
+function capCoin(asset: Asset, rawText: string, maxRaw: bigint): string {
+  const cleaned = rawText.trim()
+  if (!cleaned) return ''
+  let n: bigint
+  try {
+    n = BigInt(toRaw(asset, cleaned))
+  } catch {
+    return rawText
+  }
+  if (n > maxRaw) n = maxRaw
+  if (n === 0n) return ''
+  return n === BigInt(toRaw(asset, cleaned)) ? cleaned : plainAmount(asset, n.toString())
+}
+
 function PoolAdd({
   pools,
   poolId,
@@ -368,7 +559,6 @@ function PoolAdd({
   const fAsset = pair?.fAsset ?? assetFromPoolId(poolId)
   const fBal = BigInt(fAsset ? balances[fAsset] || '0' : '0')
   const fplBal = BigInt(balances.FPL || '0')
-  const px = pool ? poolPrice(pool) : null
 
   useEffect(() => {
     if (!pair || !fAsset || !amount.trim()) return
@@ -447,121 +637,62 @@ function PoolAdd({
     )
   }
 
+  const name = fAsset ? `${assetLabel(fAsset)} / FPL` : 'Pool'
   return (
     <div className="space-y-4">
-    <div className="card p-5 space-y-3">
-      <div>
-        <div className="mb-1 text-xs text-slate-400">Pool</div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          {choices.map((c) => {
-            const on = c.id === poolId
-            return (
-              <button
-                key={c.id}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setPoolId(c.id)}
-                className={
-                  on
-                    ? 'rounded-lg border border-sky-400 bg-sky-500/15 py-2 text-sm font-medium text-white'
-                    : 'rounded-lg border border-slate-600 py-2 text-sm text-slate-200'
-                }
-              >
-                {assetLabel(c.asset)} / FPL
-              </button>
-            )
-          })}
-        </div>
-      </div>
-      {pool && pair && fAsset && (
-        <p className="text-xs text-slate-400">
-          Reserves {fromRaw(fAsset, pair.fReserve)} {assetLabel(fAsset)} · {fromRaw('FPL', pair.fplReserve)} FPL
-          {px ? ` · ${fromRaw('FPL', px.price)} FPL per ${assetLabel(fAsset)}` : ''}
-        </p>
-      )}
-      <div>
-        <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-          <span>{fAsset ? assetLabel(fAsset) : 'F-asset'}</span>
-          <span>
-            {fAsset ? `Available ${fromRaw(fAsset, balances[fAsset] || '0')}` : 'Choose a pool'}
-          </span>
-        </div>
-        <input
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"
-          inputMode="decimal"
-          placeholder={fAsset ? `Amount of ${assetLabel(fAsset)}` : 'Choose a pool'}
-          value={amount}
-          onChange={(e) => onFAsset(e.target.value)}
+      <div className="card space-y-5 p-5">
+        <ChoiceBar
+          label="Pool"
+          value={poolId}
+          onChange={setPoolId}
+          options={choices.map((c) => ({ id: c.id, label: `${assetLabel(c.asset)} / FPL` }))}
         />
-      </div>
-      <div className="grid grid-cols-4 gap-2">
-        {[25, 50, 75, 100].map((pct) => (
-          <button
-            key={pct}
-            type="button"
-            className="rounded-lg border border-slate-600 py-2 text-xs text-slate-200"
-            onClick={() => fillPct(pct)}
-          >
-            {pct === 100 ? 'Max' : `${pct}%`}
-          </button>
-        ))}
-      </div>
-      <div>
-        <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-          <span>FPL</span>
-          <span>Available {fromRaw('FPL', balances.FPL || '0')}</span>
-        </div>
-        <input
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"
-          inputMode="decimal"
-          placeholder="FPL matched to the pool"
-          value={amountB}
-          readOnly
-        />
-      </div>
-      <p className="text-[11px] text-slate-500">
-        Max uses the smaller side so the add matches the pool. 2 FPL stays back for the fee.
-      </p>
-      <button type="button" className="btn-primary w-full" disabled={busy} onClick={onAdd}>Add</button>
-      <div className="space-y-3 border-t border-slate-800 pt-3">
-        <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-          <span>LP tokens</span>
-          <span>
-            {walletReady && lpBal != null
-              ? `Your balance ${fromRaw('FPL', lpBal)}`
-              : 'Sign in to see your LP'}
-          </span>
-        </div>
-        <input
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white"
-          inputMode="numeric"
-          placeholder={fAsset ? `LP to remove from ${assetLabel(fAsset)} / FPL` : 'LP tokens to remove'}
-          value={lpAmount}
-          onChange={(e) => onLpTyped(e.target.value)}
-        />
-        <div className="grid grid-cols-4 gap-2">
-          {[25, 50, 75, 100].map((pct) => (
-            <button
-              key={pct}
-              type="button"
-              className="rounded-lg border border-slate-600 py-2 text-xs text-slate-200"
-              onClick={() => fillLp(pct)}
-            >
-              {pct === 100 ? 'Max' : `${pct}%`}
-            </button>
-          ))}
-        </div>
-        {lpOut && fAsset && (
-          <p className="text-xs text-slate-400">
-            Removes about {fromRaw(fAsset, lpOut.f)} {assetLabel(fAsset)} and {fromRaw('FPL', lpOut.fpl)} FPL
+        <section className="space-y-3">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Add</h3>
+          <AmountField
+            label={fAsset ? assetLabel(fAsset) : 'F-asset'}
+            aside={fAsset ? `Available ${fromRaw(fAsset, balances[fAsset] || '0')}` : 'Choose a pool'}
+            placeholder={fAsset ? `Amount of ${assetLabel(fAsset)}` : 'Choose a pool'}
+            value={amount}
+            onChange={onFAsset}
+          />
+          <PctRow onPick={fillPct} disabled={!pair} />
+          <AmountField
+            label="FPL"
+            aside={`Available ${fromRaw('FPL', balances.FPL || '0')}`}
+            placeholder="FPL matched to the pool"
+            value={amountB}
+            readOnly
+          />
+          <p className="text-[11px] leading-relaxed text-slate-500">
+            Max uses the smaller side so the add matches the pool. 2 FPL stays back for the fee.
           </p>
-        )}
-        <button type="button" className="w-full rounded-xl border border-slate-600 py-2 text-sm" disabled={busy} onClick={onRemove}>
-          Remove LP
-        </button>
+          <button type="button" className="btn-primary" disabled={busy} onClick={onAdd}>Add</button>
+        </section>
+        <section className="space-y-3 border-t border-slate-800/80 pt-5">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Remove</h3>
+          <AmountField
+            label="LP tokens"
+            aside={
+              walletReady && lpBal != null
+                ? `Your balance ${fromRaw('FPL', lpBal)}`
+                : 'Sign in to see your LP'
+            }
+            placeholder={fAsset ? `LP to remove from ${name}` : 'LP tokens to remove'}
+            value={lpAmount}
+            onChange={onLpTyped}
+            inputMode="numeric"
+          />
+          <PctRow onPick={fillLp} disabled={!walletReady || haveLp === 0n} />
+          {lpOut && fAsset && (
+            <p className="text-xs text-slate-400">
+              Removes about {fromRaw(fAsset, lpOut.f)} {assetLabel(fAsset)} and {fromRaw('FPL', lpOut.fpl)} FPL
+            </p>
+          )}
+          <GhostButton disabled={busy} onClick={onRemove}>Remove LP</GhostButton>
+        </section>
       </div>
-    </div>
-    <PoolPosition poolId={poolId} pool={pool} lpBal={lpBal} walletReady={walletReady} />
+      <PoolPosition poolId={poolId} pool={pool} lpBal={lpBal} walletReady={walletReady} />
     </div>
   )
 }
@@ -585,35 +716,246 @@ function PoolPosition({
   const mine = walletReady && lpBal != null ? lpBal : null
   const yoursF = mine != null && pair ? coinsFor(pair.fReserve, mine, supply) : '0'
   const yoursFpl = mine != null && pair ? coinsFor(pair.fplReserve, mine, supply) : '0'
+  const you = mine == null ? '—' : undefined
   return (
-    <div className="card p-5 space-y-3" data-pool={poolId}>
+    <div className="card p-5" data-pool={poolId}>
       <div className="text-sm font-medium text-white">Your pool · {name}</div>
       {!pool || !pair || !asset ? (
-        <p className="text-xs text-slate-500">Loading this pool…</p>
+        <p className="mt-3 text-xs text-slate-500">Loading this pool…</p>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
-          <Stat k="Pool reserves" v={`${fromRaw(asset, pair.fReserve)} ${assetLabel(asset)}`} />
-          <Stat k="FPL in pool" v={`${fromRaw('FPL', pair.fplReserve)} FPL`} />
-          <Stat k="Price" v={px ? `${fromRaw('FPL', px.price)} FPL per ${assetLabel(asset)}` : '—'} />
-          <Stat k="LP supply" v={fromRaw('FPL', supply)} />
-          <Stat k="Your LP" v={mine != null ? fromRaw('FPL', mine) : '—'} />
-          <Stat k="Your share" v={mine != null ? pctText(BigInt(mine), BigInt(supply || '0')) : '—'} />
-          <Stat k={`Your ${assetLabel(asset)}`} v={mine != null ? fromRaw(asset, yoursF) : '—'} />
-          <Stat k="Your FPL" v={mine != null ? fromRaw('FPL', yoursFpl) : '—'} />
+        <div className="mt-4 space-y-5">
+          <StatSection
+            title="Pool"
+            rows={[
+              { k: 'Reserves', v: `${fromRaw(asset, pair.fReserve)} ${assetLabel(asset)}` },
+              { k: 'FPL in pool', v: `${fromRaw('FPL', pair.fplReserve)} FPL` },
+              { k: 'Price', v: px ? `${fromRaw('FPL', px.price)} FPL per ${assetLabel(asset)}` : '—' },
+              { k: 'LP supply', v: fromRaw('FPL', supply) },
+            ]}
+          />
+          <StatSection
+            title="You"
+            rows={[
+              { k: 'LP tokens', v: you ?? fromRaw('FPL', mine!) },
+              { k: 'Share', v: you ?? pctText(BigInt(mine!), BigInt(supply || '0')) },
+              { k: assetLabel(asset), v: you ?? fromRaw(asset, yoursF) },
+              { k: 'FPL', v: you ?? fromRaw('FPL', yoursFpl) },
+            ]}
+          />
         </div>
       )}
       {pool && mine === '0' && (
-        <p className="text-xs text-slate-500">You have no LP in this pool.</p>
+        <p className="mt-3 text-xs text-slate-500">You have no LP in this pool.</p>
       )}
     </div>
   )
 }
 
-function Stat({ k, v }: { k: string; v: string }) {
+function LendPanel({
+  markets,
+  pools,
+  positions,
+  marketId,
+  setMarketId,
+  balances,
+  walletReady,
+  busy,
+  onAct,
+}: {
+  markets: Market[]
+  pools: Pool[]
+  positions: Position[]
+  marketId: string
+  setMarketId: (id: string) => void
+  balances: Record<Asset, string>
+  walletReady: boolean
+  busy: boolean
+  onAct: (kind: 'supply' | 'withdraw' | 'borrow' | 'repay', amount: string, collateral?: string) => Promise<void>
+}) {
+  const choices = lendChoices(markets)
+  const market = markets.find((m) => m.id === marketId) ?? null
+  const asset = (market?.asset as Asset) || assetFromLendId(marketId)
+  const label = asset ? assetLabel(asset) : 'Market'
+  const pos = positions.find((p) => p.market_id === marketId)
+  const issued = market
+    ? market.share_supply && market.share_supply !== '0'
+      ? market.share_supply
+      : market.total_supply
+    : '0'
+  const suppliedRaw = market && pos ? sharesToCoin(pos.shares, market.total_supply, market.share_supply) : '0'
+  const debtRaw = pos?.debt || '0'
+  const price = asset ? priceFor(markets, pools, asset) : '0'
+  const ltv = market?.ltv_bps ?? 5000
+  const coinBal = BigInt(asset ? balances[asset] || '0' : '0')
+  const fplBal = BigInt(balances.FPL || '0')
+  const fplSpend = fplBal > 2n ? fplBal - 2n : 0n
+  const liquid =
+    market && BigInt(market.total_supply || '0') > BigInt(market.total_borrow || '0')
+      ? BigInt(market.total_supply) - BigInt(market.total_borrow)
+      : 0n
+  const fromCol = asset ? maxBorrowRaw(asset, fplSpend, price, ltv) : 0n
+  const borrowCap = fromCol < liquid ? fromCol : liquid
+
+  const [supplyAmt, setSupplyAmt] = useState('')
+  const [withdrawAmt, setWithdrawAmt] = useState('')
+  const [borrowAmt, setBorrowAmt] = useState('')
+  const [repayAmt, setRepayAmt] = useState('')
+  const [collateralAmt, setCollateralAmt] = useState('')
+
+  function fillSupply(pct: number) {
+    if (!asset) return
+    const cut = slicePct(coinBal, pct)
+    setSupplyAmt(cut === 0n ? '' : plainAmount(asset, cut.toString()))
+  }
+  function fillWithdraw(pct: number) {
+    if (!asset) return
+    const cut = slicePct(BigInt(suppliedRaw || '0'), pct)
+    setWithdrawAmt(cut === 0n ? '' : plainAmount(asset, cut.toString()))
+  }
+  function fillRepay(pct: number) {
+    if (!asset) return
+    const cut = slicePct(BigInt(debtRaw || '0'), pct)
+    setRepayAmt(cut === 0n ? '' : plainAmount(asset, cut.toString()))
+  }
+  function fillBorrow(pct: number) {
+    if (!asset) return
+    const cut = slicePct(borrowCap, pct)
+    setBorrowAmt(cut === 0n ? '' : plainAmount(asset, cut.toString()))
+    const col = collateralRaw(asset, cut, price, ltv)
+    setCollateralAmt(col === 0n ? '' : col.toString())
+  }
+  function onBorrow(raw: string) {
+    if (!asset) {
+      setBorrowAmt(raw)
+      return
+    }
+    const next = capCoin(asset, raw, borrowCap)
+    setBorrowAmt(next)
+    try {
+      const n = next.trim() ? BigInt(toRaw(asset, next)) : 0n
+      const col = collateralRaw(asset, n, price, ltv)
+      setCollateralAmt(col === 0n ? '' : col.toString())
+    } catch {
+      /* keep collateral while the amount is still being typed */
+    }
+  }
+
+  async function run(kind: 'supply' | 'withdraw' | 'borrow' | 'repay', amount: string, collateral?: string) {
+    await onAct(kind, amount, collateral)
+    if (kind === 'supply') setSupplyAmt('')
+    if (kind === 'withdraw') setWithdrawAmt('')
+    if (kind === 'repay') setRepayAmt('')
+    if (kind === 'borrow') {
+      setBorrowAmt('')
+      setCollateralAmt('')
+    }
+  }
+
+  const borrowHint = asset && borrowAmt.trim() ? collateralFor(asset, borrowAmt, price, ltv) : null
+  const yours = walletReady ? undefined : '—'
+
   return (
-    <div className="rounded-lg bg-slate-900/70 px-3 py-2">
-      <div className="text-[11px] text-slate-500">{k}</div>
-      <div className="text-sm text-slate-100 break-all">{v}</div>
+    <div className="space-y-4">
+      <div className="card space-y-5 p-5">
+        <ChoiceBar
+          label="Market"
+          value={marketId}
+          onChange={setMarketId}
+          options={choices.map((c) => ({ id: c.id, label: assetLabel(c.asset) }))}
+        />
+        <section className="space-y-3">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Supply</h3>
+          <AmountField
+            label={label}
+            aside={asset ? `Available ${fromRaw(asset, coinBal.toString())}` : 'Sign in to see your balance'}
+            placeholder={asset ? `Amount of ${label}` : 'Choose a market'}
+            value={supplyAmt}
+            onChange={(v) => asset && setSupplyAmt(capCoin(asset, v, coinBal))}
+          />
+          <PctRow onPick={fillSupply} disabled={!asset || coinBal === 0n} />
+          <button type="button" className="btn-primary" disabled={busy} onClick={() => void run('supply', supplyAmt)}>
+            Supply
+          </button>
+        </section>
+        <section className="space-y-3 border-t border-slate-800/80 pt-5">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Withdraw</h3>
+          <AmountField
+            label={label}
+            aside={asset ? `Supplied ${fromRaw(asset, suppliedRaw)}` : ''}
+            placeholder={asset ? `Withdraw ${label}` : 'Choose a market'}
+            value={withdrawAmt}
+            onChange={(v) => asset && setWithdrawAmt(capCoin(asset, v, BigInt(suppliedRaw || '0')))}
+          />
+          <PctRow onPick={fillWithdraw} disabled={suppliedRaw === '0'} />
+          <GhostButton disabled={busy} onClick={() => void run('withdraw', withdrawAmt)}>Withdraw</GhostButton>
+        </section>
+        <section className="space-y-3 border-t border-slate-800/80 pt-5">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Borrow</h3>
+          <AmountField
+            label={label}
+            aside={asset && price !== '0' ? `Up to ${fromRaw(asset, borrowCap.toString())}` : 'Waiting for a pool price'}
+            placeholder={asset ? `Borrow ${label}` : 'Choose a market'}
+            value={borrowAmt}
+            onChange={onBorrow}
+          />
+          <PctRow onPick={fillBorrow} disabled={borrowCap === 0n} />
+          <AmountField
+            label="FPL collateral"
+            aside={`Available ${fromRaw('FPL', fplBal.toString())}`}
+            placeholder="FPL locked for this borrow"
+            value={collateralAmt}
+            onChange={setCollateralAmt}
+            inputMode="numeric"
+          />
+          <p className="text-[11px] leading-relaxed text-slate-500">
+            {borrowHint ?? 'Max borrows against your FPL and what the market still has. 2 FPL stays back for the fee.'}
+          </p>
+          <GhostButton disabled={busy} onClick={() => void run('borrow', borrowAmt, collateralAmt)}>Borrow</GhostButton>
+        </section>
+        <section className="space-y-3 border-t border-slate-800/80 pt-5">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Repay</h3>
+          <AmountField
+            label={label}
+            aside={asset ? `Debt ${fromRaw(asset, debtRaw)}` : ''}
+            placeholder={asset ? `Repay ${label}` : 'Choose a market'}
+            value={repayAmt}
+            onChange={(v) => asset && setRepayAmt(capCoin(asset, v, BigInt(debtRaw || '0')))}
+          />
+          <PctRow onPick={fillRepay} disabled={debtRaw === '0'} />
+          <GhostButton disabled={busy} onClick={() => void run('repay', repayAmt)}>Repay</GhostButton>
+        </section>
+      </div>
+      <div className="card p-5" data-market={marketId}>
+        <div className="text-sm font-medium text-white">Your market · {label}</div>
+        {!market || !asset ? (
+          <p className="mt-3 text-xs text-slate-500">Loading this market…</p>
+        ) : (
+          <div className="mt-4 space-y-5">
+            <StatSection
+              title="Market"
+              rows={[
+                { k: 'Supplied', v: `${fromRaw(asset, market.total_supply)} ${label}` },
+                { k: 'Borrowed', v: `${fromRaw(asset, market.total_borrow)} ${label}` },
+                { k: 'Still available', v: `${fromRaw(asset, liquid.toString())} ${label}` },
+                { k: 'Price', v: price !== '0' ? `${fromRaw('FPL', price)} FPL per ${label}` : '—' },
+                { k: 'Max LTV', v: `${Math.round(ltv / 100)}%` },
+              ]}
+            />
+            <StatSection
+              title="You"
+              rows={[
+                { k: 'Supplied', v: yours ?? `${fromRaw(asset, suppliedRaw)} ${label}` },
+                { k: 'Share', v: yours ?? (pos ? pctText(BigInt(pos.shares || '0'), BigInt(issued || '0')) : '0%') },
+                { k: 'Debt', v: yours ?? `${fromRaw(asset, debtRaw)} ${label}` },
+                { k: 'Collateral', v: yours ?? `${fromRaw('FPL', pos?.collateral_fpl || '0')} FPL` },
+              ]}
+            />
+          </div>
+        )}
+        {market && walletReady && suppliedRaw === '0' && debtRaw === '0' && (
+          <p className="mt-3 text-xs text-slate-500">You have no supply or debt on this market.</p>
+        )}
+      </div>
     </div>
   )
 }
@@ -691,6 +1033,12 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     if (!visible.some((p) => p.id === poolId)) setPoolId(visible[0].id)
   }, [pools, poolId])
 
+  useEffect(() => {
+    if (!markets.length) return
+    const choices = lendChoices(markets)
+    if (!choices.some((c) => c.id === marketId)) setMarketId(choices[0].id)
+  }, [markets, marketId])
+
   let quoted = 0n
   if (mode === 'swap' && amount.trim()) {
     try {
@@ -699,19 +1047,11 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       quoted = 0n
     }
   }
-  const lendMarket = markets.find((m) => m.id === marketId)
-  const lendAsset = (lendMarket?.asset as Asset) || null
-  const lendPos = positions.find((p) => p.market_id === marketId)
-  const suppliedRaw =
-    lendMarket && lendPos
-      ? sharesToCoin(lendPos.shares, lendMarket.total_supply, lendMarket.share_supply)
-      : '0'
-  const lendHint =
-    mode === 'lend' && lendAsset && lendAsset !== 'FPL'
-      ? collateralFor(lendAsset, amount, priceFor(markets, pools, lendAsset), lendMarket?.ltv_bps ?? 5000)
-      : null
-
-  async function act(kind: 'swap' | 'add' | 'remove' | 'supply' | 'withdraw' | 'borrow' | 'repay') {
+  async function act(
+    kind: 'swap' | 'add' | 'remove' | 'supply' | 'withdraw' | 'borrow' | 'repay',
+    lendAmount?: string,
+    lendCollateral?: string,
+  ) {
     if (!wallet) {
       setErr('Open the wallet and create an account first.')
       return
@@ -782,13 +1122,16 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
                 ? 'lend_borrow'
                 : 'lend_repay'
         const m = markets.find((x) => x.id === marketId)
-        const asset = (m?.asset || 'USDC') as Asset
+        const asset = (m?.asset || assetFromLendId(marketId) || 'USDC') as Asset
         const pos = positions.find((p) => p.market_id === marketId)
+        const coin = lendAmount ?? amount
         const raw =
           kind === 'withdraw'
-            ? coinToShares(toRaw(asset, amount), m?.total_supply || '0', m?.share_supply || '0', pos?.shares || '0')
-            : toRaw(asset, amount)
-        const col = kind === 'borrow' ? decimalToBaseUnits(collateral || '0', 0) : '0'
+            ? coinToShares(toRaw(asset, coin), m?.total_supply || '0', m?.share_supply || '0', pos?.shares || '0')
+            : toRaw(asset, coin)
+        const colIn = lendCollateral ?? collateral
+        if (kind === 'borrow' && !colIn.trim()) throw new Error('Enter FPL collateral')
+        const col = kind === 'borrow' ? decimalToBaseUnits(colIn, 0) : '0'
         const tx = await signPlLend({
           account,
           kind: lendKind,
@@ -800,7 +1143,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
           falconSecret,
         })
         await submitSigned(tx, network.key)
-        setMsg(`${kind} submitted on ${marketId}.`)
+        setMsg(`${kind[0].toUpperCase()}${kind.slice(1)} submitted on ${assetLabel(asset)}.`)
       }
       setAmount('')
       setAmountB('')
@@ -877,40 +1220,22 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
         />
       )}
       {mode === 'lend' && (
-        <div className="card p-5 space-y-3">
-          <label className="text-xs text-slate-400">
-            Market
-            <select className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" value={marketId} onChange={(e) => setMarketId(e.target.value)}>
-              {markets.map((m) => <option key={m.id} value={m.id}>{m.asset}</option>)}
-            </select>
-          </label>
-          {lendMarket && lendAsset && (
-            <p className="text-xs text-slate-400">
-              {lendMarket.price_fpl !== '0' ? `${fromRaw('FPL', lendMarket.price_fpl)} FPL per ${lendAsset}. ` : ''}
-              Supply {fromRaw(lendAsset, lendMarket.total_supply)} {lendAsset}. Borrowed {fromRaw(lendAsset, lendMarket.total_borrow)} {lendAsset}.
-            </p>
-          )}
-          {lendAsset && (
-            <p className="text-xs text-slate-300">
-              {lendPos && (lendPos.shares !== '0' || lendPos.debt !== '0')
-                ? `You supplied ${fromRaw(lendAsset, suppliedRaw)} ${lendAsset}. Debt ${fromRaw(lendAsset, lendPos.debt)} ${lendAsset}. Collateral ${fromRaw('FPL', lendPos.collateral_fpl)} FPL.`
-                : 'You have no supply or debt on this market.'}
-            </p>
-          )}
-          <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder="FPL collateral (borrow only)" value={collateral} onChange={(e) => setCollateral(e.target.value)} />
-          {lendHint && <p className="text-xs text-slate-400">{lendHint}</p>}
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" className="btn-primary" disabled={busy} onClick={() => act('supply')}>Supply</button>
-            <button type="button" className="rounded-xl border border-slate-600 py-2 text-sm" disabled={busy} onClick={() => act('withdraw')}>Withdraw</button>
-            <button type="button" className="rounded-xl border border-slate-600 py-2 text-sm" disabled={busy} onClick={() => act('borrow')}>Borrow</button>
-            <button type="button" className="rounded-xl border border-slate-600 py-2 text-sm" disabled={busy} onClick={() => act('repay')}>Repay</button>
-          </div>
-        </div>
+        <LendPanel
+          key={marketId}
+          markets={markets}
+          pools={pools}
+          positions={positions}
+          marketId={marketId}
+          setMarketId={setMarketId}
+          balances={balances}
+          walletReady={Boolean(wallet)}
+          busy={busy}
+          onAct={(kind, coin, col) => act(kind, coin, col)}
+        />
       )}
       {msg && <p className="text-sm text-emerald-300">{msg}</p>}
       {err && <p className="text-sm text-red-300">{err}</p>}
-      {mode !== 'pool' && (
+      {mode === 'swap' && (
         <div className="space-y-2">
           {pools.filter((p) => p.id !== 'fpl-btc').map((p) => {
             const px = poolPrice(p)
