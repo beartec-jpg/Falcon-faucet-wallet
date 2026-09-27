@@ -444,21 +444,21 @@ export async function POST(req: NextRequest) {
       }
       const want = Buffer.concat([Buffer.from('FALC'), acc20])
       const fileCfg = await loadFileConfig()
-      const hold =
+      // Proof accepts the live BitVM2 instance and the NUMS vault. Listing only
+      // the config vault hid instance deposits and left the Recover box up.
+      const holds = liveBtcWatchAddresses(
         (fileCfg.watch_address as string | undefined)?.trim() ||
-        process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
-        ''
-      if (!hold) {
+          process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
+          process.env.BITVM2_INSTANCE_ADDRESS?.trim() ||
+          '',
+      )
+      if (!holds.length) {
         return NextResponse.json({ deposits: [], error: 'No hold address configured' })
       }
       const spentOnFalcon = await falconSpentBtcTxids()
       const tipR = await explorerGet('/blocks/tip/height', network)
       const tip = tipR.ok ? parseInt(await tipR.text(), 10) || 0 : 0
-      const txsR = await explorerGet(`/address/${hold}/txs`, network)
-      if (!txsR.ok) {
-        return NextResponse.json({ deposits: [] })
-      }
-      const txs = (await txsR.json()) as Array<{
+      const txs: Array<{
         txid: string
         status?: { confirmed?: boolean; block_height?: number }
         vout?: Array<{
@@ -466,7 +466,23 @@ export async function POST(req: NextRequest) {
           scriptpubkey?: string
           scriptpubkey_address?: string
         }>
-      }>
+      }> = []
+      const seenTx = new Set<string>()
+      for (const hold of holds) {
+        const txsR = await explorerGet(`/address/${hold}/txs`, network)
+        if (!txsR.ok) continue
+        const batch = (await txsR.json()) as typeof txs
+        for (const t of batch) {
+          const id = String(t.txid || '').toLowerCase()
+          if (!id || seenTx.has(id)) continue
+          seenTx.add(id)
+          txs.push(t)
+        }
+      }
+      if (!txs.length) {
+        return NextResponse.json({ deposits: [], hold: holds[0] })
+      }
+      const holdSet = new Set(holds.map((h) => h.toLowerCase()))
       const deposits: Array<{
         txid: string
         vout: number
@@ -500,7 +516,7 @@ export async function POST(req: NextRequest) {
               /* ignore */
             }
           }
-          if (o.scriptpubkey_address === hold) {
+          if (holdSet.has((o.scriptpubkey_address || '').trim().toLowerCase())) {
             holdVout = i
             holdVal = Math.floor(Number(o.value || 0))
           }
@@ -525,7 +541,7 @@ export async function POST(req: NextRequest) {
           confirmations: confs,
         })
       }
-      return NextResponse.json({ deposits, hold, account })
+      return NextResponse.json({ deposits, hold: holds[0], account })
     } catch (e) {
       return NextResponse.json(
         { error: e instanceof Error ? e.message : 'list_deposits failed', deposits: [] },
