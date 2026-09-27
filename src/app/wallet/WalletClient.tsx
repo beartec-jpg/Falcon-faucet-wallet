@@ -38,6 +38,7 @@ import {
 } from '@/lib/account-name'
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
 import { activationFeeFpl, normalizePlName, plAccountId, plNameHint } from '@/lib/pl-names'
+import { parsePlBook, type PlLendLine, type PlPoolLine } from '@/lib/pl-book'
 import {
   backupHasBridgeKeys,
   createEncryptedBackup,
@@ -290,6 +291,7 @@ export default function WalletPage() {
   const [wallet,  setWallet]  = useState<StoredWallet | null>(null)
   const [account, setAccount] = useState<AccountData | null>(null)
   const [lendSupply, setLendSupply] = useState<LendSupplySummary | null>(null)
+  const [plBook, setPlBook] = useState<{ pools: PlPoolLine[]; lend: PlLendLine[] } | null>(null)
   const [error,   setError]   = useState<string | null>(null)
   const [busy,    setBusy]    = useState(false)
   const [copied,  setCopied]  = useState(false)
@@ -487,8 +489,21 @@ export default function WalletPage() {
         }
         setLendSupply({ shares, sharePct })
       }
+      if (network.networkId === 2300) {
+        try {
+          const bookR = await fetch(
+            `/api/pl2300/defi?account=${encodeURIComponent(address)}`,
+            fetchOpts,
+          )
+          if (bookR.ok) setPlBook(parsePlBook(await bookR.json()))
+        } catch {
+          /* keep the last pool and lend lines */
+        }
+      } else {
+        setPlBook(null)
+      }
     } catch { /* non-fatal */ }
-  }, [networkKey])
+  }, [networkKey, network.networkId])
 
   /** Falcon ledger + multi-chain native balances (when on those tabs). */
   const refreshAllBalances = useCallback(() => {
@@ -2981,7 +2996,57 @@ export default function WalletPage() {
                   </div>
                   )}
 
-                  {walletSection === 'falcon' && account?.exists && (
+                  {walletSection === 'falcon' && account?.exists && network.networkId === 2300 && (
+                    <div className="space-y-2 pt-1">
+                      <div className="text-[11px] text-slate-500">Your pools</div>
+                      {plBook == null ? (
+                        <p className="text-xs text-slate-500">Loading your pools…</p>
+                      ) : plBook.pools.length === 0 ? (
+                        <p className="text-xs text-slate-500">
+                          No LP in a pool.{' '}
+                          <Link href="/pool" className="text-brand-400 hover:text-brand-300">Add on Pool →</Link>
+                        </p>
+                      ) : (
+                        plBook.pools.map((row) => (
+                          <div key={row.id} className="bg-slate-800/40 rounded-xl px-3 py-2.5 border border-slate-800">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="text-sm font-semibold text-white">{row.label}</div>
+                              <div className="font-mono text-sm text-slate-100 text-right">{row.assetAmount} {row.assetLabel}</div>
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              {row.lpLabel} LP · {row.sharePct} of this pool · {row.fplAmount} FPL
+                              <span className="text-slate-700 mx-1">·</span>
+                              <Link href="/pool" className="text-brand-400 hover:text-brand-300">Pool →</Link>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                      <div className="text-[11px] text-slate-500 pt-1">Your lend</div>
+                      {plBook == null ? null : plBook.lend.length === 0 ? (
+                        <p className="text-xs text-slate-500">
+                          No lend supply.{' '}
+                          <Link href="/lend" className="text-brand-400 hover:text-brand-300">Supply on Lend →</Link>
+                        </p>
+                      ) : (
+                        plBook.lend.map((row) => (
+                          <div key={row.id} className="bg-slate-800/40 rounded-xl px-3 py-2.5 border border-slate-800">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="text-sm font-semibold text-white">{row.label}</div>
+                              <div className="font-mono text-sm text-slate-100 text-right">{row.supplied} {row.label}</div>
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              {row.sharePct} of this market
+                              {row.debt ? ` · debt ${row.debt} ${row.label}` : ''}
+                              <span className="text-slate-700 mx-1">·</span>
+                              <Link href="/lend" className="text-brand-400 hover:text-brand-300">Lend →</Link>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {walletSection === 'falcon' && account?.exists && network.networkId !== 2300 && (
                     <div className="grid grid-cols-2 gap-2 text-sm pt-1">
                       <div className="bg-slate-800/40 rounded-xl px-3 py-2.5 border border-slate-800">
                         <div className="text-xs text-slate-500">LP tokens</div>
