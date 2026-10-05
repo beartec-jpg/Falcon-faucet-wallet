@@ -33,6 +33,7 @@ import {
   fetchDestLockMintStatus,
   queueDestLockMint,
   pegOutDestLock,
+  loadPendingPegOut,
   type Pl2300BridgeConfig,
 } from '@/lib/pl-dest-lock'
 import {
@@ -1625,20 +1626,24 @@ export default function BridgeDepositPanel({
         setError(isEth ? 'Enter a valid FETH amount' : 'Enter a valid F-USDC amount')
         return
       }
-      if (avail + 1e-12 < amt) {
-        setError(
-          isEth
-            ? `Insufficient FETH (have ${fmt(avail, 8)})`
-            : `Insufficient F-USDC (have ${fmt(avail, 4)})`,
-        )
-        return
-      }
       const decimals = isEth ? 18 : destLockCfg.sepolia.usdc_decimals ?? 6
       let amountExact: bigint
       try {
         amountExact = parseUnits(withdrawAmount.trim(), decimals)
       } catch {
         setError('Amount is not a valid token quantity')
+        return
+      }
+      // A sealed burn already debited the balance — resuming must not be
+      // blocked by the "insufficient" check.
+      const pendingOut = loadPendingPegOut(falconId, isEth ? 'ETH' : 'USDC')
+      const resuming = !!pendingOut && pendingOut.amount === amountExact.toString()
+      if (!resuming && avail + 1e-12 < amt) {
+        setError(
+          isEth
+            ? `Insufficient FETH (have ${fmt(avail, 8)})`
+            : `Insufficient F-USDC (have ${fmt(avail, 4)})`,
+        )
         return
       }
       if (amountExact <= 0n) {

@@ -372,6 +372,86 @@ async function accountSeq(account: string, network: string): Promise<{ sequence:
   return { sequence: Number(j.sequence ?? 0), balance: Number(j.balance ?? 0) }
 }
 
+/**
+ * Pending peg-out (signed RailWithdraw + note) so "retry Bridge out" RESUMES
+ * instead of signing a second burn. The signed tx is public once broadcast —
+ * no secret material is stored here.
+ */
+export type PendingPegOut = {
+  account: string
+  asset: 'ETH' | 'USDC'
+  amount: string
+  dest: string
+  network: string
+  /** Account sequence the burn was signed with. */
+  sequence: number
+  burnTxId: string
+  rawJson: string
+  noteId?: string
+  at: number
+}
+
+const PEGOUT_PENDING_KEY = 'falcon-pl-pegout-pending-v1'
+
+function pendingKey(account: string, asset: string): string {
+  return `${account.trim().toLowerCase()}|${asset.toUpperCase()}`
+}
+
+function readPendingMap(): Record<string, PendingPegOut> {
+  if (typeof localStorage === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(PEGOUT_PENDING_KEY)
+    const m = raw ? (JSON.parse(raw) as Record<string, PendingPegOut>) : {}
+    return m && typeof m === 'object' ? m : {}
+  } catch {
+    return {}
+  }
+}
+
+function writePendingMap(m: Record<string, PendingPegOut>): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(PEGOUT_PENDING_KEY, JSON.stringify(m))
+  } catch {
+    /* quota — resume will fall back to claim-proof lookup */
+  }
+}
+
+export function loadPendingPegOut(account: string, asset: string): PendingPegOut | null {
+  return readPendingMap()[pendingKey(account, asset)] ?? null
+}
+
+function savePendingPegOut(p: PendingPegOut): void {
+  const m = readPendingMap()
+  m[pendingKey(p.account, p.asset)] = p
+  writePendingMap(m)
+}
+
+export function clearPendingPegOut(account: string, asset: string): void {
+  const m = readPendingMap()
+  delete m[pendingKey(account, asset)]
+  writePendingMap(m)
+}
+
+async function waitBurnIncluded(
+  account: string,
+  network: string,
+  signedSeq: number,
+  ms: number,
+): Promise<boolean> {
+  const t0 = Date.now()
+  while (Date.now() - t0 < ms) {
+    try {
+      const s = await accountSeq(account, network)
+      if (s.sequence > signedSeq) return true
+    } catch {
+      /* node busy — keep polling */
+    }
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+  return false
+}
+
 export async function pegOutDestLock(opts: {
   cfg: Pl2300BridgeConfig
   account: string
@@ -386,21 +466,76 @@ export async function pegOutDestLock(opts: {
   const dest = opts.dest.trim()
   if (!/^0x[a-fA-F0-9]{40}$/.test(dest)) throw new Error('Need your Sepolia 0x address for dest-lock take')
   if (opts.amountExact <= 0n) throw new Error('Amount must be greater than zero')
+  const amountStr = opts.amountExact.toString()
+
+  let pending = loadPendingPegOut(opts.account, opts.asset)
+  if (
+    pending &&
+    (pending.amount !== amountStr || pending.dest.toLowerCase() !== dest.toLowerCase())
+  ) {
+    throw new Error(
+      `A ${opts.asset} bridge-out of ${pending.amount} units to ${pending.dest.slice(0, 10)}… is still pending. ` +
+        'Press Bridge out with that same amount to resume it — do not start a new one.',
+    )
+  }
+
   const snap = await accountSeq(opts.account, opts.network)
-  if (snap.balance < 2) throw new Error('Need 2 FPL on this account for the burn fee')
-  opts.onStep?.(`Burning ${opts.asset} on Falcon PL…`)
-  const burn = await signRailWithdraw({
-    account: opts.account,
-    sequence: snap.sequence,
-    asset: opts.asset,
-    amount: opts.amountExact.toString(),
-    externalTo: dest,
-    falconSecret: opts.falconSecret,
-  })
-  if (!burn.rawJson) throw new Error('withdraw sign missing exact JSON')
-  const burnTxId = await submitExact(burn.rawJson, opts.network)
+  if (pending) {
+    opts.onStep?.('Resuming pending bridge-out (no new burn)…')
+    if (snap.sequence <= pending.sequence) {
+      // Burn not sealed yet. Re-broadcast the SAME signed tx: identical tx_id
+      // and sequence, so it can never apply twice.
+      try {
+        await submitExact(pending.rawJson, opts.network)
+      } catch {
+        /* duplicate / already in mempool is fine */
+      }
+    }
+  } else {
+    if (snap.balance < 2) throw new Error('Need 2 FPL on this account for the burn fee')
+    opts.onStep?.(`Burning ${opts.asset} on Falcon PL…`)
+    const burn = await signRailWithdraw({
+      account: opts.account,
+      sequence: snap.sequence,
+      asset: opts.asset,
+      amount: amountStr,
+      externalTo: dest,
+      falconSecret: opts.falconSecret,
+    })
+    if (!burn.rawJson) throw new Error('withdraw sign missing exact JSON')
+    const burnTxId = await submitExact(burn.rawJson, opts.network)
+    pending = {
+      account: opts.account,
+      asset: opts.asset,
+      amount: amountStr,
+      dest,
+      network: opts.network,
+      sequence: snap.sequence,
+      burnTxId: burnTxId || burn.tx_id,
+      rawJson: burn.rawJson,
+      at: Date.now(),
+    }
+    savePendingPegOut(pending)
+  }
+  const burnTxId = pending.burnTxId
+
+  // 1) Was the burn sealed into a ledger? (account sequence moves past it)
+  if (!pending.noteId) {
+    opts.onStep?.('Waiting for Falcon PL to seal the burn…')
+    const included = await waitBurnIncluded(opts.account, opts.network, pending.sequence, 90_000)
+    if (!included) {
+      throw new Error(
+        'Burn is signed and queued, but Falcon PL has not sealed a new ledger yet (network may be stalled). ' +
+          `Your ${opts.asset === 'USDC' ? 'F-USDC' : 'FETH'} has not been debited. Keep this panel open and press ` +
+          'Bridge out again later — it re-uses the same signed burn and cannot burn twice.',
+      )
+    }
+  }
+
+  // 2) Find the withdraw note + merkle proof.
   opts.onStep?.('Waiting for the burn note to pack…')
   let proof: DestLockClaimProof | null = null
+  let lastErr = ''
   const tPack = Date.now()
   while (Date.now() - tPack < 90_000) {
     try {
@@ -408,17 +543,23 @@ export async function pegOutDestLock(opts: {
         account: opts.account,
         asset: opts.asset,
         dest,
-        amount: opts.amountExact.toString(),
+        amount: amountStr,
+        ...(pending.noteId ? { noteId: pending.noteId } : {}),
       })
       if (proof.noteId && proof.claimRoot) break
-    } catch {
-      /* not packed yet */
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e)
     }
     await new Promise((r) => setTimeout(r, 2000))
   }
   if (!proof?.noteId) {
-    throw new Error('Burn submitted but the withdraw note did not pack. Keep this panel open and retry Bridge out.')
+    throw new Error(
+      `Burn sealed but the withdraw note was not found${lastErr ? ` (${lastErr})` : ''}. ` +
+        'Keep this panel open and press Bridge out again — it resumes this burn, it does not burn twice.',
+    )
   }
+  pending = { ...pending, noteId: proof.noteId }
+  savePendingPegOut(pending)
   const v2 =
     Number(opts.cfg.sepolia.qc_version ?? 0) >= 2 ||
     (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_QC_V2 === '1')
@@ -434,7 +575,7 @@ export async function pegOutDestLock(opts: {
           action: 'eth-open-claim',
           noteId: proof.noteId,
           dest,
-          amount: opts.amountExact.toString(),
+          amount: amountStr,
           asset: opts.asset,
           account: opts.account,
         }),
@@ -460,6 +601,7 @@ export async function pegOutDestLock(opts: {
       noteId: proof.noteId,
       onStep: opts.onStep,
     })
+    clearPendingPegOut(opts.account, opts.asset)
     return {
       burnTxId,
       openHash: openJ.tx || '',
@@ -511,6 +653,7 @@ export async function pegOutDestLock(opts: {
     onStep: opts.onStep,
     lock: leftoverDestLock(opts.cfg),
   })
+  clearPendingPegOut(opts.account, opts.asset)
   return { burnTxId, openHash, takeHash, noteId: proof.noteId }
 }
 
