@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
-import { useNetwork } from '@/components/NetworkProvider'
 import { loadPrimaryWallet } from '@/lib/wallet-store'
 
 const PROD_ARCADE_URL = 'https://falcon-arcade-lake.vercel.app'
@@ -65,17 +64,12 @@ function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
 }
 
 export default function ArcadePage() {
-  const { networkKey, setNetworkKey } = useNetwork()
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [claimBusy, setClaimBusy] = useState(false)
   const [lastTx, setLastTx] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (networkKey !== ARCADE_NETWORK) setNetworkKey(ARCADE_NETWORK)
-  }, [networkKey, setNetworkKey])
 
   // Load passkey wallet address if present
   useEffect(() => {
