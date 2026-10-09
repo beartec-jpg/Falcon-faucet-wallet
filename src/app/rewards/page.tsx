@@ -176,6 +176,8 @@ function LegacyRewardsPage() {
       setTokens(configured)
       if (configured.length > 0) setSwapToken(configured[0])
       try {
+        // Falcon PL 2300 renders <PlRewards /> from chain data; the XRPL bond/LP routes are retired (410) there.
+        if (network.networkId === 2300) return
         if (creds?.address) await refreshBond(creds.address)
         const lpAddr = primary?.address ?? creds?.address
         if (lpAddr) await refreshLpOverview(lpAddr)
@@ -183,7 +185,7 @@ function LegacyRewardsPage() {
         setLoading(false)
       }
     }).catch(() => setLoading(false))
-  }, [networkKey, refreshBond, refreshLpOverview])
+  }, [networkKey, network.networkId, refreshBond, refreshLpOverview])
 
   const submitSequenced = async (
     account: string,

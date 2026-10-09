@@ -1,155 +1,328 @@
 'use client'
 
+/**
+ * /validator: run a Falcon PL 2300 node (one-line installer), requirements, live seats,
+ * validator application status, Scott's admission queue, and how each node type is paid (rewards v2).
+ * Read-only: no keys or signing on this page. The admission itself is Scott's on-chain ApproveValidator.
+ */
+
 import Link from 'next/link'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
+import {
+  APPLICATIONS_REPO,
+  FIRST_VALIDATOR_VERSION,
+  ID_RE,
+  INSTALL_CMD,
+  INSTALL_VALIDATOR_CMD,
+  RELEASES_REPO,
+  type QueueRow,
+  type ValidatorsResponse,
+} from '@/lib/pl-validators'
 
-const parsedDrip = parseInt(
-  process.env.NEXT_PUBLIC_TESTNET_DRIP_FPL ??
-    process.env.NEXT_PUBLIC_DRIP_AMOUNT_FPL ??
-    process.env.NEXT_PUBLIC_TESTNET_DRIP_QXRP ??
-    process.env.NEXT_PUBLIC_DRIP_AMOUNT_QXRP ??
-    '2000',
-  10,
-)
-const DRIP_AMOUNT = Number.isFinite(parsedDrip) && parsedDrip > 0 ? parsedDrip : 2000
+function Copy({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [done, setDone] = useState(false)
+  return (
+    <button
+      type="button"
+      className="shrink-0 rounded border border-slate-600 px-2 py-1 text-[11px] text-slate-300 hover:border-brand-400 hover:text-brand-300"
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(() => {
+          setDone(true)
+          setTimeout(() => setDone(false), 1500)
+        })
+      }}
+    >
+      {done ? 'Copied' : label}
+    </button>
+  )
+}
 
-const STEPS = [
-  {
-    n: 1,
-    title: 'Create a Falcon-512 identity',
-    body: 'Open Wallet and create a passkey-secured Falcon PL account. Back up your falcon_secret. Named PL accounts are the live path — not classic r-addresses.',
-  },
-  {
-    n: 2,
-    title: `Fund the account (${DRIP_AMOUNT.toLocaleString()} FPL faucet drip)`,
-    body: 'Use Faucet (or Wallet → Top up). One drip is enough to cover the 1,000 FPL bond plus fees.',
-  },
-  {
-    n: 3,
-    title: 'Submit Bond (≥ 1,000 FPL)',
-    body: 'A seat exists only after a Bond is packed. Hello cannot invent a lottery seat. The registry grows through genesis and confirmed Bond transactions.',
-  },
-  {
-    n: 4,
-    title: 'Start the node with --join',
-    body: 'Join against published seeds. Do not pack while you are behind the mesh tip.',
-  },
-  {
-    n: 5,
-    title: 'Pull a join-snap if you are far behind',
-    body: 'If tip = 0 or lag ≥ 2,048 ledgers, pull a join-snap from an archive (tip state + 128 ledgers). Snapshots are a point-in-time copy, not a live feed.',
-  },
-  {
-    n: 6,
-    title: 'Close the residual gap',
-    body: 'Apply certified NeedLedgers after the snap. Light validators keep 128 ledgers in memory and then follow gossip.',
-  },
-  {
-    n: 7,
-    title: 'Pong at the mesh tip',
-    body: 'Only then is the seat lottery-eligible. To leave: RequestUnbond → 14-day cooldown → CompleteUnbond. Unbonding exits the lottery immediately; funds stay locked for 14 days.',
-  },
-] as const
+function Cmd({ cmd }: { cmd: string }) {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-slate-700 bg-slate-950/80 p-3">
+      <code className="flex-1 break-all font-mono text-xs text-emerald-300">{cmd}</code>
+      <Copy text={cmd} />
+    </div>
+  )
+}
 
-export default function ValidatorGuidePage() {
+const STAGE_STYLE: Record<QueueRow['stage'], string> = {
+  pending: 'text-amber-300',
+  approved: 'text-cyan-300',
+  'key-mismatch': 'text-red-400',
+  bonded: 'text-brand-300',
+  active: 'text-emerald-300',
+  invalid: 'text-slate-500',
+}
+
+const PAY_ROWS: { who: string; share: string; how: string }[] = [
+  {
+    who: 'Validator · proposer',
+    share: '50% of the validator pot + 30% of each block’s fees',
+    how: 'Credits per block sealed in its own round: 64 + min(fee-paying txs, 64). Nothing for missed turns.',
+  },
+  {
+    who: 'Validator · voter',
+    share: '40% of the validator pot',
+    how: '+1 per committed block whose certificate carries its timely vote.',
+  },
+  {
+    who: 'Validator · floor',
+    share: '10% of the validator pot',
+    how: 'Equal per active seat; archive seats ×1.05. Inactive or jailed seats get nothing.',
+  },
+  {
+    who: 'Watchers (heartbeat, BTC/ETH headers, auto-mint, prover receipts)',
+    share: 'Watcher bucket, capped per account',
+    how: 'Work × presence slots; every work credit marks the hourly slot.',
+  },
+  {
+    who: 'Liquidity providers (AMM, lending)',
+    share: 'LP buckets, capped per account',
+    how: 'FPL value of the position held since the epoch start; lenders also earn borrow interest.',
+  },
+  {
+    who: 'Observer node',
+    share: '—',
+    how: 'Not paid. It verifies the chain for you and serves your own wallet / ctl.',
+  },
+]
+
+export default function ValidatorPage() {
+  const [data, setData] = useState<ValidatorsResponse | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [lookup, setLookup] = useState('')
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch('/api/pl2300/validators', { cache: 'no-store' })
+      const j = (await r.json()) as ValidatorsResponse
+      if (!j.ok) throw new Error(j.error || `HTTP ${r.status}`)
+      setData(j)
+      setErr(null)
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e))
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+    const t = setInterval(() => void load(), 30_000)
+    return () => clearInterval(t)
+  }, [load])
+
+  const active = useMemo(() => (data?.seats ?? []).filter((s) => !s.jailed && s.bond > 0), [data])
+  const lookupId = lookup.trim().toLowerCase()
+  const lookupResult = useMemo(() => {
+    if (!data || !lookupId) return null
+    if (!ID_RE.test(lookupId)) return { stage: 'invalid id', detail: 'ids are 3–32 chars: a-z, 0-9, "-"' }
+    const seat = data.seats.find((s) => s.id === lookupId)
+    if (seat) {
+      if (seat.jailed) return { stage: 'jailed', detail: `bond ${seat.bond.toLocaleString()} FPL, jail count ${seat.jailCount}` }
+      if (seat.inactive) return { stage: 'inactive', detail: `missed ${seat.missedTurns ?? '?'} turns; the owner sends Reactivate after catching up` }
+      return seat.lotteryReady
+        ? { stage: 'active', detail: `bond ${seat.bond.toLocaleString()} FPL, ${seat.packCount.toLocaleString()} blocks packed` }
+        : { stage: 'bonded, not ready', detail: 'the node must be synced and reachable by the seats' }
+    }
+    const ap = data.approvals.find((a) => a.id === lookupId)
+    if (ap) return { stage: 'approved, waiting for bond', detail: `key ${ap.keyFingerprint}${ap.expiresHeight ? `, expires at height ${ap.expiresHeight.toLocaleString()}` : ''}` }
+    const q = data.queue.find((x) => x.id === lookupId)
+    if (q) return { stage: 'applied, waiting for approval', detail: `GitHub issue #${q.issue}` }
+    return { stage: 'not found', detail: 'no seat, approval or open application with this id' }
+  }, [data, lookupId])
+
   return (
     <ProductShell intensity={0.4}>
-      <Header current="community" subtitle="Validator guide" />
+      <Header current="community" subtitle="Validators & nodes" />
 
-      <main className="flex-1 px-4 py-8 max-w-3xl mx-auto w-full space-y-6">
+      <main className="mx-auto w-full max-w-4xl flex-1 space-y-6 px-4 py-8">
         <div>
-          <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-slate-500 mb-2">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
             <Link href="/community" className="hover:text-brand-400">Community</Link>
             {' · '}Validators
           </p>
-          <h1 className="text-2xl font-bold text-white">Run a <span className="text-cyan-400">Validator</span></h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Falcon PL · Network ID 2300 · Bond 1,000 FPL · Faucet drip {DRIP_AMOUNT.toLocaleString()} FPL
+          <h1 className="text-2xl font-bold text-white">
+            Run a <span className="text-cyan-400">Falcon PL node</span>
+          </h1>
+          <p className="mt-1 text-sm text-slate-400">
+            Public testnet 2300{data ? ` · ${data.product} · tip ${data.tip.toLocaleString()} · epoch ${data.epoch}` : ''}
+            {data ? ` · ${active.length} bonded seats` : ''}
           </p>
         </div>
 
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-          Live path is <strong>Bond → archive join-snap → residual NeedLedgers → pong at tip</strong>.
-          The retired 1001 RPC / docker one-liner is shut down and is not the 2300 product.
-        </div>
+        {data && !data.onboardingOpen && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            <strong>Validator onboarding opens with {FIRST_VALIDATOR_VERSION}.</strong> New validators then need a
+            validator key with proof of possession in the Bond, Scott&apos;s admission approval, and a{' '}
+            <strong>50,000 FPL</strong> minimum bond (existing seats are grandfathered). Until then you can run an
+            observer node.
+          </div>
+        )}
+        {err && <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">Network status unavailable: {err}</div>}
 
-        <section className="card p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-white uppercase tracking-wide">Step-by-step</h2>
-          <ol className="space-y-3">
-            {STEPS.map((s) => (
-              <li key={s.n} className="flex gap-3 text-sm">
-                <span className="text-cyan-600 font-mono text-xs w-6 flex-shrink-0 pt-0.5">{String(s.n).padStart(2, '0')}</span>
-                <div>
-                  <div className="font-medium text-slate-200">{s.title}</div>
-                  <div className="text-slate-500 text-xs mt-0.5">{s.body}</div>
-                </div>
-              </li>
-            ))}
-          </ol>
-          <div className="flex flex-wrap gap-3 pt-1">
-            <Link href="/wallet" className="text-sm text-brand-400 hover:text-brand-300">
-              Open Wallet →
-            </Link>
-            <Link href="/faucet" className="text-sm text-brand-400 hover:text-brand-300">
-              Open Faucet →
-            </Link>
-            <Link href="/whitepaper" className="text-sm text-brand-400 hover:text-brand-300">
-              Whitepaper →
-            </Link>
-            <Link href="/rewards" className="text-sm text-brand-400 hover:text-brand-300">
-              Claim rewards →
+        <section className="card space-y-3 p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Install a node (one line)</h2>
+          <p className="text-xs text-slate-400">
+            Linux x86_64. Downloads the published binaries, checks their SHA-256 (and signature), generates your keys
+            locally (they never leave your machine), installs a systemd service, peers over the public seed (no VPN)
+            and waits until it is in sync. Safe to re-run; manage it with <code className="text-slate-300">falcon-node status | logs | upgrade | uninstall</code>.
+          </p>
+          <Cmd cmd={INSTALL_CMD} />
+          <p className="pt-1 text-xs text-slate-400">Validator (after {FIRST_VALIDATOR_VERSION}): the same installer builds your application, waits for approval and funding, bonds and activates.</p>
+          <Cmd cmd={INSTALL_VALIDATOR_CMD} />
+          <p className="text-[11px] text-slate-500">
+            Binaries, checksums and the installer source:{' '}
+            <a className="text-brand-400 hover:underline" href={`https://github.com/${RELEASES_REPO}/releases`} target="_blank" rel="noreferrer">
+              github.com/{RELEASES_REPO}
+            </a>
+            . Applications:{' '}
+            <a className="text-brand-400 hover:underline" href={`https://github.com/${APPLICATIONS_REPO}/issues`} target="_blank" rel="noreferrer">
+              github.com/{APPLICATIONS_REPO}
+            </a>
+            .
+          </p>
+        </section>
+
+        <section className="card space-y-2 p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Requirements</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="text-slate-500">
+                <tr><th className="py-1 pr-3">Role</th><th className="pr-3">CPU</th><th className="pr-3">RAM</th><th className="pr-3">Disk</th><th>Network</th></tr>
+              </thead>
+              <tbody>
+                <tr className="border-t border-slate-800"><td className="py-1 pr-3">Observer</td><td className="pr-3">1–2 vCPU x86_64</td><td className="pr-3">2 GB</td><td className="pr-3">10 GB</td><td>outbound TCP to the seed only</td></tr>
+                <tr className="border-t border-slate-800"><td className="py-1 pr-3">Validator</td><td className="pr-3">2+ vCPU (SHA-NI helps)</td><td className="pr-3">4–8 GB</td><td className="pr-3">20 GB</td><td>outbound TCP to every seat; online 24/7</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-slate-500">Ubuntu 20.04+ / Debian 11+ (glibc ≥ 2.31). AVX-512 is not needed. A validator that misses 20 turns in a row goes inactive (no slash) until it sends Reactivate.</p>
+        </section>
+
+        <section className="card space-y-3 p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Application status</h2>
+          <div className="flex gap-2">
+            <input
+              value={lookup}
+              onChange={(e) => setLookup(e.target.value)}
+              placeholder="validator id, e.g. myname"
+              className="flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-200"
+            />
+            <Link href="/validator/apply" className="rounded border border-brand-500/40 px-3 py-2 text-sm text-brand-300 hover:bg-brand-500/10">
+              Check an application →
             </Link>
           </div>
+          {lookupResult && (
+            <p className="text-sm text-slate-300">
+              <span className="font-semibold text-white">{lookupResult.stage}</span>
+              <span className="text-slate-500"> · {lookupResult.detail}</span>
+            </p>
+          )}
+          <ol className="list-inside list-decimal space-y-1 text-xs text-slate-400">
+            <li>Install with <code className="text-slate-300">--validator</code>; the node syncs as an observer first.</li>
+            <li>The installer writes <code className="text-slate-300">application.json</code> (id, validator public key, proof of possession, bond account) and prints a link to send it.</li>
+            <li>Scott reviews it and approves the id + key on chain (admission key).</li>
+            <li>Fund the bond account with 50,000 FPL + fees; the installer bonds (signed locally).</li>
+            <li>The seats see the new seat ready → it enters the lottery with equal odds.</li>
+          </ol>
         </section>
 
-        <section className="card p-5 space-y-2">
-          <h2 className="text-sm font-semibold text-white uppercase tracking-wide">Requirements</h2>
-          <ul className="text-xs text-slate-400 space-y-1 list-disc list-inside">
-            <li>Falcon-512 identity (passkey wallet) on Falcon PL 2300</li>
-            <li>≥1,000 FPL to Bond (faucet drip covers this on testnet)</li>
-            <li>Node started with <code className="text-slate-300">--join</code> against published seeds</li>
-            <li>Archive join-snap available when tip is 0 or lag ≥ 2,048</li>
-          </ul>
+        <section className="card overflow-x-auto p-5">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-white">Seats</h2>
+          {!data ? (
+            <p className="text-xs text-slate-500">Loading…</p>
+          ) : (
+            <table className="w-full text-left font-mono text-xs text-slate-300">
+              <thead className="text-slate-500">
+                <tr>
+                  <th className="py-1 pr-3">id</th><th className="pr-3">bond</th>{data.seats.some((s) => s.escrow != null) && <th className="pr-3">escrow</th>}
+                  <th className="pr-3">state</th><th className="pr-3">packed</th><th className="pr-3">bond account</th>{data.seats.some((s) => s.keyFingerprint) && <th>key</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {data.seats.map((s) => {
+                  const state = s.jailed ? 'jailed' : s.inactive ? 'inactive' : s.lotteryReady ? 'active' : 'bonded'
+                  const cls = s.jailed ? 'text-red-400' : s.inactive ? 'text-amber-300' : s.lotteryReady ? 'text-emerald-300' : 'text-slate-400'
+                  return (
+                    <tr key={s.id} className="border-t border-slate-800">
+                      <td className="py-1 pr-3 text-white">{s.id}{s.archive ? ' (archive)' : ''}</td>
+                      <td className="pr-3">{s.bond.toLocaleString()}</td>
+                      {data.seats.some((x) => x.escrow != null) && <td className="pr-3">{(s.escrow ?? 0).toLocaleString()}</td>}
+                      <td className={`pr-3 ${cls}`}>{state}</td>
+                      <td className="pr-3">{s.packCount.toLocaleString()}</td>
+                      <td className="pr-3 text-slate-500">{s.bondAccount}</td>
+                      {data.seats.some((x) => x.keyFingerprint) && <td className="text-slate-500">{s.keyFingerprint ?? '—'}</td>}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+          {data && (
+            <p className="mt-2 text-[11px] text-slate-500">
+              Committee {data.committeeSize} per height, quorum 4. Reward formula: {data.rewardFormula}. Lottery odds are equal for every eligible seat from {FIRST_VALIDATOR_VERSION}; the bond buys eligibility, not odds.
+            </p>
+          )}
         </section>
 
-        <section className="card p-5 space-y-2 text-sm">
-          <h2 className="text-sm font-semibold text-white uppercase tracking-wide">Protocol notes</h2>
-          <ul className="space-y-1 text-slate-400 text-xs">
-            <li>Bond is a slash target and a lottery ticket — not an interest rate.</li>
-            <li>Join-snap is served only by nodes that advertise the archive role.</li>
-            <li>Live packing still verifies every transaction after residual catch-up.</li>
-            <li>Full lifecycle is in the in-app whitepaper (Validator lifecycle).</li>
-          </ul>
+        <section className="card overflow-x-auto p-5">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Admission queue</h2>
+            <a className="text-[11px] text-brand-400 hover:underline" href={`https://github.com/${APPLICATIONS_REPO}/issues?q=is%3Aissue+is%3Aopen+label%3Aapplication`} target="_blank" rel="noreferrer">
+              open applications on GitHub →
+            </a>
+          </div>
+          {data?.queueError && <p className="text-xs text-slate-500">{data.queueError}</p>}
+          {data && !data.queueError && data.queue.length === 0 && <p className="text-xs text-slate-500">No open applications.</p>}
+          {data && data.queue.length > 0 && (
+            <table className="w-full text-left text-xs text-slate-300">
+              <thead className="text-slate-500">
+                <tr><th className="py-1 pr-3">id</th><th className="pr-3">stage</th><th className="pr-3">key</th><th className="pr-3">bond account</th><th className="pr-3">contact</th><th>approve (Scott, admission key)</th></tr>
+              </thead>
+              <tbody>
+                {data.queue.map((q) => {
+                  const cmd = q.publicKey ? `falcon-pl-ctl approve-validator --id ${q.id} --pubkey ${q.publicKey} --expires +20000` : ''
+                  return (
+                    <tr key={q.issue} className="border-t border-slate-800 align-top">
+                      <td className="py-1 pr-3 font-mono text-white"><a href={q.url} target="_blank" rel="noreferrer" className="hover:underline">{q.id || '?'}</a> <span className="text-slate-500">#{q.issue}</span></td>
+                      <td className={`pr-3 ${STAGE_STYLE[q.stage]}`}>{q.stage}{q.note ? <div className="text-[10px] text-slate-500">{q.note}</div> : null}</td>
+                      <td className="pr-3 font-mono text-slate-500">{q.fingerprint || '—'}</td>
+                      <td className="pr-3 font-mono">{q.bondAccount || '—'}</td>
+                      <td className="pr-3">{q.contact || '—'}</td>
+                      <td>{q.stage === 'pending' && cmd ? <Copy text={cmd} label="Copy approve command" /> : <span className="text-slate-600">—</span>}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+          <p className="mt-2 text-[11px] text-slate-500">
+            Approval is an on-chain <code>ApproveValidator</code> signed by Scott&apos;s admission key ({FIRST_VALIDATOR_VERSION}+). This page never signs anything.
+          </p>
         </section>
 
-        <section className="card p-5 space-y-2 text-sm">
-          <h2 className="text-sm font-semibold text-white uppercase tracking-wide">Links</h2>
-          <ul className="space-y-1 text-slate-400">
-            <li>
-              <Link href="/whitepaper" className="text-brand-400 hover:underline">
-                Whitepaper — validator lifecycle
-              </Link>
-            </li>
-            <li>
-              <Link href="/wallet" className="text-brand-400 hover:underline">
-                Wallet
-              </Link>
-            </li>
-            <li>
-              <Link href="/faucet" className="text-brand-400 hover:underline">
-                Faucet
-              </Link>
-            </li>
-            <li>
-              <Link href="/scan" className="text-brand-400 hover:underline">
-                Explorer
-              </Link>
-            </li>
-          </ul>
+        <section className="card overflow-x-auto p-5">
+          <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-white">Who gets paid (rewards v2)</h2>
+          <p className="mb-3 text-xs text-slate-400">
+            Each 7-day epoch emits 0.30% of the treasury. The v2 rules below start with <strong>epoch 10</strong> (Sat 17 Oct ~22:45 BST; first v2 settle Sat 24 Oct).
+            Fees: 50% burned, 30% to the block&apos;s proposer at commit, 20% to the epoch pot. Unjail payments are held as escrow, returned on a clean exit.
+          </p>
+          <table className="w-full text-left text-xs text-slate-300">
+            <thead className="text-slate-500"><tr><th className="py-1 pr-3">Node</th><th className="pr-3">Share</th><th>How it is earned</th></tr></thead>
+            <tbody>
+              {PAY_ROWS.map((r) => (
+                <tr key={r.who} className="border-t border-slate-800 align-top"><td className="py-1 pr-3 text-white">{r.who}</td><td className="pr-3">{r.share}</td><td className="text-slate-400">{r.how}</td></tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-2 text-[11px] text-slate-500">
+            Live per-account numbers: <Link href="/rewards" className="text-brand-400 hover:underline">Rewards</Link>. Explorer: <Link href="/scan" className="text-brand-400 hover:underline">Scan</Link>.
+          </p>
         </section>
 
-        <p className="text-center text-xs text-slate-600 pb-8">
+        <p className="pb-8 text-center text-xs text-slate-600">
           <Link href="/community" className="hover:text-slate-400">← Back to Community</Link>
         </p>
       </main>

@@ -5,10 +5,13 @@ import type { LendOverview } from '@/lib/lend-model'
 import { collateralDropsFromFalcon } from '@/lib/lend-loan-onchain'
 import { filterActiveUserLoans } from '@/lib/lend-risk-scan'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
+import { retiredOnPl } from '@/lib/pl-retired'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
 export async function POST(req: NextRequest) {
+  const retired = retiredOnPl(req)
+  if (retired) return retired
   if (!isOriginAllowed(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }

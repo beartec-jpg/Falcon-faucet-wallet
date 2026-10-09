@@ -15,6 +15,7 @@ import {
   mptScaled,
 } from '@/lib/lend-pool-stats'
 import { filterActiveUserLoans } from '@/lib/lend-risk-scan'
+import { retiredOnPl } from '@/lib/pl-retired'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const DROPS = 1_000_000
@@ -87,6 +88,8 @@ async function featureFlags(networkKey: ReturnType<typeof resolveNetworkKey>) {
 }
 
 export async function GET(req: NextRequest) {
+  const retired = retiredOnPl(req)
+  if (retired) return retired
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
   const address = req.nextUrl.searchParams.get('address')?.trim() ?? ''
 

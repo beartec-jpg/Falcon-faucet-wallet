@@ -5,6 +5,7 @@ import { iouAmount, loanOutstandingFusdc } from '@/lib/lend-pool-stats'
 import { filterActiveUserLoans } from '@/lib/lend-risk-scan'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { loadStableToken } from '@/lib/swap/token-config'
+import { retiredOnPl } from '@/lib/pl-retired'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
@@ -34,6 +35,8 @@ function paymentDueFromLoanObj(obj: Record<string, unknown>): {
 }
 
 export async function POST(req: NextRequest) {
+  const retired = retiredOnPl(req)
+  if (retired) return retired
   if (!isOriginAllowed(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }

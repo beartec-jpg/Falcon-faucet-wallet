@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
+import { retiredOnPl } from '@/lib/pl-retired'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
@@ -21,6 +22,8 @@ function dropsToFpl(drops: string | number | undefined | null): number | null {
 }
 
 export async function GET(req: NextRequest) {
+  const retired = retiredOnPl(req)
+  if (retired) return retired
   const account = req.nextUrl.searchParams.get('account')?.trim() ?? ''
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
 
