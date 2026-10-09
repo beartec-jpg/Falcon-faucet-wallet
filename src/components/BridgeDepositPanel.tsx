@@ -1594,7 +1594,7 @@ export default function BridgeDepositPanel({
             confirmChainResume: async (w) =>
               typeof window !== 'undefined' &&
               window.confirm(
-                `Falcon Ledger already holds your burn of ${(w.amountSats / 1e8).toFixed(8)} FBTC to ${w.externalTo || wallet.btcAddress}, ` +
+                `Falcon PL already holds your burn of ${(w.amountSats / 1e8).toFixed(8)} FBTC to ${w.externalTo || wallet.btcAddress}, ` +
                   'but this browser has no record of how far it got.\n\n' +
                   'Resume it at the Bitcoin Kickoff? Only do this if you have NOT already received this BTC. ' +
                   'No new burn will be made either way.',
@@ -1602,7 +1602,7 @@ export default function BridgeDepositPanel({
             confirmFreshBurn: async (others) =>
               typeof window !== 'undefined' &&
               window.confirm(
-                'Falcon Ledger shows earlier BTC Bridge outs from this account that this browser has no record of:\n' +
+                'Falcon PL shows earlier BTC Bridge outs from this account that this browser has no record of:\n' +
                   others
                     .slice(0, 5)
                     .map((o) => `• ${(o.amountSats / 1e8).toFixed(8)} FBTC to ${o.externalTo}`)

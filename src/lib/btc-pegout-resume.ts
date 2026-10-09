@@ -390,7 +390,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
   if (rec?.phase === 'done') {
     throw new Error(
       `This exact Bridge out (${amount} sats to ${dest}) already completed. ` +
-        'Falcon Ledger refuses the same amount to the same address twice — change the amount by at least 1 sat.',
+        'Falcon PL refuses the same amount to the same address twice — change the amount by at least 1 sat.',
     )
   }
 
@@ -429,7 +429,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
       const ok = d.confirmChainResume ? await d.confirmChainResume(w) : false
       if (!ok) {
         throw new Error(
-          `Falcon Ledger already has a burn for ${amount} sats to ${dest} from this account (note ${noteId.slice(0, 12)}…). ` +
+          `Falcon PL already has a burn for ${amount} sats to ${dest} from this account (note ${noteId.slice(0, 12)}…). ` +
             'No new burn was made. Resume it only if you have not already received that BTC.',
         )
       }
@@ -450,7 +450,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
         updatedAt: now,
       }
       persist(d.store, rec)
-      step('Found your FBTC burn on Falcon Ledger — resuming at Kickoff (no new burn)…')
+      step('Found your FBTC burn on Falcon PL — resuming at Kickoff (no new burn)…')
     }
   }
 
@@ -460,7 +460,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     // withdrawal (different amount/address) is only visible on-chain.
     if (chain === null) {
       throw new Error(
-        'Could not check Falcon Ledger for an earlier unfinished BTC Bridge out. No burn was made — try again shortly.',
+        'Could not check Falcon PL for an earlier unfinished BTC Bridge out. No burn was made — try again shortly.',
       )
     }
     const unknownOthers = (chain as ChainBtcWithdraw[]).filter(
@@ -474,7 +474,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
           .map((w) => `${w.amountSats} sats to ${w.externalTo}`)
           .join('; ')
         throw new Error(
-          `Falcon Ledger shows earlier BTC Bridge outs from this account that this browser has no record of (${list}). ` +
+          `Falcon PL shows earlier BTC Bridge outs from this account that this browser has no record of (${list}). ` +
             'If one is unfinished, resume it by entering that same amount. No new burn was made.',
         )
       }
@@ -534,7 +534,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     if (sealed === 'pending') {
       note('burn not sealed yet')
       throw new Error(
-        'Burn is signed, but Falcon Ledger has not confirmed it sealed yet. Press Bridge out again later with the ' +
+        'Burn is signed, but Falcon PL has not confirmed it sealed yet. Press Bridge out again later with the ' +
           'same amount — it re-uses the same signed burn and cannot burn twice.',
       )
     }
@@ -749,7 +749,7 @@ async function waitBurnSealed(
         if (i < t.chainRecheck) await d.sleep(t.burnPollMs)
       }
       if (!unknown) return 'dead'
-      d.onStep?.('Waiting for Falcon Ledger to confirm the burn…')
+      d.onStep?.('Waiting for Falcon PL to confirm the burn…')
       await d.sleep(t.burnPollMs)
       continue
     }
@@ -762,7 +762,7 @@ async function waitBurnSealed(
         /* duplicate / already in mempool is fine */
       }
     }
-    d.onStep?.('Waiting for Falcon Ledger to seal the burn…')
+    d.onStep?.('Waiting for Falcon PL to seal the burn…')
     await d.sleep(t.burnPollMs)
   }
   return 'pending'

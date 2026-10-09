@@ -493,7 +493,7 @@ export async function pegOutDestLock(opts: {
     }
   } else {
     if (snap.balance < 2) throw new Error('Need 2 FPL on this account for the burn fee')
-    opts.onStep?.(`Burning ${opts.asset} on Falcon Ledger…`)
+    opts.onStep?.(`Burning ${opts.asset} on Falcon PL…`)
     const burn = await signRailWithdraw({
       account: opts.account,
       sequence: snap.sequence,
@@ -521,11 +521,11 @@ export async function pegOutDestLock(opts: {
 
   // 1) Was the burn sealed into a ledger? (account sequence moves past it)
   if (!pending.noteId) {
-    opts.onStep?.('Waiting for Falcon Ledger to seal the burn…')
+    opts.onStep?.('Waiting for Falcon PL to seal the burn…')
     const included = await waitBurnIncluded(opts.account, opts.network, pending.sequence, 90_000)
     if (!included) {
       throw new Error(
-        'Burn is signed and queued, but Falcon Ledger has not sealed a new ledger yet (network may be stalled). ' +
+        'Burn is signed and queued, but Falcon PL has not sealed a new ledger yet (network may be stalled). ' +
           `Your ${opts.asset === 'USDC' ? 'F-USDC' : 'FETH'} has not been debited. Keep this panel open and press ` +
           'Bridge out again later — it re-uses the same signed burn and cannot burn twice.',
       )

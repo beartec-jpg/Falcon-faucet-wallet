@@ -298,7 +298,7 @@ await test('burn never sealed and its sequence was used: record dropped, fresh b
 
 await test('chain list unavailable: no fresh burn; a sealed-or-dead question waits instead of guessing', async () => {
   const w0 = fakeWorld({ chainAvailable: false })
-  await assert.rejects(m.runBtcPegOut(params, w0.deps(m.kvBtcPegOutStore(memKv()))), /Could not check Falcon Ledger/)
+  await assert.rejects(m.runBtcPegOut(params, w0.deps(m.kvBtcPegOutStore(memKv()))), /Could not check Falcon PL/)
   assert.equal(w0.burnsSigned, 0)
 
   const store = m.kvBtcPegOutStore(memKv())
