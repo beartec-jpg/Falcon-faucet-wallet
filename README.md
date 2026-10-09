@@ -95,7 +95,7 @@ F-USDC and Sepolia USDC are **not** the same token — the bridge converts betwe
 |------|-------|
 | Name | Falcon PL public testnet |
 | Network ID | **`2300`** |
-| Product | Falcon PL · Falcon Consensus · Falcon-512 (`product_version` 2.9.43) |
+| Product | Falcon PL · Falcon Consensus · Falcon-512 (`product_version` 2.9.60) |
 | Public RPC | operator hub on falcon1 port **19301** (Tailscale mesh; not the retired 1001 `:6005`) |
 | Epoch | 7 days; first claimable epoch **1** on testnet |
 | Min validator bond | 1,000 FPL |
