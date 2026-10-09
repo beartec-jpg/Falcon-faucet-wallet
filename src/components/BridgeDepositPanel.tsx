@@ -3213,7 +3213,9 @@ const handleSpvCompleteClaim = async () => {
                     !hasBtc ||
                     !fbtcReady ||
                     withdrawAmtNum <= 0 ||
-                    withdrawAmtNum > (fbtcSpvLive ?? fbtcLive ?? 0)
+                    // PL 2300: balance is checked in pegOutPlBtc, after it looks for a
+                    // pending/on-chain burn that already debited it (resume, recovery).
+                    (!isPl2300 && withdrawAmtNum > (fbtcSpvLive ?? fbtcLive ?? 0))
                   }
                   className="btn-primary flex items-center justify-center gap-2"
                 >
