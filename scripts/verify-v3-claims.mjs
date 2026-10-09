@@ -144,6 +144,17 @@ t('qcV3Bridge: config, env fallback, invalid', () => {
   assert.equal(m.qcV3Bridge(cfg('0x12'), 'nope'), null)
   assert.equal(m.qcV3Bridge(cfgJson, ''), null, 'public config must not name a V3 bridge before deploy')
 })
+t('0x0 bridge address counts as unset, never as a configured bridge', () => {
+  const ZERO = '0x' + '0'.repeat(40)
+  assert.equal(m.qcV3Bridge({ sepolia: { qc_v3: ZERO } }, ''), null)
+  assert.equal(m.qcV3Bridge({ sepolia: {} }, ZERO), null, 'zero NEXT_PUBLIC_QC_V3_BRIDGE keeps V3 off')
+  assert.equal(m.qcV3Bridge({ sepolia: { qc_v3: ZERO } }, SYNTHETIC_V3), SYNTHETIC_V3)
+  assert.equal(m.qcV2Bridge({ sepolia: { legacy_qc_v2: ZERO } }), null)
+  assert.throws(() => m.resolveTakeBridge({ bridge: ZERO, bridgeVersion: 'v3' }, V2, ZERO), /malformed bridge/)
+  assert.throws(() => m.resolveTakeBridge({ bridge: SYNTHETIC_V3, bridgeVersion: 'v3' }, V2, ZERO), /not configured/)
+  assert.throws(() => m.resolveTakeBridge({}, ZERO, null), /legacy_qc_v2 is not configured/)
+  assert.throws(() => m.assertRefundSigner(ZERO, OTHER), /no valid sender/)
+})
 t('refund note id = sha256("refund|" || depositId), pinned to Falcon-PL', () => {
   // Same constant Falcon-PL pins in eth_v3_deposit_tests.rs and test_pl_walletd_v3_claims.py.
   const want = '0xa988c126d89667b997adf6da27e96be12d314e3c0f4222bc06970bbade9af593'

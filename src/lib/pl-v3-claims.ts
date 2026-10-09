@@ -19,6 +19,12 @@ import { concat, getBytes, sha256, toUtf8Bytes } from 'ethers'
 import type { Pl2300BridgeConfig } from '@/lib/pl-dest-lock'
 
 const ADDR_RE = /^0x[a-fA-F0-9]{40}$/
+const ZERO_ADDR_RE = /^0x0{40}$/i
+
+/** A usable contract / payee address: well-formed and not 0x0 (an unset placeholder). */
+function isNonZeroAddr(a: string | null | undefined): boolean {
+  return typeof a === 'string' && ADDR_RE.test(a) && !ZERO_ADDR_RE.test(a)
+}
 const ID_RE = /^(0[xX])?[a-fA-F0-9]{64}$/
 
 export type BridgeVersion = 'v2' | 'v3'
@@ -83,7 +89,6 @@ export function takeActionAfterOpen(resp: Pick<OpenClaimResponse, 'alreadyOpen' 
   return 'read'
 }
 
-const ZERO_ADDR_RE = /^0x0{40}$/i
 const CLAIM_NOT_OPEN = 'Claim not open on that bridge (no claim recorded for this note); not calling take()'
 
 /** An open claim is takeable only by its recorded dest; refuse before a reverting take().
@@ -116,17 +121,17 @@ function sameAddr(a: string, b: string): boolean {
  *  to `sepolia.bridge`: take() routing must never land on the peg-in / V1 address. */
 export function qcV2Bridge(cfg: Pl2300BridgeConfig | null | undefined): string | null {
   const v2 = cfg?.sepolia?.legacy_qc_v2?.trim() ?? ''
-  return ADDR_RE.test(v2) ? v2 : null
+  return isNonZeroAddr(v2) ? v2 : null
 }
 
-/** Configured FalconQcBridgeV3, or null while V3 is not live on this site. */
+/** Configured FalconQcBridgeV3, or null while V3 is not live on this site (0x0 counts as unset). */
 export function qcV3Bridge(cfg: Pl2300BridgeConfig | null | undefined, envValue?: string): string | null {
   const fromCfg = cfg?.sepolia?.qc_v3?.trim() ?? ''
-  if (ADDR_RE.test(fromCfg)) return fromCfg
+  if (isNonZeroAddr(fromCfg)) return fromCfg
   const env =
     envValue ?? (typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_QC_V3_BRIDGE ?? '' : '')
   const e = env.trim()
-  return ADDR_RE.test(e) ? e : null
+  return isNonZeroAddr(e) ? e : null
 }
 
 /**
@@ -140,14 +145,14 @@ export function resolveTakeBridge(
   v3Bridge: string | null,
 ): { bridge: string; version: BridgeVersion } {
   const needV2 = (): string => {
-    if (!v2Bridge || !ADDR_RE.test(v2Bridge)) {
+    if (!v2Bridge || !isNonZeroAddr(v2Bridge)) {
       throw new Error('This claim is on FalconQcBridgeV2, but legacy_qc_v2 is not configured on this site; not calling take()')
     }
     return v2Bridge
   }
   const addr = (resp.bridge ?? '').trim()
   const ver = (resp.bridgeVersion ?? '').trim().toLowerCase()
-  if (addr && !ADDR_RE.test(addr)) throw new Error(`walletd returned a malformed bridge address (${addr.slice(0, 12)}…)`)
+  if (addr && !isNonZeroAddr(addr)) throw new Error(`walletd returned a malformed bridge address (${addr.slice(0, 12)}…)`)
   if (!ver && !addr) {
     // walletd before V2/V3 routing: every claim is V2.
     return { bridge: needV2(), version: 'v2' }
@@ -164,7 +169,7 @@ export function resolveTakeBridge(
     return { bridge: v2, version: 'v2' }
   }
   if (ver === 'v3') {
-    if (!v3Bridge) {
+    if (!v3Bridge || !isNonZeroAddr(v3Bridge)) {
       throw new Error('This claim is on FalconQcBridgeV3, which is not configured on this site yet; not calling take()')
     }
     if (!sameAddr(addr, v3Bridge)) {
@@ -189,7 +194,7 @@ export function v3RefundNoteId(depositId: string): string {
 
 /** A refund pays only the original deposit sender, and only that address can take(). */
 export function assertRefundSigner(refundDest: string, signer: string): void {
-  if (!ADDR_RE.test(refundDest)) throw new Error('Refund note has no valid sender address')
+  if (!isNonZeroAddr(refundDest)) throw new Error('Refund note has no valid sender address')
   if (!sameAddr(refundDest, signer)) {
     throw new Error(
       `This refund pays only the deposit sender ${refundDest}. Use the wallet that made the deposit (this one is ${signer}).`,
