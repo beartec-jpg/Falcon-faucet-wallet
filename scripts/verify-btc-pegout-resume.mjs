@@ -554,4 +554,20 @@ await test('resumed Kickoff with UNKNOWN status: re-sent as the same tx; spent i
   assert.equal(w.burnsSigned, 1)
 })
 
+await test('dynamic Kickoff max: blocks a fresh burn, never a resume', async () => {
+  const w0 = fakeWorld()
+  await assert.rejects(
+    m.runBtcPegOut({ ...params, maxFreshSats: AMOUNT - 1 }, w0.deps(m.kvBtcPegOutStore(memKv()))),
+    /at most/,
+  )
+  assert.equal(w0.burnsSigned, 0)
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld({ confs: 2 })
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /Wait for 6/)
+  w.confs = 6
+  await m.runBtcPegOut({ ...params, maxFreshSats: 0 }, w.deps(store)) // output already spent by our Kickoff
+  assert.equal(w.takes, 1)
+  assert.equal(w.burnsSigned, 1)
+})
+
 console.log(`\n${passed} BTC peg-out resume checks passed`)

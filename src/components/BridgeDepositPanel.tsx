@@ -1565,7 +1565,10 @@ export default function BridgeDepositPanel({
         return
       }
       const maxOut = spvStatus?.pegOut?.maxSats
-      if (maxOut != null && amountSats > maxOut) {
+      // PL 2300: the dynamic max applies only to a NEW burn and is checked in
+      // pegOutPlBtc, so a resume (whose Kickoff may have spent that output) or a
+      // chain recovery is not blocked here.
+      if (!isPl2300 && maxOut != null && amountSats > maxOut) {
         setError(
           `This Kickoff can pay at most ${maxOut} sats. It spends one Bitcoin output, not the whole instance.`,
         )
@@ -1591,6 +1594,7 @@ export default function BridgeDepositPanel({
             btcAddress: wallet.btcAddress,
             destSecretHex,
             onStep: setStep,
+            maxFreshSats: maxOut ?? null,
             confirmChainResume: async (w) =>
               typeof window !== 'undefined' &&
               window.confirm(

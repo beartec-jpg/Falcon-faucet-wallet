@@ -111,6 +111,12 @@ export type BtcPegOutParams = {
   dest: string
   fee: number
   claimCsv: number
+  /**
+   * Largest amount a NEW Kickoff can pay right now (dynamic, from the instance
+   * UTXO set). Checked only before a fresh burn: an existing withdrawal's own
+   * Kickoff may already have spent that output.
+   */
+  maxFreshSats?: number | null
   timing?: Partial<BtcPegOutTiming>
 }
 
@@ -484,6 +490,11 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
             'If one is unfinished, resume it by entering that same amount. No new burn was made.',
         )
       }
+    }
+    if (p.maxFreshSats != null && amount > p.maxFreshSats) {
+      throw new Error(
+        `This Kickoff can pay at most ${p.maxFreshSats} sats. It spends one Bitcoin output, not the whole instance.`,
+      )
     }
     const snap = await d.accountSnap()
     if (snap.btcSats < amount) {

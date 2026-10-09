@@ -394,6 +394,8 @@ export async function pegOutPlBtc(opts: {
    * this account that this browser has no completed record of.
    */
   confirmFreshBurn?: (others: ChainBtcWithdraw[]) => Promise<boolean>
+  /** Current max a NEW Kickoff can pay; checked only before a fresh burn. */
+  maxFreshSats?: number | null
 }): Promise<{ txId: string; kickoffTxid?: string; takeTxid?: string; noteId: string; resumed: boolean }> {
   if (!BTC_RAIL_LIVE) {
     throw new Error('BTC rail is not live — e2e not passed (BTC_RAIL_LIVE=false)')
@@ -420,6 +422,7 @@ export async function pegOutPlBtc(opts: {
       dest,
       fee: FEE,
       claimCsv: BITVM2_CLAIM_CSV,
+      maxFreshSats: opts.maxFreshSats,
     },
     {
       store: browserBtcPegOutStore(),
