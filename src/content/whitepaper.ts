@@ -1,4 +1,4 @@
-/** Falcon PL white paper — technical system paper for /whitepaper (v5.0) */
+/** Falcon PL white paper — technical system paper for /whitepaper (v5.2) */
 
 export const WHITEPAPER_VERSION = '5.2'
 // TODO(Scott: v5.2 date): publish date still open; left undated on purpose (do not invent one).
