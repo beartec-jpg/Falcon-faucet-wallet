@@ -2181,7 +2181,17 @@ const handleSpvCompleteClaim = async () => {
             amountLabel: amount,
             explorerUrl: explorer,
             status: 'minting',
+            v3DepositId: d.v3DepositId,
           })
+          if (d.v3DepositId) {
+            // V3 peg-in: the V3 watcher (auto-mint --v3) finds the Deposit log itself and mints
+            // or, after 3 days unminted, refunds. The V1 mint queue must not be asked.
+            setDestLockJobs(listDestLockPending(falconId))
+            res = {
+              depositHash: d.depositHash,
+              depositId: `Locked on Sepolia (FalconQcBridgeV3). Deposit id ${d.v3DepositId}. FETH is minted automatically once the light client reaches this block; keep the deposit id — if it is not minted within 3 days it is refunded to this 0x address.`,
+            }
+          } else {
           setStep('Queuing Falcon PL mint…')
           const queued = await queueDestLockMint({
             account: falconId,
@@ -2204,6 +2214,7 @@ const handleSpvCompleteClaim = async () => {
                 ? 'FETH minted on Falcon PL'
                 : 'Locked on Sepolia — minting FETH in the background. You can bridge USDC now.',
           }
+          }
         } else {
           const d = await depositUsdcDestLock({
             cfg: destLockCfg,
@@ -2219,7 +2230,18 @@ const handleSpvCompleteClaim = async () => {
             amountLabel: amount,
             explorerUrl: explorer,
             status: 'minting',
+            v3DepositId: d.v3DepositId,
           })
+          if (d.v3DepositId) {
+            // V3 peg-in: the V3 watcher (auto-mint --v3) finds the Deposit log itself and mints
+            // or, after 3 days unminted, refunds. The V1 mint queue must not be asked.
+            setDestLockJobs(listDestLockPending(falconId))
+            res = {
+              depositHash: d.depositHash,
+              approveHash: d.approveHash,
+              depositId: `Locked on Sepolia (FalconQcBridgeV3). Deposit id ${d.v3DepositId}. F-USDC is minted automatically once the light client reaches this block; keep the deposit id — if it is not minted within 3 days it is refunded to this 0x address.`,
+            }
+          } else {
           setStep('Queuing Falcon PL mint…')
           const queued = await queueDestLockMint({
             account: falconId,
@@ -2242,6 +2264,7 @@ const handleSpvCompleteClaim = async () => {
               queued.status === 'done'
                 ? 'F-USDC minted on Falcon PL'
                 : 'Locked on Sepolia — minting F-USDC in the background. You can bridge ETH now.',
+          }
           }
         }
       } else if (isFbnbRoute) {
@@ -2440,6 +2463,11 @@ const handleSpvCompleteClaim = async () => {
                           {job.depositBlock ? `Sepolia block ${job.depositBlock.toLocaleString()}` : 'Sepolia deposit'}
                           {job.createdAt ? ` · started ${new Date(job.createdAt).toLocaleString()}` : ''}
                         </p>
+                        {job.v3DepositId ? (
+                          <p className="text-[11px] text-slate-500 mt-0.5 font-mono break-all">
+                            V3 deposit id {job.v3DepositId}
+                          </p>
+                        ) : null}
                         <p className="text-xs text-slate-500 mt-0.5">
                           {job.status === 'error'
                             ? job.lastError || 'Mint failed'

@@ -22,7 +22,8 @@
     "falcon_key_root": "0x04a9ad1908569884ff307f63291c592af16fe345fb471c22104d0c0717bcfd8a",
     "legacy_qc_v2": "0x811854827627024B38926Ea9DCc0f88ACd5fB23e",
     "legacy_verifier_v2": "0x2Cb70e9f082F2DF91E9A5e6E7C9DF6b8b11B4F80",
-    "qc_v3": "0xEd4eE497F21a9255a59e87535FF2A6097592Cfd4"
+    "qc_v3": "0xEd4eE497F21a9255a59e87535FF2A6097592Cfd4",
+    "pegin_v3": false
   },
   "dest20": "sha256(lowercase PL account)[:20]",
   "sot": "Falcon-PL docs/BRIDGES_2300_STATUS.md (product 2.9.43)"

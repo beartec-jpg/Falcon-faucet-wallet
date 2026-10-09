@@ -172,4 +172,34 @@ t('refund only to the deposit sender', () => {
   assert.throws(() => m.assertRefundSigner('', OTHER), /no valid sender/)
 })
 
+t('pegInV3Bridge: only with pegin_v3 === true and a valid qc_v3; env ignored', () => {
+  assert.equal(m.pegInV3Bridge({ sepolia: { qc_v3: SYNTHETIC_V3 } }), null)
+  assert.equal(m.pegInV3Bridge({ sepolia: { qc_v3: SYNTHETIC_V3, pegin_v3: false } }), null)
+  assert.equal(m.pegInV3Bridge({ sepolia: { qc_v3: SYNTHETIC_V3, pegin_v3: 'true' } }), null)
+  assert.equal(m.pegInV3Bridge({ sepolia: { qc_v3: SYNTHETIC_V3, pegin_v3: true } }), SYNTHETIC_V3)
+  assert.equal(m.pegInV3Bridge({ sepolia: { qc_v3: '0x' + '0'.repeat(40), pegin_v3: true } }), null)
+  assert.equal(m.pegInV3Bridge({ sepolia: { pegin_v3: true } }), null, 'NEXT_PUBLIC_QC_V3_BRIDGE alone never switches peg-in')
+  const live = cfgJson.sepolia.pegin_v3 === true
+  assert.equal(m.pegInV3Bridge(cfgJson), live ? cfgJson.sepolia.qc_v3 : null)
+})
+{
+  const { Interface } = await import('ethers')
+  const iface = new Interface([
+    'event Deposit(bytes32 indexed depositId, address indexed sender, bytes20 dest20, address token, uint256 amount, uint64 timestamp)',
+  ])
+  const id = '0x' + 'ab'.repeat(32)
+  const sender = '0x' + '11'.repeat(20)
+  const enc = iface.encodeEventLog('Deposit', [id, sender, '0x' + '22'.repeat(20), '0x' + '00'.repeat(20), 5n, 7n])
+  const log = { address: SYNTHETIC_V3, topics: enc.topics, data: enc.data }
+  const got = m.v3DepositIdFromLogs([{ address: OTHER, topics: enc.topics, data: enc.data }, log], SYNTHETIC_V3)
+  assert.equal(got.depositId, id)
+  assert.equal(got.amount, 5n)
+  assert.throws(() => m.v3DepositIdFromLogs([{ ...log, address: OTHER }], SYNTHETIC_V3), /No FalconQcBridgeV3 Deposit/)
+  // V1/V2 Deposit(bytes32,address,uint256,bytes32) from the same address is not a V3 deposit.
+  const v1 = new Interface(['event Deposit(bytes32 indexed depositId, address indexed sender, uint256 amount, bytes32 dest)'])
+  const e1 = v1.encodeEventLog('Deposit', [id, sender, 5n, '0x' + '33'.repeat(32)])
+  assert.throws(() => m.v3DepositIdFromLogs([{ address: SYNTHETIC_V3, topics: e1.topics, data: e1.data }], SYNTHETIC_V3))
+  console.log('ok - v3DepositIdFromLogs decodes the V3 event, refuses other addresses and the V1 event')
+  n++
+}
 console.log(`verify-v3-claims: ${n} checks passed`)

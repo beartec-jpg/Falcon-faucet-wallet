@@ -15,7 +15,7 @@
  * FalconQcBridgeV3.refundNoteId. Only the deposit sender can take() a refund.
  */
 
-import { concat, getBytes, sha256, toUtf8Bytes } from 'ethers'
+import { Interface, concat, getBytes, sha256, toUtf8Bytes } from 'ethers'
 import type { Pl2300BridgeConfig } from '@/lib/pl-dest-lock'
 
 const ADDR_RE = /^0x[a-fA-F0-9]{40}$/
@@ -200,4 +200,44 @@ export function assertRefundSigner(refundDest: string, signer: string): void {
       `This refund pays only the deposit sender ${refundDest}. Use the wallet that made the deposit (this one is ${signer}).`,
     )
   }
+}
+
+/**
+ * Peg-in target. V3 only when the bridge config says so explicitly (`sepolia.pegin_v3: true`)
+ * AND names a valid FalconQcBridgeV3 in `qc_v3` (the env fallback is ignored here: the
+ * switch is a config change that every visitor sees at once). Otherwise null (V1 peg-in).
+ */
+export function pegInV3Bridge(cfg: Pl2300BridgeConfig | null | undefined): string | null {
+  if (cfg?.sepolia?.pegin_v3 !== true) return null
+  return qcV3Bridge(cfg, '')
+}
+
+/** FalconQcBridgeV3 peg-in event (not the V1/V2 Deposit event). */
+const V3_DEPOSIT_IFACE = new Interface([
+  'event Deposit(bytes32 indexed depositId, address indexed sender, bytes20 dest20, address token, uint256 amount, uint64 timestamp)',
+])
+
+/** depositId of the V3 Deposit log emitted by `bridge` in a receipt, or throws. */
+export function v3DepositIdFromLogs(
+  logs: ReadonlyArray<{ address: string; topics: ReadonlyArray<string>; data: string }>,
+  bridge: string,
+): { depositId: string; sender: string; dest20: string; token: string; amount: bigint } {
+  for (const log of logs) {
+    if (!sameAddr(log.address, bridge)) continue
+    let parsed
+    try {
+      parsed = V3_DEPOSIT_IFACE.parseLog({ topics: [...log.topics], data: log.data })
+    } catch {
+      continue
+    }
+    if (!parsed || parsed.name !== 'Deposit') continue
+    return {
+      depositId: String(parsed.args.depositId).toLowerCase(),
+      sender: String(parsed.args.sender),
+      dest20: String(parsed.args.dest20).toLowerCase(),
+      token: String(parsed.args.token),
+      amount: BigInt(parsed.args.amount),
+    }
+  }
+  throw new Error('No FalconQcBridgeV3 Deposit event in the receipt')
 }
