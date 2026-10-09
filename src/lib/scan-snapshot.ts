@@ -1,4 +1,4 @@
-import { cidEmissionPct, cidYearlyAvgPct } from '@/lib/epoch-model'
+import { emissionPctPerEpoch, emissionPctPerYear } from '@/lib/pl-rewards-model'
 import { meshHeadFromStatus, num, str } from '@/lib/pl-mesh'
 import { plStatus } from '@/lib/pl-rpc'
 import { loadZeroPoint, offsetRail } from '@/lib/pl-zero-point'
@@ -119,8 +119,12 @@ export async function buildScanSnapshot(): Promise<ScanData> {
       emissionRateFalcon: emission,
       lpAllocationPct: 40,
       lpProviderCount: 0,
-      cidEmissionPct: cidEmissionPct(epochN),
-      cidYearlyAvgPct: cidYearlyAvgPct(epochN),
+      // Falcon PL: flat emission_bps of the treasury per epoch (no CID schedule).
+      cidEmissionPct: emissionPctPerEpoch(emissionBps),
+      cidYearlyAvgPct: emissionPctPerYear(emissionBps, num(st.epoch_ms, 604_800_000)),
+      emissionBps,
+      emissionPctPerYear: emissionPctPerYear(emissionBps, num(st.epoch_ms, 604_800_000)),
+      epochMs: num(st.epoch_ms, 604_800_000),
       firstClaimEpoch: num(st.first_claim_epoch, 1),
       epochClaimable,
       lastSettledEpoch: num(st.last_settled_epoch),

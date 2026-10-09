@@ -1,7 +1,27 @@
 'use client'
 
+/**
+ * Falcon PL 2300 watcher, signed by the user's own wallet in the browser.
+ *
+ * - Start: one passkey unlock, then a `watcher_heartbeat` per hour slot while
+ *   the tab stays open (the decrypted key lives only in this tab's memory and
+ *   is dropped on Stop / unmount).
+ * - Submit rail work: `rail_header` for the next real Bitcoin testnet3 header
+ *   after the rail tip (/api/watcher/btc-next). Usually none: the header daemon
+ *   keeps the rail at the tip.
+ * - Claim: `claim` moves settled FPL into the balance.
+ *
+ * No server signing, no ctl, no walletd: works on Vercel.
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useNetwork } from '@/components/NetworkProvider'
+import { authenticatePasskey } from '@/lib/passkey'
+import { decryptSeed } from '@/lib/wallet-crypto'
+import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
+import { plAccountId } from '@/lib/pl-names'
+import { signPlClaim, signPlWatcherHeartbeat, signRailHeader } from '@/lib/pl-wallet-sign'
+import { fetchSequenceInfo } from '@/lib/wallet-submit'
 
 type WatcherEvent = {
   at: string
@@ -76,135 +96,232 @@ const KIND_COLOR: Record<WatcherEvent['kind'], string> = {
   error: 'text-red-400',
 }
 
+const FEE = 2
+
+type BtcNext = {
+  ok: boolean
+  railTip?: number
+  chainTip?: number | null
+  next?: { height: number; raw: string; hash: string; parentHash: string; merkleRoot: string } | null
+  reason?: string
+  error?: string
+}
+
+async function submitSigned(tx: { rawJson?: string }, networkKey: string) {
+  const res = await fetch('/api/wallet/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(tx.rawJson ? { tx_json: tx.rawJson, network: networkKey } : { tx, network: networkKey }),
+  })
+  const out = (await res.json().catch(() => ({}))) as { error?: string; message?: string }
+  if (!res.ok || out.error) throw new Error(out.error || out.message || 'Submit failed')
+  return out
+}
+
+function nowIso() {
+  return new Date().toISOString()
+}
+
 export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap | null }) {
-  const params = useSearchParams()
-  const flash = params?.get('watcher')
-  const flashMsg = params?.get('msg')
+  const { network } = useNetwork()
+  const [wallet, setWallet] = useState<StoredWallet | null>(null)
+  const [walletLoaded, setWalletLoaded] = useState(false)
   const [snap, setSnap] = useState<WatcherSnap | null>(initial)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const runningRef = useRef(false)
+  const [info, setInfo] = useState<string | null>(null)
+  const [running, setRunning] = useState(false)
+  const [events, setEvents] = useState<WatcherEvent[]>([])
+  const [btc, setBtc] = useState<BtcNext | null>(null)
+  const secretRef = useRef<string | null>(null)
   const lastBeatSlot = useRef<number | null>(null)
+  const beating = useRef(false)
+
+  const account = wallet ? plAccountId(wallet) : null
+  const is2300 = network.networkId === 2300
+
+  const log = useCallback((ev: Omit<WatcherEvent, 'at'>) => {
+    setEvents((xs) => [{ at: nowIso(), ...ev }, ...xs].slice(0, 60))
+  }, [])
+
+  useEffect(() => {
+    void loadPrimaryWallet()
+      .then(setWallet)
+      .finally(() => setWalletLoaded(true))
+    return () => {
+      secretRef.current = null
+    }
+  }, [])
 
   const refresh = useCallback(async () => {
     try {
-      const r = await fetch('/api/watcher', { cache: 'no-store' })
+      const q = account ? `?account=${encodeURIComponent(account)}` : ''
+      const r = await fetch(`/api/watcher${q}`, { cache: 'no-store' })
       const data = (await r.json()) as WatcherSnap
       setSnap(data)
-      if (!r.ok && data.lastError) setError(data.lastError)
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
     }
-  }, [])
+  }, [account])
 
   useEffect(() => {
-    refresh()
-    const id = setInterval(refresh, 2_000)
+    if (!walletLoaded) return
+    void refresh()
+    const id = setInterval(refresh, 10_000)
     return () => clearInterval(id)
-  }, [refresh])
+  }, [refresh, walletLoaded])
 
-  const beat = useCallback(async () => {
-    const r = await fetch('/api/watcher', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'heartbeat' }),
-    })
-    const data = await r.json()
-    if (!r.ok) throw new Error(data.error ?? 'heartbeat failed')
-    setSnap(data)
-    lastBeatSlot.current = Number(data.currentSlot ?? lastBeatSlot.current)
-    setError(null)
-    return data as WatcherSnap
-  }, [])
+  const unlock = useCallback(async (): Promise<string> => {
+    if (secretRef.current) return secretRef.current
+    if (!wallet) throw new Error('Create or open your wallet first (Wallet page).')
+    const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+    return decryptSeed(wallet.encrypted, keyBytes)
+  }, [wallet])
+
+  const needFee = useCallback(() => {
+    if (snap && snap.account === account && snap.balance < FEE) {
+      throw new Error(`This account needs at least ${FEE} FPL for the fee. Use the faucet above first.`)
+    }
+  }, [snap, account])
+
+  const beat = useCallback(
+    async (falconSecret: string) => {
+      if (!account) throw new Error('No wallet account')
+      const seq = await fetchSequenceInfo(account, network.key)
+      const tx = await signPlWatcherHeartbeat({
+        account,
+        sequence: seq.sequence,
+        fee: FEE,
+        networkId: network.networkId,
+        falconSecret,
+      })
+      await submitSigned(tx, network.key)
+      log({ kind: 'heartbeat', detail: `slot ${snap?.currentSlot ?? '?'} heartbeat submitted`, slot: snap?.currentSlot, txId: tx.tx_id })
+      lastBeatSlot.current = snap?.currentSlot ?? null
+    },
+    [account, network.key, network.networkId, log, snap?.currentSlot],
+  )
 
   const start = async () => {
-    setBusy(true)
+    setBusy('start')
     setError(null)
+    setInfo(null)
     try {
-      const r = await fetch('/api/watcher', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'start' }),
-      })
-      const data = await r.json()
-      if (!r.ok) throw new Error(data.error ?? 'start failed')
-      setSnap(data)
-      runningRef.current = true
-      await beat()
+      needFee()
+      const secret = await unlock()
+      secretRef.current = secret
+      setRunning(true)
+      log({ kind: 'entered', detail: `watching as ${account}`, slot: snap?.currentSlot })
+      await beat(secret)
+      setInfo('Watcher on. One heartbeat per hour slot while this tab stays open.')
+      void refresh()
     } catch (e) {
+      secretRef.current = null
+      setRunning(false)
       setError(String(e instanceof Error ? e.message : e))
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
-  const stop = async () => {
-    setBusy(true)
-    runningRef.current = false
+  const stop = () => {
+    secretRef.current = null
     lastBeatSlot.current = null
-    try {
-      const r = await fetch('/api/watcher', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'stop' }),
-      })
-      const data = await r.json()
-      if (!r.ok) throw new Error(data.error ?? 'stop failed')
-      setSnap(data)
-    } catch (e) {
-      setError(String(e instanceof Error ? e.message : e))
-    } finally {
-      setBusy(false)
-    }
+    setRunning(false)
+    log({ kind: 'exited', detail: 'watcher stopped (key dropped from memory)', slot: snap?.currentSlot })
   }
 
+  // One heartbeat per new hour slot while running.
   useEffect(() => {
-    if (!runningRef.current || snap?.currentSlot == null) return
-    if (lastBeatSlot.current === snap.currentSlot) return
-    beat().catch((e) => setError(String(e instanceof Error ? e.message : e)))
-  }, [snap?.currentSlot, beat])
-
-  const postAction = async (action: string) => {
-    setBusy(true)
-    setError(null)
-    try {
-      const r = await fetch('/api/watcher', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
+    const secret = secretRef.current
+    if (!running || !secret || snap?.currentSlot == null || snap.account !== account) return
+    if (lastBeatSlot.current === snap.currentSlot || beating.current) return
+    beating.current = true
+    beat(secret)
+      .catch((e) => {
+        const msg = String(e instanceof Error ? e.message : e)
+        setError(msg)
+        log({ kind: 'error', detail: msg })
       })
-      const data = await r.json()
-      if (!r.ok) throw new Error(data.error ?? `${action} failed`)
-      setSnap(data)
+      .finally(() => {
+        beating.current = false
+      })
+  }, [running, snap?.currentSlot, snap?.account, account, beat, log])
+
+  const work = async () => {
+    setBusy('work')
+    setError(null)
+    setInfo(null)
+    try {
+      const r = await fetch('/api/watcher/btc-next', { cache: 'no-store' })
+      const data = (await r.json()) as BtcNext
+      setBtc(data)
+      if (!r.ok || !data.ok) throw new Error(data.error || 'Could not read the Bitcoin tip')
+      if (!data.next) {
+        setInfo(
+          `Nothing to submit: ${data.reason ?? 'rail is current'} (rail ${data.railTip ?? '—'}, Bitcoin testnet ${data.chainTip ?? '—'}). ` +
+            'New testnet blocks arrive about every 10 minutes and the header daemon is usually first.',
+        )
+        return
+      }
+      needFee()
+      if (!account) throw new Error('Create or open your wallet first (Wallet page).')
+      const secret = await unlock()
+      const seq = await fetchSequenceInfo(account, network.key)
+      const n = data.next
+      const tx = await signRailHeader({
+        account,
+        sequence: seq.sequence,
+        asset: 'BTC',
+        height: n.height,
+        hash: n.hash,
+        parentHash: n.parentHash,
+        merkleRoot: n.merkleRoot,
+        raw: n.raw,
+        fee: FEE,
+        networkId: network.networkId,
+        falconSecret: secret,
+      })
+      await submitSigned(tx, network.key)
+      log({ kind: 'work', detail: `BTC header ${n.height} submitted`, txId: tx.tx_id })
+      setInfo(`Submitted Bitcoin header ${n.height}. It counts as 1 work if it lands before the daemon's copy.`)
+      void refresh()
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
-  const realTest = async () => {
-    setBusy(true)
+  const claim = async () => {
+    setBusy('claim')
     setError(null)
+    setInfo(null)
     try {
-      runningRef.current = true
-      const r = await fetch('/api/watcher', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'real-test' }),
+      if (!account) throw new Error('Create or open your wallet first (Wallet page).')
+      needFee()
+      const secret = await unlock()
+      const seq = await fetchSequenceInfo(account, network.key)
+      const tx = await signPlClaim({
+        account,
+        sequence: seq.sequence,
+        fee: FEE,
+        networkId: network.networkId,
+        falconSecret: secret,
       })
-      const data = await r.json()
-      if (!r.ok) throw new Error(data.error ?? 'real test failed')
-      setSnap(data)
+      await submitSigned(tx, network.key)
+      log({ kind: 'claimed', detail: `claim of ${snap?.claimable ?? 0} FPL submitted`, txId: tx.tx_id })
+      setInfo('Claim submitted. Your balance updates when the next ledger closes.')
+      void refresh()
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
-  const present = Boolean(snap?.present)
-  const running = Boolean(snap?.running) || runningRef.current
+  const mine = Boolean(account && snap?.account === account)
+  const present = running && Boolean(snap?.inSlot || lastBeatSlot.current === snap?.currentSlot)
 
   return (
     <div className="card p-6 space-y-4 border-brand-500/20 bg-slate-900/70 backdrop-blur-md shadow-[0_0_40px_rgba(192,120,56,0.08)]">
@@ -215,8 +332,9 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
           </p>
           <h2 className="text-lg font-semibold text-white mt-1">Watcher &amp; claims</h2>
           <p className="text-slate-400 text-xs mt-1">
-            Start fills the current hour slot. Rail work is what pays. Claim pulls settled FPL —
-            testnet pays from epoch {snap?.firstClaimEpoch ?? 1}. Mainnet keeps the epoch-8 bootstrap.
+            Your wallet signs everything in this tab. Heartbeats mark the hour slot; real Bitcoin
+            headers are the work. Pay = 5% watcher bucket by work × slots / 168, capped at 0.05% of
+            the epoch emission per account. Heartbeats alone earn nothing.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -225,157 +343,85 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
               present ? 'bg-emerald-400 animate-pulse' : running ? 'bg-amber-400' : 'bg-slate-600'
             }`}
           />
-          <span
-            className={`text-xs font-medium ${
-              present ? 'text-emerald-400' : running ? 'text-amber-400' : 'text-slate-500'
-            }`}
-          >
-            {present ? 'IN' : running ? 'starting…' : 'OUT'}
+          <span className={`text-xs font-medium ${present ? 'text-emerald-400' : running ? 'text-amber-400' : 'text-slate-500'}`}>
+            {present ? 'IN' : running ? 'on' : 'OUT'}
           </span>
         </div>
       </div>
 
+      {!is2300 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          Watchers run on Falcon PL 2300. Switch network to use them.
+        </div>
+      )}
+      {walletLoaded && !wallet && (
+        <div className="rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-2 text-xs text-slate-300">
+          No wallet on this device. Create one on the Wallet page, fund it from the faucet, then
+          come back to watch. Showing the demo watcher below.
+        </div>
+      )}
+
       <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-2 text-xs text-slate-400">
         Epoch <span className="text-slate-200 font-mono">{snap?.epoch ?? '—'}</span>
-        {' · '}first claim{' '}
-        <span className="text-slate-200 font-mono">{snap?.firstClaimEpoch ?? 1}</span>
-        {' · '}this epoch ends in{' '}
-        <span className="text-slate-200 font-mono">{fmtDuration(snap?.epochEndsInMs)}</span>
-        {' · '}payday in{' '}
-        <span className="text-slate-200 font-mono">{fmtDuration(snap?.firstPaydayInMs)}</span>
-        {' · '}claimable{' '}
-        <span className="text-slate-200 font-mono">{snap?.claimable ?? 0} FPL</span>
+        {' · '}settles in <span className="text-slate-200 font-mono">{fmtDuration(snap?.epochEndsInMs)}</span>
+        {' · '}claimable <span className="text-slate-200 font-mono">{(snap?.claimable ?? 0).toLocaleString()} FPL</span>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <form
-          action="/api/watcher"
-          method="post"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (running) void stop()
-            else void start()
-          }}
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={Boolean(busy) || !wallet || !is2300}
+          onClick={() => (running ? stop() : void start())}
         >
-          <input type="hidden" name="action" value={running ? 'stop' : 'start'} />
-          <button type="submit" className="btn-primary" disabled={busy}>
-            {busy ? 'Working…' : running ? 'Stop watcher' : 'Start watcher'}
-          </button>
-        </form>
-        <form
-          action="/api/watcher"
-          method="post"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void postAction('work')
-          }}
+          {busy === 'start' ? 'Unlocking…' : running ? 'Stop watcher' : 'Start watcher'}
+        </button>
+        <button
+          type="button"
+          disabled={Boolean(busy) || !is2300}
+          onClick={() => void work()}
+          className="w-full py-3.5 px-6 rounded-xl font-semibold text-brand-200
+                     bg-slate-800 hover:bg-slate-700 border border-brand-500/40
+                     disabled:opacity-50 disabled:cursor-not-allowed transition-all"
         >
-          <input type="hidden" name="action" value="work" />
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full py-3.5 px-6 rounded-xl font-semibold text-brand-200
-                       bg-slate-800 hover:bg-slate-700 border border-brand-500/40
-                       disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
-            {busy ? 'Submitting…' : 'Submit rail work'}
-          </button>
-        </form>
-        <form
-          action="/api/watcher"
-          method="post"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void postAction('claim')
-          }}
+          {busy === 'work' ? 'Checking Bitcoin…' : 'Submit rail work'}
+        </button>
+        <button
+          type="button"
+          disabled={Boolean(busy) || !wallet || !mine || !snap?.canClaim || !is2300}
+          onClick={() => void claim()}
+          className="col-span-2 w-full py-3.5 px-6 rounded-xl font-semibold text-emerald-200
+                     bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40
+                     disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
-          <input type="hidden" name="action" value="claim" />
-          <button
-            type="submit"
-            disabled={busy || !snap?.canClaim}
-            className="w-full py-3.5 px-6 rounded-xl font-semibold text-emerald-200
-                       bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40
-                       disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            {busy ? 'Claiming…' : `Claim ${snap?.claimable ?? 0} FPL`}
-          </button>
-        </form>
-        <form
-          action="/api/watcher"
-          method="post"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void realTest()
-          }}
-        >
-          <input type="hidden" name="action" value="real-test" />
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full py-3.5 px-6 rounded-xl font-semibold text-slate-300
-                       bg-slate-800 hover:bg-slate-700 border border-slate-600
-                       disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
-            {busy ? 'Recording work…' : 'Record work now'}
-          </button>
-        </form>
+          {busy === 'claim' ? 'Claiming…' : `Claim ${(mine ? snap?.claimable ?? 0 : 0).toLocaleString()} FPL`}
+        </button>
       </div>
       <p className="text-[11px] text-slate-500">
-        One heartbeat per hour-slot while the tab is open. Claim stays dark until epoch{' '}
-        {snap?.firstClaimEpoch ?? 1} settles. Record work now; claim after this epoch closes.
+        Start asks for your passkey once; the key stays in this tab only until you press Stop or
+        close it. Each heartbeat, header or claim costs a {FEE} FPL fee.
       </p>
 
-      {flash && (
-        <div
-          className={`rounded-xl px-4 py-3 text-sm border ${
-            flash === 'error'
-              ? 'bg-red-500/10 border-red-500/20 text-red-400'
-              : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
-          }`}
-        >
-          {flash === 'started' && 'Watcher started — presence is on-chain.'}
-          {flash === 'stopped' && 'Watcher stopped.'}
-          {flash === 'paid' &&
-            `Work recorded · ${params?.get('work') ?? '0'} headers · slots ${params?.get('slots') ?? '0'} · claimable ${params?.get('claimable') ?? '0'} FPL`}
-          {flash === 'claimed' && `Claimed ${params?.get('claimable') ?? '0'} FPL`}
-          {flash === 'worked' && `Submitted rail work · ${params?.get('work') ?? '0'} this epoch`}
-          {flash === 'error' && (flashMsg || 'Watcher request failed')}
-          {!['started', 'stopped', 'paid', 'claimed', 'worked', 'error'].includes(flash) &&
-            `Watcher: ${flash}`}
-        </div>
+      {info && (
+        <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-4 py-3 text-sm text-emerald-300">{info}</div>
       )}
       {error && (
-        <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
-          {error}
-        </div>
+        <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">{error}</div>
       )}
 
-      {(() => {
-        const pay = snap?.lastPay
-        const q = (k: string) => {
-          const v = params?.get(k)
-          return v != null && v !== '' ? v : null
-        }
-        const work = snap?.work || pay?.work || Number(q('work') ?? 0)
-        const slots = snap?.slots || pay?.slots || Number(q('slots') ?? 0)
-        const weight = snap?.weight || pay?.weight || Number(q('weight') ?? 0)
-        const rail = snap?.railTip || pay?.railTip || Number(q('rail') ?? 0)
-        const paid = pay?.paid ?? Number(q('claimable') ?? snap?.claimable ?? 0)
-        return (
       <div className="grid grid-cols-2 gap-3">
         {[
-          { label: 'Account', value: snap?.account || 'watcher-browser' },
-          { label: 'Tip', value: snap?.tip != null ? snap.tip.toLocaleString() : '—' },
+          { label: 'Account', value: snap?.account || account || '—' },
+          { label: 'Balance', value: snap ? `${snap.balance.toLocaleString()} FPL` : '—' },
           { label: 'Slot', value: snap ? `${snap.currentSlot}${snap.inSlot ? ' · marked' : ''}` : '—' },
           { label: 'Slots this epoch', value: String(snap?.slots ?? 0) },
           { label: 'Work this epoch', value: String(snap?.work ?? 0) },
-          { label: 'Last test work', value: String(work) },
-          { label: 'Last test slots', value: String(slots) },
-          { label: 'Last test weight', value: String(weight) },
-          { label: 'Last payday', value: `${paid} FPL${pay?.claimed ? ' · claimed' : ''}` },
-          { label: 'Balance', value: snap ? `${snap.balance.toLocaleString()} FPL` : q('balance') ? `${q('balance')} FPL` : '—' },
-          { label: 'Epoch', value: snap ? `${snap.epoch} / settled ${snap.lastSettledEpoch ?? '—'}` : q('epoch') ?? '—' },
-          { label: 'BTC rail', value: String(rail) },
+          { label: 'Weight', value: String(snap?.weight ?? 0) },
+          { label: 'Epoch', value: snap ? `${snap.epoch} / settled ${snap.lastSettledEpoch ?? '—'}` : '—' },
+          {
+            label: 'BTC rail / testnet',
+            value: `${snap?.railTip ?? btc?.railTip ?? '—'} / ${btc?.chainTip ?? '—'}`,
+          },
         ].map(({ label, value }) => (
           <div key={label} className="rounded-xl bg-slate-800/60 border border-slate-800 px-3 py-2">
             <div className="text-[11px] text-slate-500">{label}</div>
@@ -383,36 +429,19 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
           </div>
         ))}
       </div>
-        )
-      })()}
-
-      {snap?.lastTxId && (
-        <p className="text-[11px] font-mono text-slate-500 break-all">last tx {snap.lastTxId}</p>
-      )}
 
       <div className="space-y-1.5">
-        <div className="text-[11px] uppercase tracking-wider text-slate-500">Live enter / exit</div>
+        <div className="text-[11px] uppercase tracking-wider text-slate-500">This tab</div>
         <ol className="max-h-48 overflow-y-auto space-y-1.5 text-xs">
-          {(snap?.events ?? []).length === 0 && !snap?.lastPay && !params?.get('work') && (
-            <li className="text-slate-600">No beats yet. Press Start watcher.</li>
-          )}
-          {(snap?.events ?? []).length === 0 && (snap?.lastPay || params?.get('work')) && (
-            <li className="text-emerald-400">
-              Last payday {snap?.lastPay?.paid ?? params?.get('claimable')} FPL · work{' '}
-              {snap?.lastPay?.work ?? params?.get('work')} · slots{' '}
-              {snap?.lastPay?.slots ?? params?.get('slots')} · rail{' '}
-              {snap?.lastPay?.railTip ?? params?.get('rail')}
-            </li>
-          )}
-          {(snap?.events ?? []).map((ev, i) => (
+          {events.length === 0 && <li className="text-slate-600">Nothing yet. Press Start watcher.</li>}
+          {events.map((ev, i) => (
             <li key={`${ev.at}-${i}`} className="flex gap-2">
-              <span className="text-slate-600 font-mono shrink-0">
-                {ev.at.slice(11, 19)}
+              <span className="text-slate-600 font-mono shrink-0">{ev.at.slice(11, 19)}</span>
+              <span className={`${KIND_COLOR[ev.kind]} font-medium w-16 shrink-0`}>{ev.kind}</span>
+              <span className="text-slate-400 break-all">
+                {ev.detail}
+                {ev.txId ? ` · ${ev.txId.slice(0, 12)}…` : ''}
               </span>
-              <span className={`${KIND_COLOR[ev.kind]} font-medium w-16 shrink-0`}>
-                {ev.kind}
-              </span>
-              <span className="text-slate-400 break-all">{ev.detail}</span>
             </li>
           ))}
         </ol>

@@ -1,4 +1,8 @@
-/** Epoch / CID / PoPL display parameters (UI + preview math; chain uses daemon constants). */
+/**
+ * Epoch / CID / PoPL display parameters (legacy XRPL UI + preview math).
+ * Falcon PL 2300 does not use the CID schedule: it emits a flat `emission_bps`
+ * (30 = 0.30%) of the treasury per 7-day epoch; see `pl-rewards-model.ts`.
+ */
 
 export const EPOCHS_PER_YEAR = 52
 
@@ -22,8 +26,16 @@ export interface EpochOverview {
   emissionRateFalcon: number | null
   lpAllocationPct: number | null
   lpProviderCount: number | null
+  /** Legacy XRPL CID fields. On Falcon PL 2300 they carry the live 0.30%/epoch model. */
   cidEmissionPct: number | null
   cidYearlyAvgPct: number | null
+  /** Falcon PL: treasury emission per epoch in bps (economy.rs `emission_bps`, 30 = 0.30%). */
+  emissionBps?: number | null
+  /** Falcon PL: share of the remaining treasury emitted per year at `emissionBps` (compounding). */
+  emissionPctPerYear?: number | null
+  epochMs?: number | null
+  lastSettledEpoch?: number | null
+  firstClaimEpoch?: number | null
 }
 
 function cidEpochBpsNumerator(epoch: number): number {

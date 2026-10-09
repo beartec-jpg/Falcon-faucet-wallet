@@ -69,6 +69,9 @@ export default function LendPage() {
   const [notice, setNotice] = useState<string | null>(null)
 
   const refresh = useCallback(async (address?: string) => {
+    // Falcon PL 2300 reads markets from the chain in <PlFplMarkets />; the
+    // XRPL lend backend is retired there, so skip it.
+    if (network.networkId === 2300) return
     const base = address
       ? `/api/lend/overview?address=${encodeURIComponent(address)}`
       : '/api/lend/overview'
@@ -76,7 +79,7 @@ export default function LendPage() {
     const j = await r.json()
     if (!r.ok) throw new Error(j.error ?? 'Failed to load lending data')
     setData(j as LendOverview)
-  }, [networkKey])
+  }, [networkKey, network.networkId])
 
   useEffect(() => {
     let cancelled = false
@@ -634,6 +637,11 @@ export default function LendPage() {
         <NetworkBanner />
         <main className="max-w-3xl mx-auto px-4 py-6">
           <PlFplMarkets mode="lend" />
+          <p className="mt-4 text-[11px] text-slate-500">
+            Lending on Falcon PL has no interest rate yet. Suppliers earn the 20% lending share of each
+            epoch&apos;s emission, pro rata to each supplier's lend weight and capped at 0.5% of the emission per account.
+            See <a href="/rewards" className="underline">Rewards</a> for your projected share and to claim.
+          </p>
         </main>
       </ProductShell>
     )

@@ -1,19 +1,28 @@
 // /api/watcher
-// GET  ?account=   live enter/exit + on-chain presence
-// POST { action: 'start' | 'stop' | 'heartbeat', account? }
+// GET  ?account=   live enter/exit + on-chain presence (read-only, any account)
+// POST { action: 'start' | 'stop' | 'heartbeat' | 'claim' }
+//
+// Watchers sign their own txs in the browser (WatcherPanel: heartbeat, claim
+// and BTC rail_header via /api/watcher/btc-next). The server-side POST path
+// only exists for local dev with a falcon-pl-ctl binary and only for the
+// configured demo watcher account. On Vercel (no ctl) it answers 501.
+// `work` / `real-test` (synthetic BTC headers through ctl) are gone: 410.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { isOriginAllowed } from '@/lib/origin'
 import { PL_WATCHER_ACCOUNT } from '@/lib/pl-rpc'
+import { ctlAvailable } from '@/lib/pl-ctl'
 import {
   beatWatcher,
   claimWatcher,
-  realWatcherTest,
   startWatcher,
   stopWatcher,
   watcherSnapshot,
-  workWatcher,
 } from '@/lib/pl-watcher'
+
+const WALLET_SIGNED =
+  'Watcher actions are signed by your wallet in the browser on this site. ' +
+  'Open the faucet page, unlock your wallet and press Start watcher / Submit rail work / Claim.'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -77,6 +86,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
+  if (action === 'work' || action === 'real-test' || action === 'realtest') {
+    const msg =
+      'Server-side rail work was removed (the BTC rail only takes real Bitcoin headers). ' + WALLET_SIGNED
+    if (isForm) return formRedirect(req, { watcher: 'error', msg: msg.slice(0, 180) })
+    return NextResponse.json({ error: msg, action, walletSigned: true }, { status: 410 })
+  }
+  const needsCtl = action === 'start' || action === 'heartbeat' || action === 'claim'
+  if (needsCtl && !ctlAvailable()) {
+    if (isForm) return formRedirect(req, { watcher: 'error', msg: WALLET_SIGNED.slice(0, 180) })
+    return NextResponse.json({ error: WALLET_SIGNED, action, walletSigned: true }, { status: 501 })
+  }
+  if (needsCtl && account !== PL_WATCHER_ACCOUNT) {
+    const msg = `Server-side signing is limited to ${PL_WATCHER_ACCOUNT}. ${WALLET_SIGNED}`
+    if (isForm) return formRedirect(req, { watcher: 'error', msg: msg.slice(0, 180) })
+    return NextResponse.json({ error: msg, action, walletSigned: true }, { status: 403 })
+  }
+
   try {
     if (action === 'start') {
       const snap = await startWatcher(account)
@@ -99,17 +125,6 @@ export async function POST(req: NextRequest) {
       const r = await beatWatcher(account)
       return NextResponse.json({ ok: true, action, txId: r.txId, msg: r.msg, ...r.snapshot })
     }
-    if (action === 'work') {
-      const snap = await workWatcher(account)
-      if (isForm) {
-        return formRedirect(req, {
-          watcher: 'worked',
-          work: String(snap.work),
-          slots: String(snap.slots),
-        })
-      }
-      return NextResponse.json({ ok: true, action, ...snap })
-    }
     if (action === 'claim') {
       const snap = await claimWatcher(account)
       if (isForm) {
@@ -120,23 +135,6 @@ export async function POST(req: NextRequest) {
         })
       }
       return NextResponse.json({ ok: true, action, ...snap })
-    }
-    if (action === 'real-test' || action === 'realtest') {
-      const snap = await realWatcherTest(account)
-      const pay = snap.lastPay
-      if (isForm) {
-        return formRedirect(req, {
-          watcher: 'paid',
-          work: String(pay?.work ?? snap.work),
-          slots: String(pay?.slots ?? snap.slots),
-          weight: String(pay?.weight ?? snap.weight),
-          claimable: String(pay?.paid ?? snap.claimable),
-          balance: String(pay?.balance ?? snap.balance),
-          rail: String(pay?.railTip ?? snap.railTip),
-          epoch: String(pay?.epoch ?? snap.epoch),
-        })
-      }
-      return NextResponse.json({ ok: true, action: 'real-test', ...snap })
     }
     if (isForm) return formRedirect(req, { watcher: 'error', msg: 'Unknown action' })
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
