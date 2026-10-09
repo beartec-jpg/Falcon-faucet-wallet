@@ -16,6 +16,8 @@ export interface DestLockPending {
   lastError?: string
   depositBlock?: number
   lcExecution?: number
+  /** FalconQcBridgeV3 deposit id (V3 peg-in only): needed to claim a refund after 3 days. */
+  v3DepositId?: string
   createdAt: number
   updatedAt: number
 }

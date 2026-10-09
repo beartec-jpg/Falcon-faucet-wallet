@@ -14,10 +14,12 @@ import {
   openClaimDone,
   qcV2Bridge,
   parseDepositId,
+  pegInV3Bridge,
   qcV3Bridge,
   resolveTakeBridge,
   takeActionAfterOpen,
   v3RefundNoteId,
+  v3DepositIdFromLogs,
   type OpenClaimResponse,
 } from '@/lib/pl-v3-claims'
 
@@ -41,6 +43,8 @@ export interface Pl2300BridgeConfig {
     legacy_qc_v2?: string
     /** FalconQcBridgeV3 (peg-out claims past the V2 header, V3 refunds). Unset until deployed. */
     qc_v3?: string
+    /** true = peg-in goes to `qc_v3` (V3 mint-or-refund). Unset/false = V1 `bridge`. */
+    pegin_v3?: boolean
     legacy_verifier_v2?: string
     falcon_key_root?: string
     start_height: number
@@ -133,9 +137,15 @@ async function withSepolia<T>(rpcUrl: string, fn: (p: JsonRpcProvider) => Promis
   throw last instanceof Error ? last : new Error('Sepolia RPC unavailable')
 }
 
-/** Peg-in stays on the STATUS FalconQcBridge. Peg-out openClaim/take is FalconQcBridgeV2. */
+/** Peg-in: FalconQcBridgeV3 once the config switches it on (`pegin_v3`), else the V1
+ * FalconQcBridge. Same depositEth/depositUsdc ABI on both. Peg-out routing is walletd's answer. */
 export function pegInBridge(cfg: Pl2300BridgeConfig): string {
-  return cfg.sepolia.bridge
+  return pegInV3Bridge(cfg) ?? cfg.sepolia.bridge
+}
+
+/** True when peg-in deposits go to FalconQcBridgeV3 (mint by the V3 watcher, refund after 3 days). */
+export function pegInIsV3(cfg: Pl2300BridgeConfig | null | undefined): boolean {
+  return !!pegInV3Bridge(cfg)
 }
 
 export function pegOutBridge(cfg: Pl2300BridgeConfig): string {
@@ -285,20 +295,29 @@ export async function depositEthDestLock(opts: {
   amountEth: string
   plAccount: string
   onStep?: (s: string) => void
-}): Promise<{ depositHash: string; dest20: string }> {
+}): Promise<{ depositHash: string; dest20: string; v3DepositId?: string }> {
   const dest20 = dest20FromAccount(opts.plAccount)
   if (!opts.plAccount.trim()) throw new Error('PL account required for dest-lock')
   opts.onStep?.('Connecting to Sepolia…')
+  // An RPC-fallback retry after the send must wait on the same hash, never deposit twice.
+  let sent: string | null = null
   return withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
     const signer = new Wallet(opts.evmPrivateKey, p)
     const c = new Contract(pegInBridge(opts.cfg), DEST_LOCK_ABI, signer)
     const value = parseEther(opts.amountEth)
     if (value <= 0n) throw new Error('Amount must be greater than zero')
-    opts.onStep?.(`depositEth dest20=${dest20.slice(0, 10)}…`)
-    const tx = await c.depositEth(dest20, { value })
-    opts.onStep?.(`Tx ${tx.hash.slice(0, 10)}… waiting for confirmation`)
-    const rc = await tx.wait(1)
+    if (!sent) {
+      opts.onStep?.(`depositEth dest20=${dest20.slice(0, 10)}…`)
+      const tx = await c.depositEth(dest20, { value })
+      sent = tx.hash as string
+    }
+    const hash: string = sent
+    opts.onStep?.(`Tx ${hash.slice(0, 10)}… waiting for confirmation`)
+    const rc = await p.waitForTransaction(hash, 1, 600_000)
+    const tx = { hash }
     if (!rc || rc.status !== 1) throw new Error(`depositEth failed (${tx.hash})`)
+    const v3 = pegInV3Bridge(opts.cfg)
+    if (v3) return { depositHash: tx.hash, dest20, v3DepositId: v3DepositIdFromLogs(rc.logs, v3).depositId }
     return { depositHash: tx.hash, dest20 }
   })
 }
@@ -309,10 +328,13 @@ export async function depositUsdcDestLock(opts: {
   amountUsdc: string
   plAccount: string
   onStep?: (s: string) => void
-}): Promise<{ depositHash: string; approveHash?: string; dest20: string }> {
+}): Promise<{ depositHash: string; approveHash?: string; dest20: string; v3DepositId?: string }> {
   const dest20 = dest20FromAccount(opts.plAccount)
   if (!opts.plAccount.trim()) throw new Error('PL account required for dest-lock')
   opts.onStep?.('Connecting to Sepolia…')
+  // An RPC-fallback retry after a send must wait on the same hash, never approve or deposit twice.
+  let approveSent: string | undefined
+  let sent: string | null = null
   return withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
     const signer = new Wallet(opts.evmPrivateKey, p)
     const usdc = new Contract(opts.cfg.sepolia.usdc_token, ERC20_ABI, signer)
@@ -320,19 +342,31 @@ export async function depositUsdcDestLock(opts: {
     const bridge = new Contract(lock, DEST_LOCK_ABI, signer)
     const amount = parseUnits(opts.amountUsdc, opts.cfg.sepolia.usdc_decimals ?? 6)
     if (amount <= 0n) throw new Error('Amount must be greater than zero')
-    const allowance: bigint = await usdc.allowance(signer.address, lock)
-    let approveHash: string | undefined
-    if (allowance < amount) {
-      opts.onStep?.('Approving USDC…')
-      const atx = await usdc.approve(lock, amount)
-      const arc = await atx.wait(1)
-      if (!arc || arc.status !== 1) throw new Error(`USDC approve failed (${atx.hash})`)
-      approveHash = atx.hash
+    if (!sent) {
+      if (!approveSent) {
+        const allowance: bigint = await usdc.allowance(signer.address, lock)
+        if (allowance < amount) {
+          opts.onStep?.('Approving USDC…')
+          const atx = await usdc.approve(lock, amount)
+          approveSent = atx.hash as string
+        }
+      }
+      if (approveSent) {
+        const arc = await p.waitForTransaction(approveSent, 1, 600_000)
+        if (!arc || arc.status !== 1) throw new Error(`USDC approve failed (${approveSent})`)
+      }
+      opts.onStep?.(`depositUsdc dest20=${dest20.slice(0, 10)}…`)
+      const dtx = await bridge.depositUsdc(dest20, amount)
+      sent = dtx.hash as string
     }
-    opts.onStep?.(`depositUsdc dest20=${dest20.slice(0, 10)}…`)
-    const tx = await bridge.depositUsdc(dest20, amount)
-    const rc = await tx.wait(1)
+    const approveHash = approveSent
+    const tx = { hash: sent as string }
+    const rc = await p.waitForTransaction(tx.hash, 1, 600_000)
     if (!rc || rc.status !== 1) throw new Error(`depositUsdc failed (${tx.hash})`)
+    const v3 = pegInV3Bridge(opts.cfg)
+    if (v3) {
+      return { depositHash: tx.hash, approveHash, dest20, v3DepositId: v3DepositIdFromLogs(rc.logs, v3).depositId }
+    }
     return { depositHash: tx.hash, approveHash, dest20 }
   })
 }
