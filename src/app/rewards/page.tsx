@@ -627,7 +627,7 @@ export default function RewardsPage() {
               <div className="text-white font-semibold">{epoch.number ?? '—'}</div>
             </div>
             <div>
-              <div className="text-slate-500">Validators</div>
+              <div className="text-slate-500">Validators + watchers</div>
               <div className="text-white font-semibold">{(epoch.validatorAllocBps / 100).toFixed(0)}%</div>
             </div>
             <div>
