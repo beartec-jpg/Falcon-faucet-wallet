@@ -1,7 +1,6 @@
 {
   "version": 1,
   "status": "live",
-  "pegin_notice": "ETH/USDC deposits now go to the new V3 bridge. Minting starts after Falcon PL height 414000 (about 15:00 BST today), once the Sepolia light client has caught up. Deposits are not lost: an unminted V3 deposit can be refunded after 3 days. Withdrawals to Sepolia: claim them under Bridge out, Pending withdrawals.",
   "network_id": 2300,
   "description": "Falcon PL 2300 peg-in: FalconQcBridge depositEth/depositUsdc (bridge field). Peg-out openClaim + dest take uses legacy_qc_v2 (FalconQcBridgeV2), the contract whose fplTip is past start_height. legacy_destlock is Kickoff leftover only. No operator self-dest. Do not market BTC exits as custodialess.",
   "sepolia": {
