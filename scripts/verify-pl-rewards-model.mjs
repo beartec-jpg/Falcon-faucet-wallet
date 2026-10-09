@@ -69,4 +69,28 @@ const y = m.emissionPctPerYear(30, 604_800_000)
 assert.ok(y > 14.4 && y < 14.7, `yearly ${y}`)
 assert.equal(m.settleEtaMs(8, 604_800_000, 1000, 4_715_450_800), 1000 + 8 * 604_800_000 - 4_715_450_800)
 
+// v2: same inputs/numbers as Falcon-PL rv2_rewards_tests.rs::b2_cross_language_golden_with_check_script
+assert.deepEqual(m.feeSplitV2(128n), [64n, 38n, 26n])
+assert.equal(m.proposerBlockCredit(200n), 128n)
+const v2 = m.projectSettleV2({
+  treasury: 190_771_061_468n,
+  emissionBps: 30n,
+  epochClaimable: true,
+  ammLp: { lpA: 3_000_000n, lpB: 1n },
+  lendLp: {},
+  watcherWork: { w1: 300n, w2: 40n },
+  watcherSlots: { w1: 168n, w2: 84n },
+  proposerCredit: { v1: 6400n, v3: 7000n, v12: 128n },
+  voteCredit: { v1: 900n, v3: 1000n, v12: 10n },
+  floorWeights: { v1: 105n, v3: 100n, v12: 100n },
+  feePool: 12_345n,
+})
+assert.equal(v2.emit, 572_313_184n)
+assert.equal(v2.validatorPot, 568_891_612n)
+assert.deepEqual(v2.proposerPays, { v1: 134_569_275n, v12: 2_691_385n, v3: 147_185_145n })
+assert.deepEqual(v2.votePays, { v1: 107_225_643n, v12: 1_191_396n, v3: 119_139_604n })
+assert.deepEqual(v2.floorPays, { v1: 19_584_793n, v12: 18_652_184n, v3: 18_652_184n })
+assert.deepEqual(v2.watcherPays, { w1: 286_156n, w2: 286_156n })
+assert.deepEqual(v2.ammPays, { lpA: 2_861_565n, lpB: 38n })
+
 console.log('verify-pl-rewards-model: OK')
