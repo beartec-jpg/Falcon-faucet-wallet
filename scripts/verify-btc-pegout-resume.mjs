@@ -946,4 +946,64 @@ await test('dest address forms: P2WPKH and P2PKH accepted, others refused', asyn
   await assert.rejects(m.btcDestScriptPubKey('2N3oefVeg6stiTb5Kh3ozCSkaqmx91FDbsm'), /only P2PKH/)
 })
 
+await test('payout address is checked before anything irreversible (bad checksum / P2SH: nothing signed)', async () => {
+  for (const bad of [DEST.slice(0, -1) + (DEST.endsWith('q') ? 'p' : 'q'), '2N3oefVeg6stiTb5Kh3ozCSkaqmx91FDbsm']) {
+    const store = m.kvBtcPegOutStore(memKv())
+    const w = fakeWorld()
+    await assert.rejects(m.runBtcPegOut({ ...params, dest: bad }, w.deps(store)), /payout address cannot be used/)
+    assert.equal(w.burnsSigned, 0)
+    assert.equal(w.submits, 0)
+    assert.equal(w.kickoffRequests, 0)
+    assert.equal(store.listOpen(ACCOUNT).length, 0)
+  }
+})
+
+await test('Kickoff refused because withdrawals are paused: stops once, record kept as pending, no retry loop', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld()
+  let calls = 0
+  const paused = {
+    requestKickoff: async () => {
+      calls += 1
+      throw new m.BtcWithdrawalsPausedError('BTC withdrawals are paused.')
+    },
+  }
+  for (let i = 0; i < 2; i++) {
+    const err = await m.runBtcPegOut(params, w.deps(store, paused)).then(() => null, (e) => e)
+    assert.ok(m.isBtcWithdrawalsPausedError(err))
+    assert.match(err.message, /paused.*pending.*record is kept/s)
+  }
+  assert.equal(calls, 2, 'one Kickoff request per press, never a loop')
+  assert.equal(w.burnsSigned, 1, 'no second burn')
+  assert.equal(w.broadcasts.length, 0)
+  const open = store.listOpen(ACCOUNT)
+  assert.equal(open.length, 1)
+  assert.equal(open[0].phase, 'burned')
+  assert.equal(open[0].lastError, 'BTC withdrawals paused')
+  // Back on: the same withdrawal continues from the Kickoff, no new burn.
+  const out = await m.runBtcPegOut(params, w.deps(store))
+  assert.equal(out.resumed, true)
+  assert.equal(w.burnsSigned, 1)
+  assert.equal(store.load(ACCOUNT, out.noteId).phase, 'done')
+})
+
+await test('take refused because withdrawals are paused: Kickoff kept, take not broadcast, not done', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld()
+  let calls = 0
+  const err = await m
+    .runBtcPegOut(params, w.deps(store, {
+      requestTake: async () => {
+        calls += 1
+        throw new m.BtcWithdrawalsPausedError()
+      },
+    }))
+    .then(() => null, (e) => e)
+  assert.ok(m.isBtcWithdrawalsPausedError(err))
+  assert.equal(calls, 1)
+  assert.deepEqual(w.broadcasts, [KICKOFF_HEX], 'take never broadcast')
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
+  assert.equal(w.kickoffRequests, 1)
+})
+
 console.log(`\n${passed} BTC peg-out resume checks passed`)

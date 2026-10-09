@@ -708,6 +708,23 @@ function persist(store: BtcPegOutStore, rec: BtcPegOutRecord): void {
   }
 }
 
+/**
+ * Thrown by a Kickoff / take request that the site refused because BTC
+ * withdrawals are paused. The run stops at once (no retry loop); the record is
+ * kept so the same withdrawal resumes once withdrawals are back on.
+ */
+export class BtcWithdrawalsPausedError extends Error {
+  readonly paused = true
+  constructor(message = 'BTC withdrawals are paused.') {
+    super(message)
+    this.name = 'BtcWithdrawalsPausedError'
+  }
+}
+
+export function isBtcWithdrawalsPausedError(e: unknown): boolean {
+  return !!e && typeof e === 'object' && (e as { paused?: unknown }).paused === true
+}
+
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
@@ -740,6 +757,18 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
   const t: BtcPegOutTiming = { ...DEFAULT_TIMING, ...(p.timing ?? {}) }
   const amount = Math.floor(p.amountSats)
   const dest = p.dest.trim()
+  // Parse the payout address BEFORE anything irreversible: a take to an
+  // unsupported or mistyped address could never be checked, so a burn and
+  // Kickoff for it would be stranded.
+  let destSpk: string
+  try {
+    destSpk = await btcDestScriptPubKey(dest)
+  } catch (e) {
+    throw new Error(
+      `This Bitcoin payout address cannot be used (${errMsg(e)}). Use a P2WPKH or P2PKH address. ` +
+        'Nothing was signed or sent.',
+    )
+  }
   const noteId = await btcWithdrawNoteId(p.account, amount, dest)
   const step = (m: string) => d.onStep?.(m)
 
@@ -772,6 +801,15 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     } catch {
       /* ignore */
     }
+  }
+  /** Site refused a BTC withdrawal step (paused): stop, keep the record, say it is pending. */
+  const pausedStop = (what: string): never => {
+    note('BTC withdrawals paused')
+    throw new BtcWithdrawalsPausedError(
+      `BTC withdrawals are paused. Your Bridge out of ${amount} sats to ${dest} is pending: ${what} It has not ` +
+        'been paid yet and its record is kept. Nothing new was signed or sent; it continues from this step once ' +
+        'withdrawals are back on, or ask for a manual check.',
+    )
   }
 
   if (rec?.phase === 'done') {
@@ -967,6 +1005,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     try {
       kick = await d.requestKickoff()
     } catch (e) {
+      if (isBtcWithdrawalsPausedError(e)) pausedStop('the FBTC burn is done, the Kickoff is not.')
       note(errMsg(e))
       throw new Error(
         `FBTC is burned but the Kickoff could not be signed (${errMsg(e)}). ` +
@@ -1096,6 +1135,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     try {
       take = await d.requestTake(kickoffTxid, amount)
     } catch (e) {
+      if (isBtcWithdrawalsPausedError(e)) pausedStop('the Kickoff is confirmed, the take is not.')
       note(errMsg(e))
       throw new Error(
         `Kickoff is confirmed but the take failed (${errMsg(e)}). Press Bridge out again with the same amount ` +
@@ -1107,7 +1147,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     let takeTxid: string
     try {
       if (!take.signed_btc_tx) throw new Error('no signed take returned')
-      takeTxid = await checkTakeTx(take.signed_btc_tx, rec.signedKickoffHex as string, amount, await btcDestScriptPubKey(dest))
+      takeTxid = await checkTakeTx(take.signed_btc_tx, rec.signedKickoffHex as string, amount, destSpk)
       const claimed = String(take.take_txid ?? '').trim().toLowerCase()
       if (claimed && claimed !== takeTxid) {
         throw new Error(`take txid ${claimed} does not match its signed transaction ${takeTxid}`)

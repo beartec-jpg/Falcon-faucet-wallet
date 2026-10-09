@@ -13,20 +13,25 @@ import {
 import {
   agreeSpender,
   browserBtcPegOutStore,
+  BtcWithdrawalsPausedError,
   runBtcPegOut,
   type ChainBtcWithdraw,
   type ExplorerSpendAnswer,
 } from './btc-pegout-resume'
-import btcBridgeConfig from '../../public/config/btc-spv-bridge.json'
+import { BTC_WITHDRAWALS_ENABLED, BTC_WITHDRAWALS_PAUSED_CODE } from './btc-withdrawals'
 
 /**
- * FBTC → BTC withdrawals switch: `btc_withdrawals_enabled` in
- * public/config/btc-spv-bridge.json, read the same way as the withdrawals-off
- * change. Anything other than an explicit `true` (including a missing key)
- * counts as OFF.
+ * FBTC → BTC withdrawals switch. Single source: src/lib/btc-withdrawals.ts
+ * (`btc_withdrawals_enabled` in public/config/btc-spv-bridge.json; anything
+ * other than an explicit `true` is OFF).
  */
 export function btcWithdrawalsEnabled(): boolean {
-  return (btcBridgeConfig as { btc_withdrawals_enabled?: unknown }).btc_withdrawals_enabled === true
+  return BTC_WITHDRAWALS_ENABLED
+}
+
+/** The site refused a BTC Kickoff / take step because withdrawals are paused. */
+function isPausedRefusal(status: number, body: { code?: unknown }): boolean {
+  return status === 403 && body.code === BTC_WITHDRAWALS_PAUSED_CODE
 }
 
 const RAIL = 'BTC'
@@ -487,9 +492,11 @@ export async function pegOutPlBtc(opts: {
         })
         const kickJ = (await kick.json().catch(() => ({}))) as {
           error?: string
+          code?: string
           signed_btc_tx?: string
           amount?: number
         }
+        if (isPausedRefusal(kick.status, kickJ)) throw new BtcWithdrawalsPausedError(kickJ.error)
         if (!kick.ok || !kickJ.signed_btc_tx) {
           throw new Error(kickJ.error || 'Dest-lock Kickoff failed')
         }
@@ -529,9 +536,11 @@ export async function pegOutPlBtc(opts: {
         })
         const takeJ = (await take.json().catch(() => ({}))) as {
           error?: string
+          code?: string
           take_txid?: string
           signed_btc_tx?: string
         }
+        if (isPausedRefusal(take.status, takeJ)) throw new BtcWithdrawalsPausedError(takeJ.error)
         if (!take.ok) throw new Error(takeJ.error || 'Dest take failed')
         return takeJ
       },
