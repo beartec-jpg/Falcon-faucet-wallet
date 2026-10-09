@@ -8,8 +8,13 @@ import { loadPoolPairTokens, type StableTokenRef } from '@/lib/swap/token-config
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const BPS = 10_000
 const DROPS = 1_000_000
-/** Testnet first claimable epoch (Falcon-PL `pl-start-public-2300.sh` FIRST_CLAIM=1; mainnet default is 8). */
-const FIRST_CLAIM_EPOCH = 1
+/**
+ * First claimable epoch. Testnet: Falcon-PL `pl-start-public-2300.sh` FIRST_CLAIM=1.
+ * Mainnet: `economy.rs` FIRST_CLAIM_EPOCH = 8 (epochs 1–7 are bootstrap).
+ */
+function firstClaimEpoch(networkKey: ReturnType<typeof resolveNetworkKey>): number {
+  return networkKey === 'mainnet' ? 8 : 1
+}
 
 function parseDrops(em: unknown): number {
   if (typeof em === 'string' || typeof em === 'number') {
@@ -116,8 +121,8 @@ async function buildAmmPoolRow(
       base.reason = shareDrops === 0 ? 'Estimated reward rounds to zero' : undefined
     } else {
       base.reason =
-        epoch.number != null && epoch.number < FIRST_CLAIM_EPOCH
-          ? `Emissions start at epoch ${FIRST_CLAIM_EPOCH} (now ${epoch.number})`
+        epoch.number != null && epoch.number < firstClaimEpoch(networkKey)
+          ? `Emissions start at epoch ${firstClaimEpoch(networkKey)} (now ${epoch.number})`
           : 'No AMM LP allocation this epoch'
     }
 
@@ -269,8 +274,8 @@ export async function GET(req: NextRequest) {
                 : undefined
           } else {
             vaultLp.reason =
-              epoch.number != null && epoch.number < FIRST_CLAIM_EPOCH
-                ? `Emissions start at epoch ${FIRST_CLAIM_EPOCH} (now ${epoch.number})`
+              epoch.number != null && epoch.number < firstClaimEpoch(networkKey)
+                ? `Emissions start at epoch ${firstClaimEpoch(networkKey)} (now ${epoch.number})`
                 : 'No vault LP allocation this epoch'
           }
         }
