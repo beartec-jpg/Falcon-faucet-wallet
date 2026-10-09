@@ -90,6 +90,7 @@ import {
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
 import { plAccountId } from '@/lib/pl-names'
 import { BTC_RAIL_LIVE, pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
+import { findOpenBtcPegOut } from '@/lib/btc-pegout-resume'
 import { hasBtcWallet, provisionBtcWalletForStoredWallet } from '@/lib/create-btc-wallet'
 import {
   BITVM2_INSTANCE_ADDRESS,
@@ -1549,11 +1550,14 @@ export default function BridgeDepositPanel({
       }
       // FBTC balance for bridge = SPV MPT only (what Claim mint creates)
       const avail = Math.max(0, fbtcSpvLive ?? fbtcLive ?? 0)
-      if (avail + 1e-12 < amt) {
+      const amountSats = Math.round(amt * 1e8)
+      // A pending burn already debited the balance — resuming it must not be
+      // blocked by the "insufficient" check (the resume never burns again).
+      const resumingBtcOut = isPl2300 && !!findOpenBtcPegOut(falconId, amountSats, wallet.btcAddress)
+      if (!resumingBtcOut && avail + 1e-12 < amt) {
         setError(`Insufficient FBTC (have ${fmt(avail, 8)}; need ${fmt(amt, 8)}). Use Max.`)
         return
       }
-      const amountSats = Math.round(amt * 1e8)
       const minOut = Number(spvStatus?.pegOut?.minSats ?? 2000)
       if (amountSats < minOut) {
         setError(`Amount too small (min ${minOut} sats)`)
@@ -1570,7 +1574,7 @@ export default function BridgeDepositPanel({
         setBusy(true)
         setError(null)
         setWithdrawResult(null)
-        setStep('Burning FBTC on Falcon PL…')
+        setStep(resumingBtcOut ? 'Resuming pending BTC Bridge out (no new burn)…' : 'Burning FBTC on Falcon PL…')
         try {
           const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
           const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
@@ -1586,6 +1590,14 @@ export default function BridgeDepositPanel({
             btcAddress: wallet.btcAddress,
             destSecretHex,
             onStep: setStep,
+            confirmChainResume: async (w) =>
+              typeof window !== 'undefined' &&
+              window.confirm(
+                `Falcon PL already holds your burn of ${(w.amountSats / 1e8).toFixed(8)} FBTC to ${w.externalTo || wallet.btcAddress}, ` +
+                  'but this browser has no record of how far it got.\n\n' +
+                  'Resume it at the Bitcoin Kickoff? Only do this if you have NOT already received this BTC. ' +
+                  'No new burn will be made either way.',
+              ),
           })
           setWithdrawResult({
             falconTxHash: out.txId,
