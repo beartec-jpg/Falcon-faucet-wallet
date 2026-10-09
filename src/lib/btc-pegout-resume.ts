@@ -247,7 +247,29 @@ export async function btcTxidFromRaw(rawHex: string): Promise<string> {
 // ── storage ──────────────────────────────────────────────────────────────────
 
 export const BTC_PEGOUT_STORE_KEY = 'falcon-pl-btc-pegout-v1'
-const MAX_RECORDS_PER_ACCOUNT = 20
+/** Compact `done` tombstones kept per account (the node never prunes notes). */
+const MAX_DONE_TOMBSTONES = 2000
+
+/** Completed record → minimal tombstone (no signed payloads). */
+function tombstone(r: BtcPegOutRecord): BtcPegOutRecord {
+  return {
+    v: 1,
+    noteId: r.noteId,
+    account: r.account,
+    network: r.network,
+    amountSats: r.amountSats,
+    dest: r.dest,
+    sequence: r.sequence,
+    burnTxId: r.burnTxId,
+    burnRawJson: '',
+    phase: 'done',
+    kickoffTxid: r.kickoffTxid,
+    takeTxid: r.takeTxid,
+    recoveredFromChain: r.recoveredFromChain,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }
+}
 
 type KV = { getItem(k: string): string | null; setItem(k: string, v: string): void }
 
@@ -286,10 +308,11 @@ export function kvBtcPegOutStore(kv: KV | null): BtcPegOutStore {
     save(rec) {
       const list = read(rec.account).filter((r) => r.noteId !== rec.noteId)
       list.unshift({ ...rec })
-      // Keep every open record; trim only finished ones.
+      // Keep every open record; finished ones shrink to tombstones so completion
+      // knowledge for each on-chain note survives (bounded generously).
       const open = list.filter((r) => r.phase !== 'done')
-      const done = list.filter((r) => r.phase === 'done')
-      write(rec.account, [...open, ...done.slice(0, Math.max(0, MAX_RECORDS_PER_ACCOUNT - open.length))])
+      const done = list.filter((r) => r.phase === 'done').map(tombstone)
+      write(rec.account, [...open, ...done.slice(0, MAX_DONE_TOMBSTONES)])
     },
     remove(account, noteId) {
       // Throws on failure: the caller must not claim the record was cleared.
@@ -421,7 +444,12 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
   }
 
   // ── 0. No local record: is the burn already on-chain (lost browser state)? ──
+  // The account sequence is read BEFORE the chain list; a fresh burn re-reads it
+  // and refuses if anything committed in between (e.g. an in-flight burn whose
+  // local record was lost), so a list taken before that commit is never trusted.
+  let seqBeforeChain: number | null = null
   if (!rec) {
+    seqBeforeChain = (await d.accountSnap()).sequence
     const onChain = await noteOnChain()
     if (onChain) {
       const w = (chain as ChainBtcWithdraw[] | null)?.find((x) => x.noteId === noteId) ?? {
@@ -488,6 +516,12 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
       )
     }
     const snap = await d.accountSnap()
+    if (seqBeforeChain === null || snap.sequence !== seqBeforeChain) {
+      throw new Error(
+        'This account changed on Falcon PL while the earlier-withdrawal check ran. No burn was made — press ' +
+          'Bridge out again so the check is repeated.',
+      )
+    }
     if (snap.btcSats < amount) {
       throw new Error(`Insufficient FBTC (have ${(snap.btcSats / 1e8).toFixed(8)})`)
     }

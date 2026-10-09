@@ -586,4 +586,34 @@ await test('records live under a per-account key (other accounts cannot overwrit
   assert.ok([...kv.map.keys()].every((k) => k.startsWith(m.BTC_PEGOUT_STORE_KEY + ':')))
 })
 
+await test('in-flight burn commits during the chain check: no fresh burn is signed', async () => {
+  const w = fakeWorld()
+  const lostRaw = JSON.stringify({ sequence: w.seq, amount: AMOUNT + 3, dest: DEST })
+  const deps = w.deps(m.kvBtcPegOutStore(memKv()), {
+    listChainWithdrawals: async () => {
+      const snapshot = w.chainNotes.slice() // list taken BEFORE the commit…
+      w.apply(lostRaw) // …then the lost in-flight burn commits
+      return snapshot
+    },
+  })
+  await assert.rejects(m.runBtcPegOut(params, deps), /changed on Falcon PL while/)
+  assert.equal(w.burnsSigned, 0)
+  assert.equal(w.burnsApplied, 1)
+})
+
+await test('done records become compact tombstones and are kept', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const now = Date.now()
+  for (let i = 0; i < 30; i++) {
+    store.save({ v: 1, noteId: `n${i}`, account: 'alice', network: 't', amountSats: 1000 + i, dest: 'd', sequence: i,
+      burnTxId: 'b', burnRawJson: '{"big":"payload"}', signedKickoffHex: 'ab', phase: 'done', createdAt: now, updatedAt: now })
+  }
+  for (let i = 0; i < 30; i++) {
+    const r = store.load('alice', `n${i}`)
+    assert.equal(r.phase, 'done')
+    assert.equal(r.burnRawJson, '')
+    assert.equal(r.signedKickoffHex, undefined)
+  }
+})
+
 console.log(`\n${passed} BTC peg-out resume checks passed`)
