@@ -154,8 +154,9 @@ export default function ValidatorPage() {
 
         {data && !data.onboardingOpen && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-            <strong>Validator onboarding opens with {FIRST_VALIDATOR_VERSION}.</strong> New validators then need a
-            validator key with proof of possession in the Bond, Scott&apos;s admission approval, and a{' '}
+            <strong>Validator onboarding is not open yet.</strong> It opens after {FIRST_VALIDATOR_VERSION} activates and
+            every seat has a public endpoint. New validators then need a validator key with proof of possession in
+            the bond, Scott&apos;s admission approval, and a{' '}
             <strong>50,000 FPL</strong> minimum bond (existing seats are grandfathered). Until then you can run an
             observer node.
           </div>
@@ -165,7 +166,7 @@ export default function ValidatorPage() {
         <section className="card space-y-3 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Install a node (one line)</h2>
           <p className="text-xs text-slate-400">
-            Linux x86_64. Downloads the published binaries, checks their SHA-256 (and signature), generates your keys
+            Linux x86_64. Downloads the published binaries, checks the release signature and SHA-256, generates your keys
             locally (they never leave your machine), installs a systemd service, peers over the public seed (no VPN)
             and waits until it is in sync. Safe to re-run; manage it with <code className="text-slate-300">falcon-node status | logs | upgrade | uninstall</code>.
           </p>
@@ -283,7 +284,7 @@ export default function ValidatorPage() {
               </thead>
               <tbody>
                 {data.queue.map((q) => {
-                  const cmd = q.publicKey ? `falcon-pl-ctl approve-validator --id ${q.id} --pubkey ${q.publicKey} --expires +20000` : ''
+                  const cmd = q.publicKey ? `falcon-pl-ctl --addr <seat> approve-validator --id ${q.id} --pubkey ${q.publicKey} --expires +20000 --keys-dir keys/admission --network-id 2300` : ''
                   return (
                     <tr key={q.issue} className="border-t border-slate-800 align-top">
                       <td className="py-1 pr-3 font-mono text-white"><a href={q.url} target="_blank" rel="noreferrer" className="hover:underline">{q.id || '?'}</a> <span className="text-slate-500">#{q.issue}</span></td>

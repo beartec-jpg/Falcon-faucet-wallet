@@ -75,7 +75,7 @@ async function fetchQueue(
       note = 'no valid id in the issue'
     } else if (seat) {
       stage = seat.lotteryReady && !seat.jailed && seat.inactive !== true ? 'active' : 'bonded'
-      if (seat.keyFingerprint && fingerprint && seat.keyFingerprint !== fingerprint) note = 'on-chain key differs from the application'
+      if (seat.keyFingerprint && seat.keyFingerprint !== 'set' && fingerprint && seat.keyFingerprint !== fingerprint) note = 'on-chain key differs from the application'
     } else if (ap) {
       stage = pk && ap.publicKey && ap.publicKey.toLowerCase() !== pk ? 'key-mismatch' : 'approved'
       if (ap.expiresHeight != null) note = `approval expires at height ${ap.expiresHeight}`
@@ -109,26 +109,34 @@ export async function GET() {
     const seats = new Map<string, SeatRow>()
     for (const v of (Array.isArray(st.validators) ? st.validators : []) as Record<string, unknown>[]) {
       const id = str(v.id)
+      // 2.9.62 nests the rewards-v2 seat fields under `v2` (public key is reported as public_key_set only).
+      const v2 = (v.v2 && typeof v.v2 === 'object' ? v.v2 : {}) as Record<string, unknown>
+      const pick = (k: string) => (v2[k] !== undefined ? v2[k] : v[k])
       seats.set(id, {
         id,
         bond: num(v.bond),
-        escrow: v.escrow == null ? null : num(v.escrow),
+        escrow: pick('escrow') == null ? null : num(pick('escrow')),
         bondAccount: str(v.bond_account),
         jailed: Boolean(v.jailed),
         jailCount: num(v.jail_count),
-        inactive: v.inactive == null ? null : Boolean(v.inactive),
-        missedTurns: v.missed_turns == null ? null : num(v.missed_turns),
+        inactive: pick('inactive') == null ? null : Boolean(pick('inactive')),
+        missedTurns: pick('missed_turns') == null ? null : num(pick('missed_turns')),
         lotteryReady: Boolean(v.lottery_ready),
         packCount: num(v.pack_count),
         unbonding: num(v.unbonding),
-        archive: v.archive == null ? null : Boolean(v.archive),
-        keyFingerprint: fp(v.public_key),
+        archive: pick('archive') == null ? null : Boolean(pick('archive')),
+        keyFingerprint: fp(v.public_key) ?? (v2.public_key_set === true ? 'set' : null),
         online: online.includes(id),
       })
     }
     const approvals = approvalsOf(st)
-    // Onboarding opens only when the network runs the 2.9.62 bond rules (approvals in status).
-    const onboardingOpen = versionAtLeast(product, FIRST_VALIDATOR_VERSION) && 'approvals' in st
+    // Onboarding opens only when (a) the network runs the 2.9.62 bond rules and has passed their activation
+    // height, and (b) the operator switches it on (PL_VALIDATOR_ONBOARDING=open, set once every seat has a
+    // public endpoint; same switch as VALIDATOR_ONBOARDING in the release network profile).
+    const actH = num(st.rewards_v2_from_height)
+    const chainReady =
+      versionAtLeast(product, FIRST_VALIDATOR_VERSION) && 'approvals' in st && actH > 0 && num(st.tip_height) >= actH
+    const onboardingOpen = chainReady && process.env.PL_VALIDATOR_ONBOARDING === 'open'
     const { queue, error: queueError } = await fetchQueue(seats, approvals)
     const sorted = [...seats.values()].sort(
       (a, b) => Number(a.jailed) - Number(b.jailed) || a.id.localeCompare(b.id, 'en', { numeric: true }),
@@ -141,7 +149,7 @@ export async function GET() {
       epoch: num(st.epoch),
       rewardFormula: str(st.reward_formula, 'v1'),
       onboardingOpen,
-      minBondNew: onboardingOpen ? num(st.min_bond_new, MIN_BOND_NEW) : LEGACY_MIN_BOND,
+      minBondNew: chainReady ? num(st.min_bond_new, MIN_BOND_NEW) : LEGACY_MIN_BOND,
       seats: sorted,
       lotteryOrder: Array.isArray(st.lottery_order) ? (st.lottery_order as unknown[]).map(String) : [],
       onlineSeats: online,

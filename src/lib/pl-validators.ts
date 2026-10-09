@@ -26,7 +26,8 @@ export type Application = {
   id: string
   validator_public_key: string
   validator_key_fingerprint: string
-  pop_sig: string
+  /** Not in v1 applications: `ctl bond-v2` signs the proof of possession at bond time. */
+  pop_sig?: string
   pop_message: string
   bond_account: string
   node_version: string
@@ -70,7 +71,6 @@ export async function validateApplication(a: unknown): Promise<{ ok: boolean; er
   if (!/^[0-9a-f]+$/.test(pk) || pk.length !== FALCON512_PK_HEX) errors.push('validator_public_key must be a Falcon-512 public key (1794 hex chars)')
   const pop = s('pop_sig')
   if (pop && !/^[0-9a-f]+$/.test(pop)) errors.push('pop_sig must be hex')
-  if (!pop) errors.push('pop_sig missing (the node must run 2.9.62+ to build the proof of possession)')
   const acct = s('bond_account')
   if (!/^[a-z0-9._-]{2,64}$/.test(acct)) errors.push('bond_account is not a valid account name')
   if (s('pop_message') && s('pop_message') !== `fpl-pop|2300|${id}|${acct}`) errors.push('pop_message does not match id / bond account')
@@ -103,7 +103,7 @@ export function applicationIssueUrl(app: Application): { url: string; includesJs
     contact: app.contact || '',
   })
   const withJson = new URLSearchParams(p)
-  withJson.set('application', '```json\n' + JSON.stringify(app, null, 2) + '\n```')
+  withJson.set('application', JSON.stringify(app, null, 2))
   const full = `${base}?${withJson.toString()}`
   if (full.length <= 7500) return { url: full, includesJson: true }
   return { url: `${base}?${p.toString()}`, includesJson: false }
