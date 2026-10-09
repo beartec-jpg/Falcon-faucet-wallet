@@ -1600,7 +1600,10 @@ export default function BridgeDepositPanel({
               window.confirm(
                 `Falcon PL already holds your burn of ${(w.amountSats / 1e8).toFixed(8)} FBTC to ${w.externalTo || wallet.btcAddress}, ` +
                   'but this browser has no record of how far it got.\n\n' +
-                  'Resume it at the Bitcoin Kickoff? Only do this if you have NOT already received this BTC. ' +
+                  'Press OK ONLY if you are certain no Kickoff was ever broadcast for it (for example, it failed ' +
+                  'before the Kickoff step). A broadcast Kickoff can still be waiting for its confirmations, and a ' +
+                  'second Kickoff could pay this burn twice. If you are not sure, press Cancel and ask for a manual ' +
+                  'check of this withdrawal. ' +
                   'No new burn will be made either way.',
               ),
             confirmFreshBurn: async (others) =>

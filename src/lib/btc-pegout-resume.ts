@@ -88,7 +88,8 @@ export interface BtcPegOutDeps {
   onStep?(msg: string): void
   /**
    * Asked only when the burn is on-chain but this browser has no record of it.
-   * Return true to resume at Kickoff. Absent → refuse (never guess).
+   * Return true ONLY when it is certain no Kickoff was ever broadcast for this
+   * burn (a pending Kickoff plus a new one could both pay). Absent → refuse.
    */
   confirmChainResume?(w: ChainBtcWithdraw): Promise<boolean>
   /**
@@ -462,7 +463,8 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
       if (!ok) {
         throw new Error(
           `Falcon PL already has a burn for ${amount} sats to ${dest} from this account (note ${noteId.slice(0, 12)}…). ` +
-            'No new burn was made. Resume it only if you have not already received that BTC.',
+            'No new burn was made. Resume it only if you are certain no Kickoff was broadcast for it; if unsure, ask for ' +
+            'a manual check of this withdrawal.',
         )
       }
       const now = d.now()
