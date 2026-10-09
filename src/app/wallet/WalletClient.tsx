@@ -418,7 +418,10 @@ export default function WalletPage() {
       const [accR, assetsR, lendR] = await Promise.all([
         fetch(withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, networkKey), fetchOpts),
         fetch(withNetworkQuery(`/api/wallet/assets?address=${encodeURIComponent(address)}`, networkKey), fetchOpts),
-        fetch(withNetworkQuery(`/api/lend/overview?address=${encodeURIComponent(address)}`, networkKey), fetchOpts),
+        // XRPL-era lending overview is retired (410) on Falcon PL 2300; PL lend reads come from /api/pl2300/defi.
+        network.networkId === 2300
+          ? Promise.resolve(new Response(null, { status: 410 }))
+          : fetch(withNetworkQuery(`/api/lend/overview?address=${encodeURIComponent(address)}`, networkKey), fetchOpts),
       ])
       if (!accR.ok) return
       const data: AccountData = await accR.json()

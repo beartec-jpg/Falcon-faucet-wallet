@@ -4,6 +4,7 @@ import { proxySign } from '@/lib/signer-proxy'
 import { loadLendingManifestServer } from '@/lib/lending-config'
 import { resolveNetworkKey } from '@/lib/network-server'
 import { getNetwork } from '@/lib/networks'
+import { retiredOnPl } from '@/lib/pl-retired'
 
 /**
  * Testnet-only: broker owner co-signs LoanSet CounterpartySignature.
@@ -35,6 +36,8 @@ const LOANSET_ALLOW = new Set([
 ])
 
 export async function POST(req: NextRequest) {
+  const retired = retiredOnPl(req)
+  if (retired) return retired
   if (!isOriginAllowed(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
