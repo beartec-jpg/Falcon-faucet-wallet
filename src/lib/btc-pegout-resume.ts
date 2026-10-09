@@ -247,9 +247,6 @@ export async function btcTxidFromRaw(rawHex: string): Promise<string> {
 // ── storage ──────────────────────────────────────────────────────────────────
 
 export const BTC_PEGOUT_STORE_KEY = 'falcon-pl-btc-pegout-v1'
-/** Compact `done` tombstones kept per account (the node never prunes notes). */
-const MAX_DONE_TOMBSTONES = 2000
-
 /** Completed record → minimal tombstone (no signed payloads). */
 function tombstone(r: BtcPegOutRecord): BtcPegOutRecord {
   return {
@@ -312,7 +309,8 @@ export function kvBtcPegOutStore(kv: KV | null): BtcPegOutStore {
       // knowledge for each on-chain note survives (bounded generously).
       const open = list.filter((r) => r.phase !== 'done')
       const done = list.filter((r) => r.phase === 'done').map(tombstone)
-      write(rec.account, [...open, ...done.slice(0, MAX_DONE_TOMBSTONES)])
+      // Never evicted: the node keeps every note forever, so must we.
+      write(rec.account, [...open, ...done])
     },
     remove(account, noteId) {
       // Throws on failure: the caller must not claim the record was cleared.
@@ -367,8 +365,11 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
+/** Only explicit "this exact tx is already in mempool / chain" answers. */
 function isAlreadyKnown(msg: string): boolean {
-  return /already|exists|txn-already|duplicate/i.test(msg)
+  return /txn-already-in-mempool|txn-already-known|already in (the )?mempool|already in block ?chain|transaction already in block chain|already have transaction|transaction outputs already in utxo set/i.test(
+    msg,
+  )
 }
 
 function isInputsGone(msg: string): boolean {
@@ -630,9 +631,20 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     step('Broadcasting dest-lock Kickoff to Bitcoin testnet…')
     let txid = rec.kickoffTxid ?? ''
     try {
-      const got = (await d.broadcast(rec.signedKickoffHex as string)).trim()
-      if (/^[0-9a-f]{64}$/i.test(got)) txid = got.toLowerCase()
+      const got = (await d.broadcast(rec.signedKickoffHex as string)).trim().toLowerCase()
+      if (/^[0-9a-f]{64}$/.test(got)) {
+        if (txid && got !== txid) {
+          // The locally computed txid of the signed tx is authoritative.
+          note(`broadcast returned ${got}, expected ${txid}`)
+          throw new Error(
+            `Bitcoin answered with a different txid (${got}) than the signed Kickoff (${txid}). Kept the same ` +
+              'Kickoff — press Bridge out again with the same amount. No new burn.',
+          )
+        }
+        txid = got
+      }
     } catch (e) {
+      if (e instanceof Error && /different txid/.test(e.message)) throw e
       const msg = errMsg(e)
       if (isInputsGone(msg)) {
         // Our Kickoff's input was spent by a different tx. If our Kickoff is not
@@ -760,10 +772,29 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     }
     // Only mark the withdrawal done once the take is known to be on Bitcoin.
     let takeTxid = String(take.take_txid ?? '').trim().toLowerCase()
+    let localTakeTxid = ''
+    if (take.signed_btc_tx) {
+      try {
+        localTakeTxid = await btcTxidFromRaw(take.signed_btc_tx)
+      } catch {
+        localTakeTxid = ''
+      }
+    }
+    const takeMismatch = (got: string) => {
+      note(`take txid ${got} does not match signed take ${localTakeTxid}`)
+      return new Error(
+        `The take came back with a txid (${got}) that does not match its signed transaction (${localTakeTxid}). ` +
+          'Not marked done — press Bridge out again with the same amount to retry the take. No new burn.',
+      )
+    }
+    if (takeTxid && localTakeTxid && takeTxid !== localTakeTxid) throw takeMismatch(takeTxid)
     if (!takeTxid && take.signed_btc_tx) {
       try {
-        takeTxid = (await d.broadcast(take.signed_btc_tx)).trim().toLowerCase()
+        const got = (await d.broadcast(take.signed_btc_tx)).trim().toLowerCase()
+        if (localTakeTxid && /^[0-9a-f]{64}$/.test(got) && got !== localTakeTxid) throw takeMismatch(got)
+        takeTxid = localTakeTxid || got
       } catch (e) {
+        if (e instanceof Error && /does not match its signed transaction/.test(e.message)) throw e
         const msg = errMsg(e)
         if (!isAlreadyKnown(msg)) {
           note(msg)
@@ -775,11 +806,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
                   'amount to retry the take — no new burn.',
           )
         }
-        try {
-          takeTxid = await btcTxidFromRaw(take.signed_btc_tx)
-        } catch {
-          takeTxid = ''
-        }
+        takeTxid = localTakeTxid
       }
     }
     if (!/^[0-9a-f]{64}$/.test(takeTxid)) {

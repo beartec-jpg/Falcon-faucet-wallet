@@ -601,19 +601,56 @@ await test('in-flight burn commits during the chain check: no fresh burn is sign
   assert.equal(w.burnsApplied, 1)
 })
 
-await test('done records become compact tombstones and are kept', async () => {
+await test('done records become compact tombstones and are never evicted', async () => {
   const store = m.kvBtcPegOutStore(memKv())
   const now = Date.now()
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 2100; i++) {
     store.save({ v: 1, noteId: `n${i}`, account: 'alice', network: 't', amountSats: 1000 + i, dest: 'd', sequence: i,
       burnTxId: 'b', burnRawJson: '{"big":"payload"}', signedKickoffHex: 'ab', phase: 'done', createdAt: now, updatedAt: now })
   }
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 2100; i += 1) {
     const r = store.load('alice', `n${i}`)
     assert.equal(r.phase, 'done')
     assert.equal(r.burnRawJson, '')
     assert.equal(r.signedKickoffHex, undefined)
   }
+})
+
+await test('a duplicate-input validation failure is NOT "already known": take not marked done', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld()
+  let n = 0
+  await assert.rejects(
+    m.runBtcPegOut(params, w.deps(store, {
+      requestTake: async () => ({ signed_btc_tx: GENESIS_RAW }),
+      broadcast: async (hex) => {
+        n += 1
+        if (n === 2) throw new Error('bad-txns-inputs-duplicate')
+        return GENESIS_TXID
+      },
+    })),
+    /take broadcast failed/,
+  )
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
+})
+
+await test('mismatched txids are rejected (Kickoff and take)', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld()
+  const bad = 'c'.repeat(64)
+  await assert.rejects(
+    m.runBtcPegOut(params, w.deps(store, { broadcast: async () => bad })),
+    /different txid/,
+  )
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_signed')
+  assert.equal(store.listOpen(ACCOUNT)[0].kickoffTxid, GENESIS_TXID)
+  await assert.rejects(
+    m.runBtcPegOut(params, w.deps(store, { requestTake: async () => ({ take_txid: bad, signed_btc_tx: GENESIS_RAW }) })),
+    /does not match its signed transaction/,
+  )
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
+  assert.equal(w.kickoffRequests, 1)
+  assert.equal(w.burnsSigned, 1)
 })
 
 console.log(`\n${passed} BTC peg-out resume checks passed`)
