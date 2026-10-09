@@ -10,6 +10,29 @@ import {
   BITVM2_CLAIM_CSV,
   BITVM2_MIN_PEGOUT_SATS,
 } from './btc-spv-policy'
+import {
+  agreeSpender,
+  browserBtcPegOutStore,
+  BtcWithdrawalsPausedError,
+  runBtcPegOut,
+  type ChainBtcWithdraw,
+  type ExplorerSpendAnswer,
+} from './btc-pegout-resume'
+import { BTC_WITHDRAWALS_ENABLED, BTC_WITHDRAWALS_PAUSED_CODE } from './btc-withdrawals'
+
+/**
+ * FBTC → BTC withdrawals switch. Single source: src/lib/btc-withdrawals.ts
+ * (`btc_withdrawals_enabled` in public/config/btc-spv-bridge.json; anything
+ * other than an explicit `true` is OFF).
+ */
+export function btcWithdrawalsEnabled(): boolean {
+  return BTC_WITHDRAWALS_ENABLED
+}
+
+/** The site refused a BTC Kickoff / take step because withdrawals are paused. */
+function isPausedRefusal(status: number, body: { code?: unknown }): boolean {
+  return status === 403 && body.code === BTC_WITHDRAWALS_PAUSED_CODE
+}
 
 const RAIL = 'BTC'
 const FEE = 2
@@ -295,7 +318,7 @@ export async function pegInPlBtc(opts: {
   }
 
   if (snap.sequence === 0) {
-    opts.onStep?.('Enrolling this account on Falcon PL…')
+    opts.onStep?.('Enrolling this account on Falcon Ledger…')
     const pay = await signPlPay({
       account: opts.account,
       destination: 'faucet',
@@ -325,6 +348,52 @@ export async function pegInPlBtc(opts: {
   })
 }
 
+async function listChainBtcWithdrawals(account: string, network: string): Promise<ChainBtcWithdraw[] | null> {
+  try {
+    const res = await fetch(`/api/bridge/btc-spv?network=${encodeURIComponent(network)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'withdraw_list', account }),
+      cache: 'no-store',
+    })
+    const j = (await res.json().catch(() => ({}))) as {
+      mode?: string
+      withdrawals?: Array<{ noteId?: string; amountSats?: number; externalTo?: string; account?: string }>
+    }
+    if (!res.ok || j.mode !== 'pl-rail' || !Array.isArray(j.withdrawals)) return null
+    return j.withdrawals
+      .filter((w) => typeof w.noteId === 'string' && /^[0-9a-f]{64}$/i.test(w.noteId))
+      .map((w) => ({
+        noteId: String(w.noteId).toLowerCase(),
+        amountSats: Number(w.amountSats ?? 0),
+        externalTo: String(w.externalTo ?? ''),
+      }))
+  } catch {
+    return null
+  }
+}
+
+/** Exclusive across tabs via Web Locks; throws if another tab holds it or locks are unsupported. */
+async function withTabLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  if (!locks?.request) {
+    // Fail closed: without a cross-tab lock two tabs could each burn.
+    throw new Error(
+      'This browser cannot lock BTC Bridge out to one tab (Web Locks unsupported). Update the browser — no burn was made.',
+    )
+  }
+  return locks.request(key, { ifAvailable: true }, async (lock) => {
+    if (!lock) {
+      throw new Error('A BTC Bridge out is already running in another tab. Finish or close it first — no burn was made here.')
+    }
+    return fn()
+  }) as Promise<T>
+}
+
+/**
+ * FBTC → BTC (BitVM2 dest-lock). Resumable: a retry after any part-way failure
+ * resumes the same withdrawal (see btc-pegout-resume.ts) and never burns twice.
+ */
 export async function pegOutPlBtc(opts: {
   account: string
   falconSecret: string
@@ -333,9 +402,43 @@ export async function pegOutPlBtc(opts: {
   btcAddress: string
   destSecretHex: string
   onStep?: (msg: string) => void
-}): Promise<{ txId: string; kickoffTxid?: string; takeTxid?: string }> {
+  /**
+   * Called only when Falcon PL already holds the burn for this exact withdrawal
+   * but this browser has no record of it. Return true to resume at Kickoff.
+   */
+  confirmChainResume?: (w: ChainBtcWithdraw) => Promise<boolean>
+  /**
+   * Called before a NEW burn when Falcon PL lists earlier BTC withdrawals from
+   * this account that this browser has no completed record of.
+   */
+  confirmFreshBurn?: (others: ChainBtcWithdraw[]) => Promise<boolean>
+  /** Current max a NEW Kickoff can pay; checked only before a fresh burn. */
+  maxFreshSats?: number | null
+}): Promise<{ txId: string; kickoffTxid?: string; takeTxid?: string; noteId: string; resumed: boolean }> {
   if (!BTC_RAIL_LIVE) {
     throw new Error('BTC rail is not live — e2e not passed (BTC_RAIL_LIVE=false)')
+  }
+  if (!btcWithdrawalsEnabled()) {
+    // Nothing is signed while withdrawals are off — not even a resume step.
+    // An in-flight withdrawal stays recorded and is reported as pending.
+    let open: ReturnType<ReturnType<typeof browserBtcPegOutStore>['listOpen']> = []
+    let unreadable = false
+    try {
+      open = browserBtcPegOutStore().listOpen(opts.account)
+    } catch {
+      unreadable = true
+    }
+    if (open.length > 0 || unreadable) {
+      const w = open[0]
+      throw new Error(
+        'BTC withdrawals are in final testing and switched off for now. ' +
+          (w
+            ? `Your Bridge out of ${w.amountSats} sats to ${w.dest} is pending (${w.phase}): it has not been paid yet ` +
+              'and its record is kept. Ask for a manual check of it; nothing new was signed.'
+            : 'This browser has saved Bridge out progress it cannot read. Ask for a manual check; nothing was signed.'),
+      )
+    }
+    throw new Error('BTC withdrawals are in final testing and switched off for now. Nothing was signed.')
   }
   const amount = Math.floor(opts.amountSats)
   if (amount < BITVM2_MIN_PEGOUT_SATS) {
@@ -347,106 +450,116 @@ export async function pegOutPlBtc(opts: {
   if (!/^[0-9a-f]{64}$/.test(destSecret)) {
     throw new Error('Bitcoin dest key missing — open Multi-chain BTC')
   }
-  const snap = await accountSnap(opts.account, opts.network)
-  if (snap.btcSats < amount) {
-    throw new Error(`Insufficient FBTC (have ${(snap.btcSats / 1e8).toFixed(8)})`)
-  }
-  if (snap.balance < FEE) throw new Error(`Need ${FEE} FPL for the withdraw fee`)
-
-  opts.onStep?.('Burning FBTC (no FROST Kickoff)…')
-  const tx = await signRailWithdraw({
-    account: opts.account,
-    sequence: snap.sequence,
-    asset: RAIL,
-    amount,
-    externalTo: dest,
-    falconSecret: opts.falconSecret,
-  })
-  await postTx(tx, opts.network)
-  await waitSeq(opts.account, opts.network, snap.sequence + 1)
-
-  opts.onStep?.('Signing dest-lock Kickoff (claimer CHECKSIG)…')
-  const kick = await fetch('/api/wallet/pl', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: 'btc-kickoff',
-      account: opts.account,
-      amount,
-      dest,
-    }),
-  })
-  const kickJ = (await kick.json()) as {
-    error?: string
-    signed_btc_tx?: string
-    amount?: number
-    utxo?: string
-  }
-  if (!kick.ok || !kickJ.signed_btc_tx) {
-    throw new Error(kickJ.error || 'Dest-lock Kickoff failed')
-  }
 
   const { broadcastBtcTx } = await import('@/lib/btc-client')
-  opts.onStep?.('Broadcasting dest-lock Kickoff to Bitcoin testnet…')
-  let kickoffTxid = ''
-  try {
-    kickoffTxid = (await broadcastBtcTx(kickJ.signed_btc_tx, 'testnet')).trim()
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    if (/already|exists|txn-already/i.test(msg)) {
-      opts.onStep?.('Kickoff already in mempool…')
-    } else {
-      throw new Error(`Kickoff broadcast failed: ${msg}`)
-    }
-  }
-
   const { pollSpvConfirmations } = await import('@/lib/btc-spv-pending')
-  const csv = BITVM2_CLAIM_CSV
-  const need = csv
-  const t0 = Date.now()
-  let confs = 0
-  while (Date.now() - t0 < 45 * 60_000) {
-    if (kickoffTxid) {
-      const st = await pollSpvConfirmations(kickoffTxid, 'testnet')
-      confs = st.confirmations
-      opts.onStep?.(`Kickoff confirmations ${confs} / ${need} (CSV=${csv})…`)
-      if (confs >= need) break
-    } else {
-      opts.onStep?.('Waiting for Kickoff txid…')
-    }
-    await new Promise((r) => setTimeout(r, 12_000))
-  }
-  if (confs < need || !kickoffTxid) {
-    throw new Error(
-      `FBTC burned and dest-lock Kickoff posted. Wait for ${need} Bitcoin confirmations then retry take (txid ${kickoffTxid || 'pending'}).`,
-    )
-  }
 
-  const claimSats = Number(kickJ.amount ?? amount)
-  opts.onStep?.('Dest take after CSV…')
-  const take = await fetch('/api/wallet/pl', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: 'btc-take',
+  const out = await runBtcPegOut(
+    {
       account: opts.account,
+      network: opts.network,
+      amountSats: amount,
       dest,
-      amount,
-      destSecret,
-      prevTxid: kickoffTxid,
-      vout: 0,
-      sats: claimSats,
-    }),
-  })
-  const takeJ = (await take.json()) as { error?: string; take_txid?: string; signed_btc_tx?: string }
-  if (!take.ok) throw new Error(takeJ.error || 'Dest take failed')
-  let takeTxid = takeJ.take_txid || ''
-  if (takeJ.signed_btc_tx && !takeTxid) {
-    try {
-      takeTxid = (await broadcastBtcTx(takeJ.signed_btc_tx, 'testnet')).trim()
-    } catch {
-      /* coordinator may have broadcast */
-    }
+      fee: FEE,
+      claimCsv: BITVM2_CLAIM_CSV,
+      maxFreshSats: opts.maxFreshSats,
+    },
+    {
+      store: browserBtcPegOutStore(),
+      accountSnap: () => accountSnap(opts.account, opts.network),
+      listChainWithdrawals: () => listChainBtcWithdrawals(opts.account, opts.network),
+      signBurn: async (sequence) => {
+        const tx = await signRailWithdraw({
+          account: opts.account,
+          sequence,
+          asset: RAIL,
+          amount,
+          externalTo: dest,
+          falconSecret: opts.falconSecret,
+        })
+        // Store the exact object this rail has always submitted ({ tx }), so a
+        // resume re-broadcasts the identical signed tx (same tx_id + sequence).
+        const { rawJson: _exact, ...signed } = tx
+        void _exact
+        return { tx_id: tx.tx_id, rawJson: JSON.stringify(signed) }
+      },
+      submitBurn: (rawJson) => postTx(JSON.parse(rawJson), opts.network),
+      requestKickoff: async () => {
+        const kick = await fetch('/api/wallet/pl', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'btc-kickoff', account: opts.account, amount, dest }),
+        })
+        const kickJ = (await kick.json().catch(() => ({}))) as {
+          error?: string
+          code?: string
+          signed_btc_tx?: string
+          amount?: number
+        }
+        if (isPausedRefusal(kick.status, kickJ)) throw new BtcWithdrawalsPausedError(kickJ.error)
+        if (!kick.ok || !kickJ.signed_btc_tx) {
+          throw new Error(kickJ.error || 'Dest-lock Kickoff failed')
+        }
+        return { signed_btc_tx: kickJ.signed_btc_tx, amount: kickJ.amount }
+      },
+      broadcast: async (hex) => (await broadcastBtcTx(hex, 'testnet')).trim(),
+      // Not found / not confirmed while waiting → UNKNOWN (null), never 0.
+      // Confirmed with the tip unknown → the proven lower bound (≥1): enough
+      // for a take to count as confirmed, never enough for the Kickoff CSV.
+      pollConfirmations: async (txid) => {
+        const st = await pollSpvConfirmations(txid, 'testnet')
+        if (st.confirmed) return st.confirmations >= 1 ? st.confirmations : 1
+        if (st.waiting) return null
+        return st.confirmations
+      },
+      // Every explorer must answer and agree (agreeSpender), else unknown.
+      lookupSpender: async (txid, vout) => {
+        const r = await fetch(
+          `/api/wallet/btc-proxy?op=outspend&network=testnet&txid=${encodeURIComponent(txid)}&vout=${vout}`,
+          { cache: 'no-store' },
+        )
+        if (!r.ok) return null
+        const j = (await r.json().catch(() => ({}))) as { answers?: ExplorerSpendAnswer[] }
+        return Array.isArray(j.answers) ? agreeSpender(j.answers) : null
+      },
+      requestTake: async (kickoffTxid, sats) => {
+        const take = await fetch('/api/wallet/pl', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'btc-take',
+            account: opts.account,
+            dest,
+            amount,
+            destSecret,
+            prevTxid: kickoffTxid,
+            vout: 0,
+            sats,
+          }),
+        })
+        const takeJ = (await take.json().catch(() => ({}))) as {
+          error?: string
+          code?: string
+          take_txid?: string
+          signed_btc_tx?: string
+        }
+        if (isPausedRefusal(take.status, takeJ)) throw new BtcWithdrawalsPausedError(takeJ.error)
+        if (!take.ok) throw new Error(takeJ.error || 'Dest take failed')
+        return takeJ
+      },
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      now: () => Date.now(),
+      onStep: opts.onStep,
+      confirmChainResume: opts.confirmChainResume,
+      confirmFreshBurn: opts.confirmFreshBurn,
+      withLock: withTabLock,
+    },
+  )
+  return {
+    txId: out.txId,
+    kickoffTxid: out.kickoffTxid,
+    takeTxid: out.takeTxid,
+    noteId: out.noteId,
+    resumed: out.resumed,
   }
-  return { txId: tx.tx_id, kickoffTxid, takeTxid }
 }

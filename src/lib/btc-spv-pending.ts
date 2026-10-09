@@ -671,9 +671,23 @@ export async function pollSpvConfirmations(
     })
     const j = (await r.json().catch(() => ({}))) as {
       confirmed?: boolean
-      confirmations?: number
+      confirmations?: number | null
       blockHeight?: number
       error?: string
+    }
+    if (r.ok && j.confirmed && typeof j.confirmations !== 'number') {
+      // Confirmed, depth unknown (tip lookup failed): ask explorers directly;
+      // otherwise report the lower bound 1 and flag it as still waiting.
+      // Only a CONFIRMED explorer answer may refine the depth; a lagging
+      // explorer must not downgrade a known confirmation to 0.
+      const expl = await explorerTxStatus(txid, network)
+      if (expl?.confirmed && expl.confirmations >= 1) return expl
+      return {
+        confirmed: true,
+        confirmations: 1,
+        blockHeight: j.blockHeight,
+        waiting: 'Confirmed — Bitcoin tip height unavailable, depth unknown',
+      }
     }
     if (r.ok) {
       return {

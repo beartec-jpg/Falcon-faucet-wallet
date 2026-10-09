@@ -90,7 +90,8 @@ import {
 } from '@/lib/btc-spv-withdraw-pending'
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
 import { plAccountId } from '@/lib/pl-names'
-import { BTC_RAIL_LIVE, pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
+import { BTC_RAIL_LIVE, btcWithdrawalsEnabled, pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
+import { browserBtcPegOutStore, findOpenBtcPegOut, type BtcPegOutRecord } from '@/lib/btc-pegout-resume'
 import { hasBtcWallet, provisionBtcWalletForStoredWallet } from '@/lib/create-btc-wallet'
 import {
   BITVM2_INSTANCE_ADDRESS,
@@ -304,6 +305,21 @@ export default function BridgeDepositPanel({
   const [amount, setAmount] = useState('')
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [busy, setBusy] = useState(false)
+  // In-flight BTC Bridge outs saved in this browser. While withdrawals are
+  // switched off they are shown as pending (never resumed or re-signed).
+  // Read after mount (localStorage) so server and client render the same.
+  const [pendingBtcOuts, setPendingBtcOuts] = useState<BtcPegOutRecord[] | 'unreadable'>([])
+  useEffect(() => {
+    if (!isPl2300 || btcWithdrawalsEnabled()) {
+      setPendingBtcOuts([])
+      return
+    }
+    try {
+      setPendingBtcOuts(browserBtcPegOutStore().listOpen(falconId))
+    } catch {
+      setPendingBtcOuts('unreadable')
+    }
+  }, [isPl2300, falconId, busy])
   const [step, setStep] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BridgeDepositResult | null>(null)
@@ -1554,18 +1570,31 @@ export default function BridgeDepositPanel({
       }
       // FBTC balance for bridge = SPV MPT only (what Claim mint creates)
       const avail = Math.max(0, fbtcSpvLive ?? fbtcLive ?? 0)
-      if (avail + 1e-12 < amt) {
+      const amountSats = Math.round(amt * 1e8)
+      // PL 2300: the balance check lives in pegOutPlBtc, after it has looked for
+      // a pending or on-chain burn of this withdrawal (which already debited the
+      // balance). Checking here would block resume / chain recovery.
+      // Label only; unreadable storage is reported by pegOutPlBtc itself.
+      let resumingBtcOut = false
+      try {
+        resumingBtcOut = isPl2300 && !!findOpenBtcPegOut(falconId, amountSats, wallet.btcAddress)
+      } catch {
+        resumingBtcOut = false
+      }
+      if (!isPl2300 && avail + 1e-12 < amt) {
         setError(`Insufficient FBTC (have ${fmt(avail, 8)}; need ${fmt(amt, 8)}). Use Max.`)
         return
       }
-      const amountSats = Math.round(amt * 1e8)
       const minOut = Number(spvStatus?.pegOut?.minSats ?? 2000)
       if (amountSats < minOut) {
         setError(`Amount too small (min ${minOut} sats)`)
         return
       }
       const maxOut = spvStatus?.pegOut?.maxSats
-      if (maxOut != null && amountSats > maxOut) {
+      // PL 2300: the dynamic max applies only to a NEW burn and is checked in
+      // pegOutPlBtc, so a resume (whose Kickoff may have spent that output) or a
+      // chain recovery is not blocked here.
+      if (!isPl2300 && maxOut != null && amountSats > maxOut) {
         setError(
           `This Kickoff can pay at most ${maxOut} sats. It spends one Bitcoin output, not the whole instance.`,
         )
@@ -1575,7 +1604,7 @@ export default function BridgeDepositPanel({
         setBusy(true)
         setError(null)
         setWithdrawResult(null)
-        setStep('Burning FBTC on Falcon PL…')
+        setStep(resumingBtcOut ? 'Resuming pending BTC Bridge out (no new burn)…' : 'Burning FBTC on Falcon PL…')
         try {
           const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
           const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
@@ -1591,6 +1620,29 @@ export default function BridgeDepositPanel({
             btcAddress: wallet.btcAddress,
             destSecretHex,
             onStep: setStep,
+            maxFreshSats: maxOut ?? null,
+            confirmChainResume: async (w) =>
+              typeof window !== 'undefined' &&
+              window.confirm(
+                `Falcon PL already holds your burn of ${(w.amountSats / 1e8).toFixed(8)} FBTC to ${w.externalTo || wallet.btcAddress}, ` +
+                  'but this browser has no record of how far it got.\n\n' +
+                  'Press OK ONLY if you are certain no Kickoff was ever broadcast for it (for example, it failed ' +
+                  'before the Kickoff step). A broadcast Kickoff can still be waiting for its confirmations, and a ' +
+                  'second Kickoff could pay this burn twice. If you are not sure, press Cancel and ask for a manual ' +
+                  'check of this withdrawal. ' +
+                  'No new burn will be made either way.',
+              ),
+            confirmFreshBurn: async (others) =>
+              typeof window !== 'undefined' &&
+              window.confirm(
+                'Falcon PL shows earlier BTC Bridge outs from this account that this browser has no record of:\n' +
+                  others
+                    .slice(0, 5)
+                    .map((o) => `• ${(o.amountSats / 1e8).toFixed(8)} FBTC to ${o.externalTo}`)
+                    .join('\n') +
+                  '\n\nIf one of them never paid out, press Cancel and resume it by entering that same amount. ' +
+                  'Press OK only if they all completed — this starts a NEW burn.',
+              ),
           })
           setWithdrawResult({
             falconTxHash: out.txId,
@@ -3144,6 +3196,23 @@ const handleSpvCompleteClaim = async () => {
                     </p>
                   </div>
                 )}
+                {(pendingBtcOuts === 'unreadable' || pendingBtcOuts.length > 0) && (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 space-y-1">
+                    <p className="text-xs font-semibold text-amber-300">Bridge out pending</p>
+                    {pendingBtcOuts === 'unreadable' ? (
+                      <p className="text-[11px] text-slate-400 leading-snug">
+                        This browser has saved Bridge out progress it cannot read. Ask for a manual check.
+                      </p>
+                    ) : (
+                      pendingBtcOuts.map((w) => (
+                        <p key={w.noteId} className="text-[11px] text-slate-400 leading-snug">
+                          {w.amountSats} sats to {w.dest.slice(0, 12)}…{w.dest.slice(-6)} has not been paid yet and
+                          its record is kept. BTC withdrawals are switched off, so ask for a manual check of it.
+                        </p>
+                      ))
+                    )}
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">Amount</div>
                   <label className="text-xs text-slate-400">FBTC</label>
@@ -3207,7 +3276,9 @@ const handleSpvCompleteClaim = async () => {
                     !hasBtc ||
                     !fbtcReady ||
                     withdrawAmtNum <= 0 ||
-                    withdrawAmtNum > (fbtcSpvLive ?? fbtcLive ?? 0)
+                    // PL 2300: balance is checked in pegOutPlBtc, after it looks for a
+                    // pending/on-chain burn that already debited it (resume, recovery).
+                    (!isPl2300 && withdrawAmtNum > (fbtcSpvLive ?? fbtcLive ?? 0))
                   }
                   className="btn-primary flex items-center justify-center gap-2"
                 >
