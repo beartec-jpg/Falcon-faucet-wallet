@@ -1,7 +1,7 @@
 # Falcon PL portal — Roadmap
 
 **Last updated:** 2026-09-19  
-**Current testnet:** Falcon PL network ID **2300** (Falcon Consensus + Falcon-512, live `product_version` 2.9.43).  
+**Current testnet:** Falcon PL network ID **2300** (Falcon Consensus + Falcon-512, live `product_version` 2.9.60; Release B 2.9.61 activates at height 414000).  
 **Falcon Ledger / XRPL fork 1001 is shut down.**
 
 Bridge status (testnet **live** ETH/USDC FalconQcBridge + BTC even-Y / BitVM2 A1 operator-fronting): [BRIDGES-2300.md](./BRIDGES-2300.md). Protocol living report: Falcon-PL `docs/BRIDGES_2300_STATUS.md`.

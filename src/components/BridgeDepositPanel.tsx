@@ -3500,6 +3500,11 @@ const handleSpvCompleteClaim = async () => {
                     'Bridge in'
                   )}
                 </button>
+                {isPl2300 && !isFbtcRoute && !isFbnbRoute && !isFxrpRoute && destLockCfg?.pegin_notice && (
+                  <p className="text-xs font-semibold text-amber-300" data-testid="pegin-notice">
+                    {destLockCfg.pegin_notice}
+                  </p>
+                )}
                 {!openSpvBlocksIn && !canBridgeIn && !isFbtcRoute && (
                   <p className="text-xs text-slate-500">
                     {isFxrpRoute

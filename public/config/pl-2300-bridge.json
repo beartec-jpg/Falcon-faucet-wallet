@@ -1,6 +1,7 @@
 {
   "version": 1,
   "status": "live",
+  "pegin_notice": "ETH/USDC minting is delayed: the Sepolia light client is catching up after Sepolia's October upgrade. Deposits are not lost; they mint automatically once catch-up completes. Withdrawals to Sepolia are moving to a new bridge contract and may be slow today.",
   "network_id": 2300,
   "description": "Falcon PL 2300 peg-in: FalconQcBridge depositEth/depositUsdc (bridge field). Peg-out openClaim + dest take uses legacy_qc_v2 (FalconQcBridgeV2), the contract whose fplTip is past start_height. legacy_destlock is Kickoff leftover only. No operator self-dest. Do not market BTC exits as custodialess.",
   "sepolia": {
@@ -26,5 +27,5 @@
     "pegin_v3": false
   },
   "dest20": "sha256(lowercase PL account)[:20]",
-  "sot": "Falcon-PL docs/BRIDGES_2300_STATUS.md (product 2.9.43)"
+  "sot": "Falcon-PL docs/BRIDGES_2300_STATUS.md (product 2.9.60; Release B 2.9.61 activates at height 414000)"
 }

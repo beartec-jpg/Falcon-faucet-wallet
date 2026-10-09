@@ -27,6 +27,8 @@ export interface Pl2300BridgeConfig {
   version: number
   status: string
   network_id: number
+  /** Optional user-facing notice shown under ETH/USDC Bridge in (e.g. minting delayed). Unset = none. */
+  pegin_notice?: string
   sepolia: {
     chain_id: number
     chain_name: string

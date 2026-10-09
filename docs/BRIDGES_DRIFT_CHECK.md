@@ -1,10 +1,10 @@
 # Bridges drift check
 
-**Rule:** public faucet docs + live bridge JSON must match Falcon-PL `BRIDGES_2300_STATUS.md` (product **2.9.43**), or explicitly document a verified intentional interim.
+**Rule:** public faucet docs + live bridge JSON must match Falcon-PL `BRIDGES_2300_STATUS.md` (product **2.9.60**), or explicitly document a verified intentional interim.
 
 | Item | STATUS SoT | Public live |
 |------|------------|-------------|
-| Product version | 2.9.43 | docs + README must say 2.9.43 |
+| Product version | 2.9.60 | docs + README must say 2.9.60 |
 | ETH/USDC bridge | FalconQcBridge `0xf8F1471643792eb1cD5d0C31061629777E55bc48` | `pl-2300-bridge.json` `sepolia.bridge` + `pl-dest-lock.ts` fallback |
 | Groth16 verifier | `0x9992cD8e45A2b7983E2b7f8fC725308a0E4845EC` | `sepolia.verifier` |
 | USDC | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` | `sepolia.usdc_token` |
