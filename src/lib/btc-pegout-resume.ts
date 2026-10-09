@@ -659,19 +659,29 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     } catch {
       confs = null
     }
-    if (confs === 0) {
+    // 0 or unknown (e.g. dropped from mempools): re-sending the SAME tx is
+    // always safe. Only a KNOWN unconfirmed status may lead to a new Kickoff.
+    if (confs === null || confs === 0) {
       step('Re-broadcasting the same Kickoff…')
       try {
         await d.broadcast(rec.signedKickoffHex)
       } catch (e) {
         const msg = errMsg(e)
         if (isInputsGone(msg)) {
-          // Input spent by another tx and ours has 0 confirmations: it can never
-          // confirm, so a fresh Kickoff is safe (still no new burn).
-          save({ phase: 'burned', signedKickoffHex: undefined, kickoffTxid: undefined, lastError: msg })
+          if (confs === 0) {
+            // Input spent by another tx and ours is known unconfirmed: it can
+            // never confirm, so a fresh Kickoff is safe (still no new burn).
+            save({ phase: 'burned', signedKickoffHex: undefined, kickoffTxid: undefined, lastError: msg })
+            throw new Error(
+              `FBTC is burned, but the signed Kickoff's Bitcoin input was already spent (${msg}). ` +
+                'Press Bridge out again with the same amount to get a new Kickoff — no new burn.',
+            )
+          }
+          note(msg)
           throw new Error(
-            `FBTC is burned, but the signed Kickoff's Bitcoin input was already spent (${msg}). ` +
-              'Press Bridge out again with the same amount to get a new Kickoff — no new burn.',
+            `Bitcoin reports the Kickoff's input as spent (${msg}) and the Kickoff's own status is unknown. ` +
+              'It is kept as is (no new Kickoff, no new burn). Press Bridge out again later; if this persists, ' +
+              `ask for a manual check of Kickoff ${rec.kickoffTxid}.`,
           )
         }
         /* already known / transient: keep polling the same txid */

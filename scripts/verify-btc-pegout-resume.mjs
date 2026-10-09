@@ -539,4 +539,19 @@ await test('resumed kickoff_broadcast whose input was spent elsewhere: new Kicko
   assert.equal(w.burnsSigned, 1)
 })
 
+await test('resumed Kickoff with UNKNOWN status: re-sent as the same tx; spent input never triggers a new Kickoff', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld({ confs: 0 })
+  await assert.rejects(m.runBtcPegOut({ ...params, timing: { ...params.timing, kickoffWaitMs: 1 } }, w.deps(store)))
+  const unknownPoll = { pollConfirmations: async () => { throw new Error('Tx not found yet') } }
+  w.failBroadcast = 1
+  w.broadcastError = 'bad-txns-inputs-missingorspent'
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store, unknownPoll)), /status is unknown/)
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
+  assert.equal(w.kickoffRequests, 1, 'no new Kickoff on unknown status')
+  assert.equal(w.broadcasts.length, 2)
+  assert.equal(w.broadcasts[0], w.broadcasts[1])
+  assert.equal(w.burnsSigned, 1)
+})
+
 console.log(`\n${passed} BTC peg-out resume checks passed`)

@@ -458,7 +458,13 @@ export async function pegOutPlBtc(opts: {
         return { signed_btc_tx: kickJ.signed_btc_tx, amount: kickJ.amount }
       },
       broadcast: async (hex) => (await broadcastBtcTx(hex, 'testnet')).trim(),
-      pollConfirmations: async (txid) => (await pollSpvConfirmations(txid, 'testnet')).confirmations,
+      // A not-found / waiting lookup is UNKNOWN, not "0 confirmations": throw so
+      // the engine never reads it as proof that a Kickoff can be replaced.
+      pollConfirmations: async (txid) => {
+        const st = await pollSpvConfirmations(txid, 'testnet')
+        if (st.waiting) throw new Error(st.waiting)
+        return st.confirmations
+      },
       requestTake: async (kickoffTxid, sats) => {
         const take = await fetch('/api/wallet/pl', {
           method: 'POST',
