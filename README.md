@@ -177,7 +177,7 @@ Public validator nodes are coming next. Today the testnet runs on seven bonded v
 ## Recent releases
 
 - **Oct 2026:** seven-seat validator set; Release A (2.9.60: Sepolia Gloas light-client fix, 7-day ETH header window); non-custodial ETH/USDC (Groth16 Falcon-QC) and BTC (BitVM2) bridges working end to end; AMM pools (F-USDC/FPL, FETH/FPL, FBTC/FPL) and lending on testnet
-- **Aug 2026:** ETH/USDC Groth16 Falcon-QC bridge e2e on Sepolia; BTC rail on Bitcoin testnet (`BTC_RAIL_LIVE`); named FPL accounts
+- **4 Sep 2026:** ETH/USDC Groth16 Falcon-QC bridge e2e on Sepolia; BTC rail on Bitcoin testnet (`BTC_RAIL_LIVE`); named FPL accounts
 - July 2026 (1001, archived): permissionless lending, passkey wallet, lock-mint USDC bridge — see [docs/archive-1001/README.md](docs/archive-1001/README.md)
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full feature timeline.

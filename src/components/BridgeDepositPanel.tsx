@@ -1570,7 +1570,7 @@ export default function BridgeDepositPanel({
         setBusy(true)
         setError(null)
         setWithdrawResult(null)
-        setStep('Burning FBTC on Falcon PL…')
+        setStep('Burning FBTC on Falcon Ledger…')
         try {
           const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
           const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
@@ -1802,7 +1802,7 @@ const handleSpvCompleteClaim = async () => {
   }
   setBusy(true);
   setError(null);
-  setStep(isPl2300 ? 'Passkey to mint FBTC on Falcon PL…' : 'Passkey to submit BTCDepositClaim…');
+  setStep(isPl2300 ? 'Passkey to mint FBTC on Falcon Ledger…' : 'Passkey to submit BTCDepositClaim…');
   // Do NOT write status=claiming to localStorage until after passkey succeeds.
   // Cancelled/aborted passkey used to leave "claiming" forever → grey Claim FBTC.
   const txid = spvPending.txid;
@@ -2121,7 +2121,7 @@ const handleSpvCompleteClaim = async () => {
           setSpvPending(pending)
           setResult({
             depositHash: dep.txid,
-            depositId: 'BTC sent — minting FBTC on Falcon PL…',
+            depositId: 'BTC sent — minting FBTC on Falcon Ledger…',
           })
           setAmount('')
           setStep('Waiting for Bitcoin confirmations, then minting FBTC…')
@@ -2171,7 +2171,7 @@ const handleSpvCompleteClaim = async () => {
             explorerUrl: explorer,
             status: 'minting',
           })
-          setStep('Queuing Falcon PL mint…')
+          setStep('Queuing Falcon Ledger mint…')
           const queued = await queueDestLockMint({
             account: falconId,
             txHash: d.depositHash,
@@ -2190,7 +2190,7 @@ const handleSpvCompleteClaim = async () => {
             depositHash: d.depositHash,
             depositId:
               queued.status === 'done'
-                ? 'FETH minted on Falcon PL'
+                ? 'FETH minted on Falcon Ledger'
                 : 'Locked on Sepolia — minting FETH in the background. You can bridge USDC now.',
           }
         } else {
@@ -2209,7 +2209,7 @@ const handleSpvCompleteClaim = async () => {
             explorerUrl: explorer,
             status: 'minting',
           })
-          setStep('Queuing Falcon PL mint…')
+          setStep('Queuing Falcon Ledger mint…')
           const queued = await queueDestLockMint({
             account: falconId,
             txHash: d.depositHash,
@@ -2229,7 +2229,7 @@ const handleSpvCompleteClaim = async () => {
             approveHash: d.approveHash,
             depositId:
               queued.status === 'done'
-                ? 'F-USDC minted on Falcon PL'
+                ? 'F-USDC minted on Falcon Ledger'
                 : 'Locked on Sepolia — minting F-USDC in the background. You can bridge ETH now.',
           }
         }

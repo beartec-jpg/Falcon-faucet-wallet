@@ -27,7 +27,7 @@ export default function Logo({
         />
         <Image
           src="/falcon-logo.png"
-          alt="Falcon PL logo"
+          alt="Falcon Ledger logo"
           width={size}
           height={size}
           priority

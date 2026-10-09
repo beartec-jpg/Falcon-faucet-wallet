@@ -207,7 +207,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
           {/* Hero */}
           <div className="text-center space-y-2">
             <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-brand-400/90">
-              Falcon PL faucet
+              Falcon Ledger faucet
             </p>
             <h1 className="text-3xl font-bold text-white tracking-tight">
               Get testnet{' '}
@@ -227,7 +227,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
               <input type="hidden" name="account" value={address.trim()} />
               <div className="space-y-1.5">
                 <label htmlFor="address" className="block text-sm font-medium text-slate-300">
-                  Your Falcon PL account
+                  Your Falcon Ledger account
                 </label>
                 <input
                   id="address"
@@ -326,7 +326,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
               </svg>
-              Open Falcon PL wallet
+              Open Falcon Ledger wallet
             </div>
             <svg className="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -336,7 +336,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
           {/* Help text */}
           <p className="text-center text-xs text-slate-500">
             <Link href="/" className="text-brand-400/90 hover:text-brand-300 underline underline-offset-2">
-              ← Falcon PL home
+              ← Falcon Ledger home
             </Link>
             {' · '}
             Tokens have no real value · For testing only

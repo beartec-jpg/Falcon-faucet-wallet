@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
   // Falcon PL 2300 — drip to the same account id the wallet shows (r… or a name).
   if (cfg.networkId === 2300) {
     if (!isPlAccount(account)) {
-      return err('Enter the Falcon PL account from your wallet (the r… address).')
+      return err('Enter the Falcon Ledger account from your wallet (the r… address).')
     }
 
     const clientIpAddr = ip(req)
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       const msg = String(e instanceof Error ? e.message : e)
       console.error('[faucet] PL drip failed:', msg)
-      return err('Cannot reach Falcon PL. Try again shortly.', 503)
+      return err('Cannot reach Falcon Ledger. Try again shortly.', 503)
     }
 
     if (!unlimitedTestnet) {

@@ -31,7 +31,7 @@ export const FALCON_WALLET_ASSETS: FalconAssetDef[] = [
   {
     id: 'falcon',
     symbol: 'FPL',
-    subtitle: 'Native · Falcon PL',
+    subtitle: 'Native · Falcon Ledger',
     status: 'live',
     canSend: true,
     canReceive: true,

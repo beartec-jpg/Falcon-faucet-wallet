@@ -615,8 +615,10 @@ export default function RewardsPage() {
         <div>
           <h1 className="text-xl font-bold text-white">Claim rewards</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Each epoch, PoPL emissions go to validators (55%), watchers (5%), AMM LPs (20%) and
-            lending LPs (20%). All claims are manual pulls from the treasury — nothing auto-tops pools.
+            Each epoch, PoPL emissions start from base buckets: validators 55%, watchers 5%, AMM LPs 20%
+            and lending LPs 20%. Any watcher or LP share left unpaid rolls into the validator pot, so
+            validators can receive more than 55%. All claims are manual pulls from the treasury — nothing
+            auto-tops pools.
           </p>
         </div>
 
