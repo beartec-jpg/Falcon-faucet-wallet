@@ -3869,7 +3869,7 @@ export default function WalletPage() {
                       <p className="text-xs text-slate-500">
                         {network.networkId === 2300
                           ? 'Peer-to-peer on Falcon Ledger — not a bridge.'
-                          : 'Peer-to-peer transfer on Falcon Ledger — not a bridge.'}
+                          : 'Peer-to-peer transfer on Falcon Ledger — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.'}
                       </p>
                       <button
                         type="submit"
