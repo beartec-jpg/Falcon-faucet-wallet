@@ -23,11 +23,12 @@ export const WALLET_ROUTE_ACTIONS: ReadonlySet<string> = new Set([
 export const DEST_LOCK_ASSETS: ReadonlySet<string> = new Set(['ETH', 'USDC'])
 
 /**
- * Checks the action before routing. A missing action means 'pay' (existing
- * behaviour). Returns the action, or an error message for a 400.
+ * Checks the action before routing. A missing (undefined) action means 'pay'
+ * (existing behaviour); null or any other non-string is rejected. Returns the
+ * action, or an error message for a 400.
  */
 export function parseWalletRouteAction(raw: unknown): { action: string } | { error: string } {
-  if (raw === undefined || raw === null) return { action: 'pay' }
+  if (raw === undefined) return { action: 'pay' }
   if (typeof raw !== 'string') return { error: 'action must be a string' }
   if (!WALLET_ROUTE_ACTIONS.has(raw)) return { error: 'Unknown action' }
   return { action: raw }

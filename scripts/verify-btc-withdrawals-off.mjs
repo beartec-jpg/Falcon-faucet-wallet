@@ -266,7 +266,7 @@ for (const file of ['src/app/api/wallet/pl/route.ts', 'src/app/api/wallet/route.
       assert.equal(calls.fetch.length, 0)
     })
   }
-  for (const action of [123, true, { a: 1 }, ['pay']]) {
+  for (const action of [null, 123, true, { a: 1 }, ['pay']]) {
     await check(`API ${file}: non-string action ${JSON.stringify(action)} gets 400`, async () => {
       const { calls, mocks } = makeEnv()
       const route = loadTs(file, { mocks, config: OFF })
