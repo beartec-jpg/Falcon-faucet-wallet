@@ -44,6 +44,7 @@ import {
 } from '@/lib/dest-lock-pending'
 import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
 import { fetchBtcBalance } from '@/lib/btc-client'
+import { BTC_WITHDRAWALS_ENABLED, BTC_WITHDRAWALS_OFF_MESSAGE } from '@/lib/btc-withdrawals'
 import {
   fetchSpvStatus,
   sendSpvDeposit,
@@ -1554,6 +1555,10 @@ export default function BridgeDepositPanel({
   const handleBridgeOut = async () => {
     // ── FBTC → BTC (SPV only): burn MPT, reserve pays BTC, prove ───────────
     if (isFbtcRoute) {
+      if (!BTC_WITHDRAWALS_ENABLED) {
+        setError(BTC_WITHDRAWALS_OFF_MESSAGE)
+        return
+      }
       if (!wallet.btcAddress) {
         setError('Need multi-chain BTC address for payout')
         return
@@ -2736,6 +2741,12 @@ const handleSpvCompleteClaim = async () => {
                 </div>
               </div>
               <p className="text-xs text-slate-400">{phaseLabel(w.phase)}</p>
+              {!BTC_WITHDRAWALS_ENABLED && needsFinish && (
+                <p className="text-[11px] text-amber-300 leading-snug">
+                  {BTC_WITHDRAWALS_OFF_MESSAGE} This withdrawal is pending: it has not been paid yet,
+                  and its record is kept.
+                </p>
+              )}
               {w.payoutAddress && (
                 <p className="text-[11px] text-slate-500 font-mono truncate" title={w.payoutAddress}>
                   → {w.payoutAddress.slice(0, 12)}…{w.payoutAddress.slice(-6)}
@@ -3175,6 +3186,16 @@ const handleSpvCompleteClaim = async () => {
 
             {direction === 'withdraw' && isFbtcRoute && (
               <>
+                {!BTC_WITHDRAWALS_ENABLED && (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 space-y-1">
+                    <p className="text-xs font-semibold text-amber-300">{BTC_WITHDRAWALS_OFF_MESSAGE}</p>
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      Bridge out to Bitcoin is switched off for now. BTC deposits still work. If you
+                      already burned FBTC for a withdrawal, that withdrawal is pending: it has not been
+                      paid yet, and its record is kept.
+                    </p>
+                  </div>
+                )}
                 {(pendingBtcOuts === 'unreadable' || pendingBtcOuts.length > 0) && (
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 space-y-1">
                     <p className="text-xs font-semibold text-amber-300">Bridge out pending</p>
@@ -3203,7 +3224,7 @@ const handleSpvCompleteClaim = async () => {
                     min="0.00000546"
                     step="any"
                     className="input-field"
-                    disabled={busy || !hasBtc || !fbtcReady}
+                    disabled={busy || !hasBtc || !fbtcReady || !BTC_WITHDRAWALS_ENABLED}
                   />
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>
@@ -3250,6 +3271,7 @@ const handleSpvCompleteClaim = async () => {
                   type="button"
                   onClick={handleBridgeOut}
                   disabled={
+                    !BTC_WITHDRAWALS_ENABLED ||
                     busy ||
                     !hasBtc ||
                     !fbtcReady ||

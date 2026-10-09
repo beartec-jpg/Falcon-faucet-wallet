@@ -1,5 +1,6 @@
 {
   "status": "live",
+  "btc_withdrawals_enabled": false,
   "network": "falcon-pl",
   "network_id": 2300,
   "btc_network": "testnet",
