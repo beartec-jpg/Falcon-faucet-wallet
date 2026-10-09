@@ -1,4 +1,4 @@
-# Falcon PL — start-to-finish implementation read-up
+# Falcon Ledger — start-to-finish implementation read-up
 
 **October 2026:** the Falcon Ledger testnet now runs AMM pools, lending, and non-custodial ETH/USDC (Groth16 Falcon-QC) and BTC (BitVM2) bridges. Experimental testnet. Bridge status: [BRIDGES-2300.md](https://github.com/beartec-jpg/Falcon-faucet-wallet/blob/main/docs/BRIDGES-2300.md). This read-up is ledger/consensus history, not the bridge spec. Not an audit.
 
@@ -6,7 +6,7 @@
 
 | | |
 |--|--|
-| **Product** | Falcon PL (Falcon Participation Ledger) |
+| **Product** | Falcon Ledger (protocol: Falcon PL) |
 | **Ticker** | FPL |
 | **Consensus** | Falcon Consensus |
 | **Signatures** | Falcon-512 (NIST PQC) |
@@ -30,7 +30,7 @@ It was the wrong product shape for what we needed next.
 | Research crates mixed with product | Version and identity drift. |
 | Throughput story | Theoretical DAG TPS is not a ledger a wallet can query. |
 
-**Decision (locked):** freeze the DAG crates. Build a **greenfield ordered ledger**. One parent, one height, one hash. Bonded seats pack. Everyone verifies. That is **Falcon Consensus** on **Falcon PL**.
+**Decision (locked):** freeze the DAG crates. Build a **greenfield ordered ledger**. One parent, one height, one hash. Bonded seats pack. Everyone verifies. That is **Falcon Consensus** on **Falcon Ledger**.
 
 The archive stays for history. It is not in the workspace. Mixing DAG code back into `fd-pl` is a product error.
 
@@ -68,7 +68,7 @@ Tip can step in a few hundred milliseconds when there is work. There are no empt
 | Name | What it is | Consensus | What we measured |
 |------|------------|-----------|------------------|
 | **Earlier Falcon testnet** | Prior product line, same Falcon-512 family | Inherited close path | Long soak; **~30 TPS sustained** then HTTP **503** / fee escalate |
-| **Falcon PL (FPL)** | This crate | **Falcon Consensus** | Submit keep-up through **500 TPS**; strain **600–800**; host **OOM ~900** |
+| **Falcon Ledger (FPL)** | This crate | **Falcon Consensus** | Submit keep-up through **500 TPS**; strain **600–800**; host **OOM ~900** |
 
 Same **Falcon-512** signatures. Different engine. The “30 tx/s” number is the **original Falcon API wall**, not a law of Falcon signatures.
 
@@ -143,7 +143,7 @@ Earlier Falcon testnet load (May 2026):
 
 That 30 is an **API / engine wall** on the old stack, not “Falcon-512 max.”
 
-### 6.2 Measured on Falcon PL (PoC, 2026-08-10)
+### 6.2 Measured on Falcon Ledger (PoC, 2026-08-10)
 
 Dual-host, real Falcon-512, 3 validators (`POC.md` §6):
 
@@ -232,7 +232,7 @@ Idle: alice ↔ bob, 1 Pay / 3 s. Multi-host: all five same tip / hash / state r
 
 ## 9. Public paper
 
-The faucet `/whitepaper` is the Falcon PL paper (**v4.1+**). Falcon Consensus, measured vs the earlier 30 TPS wall, the public testnet as the live chain.
+The faucet `/whitepaper` is the Falcon Ledger paper (**v4.1+**). Falcon Consensus, measured vs the earlier 30 TPS wall, the public testnet as the live chain.
 
 | Document | Job |
 |----------|-----|

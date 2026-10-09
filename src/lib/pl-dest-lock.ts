@@ -203,20 +203,20 @@ export async function mintAfterDestLockDeposit(opts: {
 }): Promise<DestLockMintJob> {
   const account = opts.account.trim()
   const txHash = opts.txHash.trim()
-  opts.onStep?.('Queuing Falcon PL mint…')
+  opts.onStep?.('Queuing Falcon Ledger mint…')
   const queued = await queueDestLockMint({ account, txHash, asset: opts.asset })
   if (queued.status === 'done') return queued
   opts.onStep?.(
     queued.asset
-      ? `Minting ${queued.asset} on Falcon PL (headers + RailDeposit)…`
-      : 'Minting on Falcon PL…',
+      ? `Minting ${queued.asset} on Falcon Ledger (headers + RailDeposit)…`
+      : 'Minting on Falcon Ledger…',
   )
   const t0 = Date.now()
   while (Date.now() - t0 < 180_000) {
     await new Promise((r) => setTimeout(r, 2000))
     const st = await postMint('mint-status', account, txHash, opts.asset)
     if (st.status === 'done') {
-      opts.onStep?.(`${st.asset ?? opts.asset} minted on Falcon PL`)
+      opts.onStep?.(`${st.asset ?? opts.asset} minted on Falcon Ledger`)
       return st
     }
     if (st.status === 'error') {
@@ -232,7 +232,7 @@ export async function mintAfterDestLockDeposit(opts: {
         `Waiting for Ethereum finality (light client ${st.lc_execution} / deposit ${st.deposit_block})… ${elapsed}s. Do not send again.`,
       )
     } else {
-      opts.onStep?.(`Minting on Falcon PL… ${st.status ?? 'queued'} (${elapsed}s)`)
+      opts.onStep?.(`Minting on Falcon Ledger… ${st.status ?? 'queued'} (${elapsed}s)`)
     }
   }
   // Keep the job; UI restores from localStorage + mint-status after refresh.
@@ -493,7 +493,7 @@ export async function pegOutDestLock(opts: {
     }
   } else {
     if (snap.balance < 2) throw new Error('Need 2 FPL on this account for the burn fee')
-    opts.onStep?.(`Burning ${opts.asset} on Falcon PL…`)
+    opts.onStep?.(`Burning ${opts.asset} on Falcon Ledger…`)
     const burn = await signRailWithdraw({
       account: opts.account,
       sequence: snap.sequence,
@@ -521,11 +521,11 @@ export async function pegOutDestLock(opts: {
 
   // 1) Was the burn sealed into a ledger? (account sequence moves past it)
   if (!pending.noteId) {
-    opts.onStep?.('Waiting for Falcon PL to seal the burn…')
+    opts.onStep?.('Waiting for Falcon Ledger to seal the burn…')
     const included = await waitBurnIncluded(opts.account, opts.network, pending.sequence, 90_000)
     if (!included) {
       throw new Error(
-        'Burn is signed and queued, but Falcon PL has not sealed a new ledger yet (network may be stalled). ' +
+        'Burn is signed and queued, but Falcon Ledger has not sealed a new ledger yet (network may be stalled). ' +
           `Your ${opts.asset === 'USDC' ? 'F-USDC' : 'FETH'} has not been debited. Keep this panel open and press ` +
           'Bridge out again later — it re-uses the same signed burn and cannot burn twice.',
       )

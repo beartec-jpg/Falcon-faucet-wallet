@@ -54,8 +54,8 @@
       "id": "fbtc-native",
       "status": "live",
       "direction_labels": {
-        "in": "Bitcoin testnet · BTC → Falcon PL FBTC",
-        "out": "Falcon PL FBTC → BTC (note only until payout ships)"
+        "in": "Bitcoin testnet · BTC → Falcon Ledger FBTC",
+        "out": "Falcon Ledger FBTC → BTC"
       },
       "source": {
         "chain": "bitcoin",

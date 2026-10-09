@@ -417,7 +417,7 @@ export async function realWatcherTest(account = PL_WATCHER_ACCOUNT): Promise<Wat
   } else {
     pushEvent(s, {
       kind: 'work',
-      detail: `work recorded. 2300 does not settle for ${Math.round(st0.epochMs / 86_400_000)}d — claim after epoch ${st0.firstClaimEpoch}.`,
+      detail: `work recorded. Falcon does not settle for ${Math.round(st0.epochMs / 86_400_000)}d — claim after epoch ${st0.firstClaimEpoch}.`,
     })
   }
   const paid = await watcherSnapshot(account)

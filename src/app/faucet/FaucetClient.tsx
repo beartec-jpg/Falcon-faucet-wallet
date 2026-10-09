@@ -241,7 +241,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                   disabled={loading}
                 />
                 <p className="text-[11px] text-slate-500">
-                  Use the Falcon account name you created. Opening the faucet from your Wallet fills this in.
+                  Use your Falcon account name (or the r… address on an older wallet).
                 </p>
               </div>
 
