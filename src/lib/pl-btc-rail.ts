@@ -503,9 +503,12 @@ export async function pegOutPlBtc(opts: {
         return { signed_btc_tx: kickJ.signed_btc_tx, amount: kickJ.amount }
       },
       broadcast: async (hex) => (await broadcastBtcTx(hex, 'testnet')).trim(),
-      // A not-found / waiting / depth-unknown lookup is UNKNOWN (null), never 0.
+      // Not found / not confirmed while waiting → UNKNOWN (null), never 0.
+      // Confirmed with the tip unknown → the proven lower bound (≥1): enough
+      // for a take to count as confirmed, never enough for the Kickoff CSV.
       pollConfirmations: async (txid) => {
         const st = await pollSpvConfirmations(txid, 'testnet')
+        if (st.confirmed) return st.confirmations >= 1 ? st.confirmations : 1
         if (st.waiting) return null
         return st.confirmations
       },
