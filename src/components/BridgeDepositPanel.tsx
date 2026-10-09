@@ -1551,10 +1551,11 @@ export default function BridgeDepositPanel({
       // FBTC balance for bridge = SPV MPT only (what Claim mint creates)
       const avail = Math.max(0, fbtcSpvLive ?? fbtcLive ?? 0)
       const amountSats = Math.round(amt * 1e8)
-      // A pending burn already debited the balance — resuming it must not be
-      // blocked by the "insufficient" check (the resume never burns again).
+      // PL 2300: the balance check lives in pegOutPlBtc, after it has looked for
+      // a pending or on-chain burn of this withdrawal (which already debited the
+      // balance). Checking here would block resume / chain recovery.
       const resumingBtcOut = isPl2300 && !!findOpenBtcPegOut(falconId, amountSats, wallet.btcAddress)
-      if (!resumingBtcOut && avail + 1e-12 < amt) {
+      if (!isPl2300 && avail + 1e-12 < amt) {
         setError(`Insufficient FBTC (have ${fmt(avail, 8)}; need ${fmt(amt, 8)}). Use Max.`)
         return
       }

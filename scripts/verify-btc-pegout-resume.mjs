@@ -304,4 +304,42 @@ await test('chain list unavailable while sequence moved: treated as sealed (neve
   assert.equal(w.takes, 1)
 })
 
+await test('storage unavailable or not keeping writes: stops BEFORE the burn', async () => {
+  const throwing = { getItem: () => null, setItem: () => { throw new Error('QuotaExceededError') } }
+  const w1 = fakeWorld()
+  await assert.rejects(m.runBtcPegOut(params, w1.deps(m.kvBtcPegOutStore(throwing))), /Could not save/)
+  assert.equal(w1.submits, 0)
+  assert.equal(w1.burnsApplied, 0)
+
+  const dropping = { getItem: () => null, setItem: () => {} }
+  const w2 = fakeWorld()
+  await assert.rejects(m.runBtcPegOut(params, w2.deps(m.kvBtcPegOutStore(dropping))), /Could not save/)
+  assert.equal(w2.submits, 0)
+
+  const w3 = fakeWorld()
+  await assert.rejects(m.runBtcPegOut(params, w3.deps(m.kvBtcPegOutStore(null))), /Could not save/)
+  assert.equal(w3.submits, 0)
+})
+
+await test('storage fails after the burn: stops before requesting a Kickoff it could not remember', async () => {
+  const kv = memKv()
+  let writes = 0
+  const flaky = {
+    getItem: kv.getItem,
+    setItem: (k, v) => {
+      writes += 1
+      if (writes >= 2) throw new Error('QuotaExceededError')
+      kv.setItem(k, v)
+    },
+  }
+  const w = fakeWorld()
+  await assert.rejects(m.runBtcPegOut(params, w.deps(m.kvBtcPegOutStore(flaky))), /Could not save/)
+  assert.equal(w.burnsApplied, 1)
+  assert.equal(w.kickoffRequests, 0)
+  // Storage back: the saved burn_signed record resumes with no new burn.
+  await m.runBtcPegOut(params, w.deps(m.kvBtcPegOutStore(kv)))
+  assert.equal(w.burnsSigned, 1)
+  assert.equal(w.takes, 1)
+})
+
 console.log(`\n${passed} BTC peg-out resume checks passed`)

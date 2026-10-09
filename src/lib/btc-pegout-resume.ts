@@ -59,6 +59,7 @@ export type BtcPegOutRecord = {
 
 export interface BtcPegOutStore {
   load(account: string, noteId: string): BtcPegOutRecord | null
+  /** Must throw if the record could not be persisted — it is the safety boundary. */
   save(rec: BtcPegOutRecord): void
   remove(account: string, noteId: string): void
   /** Records not yet `done` for this account (newest first). */
@@ -250,12 +251,10 @@ export function kvBtcPegOutStore(kv: KV | null): BtcPegOutStore {
     }
   }
   const write = (m: Record<string, BtcPegOutRecord[]>) => {
-    if (!kv) return
-    try {
-      kv.setItem(BTC_PEGOUT_STORE_KEY, JSON.stringify(m))
-    } catch {
-      /* quota — the on-chain withdraw note is still the fallback */
-    }
+    if (!kv) throw new Error('Browser storage is unavailable')
+    const raw = JSON.stringify(m)
+    kv.setItem(BTC_PEGOUT_STORE_KEY, raw)
+    if (kv.getItem(BTC_PEGOUT_STORE_KEY) !== raw) throw new Error('Browser storage did not keep the write')
   }
   return {
     load(account, noteId) {
@@ -277,7 +276,11 @@ export function kvBtcPegOutStore(kv: KV | null): BtcPegOutStore {
       const m = read()
       const k = acctKey(account)
       m[k] = (m[k] ?? []).filter((r) => r.noteId !== noteId)
-      write(m)
+      try {
+        write(m)
+      } catch {
+        /* a stale dead record only blocks; it can never cause a burn */
+      }
     },
     listOpen(account) {
       return (read()[acctKey(account)] ?? [])
@@ -313,6 +316,17 @@ export function findOpenBtcPegOut(
 
 // ── engine ───────────────────────────────────────────────────────────────────
 
+function persist(store: BtcPegOutStore, rec: BtcPegOutRecord): void {
+  try {
+    store.save(rec)
+  } catch (e) {
+    throw new Error(
+      `Could not save BTC Bridge out progress in this browser (${errMsg(e)}). Stopped before the next ` +
+        'irreversible step. Allow site storage (not private mode) and press Bridge out again.',
+    )
+  }
+}
+
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
@@ -337,10 +351,20 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
   const step = (m: string) => d.onStep?.(m)
 
   let rec = d.store.load(p.account, noteId)
+  // Phase changes must persist, or a retry could repeat an irreversible step.
   const save = (patch: Partial<BtcPegOutRecord>) => {
     rec = { ...(rec as BtcPegOutRecord), ...patch, updatedAt: d.now() }
-    d.store.save(rec)
+    persist(d.store, rec)
     return rec
+  }
+  // Error notes are best-effort; never mask the original failure.
+  const note = (lastError: string) => {
+    rec = { ...(rec as BtcPegOutRecord), lastError, updatedAt: d.now() }
+    try {
+      d.store.save(rec)
+    } catch {
+      /* ignore */
+    }
   }
 
   if (rec?.phase === 'done') {
@@ -405,7 +429,7 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
         createdAt: now,
         updatedAt: now,
       }
-      d.store.save(rec)
+      persist(d.store, rec)
       step('Found your FBTC burn on Falcon PL — resuming at Kickoff (no new burn)…')
     }
   }
@@ -435,12 +459,13 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
       createdAt: now,
       updatedAt: now,
     }
-    d.store.save(rec)
+    // Safety boundary: no durable record → no burn.
+    persist(d.store, rec)
     try {
       await d.submitBurn(burn.rawJson)
     } catch (e) {
       // Keep the record: a retry re-broadcasts this same signed burn.
-      save({ lastError: errMsg(e) })
+      note(errMsg(e))
       throw new Error(
         `Burn submit failed (${errMsg(e)}). Press Bridge out again with the same amount — ` +
           'it re-sends this same signed burn and cannot burn twice.',
@@ -464,7 +489,7 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
       )
     }
     if (sealed === 'pending') {
-      save({ lastError: 'burn not sealed yet' })
+      note('burn not sealed yet')
       throw new Error(
         'Burn is signed and queued, but Falcon PL has not sealed it yet. Press Bridge out again later with the ' +
           'same amount — it re-uses the same signed burn and cannot burn twice.',
@@ -480,14 +505,14 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
     try {
       kick = await d.requestKickoff()
     } catch (e) {
-      save({ lastError: errMsg(e) })
+      note(errMsg(e))
       throw new Error(
         `FBTC is burned but the Kickoff could not be signed (${errMsg(e)}). ` +
           'Press Bridge out again with the same amount to retry the Kickoff — it will not burn again.',
       )
     }
     if (!kick.signed_btc_tx) {
-      save({ lastError: 'Kickoff returned no tx' })
+      note('Kickoff returned no tx')
       throw new Error('FBTC is burned but the Kickoff came back empty. Press Bridge out again to retry — no new burn.')
     }
     let kickoffTxid = ''
@@ -537,7 +562,7 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
           )
         }
       } else if (!isAlreadyKnown(msg)) {
-        save({ lastError: msg })
+        note(msg)
         throw new Error(
           `FBTC is burned and the Kickoff is signed, but the broadcast failed (${msg}). ` +
             'Press Bridge out again with the same amount — it re-broadcasts the same Kickoff, no new burn.',
@@ -547,7 +572,7 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
       }
     }
     if (rec.phase === 'kickoff_signed' && !txid) {
-      save({ lastError: 'Kickoff txid unknown' })
+      note('Kickoff txid unknown')
       throw new Error('Kickoff broadcast but its txid is unknown. Press Bridge out again to resume — no new burn.')
     }
     if (rec.phase === 'kickoff_signed') {
@@ -572,7 +597,7 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
       await d.sleep(t.kickoffPollMs)
     }
     if (confs < need) {
-      save({ lastError: `Kickoff ${confs}/${need} confirmations` })
+      note(`Kickoff ${confs}/${need} confirmations`)
       throw new Error(
         `FBTC burned and dest-lock Kickoff posted. Wait for ${need} Bitcoin confirmations, then press Bridge out ` +
           `again with the same amount to take (txid ${kickoffTxid}). No new burn will be made.`,
@@ -596,13 +621,20 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
         }
       }
     } catch (e) {
-      save({ lastError: errMsg(e) })
+      note(errMsg(e))
       throw new Error(
         `Kickoff is confirmed but the take failed (${errMsg(e)}). Press Bridge out again with the same amount ` +
           'to retry the take — no new burn.',
       )
     }
-    save({ phase: 'done', takeTxid: takeTxid || undefined, lastError: undefined })
+    // Payout is done; a failed write here must not report an error. Worst case
+    // a retry asks for the take again, which cannot spend the Kickoff twice.
+    rec = { ...rec, phase: 'done', takeTxid: takeTxid || undefined, lastError: undefined, updatedAt: d.now() }
+    try {
+      d.store.save(rec)
+    } catch {
+      /* ignore */
+    }
   }
 
   return {
