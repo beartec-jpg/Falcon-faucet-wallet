@@ -3,6 +3,11 @@ import { isOriginAllowed } from '@/lib/origin'
 import { resolveNetworkKey, serverNetworkConfig, serverRpcCall } from '@/lib/network-server'
 import { peekSubmitRateLimit, consumeSubmitRateLimit } from '@/lib/rate-limit'
 import { plSubmit, plSubmitRaw, type PlTx } from '@/lib/pl-rpc'
+import {
+  BTC_WITHDRAWALS_ENABLED,
+  btcWithdrawalsOffResponse,
+  isBtcPegOutPlTx,
+} from '@/lib/btc-withdrawals'
 
 function clientIp(req: NextRequest): string {
   return (
@@ -36,6 +41,17 @@ export async function POST(req: NextRequest) {
 
   const networkKey = resolveNetworkKey(body.network)
   const cfg = serverNetworkConfig(networkKey)
+
+  // FBTC burn (BTC rail_withdraw) starts a BTC withdrawal: refused while the
+  // btc_withdrawals_enabled flag is off. Other assets are unaffected.
+  if (
+    cfg.networkId === 2300 &&
+    !BTC_WITHDRAWALS_ENABLED &&
+    (isBtcPegOutPlTx(body.tx_json) || isBtcPegOutPlTx(body.tx))
+  ) {
+    const off = btcWithdrawalsOffResponse()
+    return NextResponse.json(off.body, { status: off.status })
+  }
 
   if (cfg.networkId === 2300 && typeof body.tx_json === 'string' && body.tx_json.trim().startsWith('{')) {
     try {
