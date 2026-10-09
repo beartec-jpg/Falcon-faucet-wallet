@@ -16,6 +16,13 @@ export const CAP_LP_PER_ACCOUNT_E4 = 50n
 export const CAP_WATCHER_PER_ACCOUNT_E4 = 5n
 export const WATCHER_SLOTS_PER_EPOCH = 168n
 const U64_MAX = (1n << 64n) - 1n
+/** params_v2.rs (rewards v2, node 2.9.62). Keep in sync. */
+export const FEE_BURN_PCT = 50n
+export const FEE_PROPOSER_PCT = 30n
+export const POT_PROPOSER_PCT = 50n
+export const POT_VOTER_PCT = 40n
+export const BLOCK_BASE_CREDIT = 64n
+export const TX_BONUS_CAP = 64n
 
 export type Weights = Record<string, bigint>
 
@@ -148,6 +155,98 @@ export function projectSettle(i: RewardsInput): RewardsProjection {
     watcherWeights: ww,
     pays,
     validatorPays,
+    watcherPays: wat.paid,
+    ammPays: amm.paid,
+    lendPays: lend.paid,
+  }
+}
+
+/** economy.rs `fee_split_v2`: [burn, proposer now, epoch reward pool]. */
+export function feeSplitV2(fee: bigint): [bigint, bigint, bigint] {
+  const burn = (fee * FEE_BURN_PCT) / 100n
+  const prop = (fee * FEE_PROPOSER_PCT) / 100n
+  return [burn, prop, fee - burn - prop]
+}
+
+/** economy.rs `proposer_block_credit`: 64 + min(fee-paying txs, 64). */
+export function proposerBlockCredit(feePayingTxs: bigint): bigint {
+  return BLOCK_BASE_CREDIT + minBig(feePayingTxs, TX_BONUS_CAP)
+}
+
+export type RewardsInputV2 = {
+  treasury: bigint
+  emissionBps: bigint
+  epochClaimable: boolean
+  /** v2 FPL value weights (status `rewards_v2.amm_lp_value_weights`). */
+  ammLp: Weights
+  lendLp: Weights
+  watcherWork: Weights
+  watcherSlots: Weights
+  proposerCredit: Weights
+  voteCredit: Weights
+  /** 100 per eligible seat, 105 with the archive role. */
+  floorWeights: Weights
+  feePool: bigint
+}
+
+export type RewardsProjectionV2 = Omit<RewardsProjection, 'packTxsTotal'> & {
+  formula: 'v2'
+  propPool: bigint
+  votePool: bigint
+  floorPool: bigint
+  feePool: bigint
+  proposerPays: Weights
+  votePays: Weights
+  floorPays: Weights
+}
+
+/** Mirror of economy.rs `settle_epoch_v2` (50 % proposer credit / 40 % vote credit / 10 % floor). */
+export function projectSettleV2(i: RewardsInputV2): RewardsProjectionV2 {
+  const emit = i.epochClaimable ? (i.treasury * i.emissionBps) / 10_000n : 0n
+  const v = (emit * SHARE_VALIDATORS_PCT) / 100n
+  const w = (emit * SHARE_WATCHERS_PCT) / 100n
+  const a = (emit * SHARE_AMM_PCT) / 100n
+  const l = (emit * SHARE_LEND_PCT) / 100n
+  const lpCap = (emit * CAP_LP_PER_ACCOUNT_E4) / 10_000n || 1n
+  const watcherCap = (emit * CAP_WATCHER_PER_ACCOUNT_E4) / 10_000n || 1n
+  const amm = proRataCapped(a, i.ammLp, lpCap)
+  const lend = proRataCapped(l, i.lendLp, lpCap)
+  const ww = watcherWeights(i.watcherWork, i.watcherSlots)
+  const wat = proRataCapped(w, ww, watcherCap)
+  const validatorPot = v + amm.rem + lend.rem + wat.rem + i.feePool
+  const propPool = (validatorPot * POT_PROPOSER_PCT) / 100n
+  const votePool = (validatorPot * POT_VOTER_PCT) / 100n
+  const floorPool = validatorPot - propPool - votePool
+  const prop = proRataCapped(propPool, i.proposerCredit, U64_MAX)
+  const vote = proRataCapped(votePool, i.voteCredit, U64_MAX)
+  const floor = proRataCapped(floorPool, i.floorWeights, U64_MAX)
+  const validatorPays: Weights = {}
+  for (const d of [prop.paid, vote.paid, floor.paid]) {
+    for (const [k, x] of Object.entries(d)) validatorPays[k] = (validatorPays[k] ?? 0n) + x
+  }
+  const pays: Weights = { ...validatorPays }
+  for (const d of [wat.paid, amm.paid, lend.paid]) {
+    for (const [k, x] of Object.entries(d)) pays[k] = (pays[k] ?? 0n) + x
+  }
+  return {
+    formula: 'v2',
+    emit,
+    buckets: { validators: v, watchers: w, amm: a, lend: l },
+    lpCap,
+    watcherCap,
+    validatorPot,
+    packHalf: propPool,
+    checkHalf: votePool + floorPool,
+    propPool,
+    votePool,
+    floorPool,
+    feePool: i.feePool,
+    watcherWeights: ww,
+    pays,
+    validatorPays,
+    proposerPays: prop.paid,
+    votePays: vote.paid,
+    floorPays: floor.paid,
     watcherPays: wat.paid,
     ammPays: amm.paid,
     lendPays: lend.paid,
