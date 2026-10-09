@@ -273,7 +273,7 @@ export default function MarketingHomePage() {
                 n: '02',
                 title: 'Bridges',
                 badge: 'Testnet',
-                p1: 'Bring ETH and USDC over from Ethereum Sepolia and BTC from Bitcoin testnet, and send them back out. ETH and USDC withdrawals are released only by a Groth16 proof of Falcon quorum certificates. BTC deposits are live on Bitcoin testnet, and trust-minimised BitVM2 withdrawals are in final testing.',
+                p1: 'Bring ETH and USDC over from Ethereum Sepolia and send them back out. ETH and USDC withdrawals are released only by a Groth16 proof of Falcon quorum certificates. You can also bring BTC in from Bitcoin testnet today; trust-minimised BitVM2 withdrawals are in final testing.',
                 p2: 'The ETH and USDC bridge is non-custodial: the Ethereum bridge contract has no owner and no admin withdraw. Experimental testnet, test assets only.',
                 img: '/assets/images/features/feature-bridge.jpg',
                 reverse: true,
