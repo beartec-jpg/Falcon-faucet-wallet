@@ -109,7 +109,7 @@ const MAINNET_DRIP_FPL = envNumberFirst(
 
 const MAINNET: NetworkConfig = {
   key: 'mainnet',
-  name: envStr('NEXT_PUBLIC_MAINNET_NAME', 'Falcon PL'),
+  name: envStr('NEXT_PUBLIC_MAINNET_NAME', 'Falcon Ledger'),
   shortName: 'Mainnet',
   networkId: envInt('NEXT_PUBLIC_MAINNET_NETWORK_ID', 1),
   rpcUrl: envStr('NEXT_PUBLIC_MAINNET_RPC_URL', ''),
