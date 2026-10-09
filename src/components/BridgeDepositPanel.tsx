@@ -3185,7 +3185,7 @@ const handleSpvCompleteClaim = async () => {
                     → {wallet.btcAddress.slice(0, 10)}…{wallet.btcAddress.slice(-6)}
                   </p>
                 )}
-                {spvLive && (
+                {spvLive && BTC_WITHDRAWALS_ENABLED && (
                   <div className="space-y-1.5 rounded-xl border border-slate-700/60 bg-slate-900/40 px-3 py-2.5">
                     <p className="text-[11px] text-slate-500 leading-snug">
                       Peg-out burns FBTC, then a dest-lock Kickoff (claimer CHECKSIG, no FROST). After
