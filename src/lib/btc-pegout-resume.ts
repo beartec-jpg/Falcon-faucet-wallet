@@ -14,7 +14,10 @@
  *   (public once broadcast; no secret material), so a crash mid-submit still
  *   resumes by re-broadcasting the same tx (same sequence → cannot apply twice).
  * - Once a Kickoff has been signed it is stored and re-broadcast on retry; a new
- *   Kickoff is never requested for a withdrawal that already has one.
+ *   Kickoff is not requested for a withdrawal that already has one. Single
+ *   exception: Bitcoin reports the stored Kickoff's input as spent AND its own
+ *   status is known to be unconfirmed (it can never confirm) — then it is
+ *   discarded and a new Kickoff is requested. Unknown status never qualifies.
  * - If browser state is lost, the on-chain BTC rail withdraw note proves the
  *   burn happened; resume from it requires explicit confirmation because the
  *   chain does not record whether the Kickoff was already paid.
@@ -62,6 +65,8 @@ export interface BtcPegOutStore {
   /** Must throw if the record could not be persisted — it is the safety boundary. */
   save(rec: BtcPegOutRecord): void
   remove(account: string, noteId: string): void
+  /** Note ids of this account's completed withdrawals (one read). */
+  doneNoteIds(account: string): Set<string>
   /** Records not yet `done` for this account (newest first). */
   listOpen(account: string): BtcPegOutRecord[]
 }
@@ -99,8 +104,10 @@ export interface BtcPegOutDeps {
    */
   confirmFreshBurn?(others: ChainBtcWithdraw[]): Promise<boolean>
   /**
-   * Run `fn` holding an exclusive per-withdrawal lock across browser tabs
-   * (navigator.locks). Must throw if another tab holds it. Absent → no lock.
+   * Run `fn` holding an exclusive PER-ACCOUNT lock across browser tabs
+   * (navigator.locks). Per account, not per withdrawal: it also serializes the
+   * checks for different amount/address pairs and guards that account's
+   * storage key. Must throw if another tab holds it. Absent → no lock.
    */
   withLock?<T>(key: string, fn: () => Promise<T>): Promise<T>
 }
@@ -317,6 +324,9 @@ export function kvBtcPegOutStore(kv: KV | null): BtcPegOutStore {
       // Throws on failure: the caller must not claim the record was cleared.
       write(account, read(account).filter((r) => r.noteId !== noteId))
     },
+    doneNoteIds(account) {
+      return new Set(read(account).filter((r) => r.phase === 'done').map((r) => r.noteId))
+    },
     listOpen(account) {
       return read(account)
         .filter((r) => r.phase !== 'done')
@@ -497,8 +507,10 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
         'Could not check Falcon PL for an earlier unfinished BTC Bridge out. No burn was made — try again shortly.',
       )
     }
+    // One read of this account's completed note ids (history is never pruned).
+    const doneIds = d.store.doneNoteIds(p.account)
     const unknownOthers = (chain as ChainBtcWithdraw[]).filter(
-      (w) => w.noteId !== noteId && d.store.load(p.account, w.noteId)?.phase !== 'done',
+      (w) => w.noteId !== noteId && !doneIds.has(w.noteId),
     )
     if (unknownOthers.length > 0) {
       const ok = d.confirmFreshBurn ? await d.confirmFreshBurn(unknownOthers) : false
