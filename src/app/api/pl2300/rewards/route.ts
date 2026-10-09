@@ -6,6 +6,7 @@ import {
   emissionPctPerYear,
   parseBigJson,
   projectSettle,
+  projectSettleV2,
   settleEtaMs,
   stringifyBigs,
 } from '@/lib/pl-rewards-model'
@@ -52,17 +53,34 @@ export async function GET(req: Request) {
     const eligible = validators
       .filter((v) => v.id && !v.jailed && big(v.bond) > 0n)
       .map((v) => String(v.id))
-    const proj = projectSettle({
-      treasury: big(st.treasury),
-      emissionBps: big(st.emission_bps),
-      epochClaimable: st.epoch_claimable !== false,
-      ammLp: bigMap(st.amm_lp_weights),
-      lendLp: bigMap(st.lend_lp_weights),
-      watcherWork: bigMap(st.watcher_work),
-      watcherSlots: bigMap(st.watcher_slots),
-      packTxs: bigMap(st.epoch_pack_txs),
-      eligibleValidators: eligible,
-    })
+    // Node 2.9.62+: `rewards_v2.active_epoch` switches to the v2 settle.
+    const rv2 = (st.rewards_v2 ?? {}) as Record<string, unknown>
+    const isV2 = rv2.active_epoch === true
+    const proj = isV2
+      ? projectSettleV2({
+          treasury: big(st.treasury),
+          emissionBps: big(st.emission_bps),
+          epochClaimable: st.epoch_claimable !== false,
+          ammLp: bigMap(rv2.amm_lp_value_weights),
+          lendLp: bigMap(rv2.lend_lp_value_weights),
+          watcherWork: bigMap(st.watcher_work),
+          watcherSlots: bigMap(st.watcher_slots),
+          proposerCredit: bigMap(rv2.epoch_proposer_credit),
+          voteCredit: bigMap(rv2.epoch_vote_credit),
+          floorWeights: bigMap(rv2.floor_weights),
+          feePool: big(rv2.epoch_fee_reward_pool),
+        })
+      : projectSettle({
+          treasury: big(st.treasury),
+          emissionBps: big(st.emission_bps),
+          epochClaimable: st.epoch_claimable !== false,
+          ammLp: bigMap(st.amm_lp_weights),
+          lendLp: bigMap(st.lend_lp_weights),
+          watcherWork: bigMap(st.watcher_work),
+          watcherSlots: bigMap(st.watcher_slots),
+          packTxs: bigMap(st.epoch_pack_txs),
+          eligibleValidators: eligible,
+        })
     const epoch = Number(st.epoch ?? 0)
     const epochMs = Number(st.epoch_ms ?? 0)
     const genesisMs = Number(st.genesis_ms ?? 0)
@@ -110,8 +128,8 @@ export async function GET(req: Request) {
           amm: proj.ammPays[who] ?? 0n,
           lend: proj.lendPays[who] ?? 0n,
         },
-        ammWeight: bigMap(st.amm_lp_weights)[who] ?? 0n,
-        lendWeight: bigMap(st.lend_lp_weights)[who] ?? 0n,
+        ammWeight: bigMap(isV2 ? rv2.amm_lp_value_weights : st.amm_lp_weights)[who] ?? 0n,
+        lendWeight: bigMap(isV2 ? rv2.lend_lp_value_weights : st.lend_lp_weights)[who] ?? 0n,
         watcherWeight: proj.watcherWeights[who] ?? 0n,
       }
     }
@@ -138,7 +156,18 @@ export async function GET(req: Request) {
         validatorPot: proj.validatorPot,
         packHalf: proj.packHalf,
         checkHalf: proj.checkHalf,
-        packTxsTotal: proj.packTxsTotal,
+        packTxsTotal: 'packTxsTotal' in proj ? proj.packTxsTotal : 0n,
+        formula: isV2 ? 'v2' : 'v1',
+        v2: isV2 && 'propPool' in proj
+          ? {
+              propPool: proj.propPool,
+              votePool: proj.votePool,
+              floorPool: proj.floorPool,
+              feePool: proj.feePool,
+              proposerCredit: bigMap(rv2.epoch_proposer_credit),
+              voteCredit: bigMap(rv2.epoch_vote_credit),
+            }
+          : null,
         eligibleValidators: eligible.length,
         watchers: Object.keys(bigMap(st.watcher_work)).map((id) => ({
           id,
@@ -154,7 +183,9 @@ export async function GET(req: Request) {
         me,
         notes: [
           'Projection = settle with the counters as they are now; the real payout uses the counters at the epoch boundary.',
-          'Fee share of the validator pot is not exposed by status and is not included (lower bound).',
+          isV2
+            ? 'Rewards v2: validator pot = 55% bucket + unpaid LP/watcher caps + 20% of fees; 50% by proposer credit, 40% by votes, 10% equal floor (archive 105).'
+            : 'Fee share of the validator pot is not exposed by status and is not included (lower bound).',
           'Lending has no interest yet: lenders earn the 20% lend emission bucket pro rata, capped at 0.5% of emission per account.',
         ],
       }),
