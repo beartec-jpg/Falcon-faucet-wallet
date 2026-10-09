@@ -9,7 +9,14 @@ import { createHash } from 'crypto'
 import { encodeAccountID } from 'ripple-address-codec'
 
 const FALCON512_PREFIX = 0xfb
-const RPC = process.env.XRPLD_RPC_URL ?? 'http://46.224.0.140:6005'
+const RPC = process.env.XRPLD_RPC_URL?.trim()
+if (!RPC) {
+  console.error(
+    'verify-falcon-sign: XRPLD_RPC_URL is not set. Set it to the testnet RPC URL, e.g.\n' +
+      '  XRPLD_RPC_URL=https://<testnet-rpc-host> npm run verify:sign',
+  )
+  process.exit(2)
+}
 
 function addrFromPub(pubBlob) {
   const sha = createHash('sha256').update(pubBlob).digest()

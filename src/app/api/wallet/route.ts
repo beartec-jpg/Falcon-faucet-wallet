@@ -4,11 +4,21 @@ import { isOriginAllowed } from '@/lib/origin'
 import { plAccount, plStatus } from '@/lib/pl-rpc'
 import { ctlPay, ctlVaultLock, ctlVaultOpen, PL_CTL } from '@/lib/pl-ctl'
 
-const WALLET_API =
-  process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
+/**
+ * walletd URL. Must be set via FALCON_PL_WALLET_API; there is deliberately no
+ * hard-coded fallback. When unset, every walletd-backed action fails with a
+ * readable 503 JSON error (the throw is caught by each action's handler).
+ */
+function walletApiUrl(): string {
+  const url = process.env.FALCON_PL_WALLET_API?.trim()
+  if (!url) {
+    throw new Error('walletd is not configured (FALCON_PL_WALLET_API is unset)')
+  }
+  return url
+}
 
 async function payViaHttp(from: string, to: string, amount: number) {
-  const r = await fetch(WALLET_API, {
+  const r = await fetch(walletApiUrl(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'pay', from, to, amount }),
@@ -140,7 +150,7 @@ export async function POST(req: NextRequest) {
           vaultLocked: after.vault_locked,
         })
       }
-      const r = await fetch(WALLET_API, {
+      const r = await fetch(walletApiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'vault-activate', account, destination }),
@@ -185,7 +195,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'asset must be ETH or USDC' }, { status: 400 })
     }
     try {
-      const r = await fetch(WALLET_API, {
+      const r = await fetch(walletApiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'eth-kickoff', noteId, dest, amount, asset }),
@@ -211,7 +221,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'account required' }, { status: 400 })
     }
     try {
-      const r = await fetch(WALLET_API, {
+      const r = await fetch(walletApiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -243,7 +253,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'height must be a positive integer' }, { status: 400 })
     }
     try {
-      const r = await fetch(WALLET_API, {
+      const r = await fetch(walletApiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'header-proof', height }),
@@ -278,7 +288,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'amount must be a positive integer' }, { status: 400 })
     }
     try {
-      const r = await fetch(WALLET_API, {
+      const r = await fetch(walletApiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'claim-proof', account, dest, asset, amount, noteId }),
@@ -308,7 +318,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'asset must be ETH or USDC' }, { status: 400 })
     }
     try {
-      const r = await fetch(WALLET_API, {
+      const r = await fetch(walletApiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, account, txHash, asset: asset || undefined }),
@@ -354,7 +364,7 @@ export async function POST(req: NextRequest) {
       payload.sats = Number(body.sats ?? amount)
     }
     try {
-      const r = await fetch(WALLET_API, {
+      const r = await fetch(walletApiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
