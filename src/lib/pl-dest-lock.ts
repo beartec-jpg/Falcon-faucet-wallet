@@ -11,6 +11,7 @@ import {
   assertClaimDest,
   assertRefundSigner,
   openClaimDone,
+  qcV2Bridge,
   parseDepositId,
   qcV3Bridge,
   resolveTakeBridge,
@@ -614,7 +615,7 @@ export async function pegOutDestLock(opts: {
       )
     }
     // take() on the bridge walletd opened the claim on (V2 or V3), checked against config.
-    const target = resolveTakeBridge(openJ, pegOutBridge(opts.cfg), qcV3Bridge(opts.cfg))
+    const target = resolveTakeBridge(openJ, qcV2Bridge(opts.cfg), qcV3Bridge(opts.cfg))
     opts.onStep?.(`take() dest-only on ${target.version.toUpperCase()} (no claimer)…`)
     const took = await takeAfterOpen({
       cfg: opts.cfg,
@@ -801,7 +802,7 @@ export async function claimV3Refund(opts: {
       throw new Error(openJ.error || 'V3 refund openClaim failed')
     }
     if (!openClaimDone(true, openJ)) throw new Error('The V3 header has not caught this refund yet. Try again later.')
-    const target = resolveTakeBridge(openJ, pegOutBridge(opts.cfg), v3)
+    const target = resolveTakeBridge(openJ, qcV2Bridge(opts.cfg), v3)
     if (target.version !== 'v3') throw new Error('walletd opened this refund on a non-V3 bridge; not calling take()')
     openHash = openJ.tx || ''
   }

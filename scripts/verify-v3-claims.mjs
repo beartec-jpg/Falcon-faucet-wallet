@@ -97,6 +97,18 @@ t('assertClaimDest: only the recorded dest may take()', () => {
   assert.throws(() => m.assertClaimDest(SYNTHETIC_V3, OTHER), /only that address/)
   assert.throws(() => m.assertClaimDest('0x12', OTHER), /malformed/)
 })
+t('V2 must be the configured legacy_qc_v2: no fallback to sepolia.bridge', () => {
+  const cfg = (legacy_qc_v2) => ({ sepolia: { bridge: OTHER, legacy_qc_v2 } })
+  assert.equal(m.qcV2Bridge(cfg(V2)), V2)
+  assert.equal(m.qcV2Bridge(cfg(undefined)), null)
+  assert.equal(m.qcV2Bridge(cfg('0x1234')), null)
+  assert.equal(m.qcV2Bridge(cfgJson), V2)
+  for (const resp of [{}, { bridge: V2, bridgeVersion: 'v2' }, { bridge: OTHER, bridgeVersion: 'v2' }]) {
+    assert.throws(() => m.resolveTakeBridge(resp, null, SYNTHETIC_V3), /legacy_qc_v2 is not configured/)
+  }
+  // V3 answers do not need V2.
+  assert.deepEqual(m.resolveTakeBridge({ bridge: SYNTHETIC_V3, bridgeVersion: 'v3' }, null, SYNTHETIC_V3).bridge, SYNTHETIC_V3)
+})
 t('qcV3Bridge: config, env fallback, invalid', () => {
   const cfg = (qc_v3) => ({ sepolia: { qc_v3 } })
   assert.equal(m.qcV3Bridge(cfg(SYNTHETIC_V3), ''), SYNTHETIC_V3)

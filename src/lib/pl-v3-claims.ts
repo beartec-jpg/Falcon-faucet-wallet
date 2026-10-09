@@ -87,6 +87,13 @@ function sameAddr(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase()
 }
 
+/** Configured FalconQcBridgeV2 (`legacy_qc_v2`) if it is a valid address, else null. No fallback
+ *  to `sepolia.bridge`: take() routing must never land on the peg-in / V1 address. */
+export function qcV2Bridge(cfg: Pl2300BridgeConfig | null | undefined): string | null {
+  const v2 = cfg?.sepolia?.legacy_qc_v2?.trim() ?? ''
+  return ADDR_RE.test(v2) ? v2 : null
+}
+
 /** Configured FalconQcBridgeV3, or null while V3 is not live on this site. */
 export function qcV3Bridge(cfg: Pl2300BridgeConfig | null | undefined, envValue?: string): string | null {
   const fromCfg = cfg?.sepolia?.qc_v3?.trim() ?? ''
@@ -104,25 +111,32 @@ export function qcV3Bridge(cfg: Pl2300BridgeConfig | null | undefined, envValue?
  */
 export function resolveTakeBridge(
   resp: Pick<OpenClaimResponse, 'bridge' | 'bridgeVersion'>,
-  v2Bridge: string,
+  v2Bridge: string | null,
   v3Bridge: string | null,
 ): { bridge: string; version: BridgeVersion } {
+  const needV2 = (): string => {
+    if (!v2Bridge || !ADDR_RE.test(v2Bridge)) {
+      throw new Error('This claim is on FalconQcBridgeV2, but legacy_qc_v2 is not configured on this site; not calling take()')
+    }
+    return v2Bridge
+  }
   const addr = (resp.bridge ?? '').trim()
   const ver = (resp.bridgeVersion ?? '').trim().toLowerCase()
   if (addr && !ADDR_RE.test(addr)) throw new Error(`walletd returned a malformed bridge address (${addr.slice(0, 12)}…)`)
   if (!ver && !addr) {
     // walletd before V2/V3 routing: every claim is V2.
-    return { bridge: v2Bridge, version: 'v2' }
+    return { bridge: needV2(), version: 'v2' }
   }
   // Routing walletd always sends both fields; a partial answer is malformed, not a hint.
   if (!ver || !addr) {
     throw new Error('walletd returned partial bridge routing (bridge and bridgeVersion must both be set); not calling take()')
   }
   if (ver === 'v2') {
-    if (!sameAddr(addr, v2Bridge)) {
-      throw new Error(`walletd named V2 bridge ${addr} but this site's FalconQcBridgeV2 is ${v2Bridge}; not calling take()`)
+    const v2 = needV2()
+    if (!sameAddr(addr, v2)) {
+      throw new Error(`walletd named V2 bridge ${addr} but this site's FalconQcBridgeV2 is ${v2}; not calling take()`)
     }
-    return { bridge: v2Bridge, version: 'v2' }
+    return { bridge: v2, version: 'v2' }
   }
   if (ver === 'v3') {
     if (!v3Bridge) {
