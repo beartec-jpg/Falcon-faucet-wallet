@@ -87,7 +87,10 @@ t('openClaimDone: fresh tx or alreadyOpen, then take() on the returned bridge', 
 t('alreadyOpen: taken → skip, not taken → take, unknown → read claims(note)', () => {
   assert.equal(m.takeActionAfterOpen({}), 'take') // fresh openClaim tx
   assert.equal(m.takeActionAfterOpen({ alreadyOpen: true, taken: true }), 'skip')
-  assert.equal(m.takeActionAfterOpen({ alreadyOpen: true, taken: false }), 'take')
+  assert.equal(m.takeActionAfterOpen({ alreadyOpen: true, taken: false, dest: OTHER }), 'take')
+  // No dest: re-read claims(note) so the on-chain dest is checked before take().
+  assert.equal(m.takeActionAfterOpen({ alreadyOpen: true, taken: false }), 'read')
+  assert.equal(m.takeActionAfterOpen({ alreadyOpen: true, taken: false, dest: ' ' }), 'read')
   assert.equal(m.takeActionAfterOpen({ alreadyOpen: true }), 'read')
   assert.equal(m.takeActionAfterOpen({ alreadyOpen: true, taken: 'yes' }), 'read')
 })

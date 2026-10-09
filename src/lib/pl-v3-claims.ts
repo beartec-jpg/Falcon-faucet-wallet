@@ -53,13 +53,13 @@ export type TakeAction = 'take' | 'skip' | 'read'
 /**
  * - fresh openClaim tx → take
  * - alreadyOpen + taken: true → skip (already paid; take() would revert)
- * - alreadyOpen + taken: false → take on the returned bridge
- * - alreadyOpen without a boolean taken → read claims(note) on that bridge first
+ * - alreadyOpen + taken: false + a dest → take on the returned bridge (dest checked by caller)
+ * - alreadyOpen without a boolean taken, or without a dest → read claims(note) on that bridge first
  */
-export function takeActionAfterOpen(resp: Pick<OpenClaimResponse, 'alreadyOpen' | 'taken'>): TakeAction {
+export function takeActionAfterOpen(resp: Pick<OpenClaimResponse, 'alreadyOpen' | 'taken' | 'dest'>): TakeAction {
   if (resp.alreadyOpen !== true) return 'take'
   if (resp.taken === true) return 'skip'
-  if (resp.taken === false) return 'take'
+  if (resp.taken === false && (resp.dest ?? '').trim()) return 'take'
   return 'read'
 }
 
