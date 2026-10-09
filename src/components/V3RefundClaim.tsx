@@ -4,6 +4,10 @@ import { useState } from 'react'
 import { claimV3Refund, type Pl2300BridgeConfig } from '@/lib/pl-dest-lock'
 import { qcV3Bridge } from '@/lib/pl-v3-claims'
 
+/** EVM addresses with a refund claim running. Module-level, so a remount of this panel
+ * cannot drop the lock mid-claim and start a second take() on the same key. */
+const inFlight = new Set<string>()
+
 /**
  * Claim a FalconQcBridgeV3 refund (a V3 deposit that expired unminted).
  * Renders nothing until this site has a V3 bridge address configured.
@@ -31,6 +35,12 @@ export function V3RefundClaim(props: {
 
   async function onClaim() {
     if (busy || props.disabled) return
+    const lockKey = (props.evmAddress || '').toLowerCase()
+    if (inFlight.has(lockKey)) {
+      setError('A refund claim for this wallet is already running')
+      return
+    }
+    inFlight.add(lockKey)
     setBusy(true)
     props.onBusyChange?.(true)
     setError(null)
@@ -48,6 +58,7 @@ export function V3RefundClaim(props: {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Refund claim failed')
     } finally {
+      inFlight.delete(lockKey)
       setBusy(false)
       props.onBusyChange?.(false)
       setStep(null)

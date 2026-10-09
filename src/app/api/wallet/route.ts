@@ -25,6 +25,21 @@ export const maxDuration = 60
 
 const NAME_RE = /^[A-Za-z0-9._-]{2,64}$/
 const DEPOSIT_ID_RE = /^(0[xX])?[a-fA-F0-9]{64}$/
+
+/** Per-instance throttle for unauthenticated V3 refund opens (same depositId at most every 8 s). */
+const REFUND_OPEN_MIN_MS = 8_000
+const lastRefundOpen = new Map<string, number>()
+function refundOpenThrottled(depositId: string): boolean {
+  const now = Date.now()
+  const key = depositId.toLowerCase()
+  const last = lastRefundOpen.get(key) ?? 0
+  if (now - last < REFUND_OPEN_MIN_MS) return true
+  lastRefundOpen.set(key, now)
+  if (lastRefundOpen.size > 1000) {
+    for (const [k, v] of lastRefundOpen) if (now - v > REFUND_OPEN_MIN_MS) lastRefundOpen.delete(k)
+  }
+  return false
+}
 const TEST_HINTS = ['alice', 'bob', 'carol', 'dave'] as const
 
 function num(v: unknown, fallback = 0): number {
@@ -220,6 +235,16 @@ export async function POST(req: NextRequest) {
     }
     if (!account && !depositId) {
       return NextResponse.json({ error: 'account required' }, { status: 400 })
+    }
+    // Unauthenticated refund opens: anyone may open a refund (it can only pay the deposit
+    // sender), but each open costs operator gas. walletd already serialises opens (write lock,
+    // proof slots -> 409 busy) and re-opening an open claim sends nothing; this per-instance
+    // throttle also drops rapid repeats of the same depositId.
+    if (depositId && refundOpenThrottled(depositId)) {
+      return NextResponse.json(
+        { ok: false, waiting: true, retryable: true, status: 'throttled', error: 'retry shortly' },
+        { status: 409 },
+      )
     }
     try {
       const r = await fetch(WALLET_API, {

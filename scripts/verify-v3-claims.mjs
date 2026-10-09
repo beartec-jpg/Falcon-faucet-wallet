@@ -142,7 +142,8 @@ t('qcV3Bridge: config, env fallback, invalid', () => {
   assert.equal(m.qcV3Bridge(cfg(undefined), ''), null)
   assert.equal(m.qcV3Bridge(cfg(''), SYNTHETIC_V3), SYNTHETIC_V3)
   assert.equal(m.qcV3Bridge(cfg('0x12'), 'nope'), null)
-  assert.equal(m.qcV3Bridge(cfgJson, ''), null, 'public config must not name a V3 bridge before deploy')
+  // FalconQcBridgeV3 deployed on Sepolia 2026-10-09 (tx 0xd083…b21f).
+  assert.equal(m.qcV3Bridge(cfgJson, ''), '0xEd4eE497F21a9255a59e87535FF2A6097592Cfd4', 'public config names the deployed V3')
 })
 t('0x0 bridge address counts as unset, never as a configured bridge', () => {
   const ZERO = '0x' + '0'.repeat(40)

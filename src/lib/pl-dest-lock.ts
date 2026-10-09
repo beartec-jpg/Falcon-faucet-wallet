@@ -688,13 +688,6 @@ const QC_CLAIMS_ABI = [
   'function claims(bytes32) view returns (address dest, uint256 amount, bool usdc, uint64 readyBlock, uint64 fplHeight, bytes32 leaf, bool open, bool taken)',
 ] as const
 
-/**
- * Claim a V3 refund (a V3 deposit that expired unminted and resolved as a refund on Falcon PL).
- * 1) claim-proof {depositId, asset}: the node's refund note (dest = deposit sender, amount).
- * 2) eth-open-claim {depositId, asset}: walletd opens it on FalconQcBridgeV3 (409 = wait).
- * 3) take(noteId) on V3 from the deposit sender's wallet.
- * Resumes: an already-open claim skips step 2; an already-taken one returns at once.
- */
 /** claims(noteId) on a FalconQc bridge (read-only). */
 async function readQcClaim(
   cfg: Pl2300BridgeConfig,
@@ -745,6 +738,13 @@ async function takeAfterOpen(opts: {
   return { takeHash }
 }
 
+/**
+ * Claim a V3 refund (a V3 deposit that expired unminted and resolved as a refund on Falcon PL).
+ * 1) claim-proof {depositId, asset}: the node's refund note (dest = deposit sender, amount).
+ * 2) eth-open-claim {depositId, asset}: walletd opens it on FalconQcBridgeV3 (409 = wait).
+ * 3) take(noteId) on V3 from the deposit sender's wallet.
+ * Resumes: an already-open claim skips step 2; an already-taken one returns at once.
+ */
 export async function claimV3Refund(opts: {
   cfg: Pl2300BridgeConfig
   evmPrivateKey: string
@@ -821,14 +821,17 @@ export async function takeDestLockClaim(opts: {
   /** Bridge to take() on: walletd's V2/V3 answer (resolveTakeBridge) or the Kickoff leftover. Default V2. */
   lock?: string
 }): Promise<string> {
-  return withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
+  // Only the send goes through the RPC-fallback retry. Once a hash exists, every later
+  // failure waits on that same hash (on any RPC) instead of sending take() again.
+  const hash = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
     const signer = new Wallet(opts.evmPrivateKey, p)
     const c = new Contract(opts.lock || pegOutBridge(opts.cfg), DEST_LOCK_ABI, signer)
     opts.onStep?.('take() dest-only…')
     const tx = await c.take(opts.noteId)
-    const rc = await tx.wait(1)
-    if (!rc || rc.status !== 1) throw new Error(`take failed (${tx.hash})`)
-    return tx.hash
+    return tx.hash as string
   })
+  const rc = await withSepolia(opts.cfg.sepolia.rpc_url, (p) => p.waitForTransaction(hash, 1, 600_000))
+  if (!rc || rc.status !== 1) throw new Error(`take failed (${hash})`)
+  return hash
 }
 
