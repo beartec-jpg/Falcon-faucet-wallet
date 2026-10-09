@@ -2,8 +2,13 @@
  * Single switch for FBTC → BTC withdrawals (Bridge out to Bitcoin).
  *
  * Source of truth: `btc_withdrawals_enabled` in public/config/btc-spv-bridge.json.
- * Turning withdrawals back on is a one-line change there. Anything other than
- * an explicit `true` counts as off. BTC deposits are not affected.
+ * Anything other than an explicit `true` counts as off. BTC deposits are not
+ * affected.
+ *
+ * RE-ENABLE TOGETHER, in one PR: this flag, the unconditional btc-kickoff /
+ * btc-take refusal in both api/wallet routes, and WALLET_ROUTE_ACTIONS in
+ * src/lib/wallet-actions.ts. Turning on only the flag lets users burn FBTC
+ * while the Kickoff/take steps are still refused, so the burns get stuck.
  *
  * Gated entry points (keep in sync; checked by scripts/verify-btc-withdrawals-off.mjs):
  *   - UI: BridgeDepositPanel FBTC Bridge out (button + handler)

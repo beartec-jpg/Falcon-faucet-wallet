@@ -7,7 +7,15 @@
  *   before the node is called; ETH/USDC and read-only actions still go through.
  * - API: /api/wallet + /api/wallet/pl refuse btc-kickoff / btc-take (and aliases)
  *   with 403 whatever the flag says, with or without an Origin header.
- * - UI: BridgeDepositPanel gates the FBTC Bridge out handler, button and input.
+ * - API: both wallet routes forward only WALLET_ROUTE_ACTIONS, reject a non-string
+ *   action with 400, and accept only ETH/USDC for eth-open-claim.
+ * - UI: BridgeDepositPanel gates the FBTC Bridge out handler, button and input,
+ *   and hides the Kickoff explanation while the flag is off.
+ *
+ * RE-ENABLE TOGETHER, in one PR: btc_withdrawals_enabled, the unconditional
+ * btc-kickoff/btc-take refusal in both api/wallet routes, and WALLET_ROUTE_ACTIONS
+ * (src/lib/wallet-actions.ts), then update this script. Turning on only the flag
+ * lets users burn FBTC while Kickoff/take are still refused, so the burns get stuck.
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -208,6 +216,103 @@ for (const file of ['src/app/api/wallet/pl/route.ts', 'src/app/api/wallet/route.
   })
 }
 
+const WALLETD_ACTIONS = [
+  'vault-activate',
+  'eth-kickoff',
+  'eth-open-claim',
+  'header-proof',
+  'claim-proof',
+  'mint-eth-deposit',
+  'mint-status',
+  'pay',
+]
+
+await check('lib: WALLET_ROUTE_ACTIONS is exactly the expected allowlist and covers the site callers', () => {
+  const wa = loadTs('src/lib/wallet-actions.ts', {})
+  assert.deepEqual([...wa.WALLET_ROUTE_ACTIONS].sort(), [...WALLETD_ACTIONS].sort())
+  assert.ok(!wa.WALLET_ROUTE_ACTIONS.has('btc-kickoff'))
+  assert.ok(!wa.WALLET_ROUTE_ACTIONS.has('btc-take'))
+  // every non-BTC action the site posts to /api/wallet/pl must be allowed
+  const callers = ['src/lib/pl-dest-lock.ts', 'src/lib/pl-btc-rail.ts']
+    .map((f) => readFileSync(path.join(root, f), 'utf8'))
+    .join('\n')
+  const sent = new Set()
+  for (const m of callers.matchAll(/action: '([a-z0-9-]+)'/g)) sent.add(m[1])
+  for (const m of callers.matchAll(/postMint\('([a-z0-9-]+)'/g)) sent.add(m[1])
+  for (const a of sent) {
+    if (/^btc-/.test(a)) continue
+    assert.ok(wa.WALLET_ROUTE_ACTIONS.has(a), `site sends ${a} but it is not allowlisted`)
+  }
+  assert.ok(sent.has('eth-open-claim') && sent.has('mint-status'), 'caller scan found nothing')
+})
+
+for (const file of ['src/app/api/wallet/pl/route.ts', 'src/app/api/wallet/route.ts']) {
+  for (const action of WALLETD_ACTIONS) {
+    await check(`API ${file}: allowlisted ${action} passes the action check`, async () => {
+      const { mocks } = makeEnv()
+      const route = loadTs(file, { mocks, config: OFF })
+      const res = await route.POST(req({ action }))
+      assert.notEqual(res.body?.error, 'Unknown action')
+      assert.notEqual(res.body?.error, 'action must be a string')
+    })
+  }
+  for (const action of ['faucet', 'name-reserve', 'deposit-x', 'v3-refund', 'PAY', 'eth-kickoff ', '']) {
+    await check(`API ${file}: unknown action ${JSON.stringify(action)} gets 400, nothing forwarded`, async () => {
+      const { calls, mocks } = makeEnv()
+      const route = loadTs(file, { mocks, config: OFF })
+      const res = await route.POST(req({ action, account: 'alice', from: 'alice', to: 'bob', amount: 5 }))
+      assert.equal(res.status, 400)
+      assert.equal(res.body.error, 'Unknown action')
+      assert.equal(calls.fetch.length, 0)
+    })
+  }
+  for (const action of [123, true, { a: 1 }, ['pay']]) {
+    await check(`API ${file}: non-string action ${JSON.stringify(action)} gets 400`, async () => {
+      const { calls, mocks } = makeEnv()
+      const route = loadTs(file, { mocks, config: OFF })
+      const res = await route.POST(req({ action, from: 'alice', to: 'bob', amount: 5 }))
+      assert.equal(res.status, 400)
+      assert.equal(res.body.error, 'action must be a string')
+      assert.equal(calls.fetch.length, 0)
+    })
+  }
+  await check(`API ${file}: missing action still means pay`, async () => {
+    const { mocks } = makeEnv()
+    const route = loadTs(file, { mocks, config: OFF })
+    const res = await route.POST(req({ from: 'alice', to: 'alice', amount: 5 }))
+    assert.equal(res.status, 400)
+    assert.equal(res.body.error, 'Destination must differ from sender')
+  })
+  const openClaim = (asset) => ({
+    action: 'eth-open-claim',
+    noteId: 'ab'.repeat(32),
+    dest: '0x' + '11'.repeat(20),
+    amount: '1000',
+    account: 'alice',
+    ...(asset === undefined ? {} : { asset }),
+  })
+  for (const asset of ['BTC', 'FBTC', 'DAI', 'ETH2', '', 5, null]) {
+    await check(`API ${file}: eth-open-claim asset ${JSON.stringify(asset)} gets 400`, async () => {
+      const { calls, mocks } = makeEnv()
+      const route = loadTs(file, { mocks, config: OFF })
+      const res = await route.POST(req(openClaim(asset)))
+      assert.equal(res.status, 400)
+      assert.equal(res.body.error, 'asset must be ETH or USDC')
+      assert.equal(calls.fetch.length, 0)
+    })
+  }
+  for (const asset of ['ETH', 'USDC', 'eth', undefined]) {
+    await check(`API ${file}: eth-open-claim asset ${JSON.stringify(asset)} forwarded`, async () => {
+      const { calls, mocks } = makeEnv()
+      const route = loadTs(file, { mocks, config: OFF })
+      const res = await route.POST(req(openClaim(asset)))
+      assert.equal(res.status, 200)
+      assert.equal(calls.fetch.length, 1)
+      assert.ok(['ETH', 'USDC'].includes(JSON.parse(calls.fetch[0].body).asset))
+    })
+  }
+}
+
 const SUBMIT = 'src/app/api/wallet/submit/route.ts'
 await check('API submit: BTC rail_withdraw (tx object) refused with flag off', async () => {
   const { calls, mocks } = makeEnv()
@@ -260,6 +365,15 @@ await check('UI: BridgeDepositPanel gates FBTC Bridge out', () => {
   assert.match(block, /disabled=\{busy \|\| !hasBtc \|\| !fbtcReady \|\| !BTC_WITHDRAWALS_ENABLED\}/)
   assert.match(block, /onClick=\{handleBridgeOut\}\s*disabled=\{\s*!BTC_WITHDRAWALS_ENABLED \|\|/)
   assert.match(block, /withdrawal is pending/)
+  // Kickoff explanation hidden while the flag is off
+  assert.match(block, /\{spvLive && BTC_WITHDRAWALS_ENABLED && \(\s*<div[^>]*>\s*<p[^>]*>\s*[^<]*Kickoff/)
+  // Finish (SPV proving of an existing withdrawal) stays usable
+  const card = src.slice(src.indexOf('{spvWithdraws[0] && ('))
+  const finish = card.slice(0, card.indexOf("'Finish'"))
+  assert.ok(finish.length > 0, 'Finish button not found')
+  const finishBtn = finish.slice(finish.lastIndexOf('<button'))
+  assert.match(finishBtn, /disabled=\{busy\}/)
+  assert.doesNotMatch(finishBtn, /BTC_WITHDRAWALS_ENABLED/)
 })
 
 if (failures) {
