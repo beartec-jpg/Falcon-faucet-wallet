@@ -24,6 +24,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 const NAME_RE = /^[A-Za-z0-9._-]{2,64}$/
+const DEPOSIT_ID_RE = /^(0[xX])?[a-fA-F0-9]{64}$/
 const TEST_HINTS = ['alice', 'bob', 'carol', 'dave'] as const
 
 function num(v: unknown, fallback = 0): number {
@@ -90,6 +91,7 @@ export async function POST(req: NextRequest) {
     asset?: string
     dest?: string
     noteId?: string
+    depositId?: string
     externalTo?: string
     height?: number | string
     destSecret?: string
@@ -207,21 +209,26 @@ export async function POST(req: NextRequest) {
     const amount = String(body.amount ?? '').trim()
     const asset = String(body.asset ?? 'ETH').trim().toUpperCase()
     const account = String(body.account ?? '').trim()
-    if (!account) {
+    // V3 refund: named by depositId only (no PL account; walletd fills dest/amount).
+    const depositId = String(body.depositId ?? '').trim()
+    if (depositId && !DEPOSIT_ID_RE.test(depositId)) {
+      return NextResponse.json({ error: 'depositId must be 32-byte hex' }, { status: 400 })
+    }
+    if (asset !== 'ETH' && asset !== 'USDC') {
+      return NextResponse.json({ error: 'asset must be ETH or USDC' }, { status: 400 })
+    }
+    if (!account && !depositId) {
       return NextResponse.json({ error: 'account required' }, { status: 400 })
     }
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'eth-open-claim',
-          noteId,
-          dest,
-          amount,
-          asset,
-          account,
-        }),
+        body: JSON.stringify(
+          depositId
+            ? { action: 'eth-open-claim', depositId, asset, noteId, dest, amount }
+            : { action: 'eth-open-claim', noteId, dest, amount, asset, account },
+        ),
       })
       const d = await r.json()
       if (r.status === 409 || d.waiting) {
@@ -265,6 +272,31 @@ export async function POST(req: NextRequest) {
     const asset = String(body.asset ?? 'ETH').trim().toUpperCase()
     const noteId = String(body.noteId ?? '').trim()
     const amount = String(body.amount ?? '').trim()
+    const depositId = String(body.depositId ?? '').trim()
+    if (depositId) {
+      // V3 refund note lookup: the note has no PL account; walletd derives it from depositId.
+      if (!DEPOSIT_ID_RE.test(depositId)) {
+        return NextResponse.json({ error: 'depositId must be 32-byte hex' }, { status: 400 })
+      }
+      if (asset !== 'ETH' && asset !== 'USDC') {
+        return NextResponse.json({ error: 'asset must be ETH or USDC' }, { status: 400 })
+      }
+      try {
+        const r = await fetch(WALLET_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'claim-proof', depositId, asset }),
+        })
+        const d = await r.json()
+        if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
+        return NextResponse.json(d)
+      } catch (e) {
+        return NextResponse.json(
+          { error: String(e instanceof Error ? e.message : e) },
+          { status: 503 },
+        )
+      }
+    }
     if (!NAME_RE.test(account)) {
       return NextResponse.json({ error: 'account must be a PL name' }, { status: 400 })
     }

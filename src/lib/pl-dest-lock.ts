@@ -7,6 +7,14 @@ import { Contract, Wallet, sha256, toUtf8Bytes, parseUnits, parseEther } from 'e
 import { signRailWithdraw } from '@/lib/pl-wallet-sign'
 import { SEPOLIA_RPC_FALLBACKS } from '@/lib/evm-bridge-client'
 import { JsonRpcProvider } from 'ethers'
+import {
+  assertRefundSigner,
+  parseDepositId,
+  qcV3Bridge,
+  resolveTakeBridge,
+  v3RefundNoteId,
+  type OpenClaimResponse,
+} from '@/lib/pl-v3-claims'
 
 export interface Pl2300BridgeConfig {
   version: number
@@ -26,6 +34,8 @@ export interface Pl2300BridgeConfig {
     qc_version?: number
     legacy_destlock?: string
     legacy_qc_v2?: string
+    /** FalconQcBridgeV3 (peg-out claims past the V2 header, V3 refunds). Unset until deployed. */
+    qc_v3?: string
     legacy_verifier_v2?: string
     falcon_key_root?: string
     start_height: number
@@ -324,6 +334,9 @@ export async function depositUsdcDestLock(opts: {
 
 export type DestLockClaimProof = {
   ok?: boolean
+  /** "v3_refund" for a V3 refund note (walletd claim-proof with depositId). */
+  kind?: string
+  depositId?: string
   noteId: string
   asset: string
   dest: string
@@ -564,8 +577,8 @@ export async function pegOutDestLock(opts: {
     Number(opts.cfg.sepolia.qc_version ?? 0) >= 2 ||
     (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_QC_V2 === '1')
   if (v2) {
-    opts.onStep?.('Waiting FalconQcBridgeV2 headers, then openClaim + dest take (no claimer)…')
-    let openJ: { error?: string; tx?: string; waiting?: boolean; message?: string; ethTip?: number } = {}
+    opts.onStep?.('Waiting for a bridge header, then openClaim + dest take (no claimer)…')
+    let openJ: OpenClaimResponse & { ethTip?: number } = {}
     const tHdr = Date.now()
     while (Date.now() - tHdr < 15 * 60_000) {
       const open = await fetch('/api/wallet/pl', {
@@ -583,23 +596,29 @@ export async function pegOutDestLock(opts: {
       openJ = (await open.json()) as typeof openJ
       if (open.ok && openJ.tx) break
       if (open.status === 409 || openJ.waiting) {
-        opts.onStep?.(openJ.message || `Waiting V2 header (eth tip ${openJ.ethTip ?? '…'}). Do not burn again.`)
+        opts.onStep?.(
+          openJ.message ||
+            `Waiting ${(openJ.bridgeVersion || 'V2').toUpperCase()} header (eth tip ${openJ.ethTip ?? '…'}). Do not burn again.`,
+        )
         await new Promise((r) => setTimeout(r, 8000))
         continue
       }
-      throw new Error(openJ.error || 'V2 openClaim failed')
+      throw new Error(openJ.error || 'openClaim failed')
     }
     if (!openJ.tx) {
       throw new Error(
-        'Burn is packed. V2 headers have not caught this claimRoot yet (one-host lagged unwrap). Keep this panel and retry Bridge out — do not burn again.',
+        'Burn is packed. The bridge headers have not caught this claimRoot yet. Keep this panel and retry Bridge out — do not burn again.',
       )
     }
-    opts.onStep?.('take() dest-only (no claimer)…')
+    // take() on the bridge walletd opened the claim on (V2 or V3), checked against config.
+    const target = resolveTakeBridge(openJ, pegOutBridge(opts.cfg), qcV3Bridge(opts.cfg))
+    opts.onStep?.(`take() dest-only on ${target.version.toUpperCase()} (no claimer)…`)
     const takeHash = await takeDestLockClaim({
       cfg: opts.cfg,
       evmPrivateKey: opts.evmPrivateKey,
       noteId: proof.noteId,
       onStep: opts.onStep,
+      lock: target.bridge,
     })
     clearPendingPegOut(opts.account, opts.asset)
     return {
@@ -657,12 +676,93 @@ export async function pegOutDestLock(opts: {
   return { burnTxId, openHash, takeHash, noteId: proof.noteId }
 }
 
+/** V3 Claim struct (one more field pair than the V2 ABI above). */
+const V3_CLAIMS_ABI = [
+  'function claims(bytes32) view returns (address dest, uint256 amount, bool usdc, uint64 readyBlock, uint64 fplHeight, bytes32 leaf, bool open, bool taken)',
+] as const
+
+/**
+ * Claim a V3 refund (a V3 deposit that expired unminted and resolved as a refund on Falcon PL).
+ * 1) claim-proof {depositId, asset}: the node's refund note (dest = deposit sender, amount).
+ * 2) eth-open-claim {depositId, asset}: walletd opens it on FalconQcBridgeV3 (409 = wait).
+ * 3) take(noteId) on V3 from the deposit sender's wallet.
+ * Resumes: an already-open claim skips step 2; an already-taken one returns at once.
+ */
+export async function claimV3Refund(opts: {
+  cfg: Pl2300BridgeConfig
+  evmPrivateKey: string
+  depositId: string
+  asset: 'ETH' | 'USDC'
+  onStep?: (s: string) => void
+}): Promise<{ noteId: string; openHash: string; takeHash: string; bridge: string; alreadyTaken?: boolean }> {
+  const depositId = parseDepositId(opts.depositId)
+  const v3 = qcV3Bridge(opts.cfg)
+  if (!v3) throw new Error('FalconQcBridgeV3 is not configured on this site yet')
+  const noteId = v3RefundNoteId(depositId)
+  const signer = new Wallet(opts.evmPrivateKey).address
+
+  opts.onStep?.('Looking up the refund note on Falcon PL…')
+  const rec = await postClaimProof({ depositId, asset: opts.asset })
+  if (rec.kind !== 'v3_refund' || (rec.noteId || '').toLowerCase() !== noteId) {
+    throw new Error('Falcon PL did not return a V3 refund note for this deposit')
+  }
+  if (typeof rec.isUsdc === 'boolean' && rec.isUsdc !== (opts.asset === 'USDC')) {
+    throw new Error(`This refund is ${rec.isUsdc ? 'USDC' : 'ETH'}, not ${opts.asset}`)
+  }
+  assertRefundSigner(rec.dest, signer)
+
+  const state = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
+    const c = new Contract(v3, V3_CLAIMS_ABI, p)
+    const row = await c.claims(noteId)
+    return { open: Boolean(row?.open ?? row?.[6]), taken: Boolean(row?.taken ?? row?.[7]) }
+  })
+  if (state.taken) {
+    return { noteId, openHash: '', takeHash: '', bridge: v3, alreadyTaken: true }
+  }
+
+  let openHash = ''
+  if (!state.open) {
+    opts.onStep?.('Waiting for a FalconQcBridgeV3 header, then openClaim…')
+    let openJ: OpenClaimResponse = {}
+    const t0 = Date.now()
+    while (Date.now() - t0 < 15 * 60_000) {
+      const res = await fetch('/api/wallet/pl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'eth-open-claim', depositId, asset: opts.asset }),
+      })
+      openJ = (await res.json()) as OpenClaimResponse
+      if (res.ok && openJ.tx) break
+      if (res.status === 409 || openJ.waiting) {
+        opts.onStep?.(openJ.message || 'Waiting for a V3 bridge header…')
+        await new Promise((r) => setTimeout(r, 8000))
+        continue
+      }
+      throw new Error(openJ.error || 'V3 refund openClaim failed')
+    }
+    if (!openJ.tx) throw new Error('The V3 header has not caught this refund yet. Try again later.')
+    const target = resolveTakeBridge(openJ, pegOutBridge(opts.cfg), v3)
+    if (target.version !== 'v3') throw new Error('walletd opened this refund on a non-V3 bridge; not calling take()')
+    openHash = openJ.tx
+  }
+
+  opts.onStep?.('take() refund to the deposit sender…')
+  const takeHash = await takeDestLockClaim({
+    cfg: opts.cfg,
+    evmPrivateKey: opts.evmPrivateKey,
+    noteId,
+    onStep: opts.onStep,
+    lock: v3,
+  })
+  return { noteId, openHash, takeHash, bridge: v3 }
+}
+
 export async function takeDestLockClaim(opts: {
   cfg: Pl2300BridgeConfig
   evmPrivateKey: string
   noteId: string
   onStep?: (s: string) => void
-  /** Dest-lock leftover Kickoff take; default is V2 peg-out. */
+  /** Bridge to take() on: walletd's V2/V3 answer (resolveTakeBridge) or the Kickoff leftover. Default V2. */
   lock?: string
 }): Promise<string> {
   return withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {

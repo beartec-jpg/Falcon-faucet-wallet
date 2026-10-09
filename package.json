@@ -18,7 +18,8 @@
     "verify:btc-bridge-config": "node scripts/verify-btc-bridge-config.mjs",
     "dev:cold": "cd cold-signer && npm run dev",
     "build:cold": "cd cold-signer && npm install && npm run build && mkdir -p ../public/cold-signer && rm -rf ../public/cold-signer/* && cp -r dist/* ../public/cold-signer/",
-    "verify:multi-qr": "node scripts/verify-multi-qr.mjs"
+    "verify:multi-qr": "node scripts/verify-multi-qr.mjs",
+    "verify:v3-claims": "node scripts/verify-v3-claims.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

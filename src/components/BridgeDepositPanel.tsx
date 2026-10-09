@@ -88,6 +88,7 @@ import {
   type SpvWithdrawPhase,
 } from '@/lib/btc-spv-withdraw-pending'
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
+import { V3RefundClaim } from '@/components/V3RefundClaim'
 import { plAccountId } from '@/lib/pl-names'
 import { BTC_RAIL_LIVE, pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
 import { hasBtcWallet, provisionBtcWalletForStoredWallet } from '@/lib/create-btc-wallet'
@@ -3269,6 +3270,16 @@ const handleSpvCompleteClaim = async () => {
                     {busy ? step ?? 'Working…' : 'Return F-USDC to issuer'}
                   </button>
                 </details>
+                {isPl2300 && destLockCfg && wallet.evmEncrypted && (
+                  <V3RefundClaim
+                    cfg={destLockCfg}
+                    evmAddress={wallet.evmAddress}
+                    getEvmKey={async () => {
+                      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+                      return decryptSeed(wallet.evmEncrypted!, keyBytes)
+                    }}
+                  />
+                )}
               </>
             )}
 
