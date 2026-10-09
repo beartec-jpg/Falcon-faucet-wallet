@@ -98,7 +98,7 @@ Private soak lived on **network_id 2200**. Public-params beta is a **new genesis
 
 ## 5. What the 2200 soak actually proved
 
-Multi-host: falcon1 (6c) + falcon2 (6c) + droplet (2c/4 GB). Falcon-512. 11 bonded seats. Soak inject **25 tx/s** by choice (not a max). Tip often **~6–10 ledgers/s** under that load, then cooled.
+Multi-host: two 6-core servers plus one small 2-core / 4 GB host. Falcon-512. 11 bonded seats. Soak inject **25 tx/s** by choice (not a max). Tip often **~6–10 ledgers/s** under that load, then cooled.
 
 ### 5.1 Consensus vs communication
 
@@ -110,7 +110,7 @@ Core seats stayed on **one tip, one hash**. What looked like “the network is b
 |---------|--------|--------|
 | Vals hundreds behind | Falcon-512 verify + fat bodies on small iron | **Hardware / catch-up** |
 | Droplet 2 vals | One 2-core box cannot verify two live Falcon seats | **Hardware** |
-| falcon2 + 5 vals | 6 cores, five verifiers — lag 700–1000 | **Hardware** |
+| One 6-core server + 5 vals | 6 cores, five verifiers — lag 700–1000 | **Hardware** |
 | Snap treadmill | Feeding vals a new tip every 256 ledgers | **Protocol hole** (fixed 2.9.27) |
 | Join from 0 | Needed archive **join-snap**, not residual from height 1 | **Product path** (fixed 2.9.23–25) |
 | Last 2200 freeze | Dead **v12** still won lottery; hubs slightly behind; 4-of-6 QC could not form | **Liveness**, not two histories |
@@ -214,13 +214,13 @@ tps_verify ≈  1000 / V_ms     if one core verifies the body sequentially
 
 **One chain: the public testnet.** 2200 is stopped (snaps kept, id never flipped).
 
-| Seat | Host | Role |
+| Seat | Host class | Role |
 |------|------|------|
-| v1 | falcon1 | archive + hub :19301 |
-| v2 | falcon1 | hub :19302 |
-| v3 | falcon2 | hub :19303 |
-| v4 | falcon2 | val :19304 |
-| v5 | droplet 2-core | **one** val :19305 |
+| v1 | larger server | archive + hub |
+| v2 | larger server | hub |
+| v3 | larger server | hub |
+| v4 | larger server | val |
+| v5 | small 2-core host | **one** val |
 
 Genesis: alice, bob, carol, dave, faucet + 5 vals + `watcher-browser`. No w00–w255 farm.
 

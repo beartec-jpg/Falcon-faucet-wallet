@@ -146,7 +146,7 @@ See [.env.example](.env.example) for the full list. Key variables:
 |----------|---------|
 | `XRPLD_RPC_URL` | Public node on port 6005 |
 | `TESTNET_FAUCET_ACCOUNT` / `TESTNET_FAUCET_SECRET` | Falcon faucet (`falcon_secret` hex) |
-| `SIGNER_PROXY_URL` / `SIGNER_PROXY_TOKEN` | Falcon signing proxy on node1 |
+| `SIGNER_PROXY_URL` / `SIGNER_PROXY_TOKEN` | Server-side Falcon signing proxy |
 | `NEXT_PUBLIC_TESTNET_USDC_ISSUER` | F-USDC issuer (or auto from `testnet-stables.json`) |
 | `NEXT_PUBLIC_SEPOLIA_LOCK_CONTRACT` | Sepolia bridge lock contract |
 | `DATABASE_URL` | Neon Postgres connection string (message board) |

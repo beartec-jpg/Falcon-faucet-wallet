@@ -1,5 +1,5 @@
 {
   "status": "retired",
-  "note": "Falcon Ledger (network 1001) custodial FBTC is shut down. Use Falcon PL 2300 BTC rail.",
+  "note": "Falcon Ledger (network 1001) custodial FBTC is shut down. Use the Falcon testnet BTC rail.",
   "network_id": 2300
 }
