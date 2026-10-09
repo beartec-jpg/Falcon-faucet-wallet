@@ -1599,6 +1599,17 @@ export default function BridgeDepositPanel({
                   'Resume it at the Bitcoin Kickoff? Only do this if you have NOT already received this BTC. ' +
                   'No new burn will be made either way.',
               ),
+            confirmFreshBurn: async (others) =>
+              typeof window !== 'undefined' &&
+              window.confirm(
+                'Falcon PL shows earlier BTC Bridge outs from this account that this browser has no record of:\n' +
+                  others
+                    .slice(0, 5)
+                    .map((o) => `• ${(o.amountSats / 1e8).toFixed(8)} FBTC to ${o.externalTo}`)
+                    .join('\n') +
+                  '\n\nIf one of them never paid out, press Cancel and resume it by entering that same amount. ' +
+                  'Press OK only if they all completed — this starts a NEW burn.',
+              ),
           })
           setWithdrawResult({
             falconTxHash: out.txId,

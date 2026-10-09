@@ -355,6 +355,18 @@ async function listChainBtcWithdrawals(account: string, network: string): Promis
   }
 }
 
+/** Exclusive across tabs via Web Locks; throws if another tab holds it. */
+async function withTabLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  if (!locks?.request) return fn()
+  return locks.request(key, { ifAvailable: true }, async (lock) => {
+    if (!lock) {
+      throw new Error('A BTC Bridge out is already running in another tab. Finish or close it first — no burn was made here.')
+    }
+    return fn()
+  }) as Promise<T>
+}
+
 /**
  * FBTC → BTC (BitVM2 dest-lock). Resumable: a retry after any part-way failure
  * resumes the same withdrawal (see btc-pegout-resume.ts) and never burns twice.
@@ -372,6 +384,11 @@ export async function pegOutPlBtc(opts: {
    * but this browser has no record of it. Return true to resume at Kickoff.
    */
   confirmChainResume?: (w: ChainBtcWithdraw) => Promise<boolean>
+  /**
+   * Called before a NEW burn when Falcon PL lists earlier BTC withdrawals from
+   * this account that this browser has no completed record of.
+   */
+  confirmFreshBurn?: (others: ChainBtcWithdraw[]) => Promise<boolean>
 }): Promise<{ txId: string; kickoffTxid?: string; takeTxid?: string; noteId: string; resumed: boolean }> {
   if (!BTC_RAIL_LIVE) {
     throw new Error('BTC rail is not live — e2e not passed (BTC_RAIL_LIVE=false)')
@@ -464,6 +481,8 @@ export async function pegOutPlBtc(opts: {
       now: () => Date.now(),
       onStep: opts.onStep,
       confirmChainResume: opts.confirmChainResume,
+      confirmFreshBurn: opts.confirmFreshBurn,
+      withLock: withTabLock,
     },
   )
   return {

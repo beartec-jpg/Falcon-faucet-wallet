@@ -91,6 +91,17 @@ export interface BtcPegOutDeps {
    * Return true to resume at Kickoff. Absent → refuse (never guess).
    */
   confirmChainResume?(w: ChainBtcWithdraw): Promise<boolean>
+  /**
+   * Asked before a NEW burn when Falcon PL lists other BTC withdraw notes from
+   * this account that this browser has no completed record of (the node never
+   * prunes them, so they may be finished or not). Absent → refuse.
+   */
+  confirmFreshBurn?(others: ChainBtcWithdraw[]): Promise<boolean>
+  /**
+   * Run `fn` holding an exclusive per-withdrawal lock across browser tabs
+   * (navigator.locks). Must throw if another tab holds it. Absent → no lock.
+   */
+  withLock?<T>(key: string, fn: () => Promise<T>): Promise<T>
 }
 
 export type BtcPegOutParams = {
@@ -344,6 +355,15 @@ function isInputsGone(msg: string): boolean {
  * withdrawal that has a record or an on-chain withdraw note.
  */
 export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promise<BtcPegOutResult> {
+  // One run per account at a time across tabs: the phase check and the next
+  // irreversible step are not atomic in localStorage alone.
+  if (d.withLock) {
+    return d.withLock(`falcon-btc-pegout:${p.account.trim().toLowerCase()}`, () => runBtcPegOutLocked(p, d))
+  }
+  return runBtcPegOutLocked(p, d)
+}
+
+async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise<BtcPegOutResult> {
   const t: BtcPegOutTiming = { ...DEFAULT_TIMING, ...(p.timing ?? {}) }
   const amount = Math.floor(p.amountSats)
   const dest = p.dest.trim()
@@ -436,6 +456,29 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
 
   // ── 1. Fresh burn: save BEFORE submit so any failure is resumable. ──
   if (!rec) {
+    // Never start a new burn blind: with no local record, an earlier unfinished
+    // withdrawal (different amount/address) is only visible on-chain.
+    if (chain === null) {
+      throw new Error(
+        'Could not check Falcon PL for an earlier unfinished BTC Bridge out. No burn was made — try again shortly.',
+      )
+    }
+    const unknownOthers = (chain as ChainBtcWithdraw[]).filter(
+      (w) => w.noteId !== noteId && d.store.load(p.account, w.noteId)?.phase !== 'done',
+    )
+    if (unknownOthers.length > 0) {
+      const ok = d.confirmFreshBurn ? await d.confirmFreshBurn(unknownOthers) : false
+      if (!ok) {
+        const list = unknownOthers
+          .slice(0, 3)
+          .map((w) => `${w.amountSats} sats to ${w.externalTo}`)
+          .join('; ')
+        throw new Error(
+          `Falcon PL shows earlier BTC Bridge outs from this account that this browser has no record of (${list}). ` +
+            'If one is unfinished, resume it by entering that same amount. No new burn was made.',
+        )
+      }
+    }
     const snap = await d.accountSnap()
     if (snap.btcSats < amount) {
       throw new Error(`Insufficient FBTC (have ${(snap.btcSats / 1e8).toFixed(8)})`)
@@ -491,7 +534,7 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
     if (sealed === 'pending') {
       note('burn not sealed yet')
       throw new Error(
-        'Burn is signed and queued, but Falcon PL has not sealed it yet. Press Bridge out again later with the ' +
+        'Burn is signed, but Falcon PL has not confirmed it sealed yet. Press Bridge out again later with the ' +
           'same amount — it re-uses the same signed burn and cannot burn twice.',
       )
     }
@@ -545,11 +588,20 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
       if (isInputsGone(msg)) {
         // Our Kickoff's input was spent by a different tx. If our Kickoff is not
         // itself confirmed it can never confirm, so a fresh Kickoff is safe.
-        let confs = 0
+        // Unknown (no txid / lookup failed) must NOT be read as "never confirms".
+        let confs: number | null = null
         try {
-          confs = txid ? await d.pollConfirmations(txid) : 0
+          confs = txid ? await d.pollConfirmations(txid) : null
         } catch {
-          confs = 0
+          confs = null
+        }
+        if (confs === null) {
+          note(msg)
+          throw new Error(
+            `FBTC is burned and the Kickoff is signed, but Bitcoin reported its input as spent (${msg}) and its ` +
+              'status could not be checked. Press Bridge out again later with the same amount — it re-checks the ' +
+              'same Kickoff, no new burn.',
+          )
         }
         if (confs > 0) {
           save({ phase: 'kickoff_broadcast', kickoffTxid: txid, lastError: undefined })
@@ -684,14 +736,22 @@ async function waitBurnSealed(
       seq = null
     }
     if (seq !== null && seq > rec.sequence) {
-      // Sequence moved. Confirm it was OUR burn via the on-chain note.
+      // Sequence moved. Only the on-chain note can say whether it was OUR burn.
+      let unknown = false
       for (let i = 0; i <= t.chainRecheck; i++) {
         const on = await noteOnChain()
         if (on === true) return 'sealed'
-        if (on === null) return 'sealed' // chain list unavailable: never risk a re-burn
+        if (on === null) {
+          // List unavailable: neither sealed nor dead. Keep waiting; never guess.
+          unknown = true
+          break
+        }
         if (i < t.chainRecheck) await d.sleep(t.burnPollMs)
       }
-      return 'dead'
+      if (!unknown) return 'dead'
+      d.onStep?.('Waiting for Falcon PL to confirm the burn…')
+      await d.sleep(t.burnPollMs)
+      continue
     }
     if (seq !== null && !resent && rec.burnRawJson) {
       // Not sealed yet: re-broadcast the SAME signed burn (same tx_id + sequence).

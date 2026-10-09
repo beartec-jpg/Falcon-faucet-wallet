@@ -285,7 +285,7 @@ await test('completed withdrawal: same amount + address is refused up front', as
 await test('burn never sealed and its sequence was used: record dropped, fresh burn then works', async () => {
   const store = m.kvBtcPegOutStore(memKv())
   const w = fakeWorld({ sealOnSubmit: false })
-  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /not sealed it yet/)
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /not confirmed it sealed yet/)
   assert.equal(store.listOpen(ACCOUNT)[0].phase, 'burn_signed')
   w.seq += 1 // another tx used the sequence; the queued burn can never apply
   await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /never sealed/)
@@ -296,12 +296,111 @@ await test('burn never sealed and its sequence was used: record dropped, fresh b
   assert.equal(w.takes, 1)
 })
 
-await test('chain list unavailable while sequence moved: treated as sealed (never re-burn)', async () => {
+await test('chain list unavailable: no fresh burn; a sealed-or-dead question waits instead of guessing', async () => {
+  const w0 = fakeWorld({ chainAvailable: false })
+  await assert.rejects(m.runBtcPegOut(params, w0.deps(m.kvBtcPegOutStore(memKv()))), /Could not check Falcon PL/)
+  assert.equal(w0.burnsSigned, 0)
+
   const store = m.kvBtcPegOutStore(memKv())
-  const w = fakeWorld({ chainAvailable: false })
+  const w = fakeWorld({ sealOnSubmit: false })
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /not confirmed it sealed yet/)
+  const queued = [...w.mempool.keys()][0]
+  w.apply(queued) // the burn seals…
+  w.chainAvailable = false // …while the list is down
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /not confirmed it sealed yet/)
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'burn_signed')
+  assert.equal(w.kickoffRequests, 0, 'no Kickoff on an unconfirmed burn')
+  w.chainAvailable = true
   await m.runBtcPegOut(params, w.deps(store))
   assert.equal(w.burnsSigned, 1)
+  assert.equal(w.burnsApplied, 1)
   assert.equal(w.takes, 1)
+})
+
+await test('lost browser state + changed amount: earlier on-chain withdrawal blocks a blind new burn', async () => {
+  const w = fakeWorld({ failKickoff: 1 })
+  await assert.rejects(m.runBtcPegOut(params, w.deps(m.kvBtcPegOutStore(memKv()))))
+  assert.equal(w.burnsApplied, 1)
+  const other = { ...params, amountSats: AMOUNT + 1 }
+  await assert.rejects(
+    m.runBtcPegOut(other, w.deps(m.kvBtcPegOutStore(memKv()))),
+    /no record of .*5000 sats/,
+  )
+  assert.equal(w.burnsSigned, 1, 'no second burn without confirmation')
+  let shown = null
+  const deps = w.deps(m.kvBtcPegOutStore(memKv()), {
+    confirmFreshBurn: async (others) => {
+      shown = others
+      return true
+    },
+    signBurn: async (sequence) => {
+      w.burnsSigned += 1
+      return { tx_id: `burn-${sequence}`, rawJson: JSON.stringify({ sequence, amount: AMOUNT + 1, dest: DEST }) }
+    },
+  })
+  await m.runBtcPegOut(other, deps)
+  assert.equal(shown.length, 1)
+  assert.equal(shown[0].amountSats, AMOUNT)
+  assert.equal(w.burnsSigned, 2, 'explicitly confirmed new withdrawal')
+})
+
+await test('a locally completed withdrawal does not trigger the earlier-withdrawal prompt', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld()
+  await m.runBtcPegOut(params, w.deps(store))
+  const deps = w.deps(store, {
+    confirmFreshBurn: async () => {
+      throw new Error('should not be asked')
+    },
+    signBurn: async (sequence) => {
+      w.burnsSigned += 1
+      return { tx_id: `burn-${sequence}`, rawJson: JSON.stringify({ sequence, amount: AMOUNT + 7, dest: DEST }) }
+    },
+  })
+  await m.runBtcPegOut({ ...params, amountSats: AMOUNT + 7 }, deps)
+  assert.equal(w.burnsApplied, 2)
+})
+
+await test('Kickoff input reported spent but its status is unknown: keep the same signed Kickoff', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld({ failBroadcast: 1, broadcastError: 'bad-txns-inputs-missingorspent' })
+  const deps = () =>
+    w.deps(store, {
+      pollConfirmations: async () => {
+        if (w.explorerDown) throw new Error('explorer 503')
+        return w.confs
+      },
+    })
+  w.explorerDown = true
+  await assert.rejects(m.runBtcPegOut(params, deps()), /status could not be checked/)
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_signed')
+  w.explorerDown = false
+  await m.runBtcPegOut(params, deps())
+  assert.equal(w.kickoffRequests, 1, 'no second Kickoff')
+  assert.equal(w.broadcasts[0], w.broadcasts[1])
+})
+
+await test('two tabs at once: the lock lets only one run (one burn)', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld()
+  const held = new Set()
+  const withLock = async (key, fn) => {
+    if (held.has(key)) throw new Error('already running in another tab')
+    held.add(key)
+    try {
+      return await fn()
+    } finally {
+      held.delete(key)
+    }
+  }
+  const results = await Promise.allSettled([
+    m.runBtcPegOut(params, w.deps(store, { withLock })),
+    m.runBtcPegOut(params, w.deps(store, { withLock })),
+  ])
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1)
+  assert.match(String(results.find((r) => r.status === 'rejected').reason), /another tab/)
+  assert.equal(w.burnsSigned, 1)
+  assert.equal(w.kickoffRequests, 1)
 })
 
 await test('storage unavailable or not keeping writes: stops BEFORE the burn', async () => {
