@@ -18,7 +18,7 @@ const STEPS = [
   {
     n: 1,
     title: 'Create a Falcon-512 identity',
-    body: 'Open Wallet and create a passkey-secured Falcon Ledger account. Back up your falcon_secret. Named PL accounts are the live path — not classic r-addresses.',
+    body: 'Open Wallet and create a passkey-secured Falcon Ledger account. Back up your falcon_secret. Named Falcon accounts are the main path; older r… addresses still work.',
   },
   {
     n: 2,
