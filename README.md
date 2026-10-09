@@ -10,7 +10,7 @@ Official web portal for **Falcon Ledger (FPL)**, a quantum-safe L1 focused on le
 
 ### Faucet
 - Rate-limited testnet **FPL** drip (default 2,000 per request)
-- Falcon Ledger named accounts, not classic `r…` XRPL addresses
+- Falcon Ledger account names (or the classic `r…` address on an older wallet)
 
 ### Wallet (passkey-secured)
 - **Create** Falcon-512 wallets with WebAuthn passkeys — keys generated on-device
