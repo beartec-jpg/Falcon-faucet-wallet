@@ -570,4 +570,20 @@ await test('dynamic Kickoff max: blocks a fresh burn, never a resume', async () 
   assert.equal(w.burnsSigned, 1)
 })
 
+await test('records live under a per-account key (other accounts cannot overwrite them)', async () => {
+  const kv = memKv()
+  const a = m.kvBtcPegOutStore(kv)
+  const b = m.kvBtcPegOutStore(kv)
+  const now = Date.now()
+  const rec = (account, noteId) => ({ v: 1, noteId, account, network: 't', amountSats: 1, dest: 'd', sequence: 0,
+    burnTxId: '', burnRawJson: '', phase: 'kickoff_signed', createdAt: now, updatedAt: now })
+  // Interleaved writers for different accounts (stale reads cannot clobber).
+  a.save(rec('alice', 'n1'))
+  b.save(rec('bob', 'n2'))
+  a.save(rec('alice', 'n3'))
+  assert.equal(a.listOpen('alice').length, 2)
+  assert.equal(a.listOpen('bob').length, 1)
+  assert.ok([...kv.map.keys()].every((k) => k.startsWith(m.BTC_PEGOUT_STORE_KEY + ':')))
+})
+
 console.log(`\n${passed} BTC peg-out resume checks passed`)

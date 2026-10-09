@@ -257,55 +257,46 @@ function acctKey(account: string): string {
 
 /** Store backed by any localStorage-like KV (browser localStorage by default). */
 export function kvBtcPegOutStore(kv: KV | null): BtcPegOutStore {
-  // Null-prototype map: account names such as "constructor" must not resolve
-  // to inherited Object.prototype members.
-  const read = (): Record<string, BtcPegOutRecord[]> => {
-    const out = Object.create(null) as Record<string, BtcPegOutRecord[]>
-    if (!kv) return out
+  // One storage key PER ACCOUNT: the per-account run lock then also guards
+  // every read-modify-write, so tabs bridging from different accounts cannot
+  // overwrite each other's records. Account names are encoded, so names like
+  // "constructor" or "__proto__" never touch object prototypes.
+  const keyFor = (account: string) => `${BTC_PEGOUT_STORE_KEY}:${encodeURIComponent(acctKey(account))}`
+  const read = (account: string): BtcPegOutRecord[] => {
+    if (!kv) return []
     try {
-      const raw = kv.getItem(BTC_PEGOUT_STORE_KEY)
-      const m = raw ? (JSON.parse(raw) as unknown) : null
-      if (m && typeof m === 'object' && !Array.isArray(m)) {
-        for (const k of Object.keys(m)) {
-          const v = (m as Record<string, unknown>)[k]
-          if (Array.isArray(v)) out[k] = v as BtcPegOutRecord[]
-        }
-      }
+      const raw = kv.getItem(keyFor(account))
+      const v = raw ? (JSON.parse(raw) as unknown) : null
+      return Array.isArray(v) ? (v as BtcPegOutRecord[]) : []
     } catch {
-      /* corrupt → empty */
+      return []
     }
-    return out
   }
-  const write = (m: Record<string, BtcPegOutRecord[]>) => {
+  const write = (account: string, list: BtcPegOutRecord[]) => {
     if (!kv) throw new Error('Browser storage is unavailable')
-    const raw = JSON.stringify(m)
-    kv.setItem(BTC_PEGOUT_STORE_KEY, raw)
-    if (kv.getItem(BTC_PEGOUT_STORE_KEY) !== raw) throw new Error('Browser storage did not keep the write')
+    const k = keyFor(account)
+    const raw = JSON.stringify(list)
+    kv.setItem(k, raw)
+    if (kv.getItem(k) !== raw) throw new Error('Browser storage did not keep the write')
   }
   return {
     load(account, noteId) {
-      const list = read()[acctKey(account)] ?? []
-      return list.find((r) => r.noteId === noteId) ?? null
+      return read(account).find((r) => r.noteId === noteId) ?? null
     },
     save(rec) {
-      const m = read()
-      const k = acctKey(rec.account)
-      const list = (m[k] ?? []).filter((r) => r.noteId !== rec.noteId)
+      const list = read(rec.account).filter((r) => r.noteId !== rec.noteId)
       list.unshift({ ...rec })
       // Keep every open record; trim only finished ones.
       const open = list.filter((r) => r.phase !== 'done')
       const done = list.filter((r) => r.phase === 'done')
-      m[k] = [...open, ...done.slice(0, Math.max(0, MAX_RECORDS_PER_ACCOUNT - open.length))]
-      write(m)
+      write(rec.account, [...open, ...done.slice(0, Math.max(0, MAX_RECORDS_PER_ACCOUNT - open.length))])
     },
     remove(account, noteId) {
-      const m = read()
-      const k = acctKey(account)
-      m[k] = (m[k] ?? []).filter((r) => r.noteId !== noteId)
-      write(m) // throws: the caller must not claim the record was cleared
+      // Throws on failure: the caller must not claim the record was cleared.
+      write(account, read(account).filter((r) => r.noteId !== noteId))
     },
     listOpen(account) {
-      return (read()[acctKey(account)] ?? [])
+      return read(account)
         .filter((r) => r.phase !== 'done')
         .sort((a, b) => b.updatedAt - a.updatedAt)
     },
