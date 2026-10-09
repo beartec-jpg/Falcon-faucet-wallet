@@ -17,6 +17,7 @@
 
 import { Interface, concat, getBytes, sha256, toUtf8Bytes } from 'ethers'
 import type { Pl2300BridgeConfig } from '@/lib/pl-dest-lock'
+export { filterWalletNotes, type WalletNote } from '@/lib/pl-pending-notes'
 
 const ADDR_RE = /^0x[a-fA-F0-9]{40}$/
 const ZERO_ADDR_RE = /^0x0{40}$/i
@@ -240,4 +241,51 @@ export function v3DepositIdFromLogs(
     }
   }
   throw new Error('No FalconQcBridgeV3 Deposit event in the receipt')
+}
+
+// ---------------------------------------------------------------------------
+// Pending withdrawals (no localStorage): notes found in node status rails, status read on chain.
+// ---------------------------------------------------------------------------
+
+/** Where a note stands on chain, across the configured FalconQc bridges. */
+export type NoteChainStatus =
+  | { status: 'taken'; bridge: string; version: BridgeVersion }
+  | { status: 'open'; bridge: string; version: BridgeVersion }
+  | { status: 'needs-open' }
+
+/**
+ * Combine claims(note) reads on V3 and V2 (either may be null = not configured / not read).
+ * taken anywhere wins, then open; V3 is preferred when both somehow say the same.
+ */
+export function noteChainStatus(v3: (QcClaimState & { bridge: string }) | null, v2: (QcClaimState & { bridge: string }) | null): NoteChainStatus {
+  const rows: Array<[QcClaimState & { bridge: string }, BridgeVersion]> = []
+  if (v3) rows.push([v3, 'v3'])
+  if (v2) rows.push([v2, 'v2'])
+  for (const [s, v] of rows) if (s.taken) return { status: 'taken', bridge: s.bridge, version: v }
+  for (const [s, v] of rows) if (s.open) return { status: 'open', bridge: s.bridge, version: v }
+  return { status: 'needs-open' }
+}
+
+/** A take() revert in plain words: the bridges revert with "state" (not open / already taken) or "dest". */
+export function takeRevertMessage(e: unknown): string | null {
+  const parts: string[] = []
+  const walk = (x: unknown, depth: number) => {
+    if (x == null || depth > 3) return
+    if (typeof x === 'string') { parts.push(x); return }
+    if (typeof x !== 'object') return
+    const o = x as Record<string, unknown>
+    if (typeof o.reason === 'string') parts.push(`reason="${o.reason}"`)
+    for (const k of ['shortMessage', 'message']) if (typeof o[k] === 'string') parts.push(o[k] as string)
+    walk(o.info, depth + 1)
+    walk(o.error, depth + 1)
+  }
+  walk(e, 0)
+  const s = parts.join(' | ')
+  if (/reason="state"|execution reverted:? "?state\b|"state"/i.test(s)) {
+    return 'This claim is not takeable: it was already taken (paid), or is not open on that bridge yet.'
+  }
+  if (/reason="dest"|execution reverted:? "?dest\b|"dest"/i.test(s)) {
+    return 'This claim pays a different address; only its destination wallet can take() it.'
+  }
+  return null
 }

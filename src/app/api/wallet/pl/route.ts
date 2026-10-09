@@ -2,7 +2,8 @@ import { existsSync } from 'fs'
 import { NextRequest, NextResponse } from 'next/server'
 import { btcWithdrawalsPausedResponse, isBtcWithdrawWalletdAction } from '@/lib/btc-withdrawals'
 import { isOriginAllowed } from '@/lib/origin'
-import { plAccount, plStatus } from '@/lib/pl-rpc'
+import { plAccount, plRpc, plStatus } from '@/lib/pl-rpc'
+import { filterWalletNotes } from '@/lib/pl-pending-notes'
 import { ctlPay, ctlVaultLock, ctlVaultOpen, PL_CTL } from '@/lib/pl-ctl'
 
 const WALLET_API =
@@ -224,6 +225,33 @@ export async function POST(req: NextRequest) {
       const d = await r.json()
       if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
       return NextResponse.json(d)
+    } catch (e) {
+      return NextResponse.json(
+        { error: String(e instanceof Error ? e.message : e) },
+        { status: 503 },
+      )
+    }
+  }
+
+  // Read-only: this wallet's ETH/USDC withdrawal notes from node status rails (burned by
+  // `account` or paying `dest`). The site reads each note's claim state on Sepolia itself.
+  if (action === 'pending-withdrawals') {
+    const account = String(body.account ?? '').trim()
+    const dest = String(body.dest ?? '').trim()
+    if (account && !NAME_RE.test(account)) {
+      return NextResponse.json({ error: 'account must be a PL name' }, { status: 400 })
+    }
+    if (dest && !/^0x[a-fA-F0-9]{40}$/.test(dest)) {
+      return NextResponse.json({ error: 'dest must be a 20-byte 0x address' }, { status: 400 })
+    }
+    if (!account && !dest) {
+      return NextResponse.json({ error: 'account or dest required' }, { status: 400 })
+    }
+    try {
+      const r = await plRpc({ type: 'status_req', include_accounts: false, brief: false }, { timeoutMs: 30_000 })
+      if (r.type === 'err') throw new Error(String(r.msg ?? 'status error'))
+      const st = (r.body ?? {}) as Record<string, unknown>
+      return NextResponse.json({ ok: true, tip: st.tip_height ?? null, notes: filterWalletNotes(st, account, dest) })
     } catch (e) {
       return NextResponse.json(
         { error: String(e instanceof Error ? e.message : e) },

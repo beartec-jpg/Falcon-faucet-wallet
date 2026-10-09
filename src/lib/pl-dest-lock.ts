@@ -20,7 +20,11 @@ import {
   takeActionAfterOpen,
   v3RefundNoteId,
   v3DepositIdFromLogs,
+  noteChainStatus,
+  takeRevertMessage,
+  type NoteChainStatus,
   type OpenClaimResponse,
+  type WalletNote,
 } from '@/lib/pl-v3-claims'
 
 export interface Pl2300BridgeConfig {
@@ -871,3 +875,107 @@ export async function takeDestLockClaim(opts: {
   return hash
 }
 
+
+// ---------------------------------------------------------------------------
+// Pending withdrawals: claim a burned note without the localStorage resume record.
+// Never burns: the note already exists on Falcon PL; this only opens / takes it on Sepolia.
+// ---------------------------------------------------------------------------
+
+export type PendingWithdrawal = WalletNote & { chain: NoteChainStatus; claimDest?: string }
+
+/** This wallet's ETH/USDC notes (node status rails) with their claim state on V3 / V2. */
+export async function listPendingWithdrawals(opts: {
+  cfg: Pl2300BridgeConfig
+  account: string
+  evmAddress: string
+}): Promise<PendingWithdrawal[]> {
+  const res = await fetch('/api/wallet/pl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'pending-withdrawals', account: opts.account, dest: opts.evmAddress }),
+  })
+  const j = (await res.json()) as { notes?: WalletNote[]; error?: string }
+  if (!res.ok || !Array.isArray(j.notes)) throw new Error(j.error || `pending withdrawals ${res.status}`)
+  const v3 = qcV3Bridge(opts.cfg)
+  const v2 = qcV2Bridge(opts.cfg)
+  const out: PendingWithdrawal[] = []
+  for (const n of j.notes) {
+    const [s3, s2] = await Promise.all([
+      v3 ? readQcClaim(opts.cfg, v3, n.noteId).then((s) => ({ ...s, bridge: v3 })) : Promise.resolve(null),
+      v2 ? readQcClaim(opts.cfg, v2, n.noteId).then((s) => ({ ...s, bridge: v2 })) : Promise.resolve(null),
+    ])
+    const chain = noteChainStatus(s3, s2)
+    const row = chain.status === 'needs-open' ? null : chain.version === 'v3' ? s3 : s2
+    out.push({ ...n, chain, claimDest: row?.dest })
+  }
+  // Takeable first, then needs-open, then taken.
+  const rank = (p: PendingWithdrawal) => (p.chain.status === 'open' ? 0 : p.chain.status === 'needs-open' ? 1 : 2)
+  return out.sort((a, b) => rank(a) - rank(b))
+}
+
+/**
+ * Ask walletd to openClaim a note (operator pays gas). Returns walletd's answer; a 409 is
+ * `{waiting: true, message}` (no V2/V3 header covers the note yet), not an error.
+ */
+export async function openPendingWithdrawal(opts: {
+  account: string
+  note: WalletNote
+}): Promise<OpenClaimResponse & { httpOk: boolean }> {
+  const res = await fetch('/api/wallet/pl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'eth-open-claim',
+      noteId: opts.note.noteId,
+      dest: opts.note.dest,
+      amount: opts.note.amount,
+      asset: opts.note.asset,
+      account: opts.account,
+    }),
+  })
+  const j = (await res.json()) as OpenClaimResponse
+  if (res.status === 409 || j.waiting) return { ...j, waiting: true, httpOk: false }
+  if (!openClaimDone(res.ok, j)) throw new Error(j.error || j.message || `openClaim failed (${res.status})`)
+  return { ...j, httpOk: true }
+}
+
+/**
+ * take(noteId) on `bridge` from this wallet's built-in Sepolia key (same send path as Bridge out).
+ * Checks claims(note) first and dry-runs take() (eth_call) so "state" / "dest" reverts are
+ * reported in plain words and no failing tx is sent.
+ */
+export async function takePendingWithdrawal(opts: {
+  cfg: Pl2300BridgeConfig
+  evmPrivateKey: string
+  noteId: string
+  bridge: string
+  onStep?: (s: string) => void
+}): Promise<{ takeHash: string; alreadyTaken?: boolean }> {
+  const known = [qcV3Bridge(opts.cfg), qcV2Bridge(opts.cfg)].filter(Boolean).map((a) => a!.toLowerCase())
+  if (!known.includes(opts.bridge.toLowerCase())) throw new Error('Not a configured Falcon bridge; not calling take()')
+  const evmPrivateKey = '0x' + opts.evmPrivateKey.trim().replace(/^0x/i, '')
+  const signer = new Wallet(evmPrivateKey).address
+  opts.onStep?.('Checking the claim on chain…')
+  const st = await readQcClaim(opts.cfg, opts.bridge, opts.noteId)
+  if (checkClaimForTake(st, signer) === 'taken') return { takeHash: '', alreadyTaken: true }
+  try {
+    await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
+      const c = new Contract(opts.bridge, DEST_LOCK_ABI, p)
+      await c.take.staticCall(opts.noteId, { from: signer })
+    })
+  } catch (e) {
+    throw new Error(takeRevertMessage(e) ?? `take() would fail: ${e instanceof Error ? e.message : String(e)}`)
+  }
+  try {
+    const takeHash = await takeDestLockClaim({
+      cfg: opts.cfg,
+      evmPrivateKey,
+      noteId: opts.noteId,
+      onStep: opts.onStep,
+      lock: opts.bridge,
+    })
+    return { takeHash }
+  } catch (e) {
+    throw new Error(takeRevertMessage(e) ?? (e instanceof Error ? e.message : String(e)))
+  }
+}

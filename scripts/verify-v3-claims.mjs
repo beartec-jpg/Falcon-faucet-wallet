@@ -23,6 +23,12 @@ const dir = path.join(root, 'node_modules/.cache/verify-v3-claims')
 fs.mkdirSync(dir, { recursive: true })
 const file = path.join(dir, 'pl-v3-claims.mjs')
 fs.writeFileSync(file, out)
+// pl-pending-notes.ts has no imports: transpile it alongside and point the re-export at it.
+const pn = ts.transpileModule(fs.readFileSync(path.join(root, 'src/lib/pl-pending-notes.ts'), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+}).outputText
+fs.writeFileSync(path.join(dir, 'pl-pending-notes.mjs'), pn)
+fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace("'@/lib/pl-pending-notes'", "'./pl-pending-notes.mjs'"))
 const m = await import(pathToFileURL(file).href)
 
 const cfgJson = JSON.parse(fs.readFileSync(path.join(root, 'public/config/pl-2300-bridge.json'), 'utf8'))
@@ -200,6 +206,54 @@ t('pegInV3Bridge: only with pegin_v3 === true and a valid qc_v3; env ignored', (
   const e1 = v1.encodeEventLog('Deposit', [id, sender, 5n, '0x' + '33'.repeat(32)])
   assert.throws(() => m.v3DepositIdFromLogs([{ address: SYNTHETIC_V3, topics: e1.topics, data: e1.data }], SYNTHETIC_V3))
   console.log('ok - v3DepositIdFromLogs decodes the V3 event, refuses other addresses and the V1 event')
+  n++
+}
+// Pending withdrawals (no localStorage): note discovery from status rails + claim status.
+{
+  const SCOTT = '0x722b793432e8c36B54764eF42414FE1984F0c24D'
+  const N9 = 'f43f5db6d119e50f509f2c3b3b85e9565e9f82f89a951d33e089b26d29b39c25'
+  const st = {
+    rails: [
+      { asset: 'BTC', withdrawals: [{ amount: 5000, external_to: 'tb1qxyz', from: 'scott.reynolds.123', note_id: 'aa'.repeat(32) }] },
+      { asset: 'ETH', withdrawals: [
+        { amount: 1000000000000000, external_to: '0xDb52847EE70cEd3128f49309c3DC65b69d7466f4', from: 'sally', note_id: '05'.repeat(32) },
+        { amount: 7, external_to: SCOTT.toLowerCase(), from: 'dave', note_id: '0x' + 'bb'.repeat(32) },
+        { amount: 0, external_to: SCOTT, from: 'scott.reynolds.123', note_id: 'cc'.repeat(32) },
+        { amount: 9, external_to: SCOTT, from: 'x', note_id: 'zz' },
+        { amount: 9, external_to: SCOTT, kind: 'v3_refund', note_id: 'dd'.repeat(32) },
+        { amount: 9, external_to: OTHER, kind: 'v3_refund', from: 'scott.reynolds.123', note_id: 'ee'.repeat(32) },
+      ] },
+      { asset: 'USDC', withdrawals: [
+        { amount: 2000000, external_to: OTHER, from: 'Scott.Reynolds.123', note_id: '90'.repeat(32) },
+        { amount: 100000000, external_to: SCOTT, from: 'scott.reynolds.123', note_id: N9, signed_btc_tx: '' },
+      ] },
+    ],
+  }
+  const got = m.filterWalletNotes(st, 'scott.reynolds.123', SCOTT)
+  assert.deepEqual(got.map((x) => x.noteId), ['0x' + 'bb'.repeat(32), '0x' + 'dd'.repeat(32), '0x' + '90'.repeat(32), '0x' + N9])
+  const n9 = got.find((x) => x.noteId === '0x' + N9)
+  assert.deepEqual(n9, { noteId: '0x' + N9, asset: 'USDC', amount: '100000000', dest: SCOTT, from: 'scott.reynolds.123' })
+  assert.deepEqual(m.filterWalletNotes({}, 'a', SCOTT), [])
+  assert.deepEqual(m.filterWalletNotes(st, '', '0xbad').length, 0)
+  console.log('ok - filterWalletNotes: own burns + notes paying this wallet, ETH/USDC only, skips bad rows')
+  n++
+
+  const V3B = SYNTHETIC_V3
+  const none = { dest: '0x' + '00'.repeat(20), open: false, taken: false }
+  assert.deepEqual(m.noteChainStatus({ ...none, bridge: V3B }, { ...none, bridge: V2 }), { status: 'needs-open' })
+  assert.deepEqual(m.noteChainStatus(null, null), { status: 'needs-open' })
+  assert.deepEqual(m.noteChainStatus({ dest: SCOTT, open: true, taken: false, bridge: V3B }, { ...none, bridge: V2 }), { status: 'open', bridge: V3B, version: 'v3' })
+  assert.deepEqual(m.noteChainStatus({ ...none, bridge: V3B }, { dest: SCOTT, open: true, taken: false, bridge: V2 }), { status: 'open', bridge: V2, version: 'v2' })
+  assert.deepEqual(m.noteChainStatus({ dest: SCOTT, open: true, taken: false, bridge: V3B }, { dest: SCOTT, open: true, taken: true, bridge: V2 }), { status: 'taken', bridge: V2, version: 'v2' })
+  console.log('ok - noteChainStatus: taken > open > needs-open across V3/V2')
+  n++
+
+  assert.match(m.takeRevertMessage({ reason: 'state', shortMessage: 'execution reverted: "state"' }), /already taken/)
+  assert.match(m.takeRevertMessage({ info: { error: { message: 'execution reverted: state' } } }), /already taken/)
+  assert.match(m.takeRevertMessage(new Error('execution reverted: "dest"')), /different address/)
+  assert.match(m.takeRevertMessage({ reason: 'dest' }), /different address/)
+  assert.equal(m.takeRevertMessage(new Error('insufficient funds for gas')), null)
+  console.log('ok - takeRevertMessage maps "state" / "dest" reverts')
   n++
 }
 console.log(`verify-v3-claims: ${n} checks passed`)

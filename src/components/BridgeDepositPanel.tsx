@@ -90,6 +90,7 @@ import {
 } from '@/lib/btc-spv-withdraw-pending'
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
 import { V3RefundClaim } from '@/components/V3RefundClaim'
+import { PendingWithdrawals } from '@/components/PendingWithdrawals'
 import { plAccountId } from '@/lib/pl-names'
 import { BTC_RAIL_LIVE, pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
 import { hasBtcWallet, provisionBtcWalletForStoredWallet } from '@/lib/create-btc-wallet'
@@ -3307,7 +3308,7 @@ const handleSpvCompleteClaim = async () => {
                   }
                   className="btn-primary flex items-center justify-center gap-2"
                 >
-                  {busy ? (refundBusy ? 'Refund claim in progress…' : <><Spinner /> {step ?? 'Signing…'}</>) : 'Bridge out'}
+                  {busy ? (refundBusy ? 'Claim in progress…' : <><Spinner /> {step ?? 'Signing…'}</>) : 'Bridge out'}
                 </button>
                 <details className="text-xs text-slate-500">
                   <summary className="cursor-pointer hover:text-slate-300">Advanced</summary>
@@ -3325,6 +3326,23 @@ const handleSpvCompleteClaim = async () => {
                     {busy ? step ?? 'Working…' : 'Return F-USDC to issuer'}
                   </button>
                 </details>
+                {isPl2300 && destLockCfg && wallet.evmEncrypted && (
+                  <PendingWithdrawals
+                    cfg={destLockCfg}
+                    account={falconId}
+                    evmAddress={wallet.evmAddress}
+                    // One EVM-key operation at a time: shares the panel's busy state.
+                    disabled={busy}
+                    onBusyChange={(b) => {
+                      setRefundBusy(b)
+                      setBusy(b)
+                    }}
+                    getEvmKey={async () => {
+                      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+                      return decryptSeed(wallet.evmEncrypted!, keyBytes)
+                    }}
+                  />
+                )}
                 {isPl2300 && destLockCfg && wallet.evmEncrypted && (
                   <V3RefundClaim
                     cfg={destLockCfg}
