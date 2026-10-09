@@ -84,6 +84,19 @@ t('openClaimDone: fresh tx or alreadyOpen, then take() on the returned bridge', 
   assert.equal(m.openClaimDone(true, { ok: false, alreadyOpen: true }), false)
   assert.equal(m.openClaimDone(true, { waiting: true, tx }), false)
 })
+t('alreadyOpen: taken → skip, not taken → take, unknown → read claims(note)', () => {
+  assert.equal(m.takeActionAfterOpen({}), 'take') // fresh openClaim tx
+  assert.equal(m.takeActionAfterOpen({ alreadyOpen: true, taken: true }), 'skip')
+  assert.equal(m.takeActionAfterOpen({ alreadyOpen: true, taken: false }), 'take')
+  assert.equal(m.takeActionAfterOpen({ alreadyOpen: true }), 'read')
+  assert.equal(m.takeActionAfterOpen({ alreadyOpen: true, taken: 'yes' }), 'read')
+})
+t('assertClaimDest: only the recorded dest may take()', () => {
+  m.assertClaimDest(undefined, OTHER)
+  m.assertClaimDest(OTHER.toUpperCase().replace('0X', '0x'), OTHER)
+  assert.throws(() => m.assertClaimDest(SYNTHETIC_V3, OTHER), /only that address/)
+  assert.throws(() => m.assertClaimDest('0x12', OTHER), /malformed/)
+})
 t('qcV3Bridge: config, env fallback, invalid', () => {
   const cfg = (qc_v3) => ({ sepolia: { qc_v3 } })
   assert.equal(m.qcV3Bridge(cfg(SYNTHETIC_V3), ''), SYNTHETIC_V3)

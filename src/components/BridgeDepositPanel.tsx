@@ -267,6 +267,8 @@ interface BridgeWithdrawResult {
   payoutSats?: number
   sepoliaTxHash?: string
   noteId?: string
+  /** take() was already done for this note (walletd alreadyOpen + taken). */
+  alreadyPaid?: boolean
 }
 
 type ReleaseStatus = 'pending' | 'released' | 'unconfirmed' | null
@@ -1676,6 +1678,7 @@ export default function BridgeDepositPanel({
           amount: withdrawAmount,
           sepoliaRecipient: wallet.evmAddress,
           noteId: out.noteId,
+          ...(out.alreadyTaken ? { alreadyPaid: true } : {}),
         })
         setWithdrawAmount('')
         setTimeout(() => {
@@ -3516,7 +3519,7 @@ const handleSpvCompleteClaim = async () => {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-medium text-brand-300">
-                {withdrawResult.btcClaimTxid || withdrawResult.sepoliaTxHash
+                {withdrawResult.btcClaimTxid || withdrawResult.sepoliaTxHash || withdrawResult.alreadyPaid
                   ? 'Bridge out complete'
                   : 'Bridge out submitted'}
               </div>
@@ -3558,6 +3561,9 @@ const handleSpvCompleteClaim = async () => {
             >
               Sepolia take {withdrawResult.sepoliaTxHash.slice(0, 16)}…
             </a>
+          )}
+          {withdrawResult.alreadyPaid && (
+            <div className="text-[11px] text-emerald-400/90">Already paid on Sepolia (this note was taken earlier).</div>
           )}
           {withdrawResult.btcClaimTxid && (
             <div className="space-y-1">

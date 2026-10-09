@@ -41,6 +41,36 @@ export type OpenClaimResponse = {
   mode?: string
   /** walletd found the note already open on `bridge` and sent nothing (tx is ""). */
   alreadyOpen?: boolean
+  /** With alreadyOpen: claims(note).taken on `bridge` (missing = unknown, re-read on chain). */
+  taken?: boolean
+  /** With alreadyOpen: claims(note).dest on `bridge`. */
+  dest?: string
+}
+
+/** What to do after eth-open-claim succeeded (openClaimDone). */
+export type TakeAction = 'take' | 'skip' | 'read'
+
+/**
+ * - fresh openClaim tx → take
+ * - alreadyOpen + taken: true → skip (already paid; take() would revert)
+ * - alreadyOpen + taken: false → take on the returned bridge
+ * - alreadyOpen without a boolean taken → read claims(note) on that bridge first
+ */
+export function takeActionAfterOpen(resp: Pick<OpenClaimResponse, 'alreadyOpen' | 'taken'>): TakeAction {
+  if (resp.alreadyOpen !== true) return 'take'
+  if (resp.taken === true) return 'skip'
+  if (resp.taken === false) return 'take'
+  return 'read'
+}
+
+/** An open claim is takeable only by its recorded dest; refuse before a reverting take(). */
+export function assertClaimDest(claimDest: string | undefined, signer: string): void {
+  const d = (claimDest ?? '').trim()
+  if (!d) return
+  if (!ADDR_RE.test(d)) throw new Error('walletd returned a malformed claim dest')
+  if (!sameAddr(d, signer)) {
+    throw new Error(`This claim pays ${d}, not this wallet (${signer}); only that address can take() it.`)
+  }
 }
 
 /**

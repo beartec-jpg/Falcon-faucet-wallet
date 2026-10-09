@@ -8,11 +8,13 @@ import { signRailWithdraw } from '@/lib/pl-wallet-sign'
 import { SEPOLIA_RPC_FALLBACKS } from '@/lib/evm-bridge-client'
 import { JsonRpcProvider } from 'ethers'
 import {
+  assertClaimDest,
   assertRefundSigner,
   openClaimDone,
   parseDepositId,
   qcV3Bridge,
   resolveTakeBridge,
+  takeActionAfterOpen,
   v3RefundNoteId,
   type OpenClaimResponse,
 } from '@/lib/pl-v3-claims'
@@ -476,7 +478,7 @@ export async function pegOutDestLock(opts: {
   dest: string
   network: string
   onStep?: (s: string) => void
-}): Promise<{ burnTxId: string; openHash: string; takeHash: string; noteId: string }> {
+}): Promise<{ burnTxId: string; openHash: string; takeHash: string; noteId: string; alreadyTaken?: boolean }> {
   const dest = opts.dest.trim()
   if (!/^0x[a-fA-F0-9]{40}$/.test(dest)) throw new Error('Need your Sepolia 0x address for dest-lock take')
   if (opts.amountExact <= 0n) throw new Error('Amount must be greater than zero')
@@ -614,19 +616,21 @@ export async function pegOutDestLock(opts: {
     // take() on the bridge walletd opened the claim on (V2 or V3), checked against config.
     const target = resolveTakeBridge(openJ, pegOutBridge(opts.cfg), qcV3Bridge(opts.cfg))
     opts.onStep?.(`take() dest-only on ${target.version.toUpperCase()} (no claimer)…`)
-    const takeHash = await takeDestLockClaim({
+    const took = await takeAfterOpen({
       cfg: opts.cfg,
       evmPrivateKey: opts.evmPrivateKey,
       noteId: proof.noteId,
+      openJ,
+      bridge: target.bridge,
       onStep: opts.onStep,
-      lock: target.bridge,
     })
     clearPendingPegOut(opts.account, opts.asset)
     return {
       burnTxId,
       openHash: openJ.tx || '',
-      takeHash,
+      takeHash: took.takeHash,
       noteId: proof.noteId,
+      ...(took.alreadyTaken ? { alreadyTaken: true } : {}),
     }
   }
   opts.onStep?.('Dest-lock Kickoff (dest = burn external_to; leftover-only after V2)…')
@@ -677,8 +681,8 @@ export async function pegOutDestLock(opts: {
   return { burnTxId, openHash, takeHash, noteId: proof.noteId }
 }
 
-/** V3 Claim struct (one more field pair than the V2 ABI above). */
-const V3_CLAIMS_ABI = [
+/** FalconQcBridgeV2 / V3 Claim getter (same 8 fields on both; DestLock's is DEST_LOCK above). */
+const QC_CLAIMS_ABI = [
   'function claims(bytes32) view returns (address dest, uint256 amount, bool usdc, uint64 readyBlock, uint64 fplHeight, bytes32 leaf, bool open, bool taken)',
 ] as const
 
@@ -689,6 +693,57 @@ const V3_CLAIMS_ABI = [
  * 3) take(noteId) on V3 from the deposit sender's wallet.
  * Resumes: an already-open claim skips step 2; an already-taken one returns at once.
  */
+/** claims(noteId) on a FalconQc bridge (read-only). */
+async function readQcClaim(
+  cfg: Pl2300BridgeConfig,
+  bridge: string,
+  noteId: string,
+): Promise<{ dest: string; open: boolean; taken: boolean }> {
+  return withSepolia(cfg.sepolia.rpc_url, async (p) => {
+    const row = await new Contract(bridge, QC_CLAIMS_ABI, p).claims(noteId)
+    return {
+      dest: String(row?.dest ?? row?.[0] ?? ''),
+      open: Boolean(row?.open ?? row?.[6]),
+      taken: Boolean(row?.taken ?? row?.[7]),
+    }
+  })
+}
+
+/**
+ * take() after a successful eth-open-claim, on the (already checked) bridge walletd returned.
+ * walletd's alreadyOpen answer carries `taken`/`dest`: taken → nothing to do (take() would
+ * revert); not taken → take; no `taken` → read claims(note) on that bridge first.
+ */
+async function takeAfterOpen(opts: {
+  cfg: Pl2300BridgeConfig
+  evmPrivateKey: string
+  noteId: string
+  openJ: OpenClaimResponse
+  bridge: string
+  onStep?: (s: string) => void
+}): Promise<{ takeHash: string; alreadyTaken?: boolean }> {
+  const evmPrivateKey = '0x' + opts.evmPrivateKey.trim().replace(/^0x/i, '')
+  const signer = new Wallet(evmPrivateKey).address
+  const action = takeActionAfterOpen(opts.openJ)
+  if (action === 'skip') return { takeHash: '', alreadyTaken: true }
+  if (opts.openJ.alreadyOpen) assertClaimDest(opts.openJ.dest, signer)
+  if (action === 'read') {
+    opts.onStep?.('Claim already open; checking it on chain…')
+    const st = await readQcClaim(opts.cfg, opts.bridge, opts.noteId)
+    if (st.taken) return { takeHash: '', alreadyTaken: true }
+    if (!st.open) throw new Error('walletd reported this claim open, but it is not open on that bridge; not calling take()')
+    assertClaimDest(st.dest, signer)
+  }
+  const takeHash = await takeDestLockClaim({
+    cfg: opts.cfg,
+    evmPrivateKey,
+    noteId: opts.noteId,
+    onStep: opts.onStep,
+    lock: opts.bridge,
+  })
+  return { takeHash }
+}
+
 export async function claimV3Refund(opts: {
   cfg: Pl2300BridgeConfig
   evmPrivateKey: string
@@ -716,7 +771,7 @@ export async function claimV3Refund(opts: {
   assertRefundSigner(rec.dest, signer)
 
   const state = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
-    const c = new Contract(v3, V3_CLAIMS_ABI, p)
+    const c = new Contract(v3, QC_CLAIMS_ABI, p)
     const row = await c.claims(noteId)
     return { open: Boolean(row?.open ?? row?.[6]), taken: Boolean(row?.taken ?? row?.[7]) }
   })
@@ -725,9 +780,10 @@ export async function claimV3Refund(opts: {
   }
 
   let openHash = ''
+  // Already open on chain (checked above: not taken) → take() directly.
+  let openJ: OpenClaimResponse = {}
   if (!state.open) {
     opts.onStep?.('Waiting for a FalconQcBridgeV3 header, then openClaim…')
-    let openJ: OpenClaimResponse = {}
     const t0 = Date.now()
     while (Date.now() - t0 < 15 * 60_000) {
       const res = await fetch('/api/wallet/pl', {
@@ -751,14 +807,11 @@ export async function claimV3Refund(opts: {
   }
 
   opts.onStep?.('take() refund to the deposit sender…')
-  const takeHash = await takeDestLockClaim({
-    cfg: opts.cfg,
-    evmPrivateKey,
-    noteId,
-    onStep: opts.onStep,
-    lock: v3,
-  })
-  return { noteId, openHash, takeHash, bridge: v3 }
+  // openJ is {} when the claim was already open on chain: plain take(). Otherwise walletd's
+  // answer decides (alreadyOpen + taken → nothing to take).
+  const took = await takeAfterOpen({ cfg: opts.cfg, evmPrivateKey, noteId, openJ, bridge: v3, onStep: opts.onStep })
+  if (took.alreadyTaken) return { noteId, openHash, takeHash: '', bridge: v3, alreadyTaken: true }
+  return { noteId, openHash, takeHash: took.takeHash, bridge: v3 }
 }
 
 export async function takeDestLockClaim(opts: {
