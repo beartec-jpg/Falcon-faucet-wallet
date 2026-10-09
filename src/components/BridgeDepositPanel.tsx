@@ -362,7 +362,7 @@ export default function BridgeDepositPanel({
   const btcPaymentScriptHex =
     spvStatus?.paymentScriptHex ||
     (isPl2300 && BTC_RAIL_LIVE ? BITVM2_INSTANCE_SPK : '')
-  /** BitVM2 dest-lock is live. Header lag is a warning, not “unconfigured”. */
+  /** BTC deposits are live (BitVM2 withdrawals in final testing). Header lag is a warning, not “unconfigured”. */
   const fbtcReady = isPl2300 && BTC_RAIL_LIVE
   const spvLive = fbtcReady && !!(btcWatchAddress || btcPaymentScriptHex)
   const fxrpReady = !!(fxrpIssuer && fxrpCustody)

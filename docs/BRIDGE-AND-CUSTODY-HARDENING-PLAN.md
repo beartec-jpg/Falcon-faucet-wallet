@@ -312,7 +312,7 @@ Bridge state / amendment support for multi-submitter rules (protocol).
 Until Phase B exit:
 
 - Prefer **“SPV light client + fleet redeemer (testnet)”** over “fully permissionless bridge.”  
-- BTC: non-custodial **claim** path when headers live; peg-out still depends on reserve COMPLETE.  
+- BTC (historical target, superseded): non-custodial **claim** path when headers live; peg-out still depends on reserve COMPLETE. Current BTC wording: deposits live on testnet; trust-minimised BitVM2 withdrawals in final testing.  
 - ETH/USDC/BNB remain lock–mint + relay (separate plan).
 
 Update whitepaper / marketing only after W1 lag SLO and W3 challenge e2e pass.

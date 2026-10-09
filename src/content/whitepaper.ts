@@ -457,11 +457,9 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
             'Admin drain of bridged ETH/USDC',
             'The ETH/USDC bridge has no owner and no admin withdraw. Funds are released only with a Groth16 proof of a Falcon quorum certificate. Auto-mint is liveness only.',
           ],
-          // TODO(engineering + Scott): rewrite this row for the BitVM2 exit once engineering
-          // confirms the challenge path. Current wording kept until then.
           [
             'Stranger spend of BTC claim',
-            'After Kickoff, ELSE is dest CHECKSIG + CSV; IF is abort only after a valid FPL challenge. Kickoff is claimer CHECKSIG on the instance (setup keys already wiped).',
+            'Design target (BitVM2 withdrawals in final testing): the user takes the dest-lock output with their own key after CSV; dispute paths are for challenges only.',
           ],
         ],
       },

@@ -6,7 +6,7 @@
   "watch_address": "tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34",
   "payment_script_hex": "51206ebeb0289c396f1f0ace996500600f831350d95c0cc89f412ed0eca650abb38f",
   "min_confirmations": 1,
-  "peg_out": "bitvm2-operator-fronting",
+  "peg_out": "bitvm2",
   "claim_csv": 6,
   "retired_watch_addresses": [
     "mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik",
