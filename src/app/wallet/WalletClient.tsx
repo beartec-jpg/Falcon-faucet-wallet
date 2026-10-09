@@ -3868,8 +3868,8 @@ export default function WalletPage() {
                       </div>
                       <p className="text-xs text-slate-500">
                         {network.networkId === 2300
-                          ? 'Peer-to-peer on Falcon PL — not a bridge.'
-                          : 'Peer-to-peer transfer on Falcon Ledger — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.'}
+                          ? 'Peer-to-peer on Falcon Ledger — not a bridge.'
+                          : 'Peer-to-peer transfer on Falcon Ledger — not a bridge.'}
                       </p>
                       <button
                         type="submit"
@@ -4220,10 +4220,10 @@ export default function WalletPage() {
 
           {/* ── Footer note ── */}
           <p className="text-center text-xs text-slate-700">
-            {network.badge === 'testnet' ? 'Testnet tokens · No real value' : `${network.name} · Network ID ${network.networkId}`}
+            {network.badge === 'testnet' ? 'Testnet tokens · No real value' : network.name}
             {' · '}
             <a
-              href="https://github.com/beartec-jpg/qXRP"
+              href="https://github.com/beartec-jpg/Falcon-faucet-wallet"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-slate-500 underline underline-offset-2 transition-colors"

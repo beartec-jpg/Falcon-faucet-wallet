@@ -1606,7 +1606,7 @@ export default function BridgeDepositPanel({
         }
         return
       }
-      setError('Falcon Ledger BTC bridge is retired. Use Falcon PL 2300.')
+      setError('This older BTC bridge is retired. Use the current BTC rail.')
       return
     }
 
@@ -1881,7 +1881,7 @@ const handleSpvCompleteClaim = async () => {
       return
     }
 
-    throw new Error('Falcon Ledger BTCDepositClaim is retired. Use Falcon PL 2300.')
+    throw new Error('This older BTC deposit claim is retired. Use the current BTC rail.')
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Claim failed'
     if (/tecDUPLICATE|already spent|already minted/i.test(msg)) {
@@ -2017,7 +2017,7 @@ const handleSpvCompleteClaim = async () => {
           : isPl2300 && (isFethRoute || (!isFbnbRoute && !isFxrpRoute))
             ? destLockInReady
               ? 'Open the Sepolia EVM wallet on Multi-chain first.'
-              : 'ETH/USDC dest-lock config missing live FalconQcBridge. Do not send yet.'
+              : 'ETH/USDC bridge is not ready yet. Please don’t send.'
             : 'Open the Sepolia EVM wallet on Multi-chain first.',
       )
       return
@@ -2138,7 +2138,7 @@ const handleSpvCompleteClaim = async () => {
           return
         }
 
-        throw new Error('Falcon Ledger BTC bridge is retired. Use Falcon PL 2300.')
+        throw new Error('This older BTC bridge is retired. Use the current BTC rail.')
       }
 
       setStep(
@@ -2153,7 +2153,7 @@ const handleSpvCompleteClaim = async () => {
       let res: BridgeDepositResult
       if (isPl2300 && destLockCfg && (isFethRoute || (!isFbnbRoute && !isFxrpRoute && !isFbtcRoute))) {
         if (!destLockInReady) {
-          throw new Error('ETH/USDC dest-lock is not the live FalconQcBridge. Do not send yet.')
+          throw new Error('ETH/USDC bridge is not ready yet. Please don’t send.')
         }
         if (isFethRoute) {
           const d = await depositEthDestLock({
@@ -3298,7 +3298,7 @@ const handleSpvCompleteClaim = async () => {
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 leading-snug">
-                      Send testnet BTC to the BitVM2 instance + FALC memo. Peg-out is dest-lock Kickoff, then your key. No FROST.
+                      Send testnet BTC to the BitVM2 rail address with your FALC memo. FBTC mints after confirmations.
                     </p>
                   </div>
                 ) : (
@@ -3475,7 +3475,7 @@ const handleSpvCompleteClaim = async () => {
                             {isPl2300
                               ? spvStatus?.spv === 'bitcoin'
                                 ? 'Bitcoin headers live'
-                                : 'dest-lock live'
+                                : 'rail live'
                               : spvLive
                                 ? 'live'
                                 : 'pending'}
@@ -3519,8 +3519,8 @@ const handleSpvCompleteClaim = async () => {
                       : 'FBTC · shared-reserve redeem (any holder)'
                   : isPl2300
                     ? isFethRoute
-                      ? 'FETH burned · Sepolia ETH dest-locked to your 0x'
-                      : 'F-USDC burned · Sepolia USDC dest-locked to your 0x'
+                      ? 'FETH burned · Sepolia ETH on its way to your 0x'
+                      : 'F-USDC burned · Sepolia USDC on its way to your 0x'
                     : 'F-USDC · release usually under a few minutes'}
               </p>
             </div>

@@ -81,7 +81,7 @@ const TESTNET_DRIP_FPL = envNumberFirst(
 
 const TESTNET: NetworkConfig = {
   key: 'testnet',
-  name: envStr('NEXT_PUBLIC_TESTNET_NAME', 'Falcon PL 2300'),
+  name: envStr('NEXT_PUBLIC_TESTNET_NAME', 'Falcon Ledger Testnet'),
   shortName: 'Testnet',
   networkId: envTestnetNetworkId(),
   rpcUrl: envStr(

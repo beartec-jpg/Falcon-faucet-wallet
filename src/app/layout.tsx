@@ -7,18 +7,16 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' })
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' })
 
-const NETWORK = process.env.NEXT_PUBLIC_TESTNET_NAME ?? 'Falcon PL'
-
 export const metadata: Metadata = {
-  title: `${NETWORK} — Quantum-safe participation ledger (testnet 2300)`,
+  title: 'Falcon Ledger — Quantum-safe L1 for cross-chain lending and AMM pools (testnet)',
   description:
-    'Falcon PL is a quantum-safe participation ledger on pre-public testnet 2300. Falcon-512 from genesis. Test tokens have no cash value. Wallet, faucet, and explorer are live; AMM, lend, and dest-lock bridge are experimental.',
+    'Falcon Ledger is an experimental, quantum-safe L1 focused on lending and AMM pools across chains. On the Falcon Ledger testnet you can use the passkey wallet, AMM pools, lending, and non-custodial ETH, USDC and BTC bridges. Falcon-512 from genesis. Test tokens have no cash value.',
   icons: { icon: '/assets/images/brand/logo-mark.jpg', apple: '/assets/images/brand/apple-touch-icon.jpg' },
   manifest: '/manifest.json',
   openGraph: {
-    title: `${NETWORK}`,
+    title: 'Falcon Ledger (FPL) — testnet',
     description:
-      'Quantum-safe participation ledger. Pre-public testnet 2300. Test tokens have no cash value.',
+      'Quantum-safe L1 for cross-chain lending and AMM pools. Experimental testnet with non-custodial ETH, USDC and BTC bridges. Test tokens have no cash value.',
     images: ['/assets/images/brand/og-image.jpg'],
   },
   appleWebApp: {

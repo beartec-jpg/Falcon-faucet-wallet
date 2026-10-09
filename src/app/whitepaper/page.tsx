@@ -170,7 +170,7 @@ export default function WhitepaperPage() {
               <span className="text-brand-400 font-medium">FPL</span> at the centre.
             </p>
             <p className="text-xs text-slate-600 mt-4">
-              Version {WHITEPAPER_VERSION} · {WHITEPAPER_DATE}
+              Version {WHITEPAPER_VERSION}{WHITEPAPER_DATE ? ` · ${WHITEPAPER_DATE}` : ''}
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">

@@ -211,7 +211,7 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-brand-400/90">
-            Pre-public beta · PL 2300
+            Falcon Ledger testnet
           </p>
           <h2 className="text-lg font-semibold text-white mt-1">Watcher &amp; claims</h2>
           <p className="text-slate-400 text-xs mt-1">

@@ -33,7 +33,7 @@ const VALIDATOR_LINKS = [
   {
     href: '/validator',
     title: 'Run a Validator',
-    description: 'Bond FPL, install the node one-liner, and secure the network.',
+    description: 'Public validator nodes are coming next. Read how bonding and joining work.',
     cta: 'Guide',
     primary: true,
   },

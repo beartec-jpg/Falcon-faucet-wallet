@@ -1,17 +1,17 @@
 # Portal documentation index
 
-**Current testnet:** Falcon PL **2300**. Last updated **2026-09-19**.  
+**Current network:** experimental Falcon Ledger testnet.  
 Falcon Ledger / XRPL fork **1001** is shut down.
 
 ## Read first
 
 | Doc | Role |
 |-----|------|
-| [BRIDGES-2300.md](BRIDGES-2300.md) | Portal 2300 rails (ETH, USDC, BTC) — must match STATUS |
+| [BRIDGES-2300.md](BRIDGES-2300.md) | Portal bridges (ETH, USDC, BTC) — public bridge facts and addresses |
 | [BRIDGES_DRIFT_CHECK.md](BRIDGES_DRIFT_CHECK.md) | Public vs Falcon-PL STATUS checklist |
 | [ROADMAP.md](ROADMAP.md) | Shipped vs next |
-| Protocol [BRIDGES_2300_STATUS.md](https://github.com/beartec-jpg/Falcon-PL/blob/fix/pl-multihost-state-determinism/falcon-pl-rs/crates/fd-pl/docs/BRIDGES_2300_STATUS.md) | **Source of truth** for contracts, trust model, e2e |
-| In-app `/whitepaper` | Protocol paper (v5.1). Not an audit. |
+| Protocol `BRIDGES_2300_STATUS.md` | **Source of truth**, maintained in the private Falcon-PL repo; public bridge facts are in [BRIDGES-2300.md](BRIDGES-2300.md) |
+| In-app `/whitepaper` | Protocol paper (v5.2). Not an audit. |
 
 ## Historical (1001 / pre dest-lock)
 

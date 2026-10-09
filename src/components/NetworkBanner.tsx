@@ -10,7 +10,7 @@ export default function NetworkBanner() {
       return (
         <div className="bg-amber-950/50 border-b border-amber-800/40 px-4 py-2 text-center text-xs text-amber-200/90">
           <span className="font-medium">{network.name}</span>
-          {' · '}Network ID {network.networkId}
+          {' · '}Experimental testnet
           {' · '}Test tokens — no real value
         </div>
       )
@@ -18,7 +18,6 @@ export default function NetworkBanner() {
     return (
       <div className="bg-emerald-950/50 border-b border-emerald-800/40 px-4 py-2 text-center text-xs text-emerald-200/90">
         <span className="font-medium">{network.name}</span>
-        {' · '}Network ID {network.networkId}
         {' · '}Mainnet
       </div>
     )

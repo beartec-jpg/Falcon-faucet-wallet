@@ -1,6 +1,6 @@
 # Falcon PL — start-to-finish implementation read-up
 
-**2026-08-26:** ETH/USDC/BTC dest-lock are **live on 2300 testnet**. Status: [BRIDGES-2300.md](../../docs/BRIDGES-2300.md) and protocol `BRIDGES_2300_STATUS.md`. This read-up is ledger/consensus history, not the dest-lock spec. Not an audit.
+**October 2026:** the Falcon Ledger testnet now runs AMM pools, lending, and non-custodial ETH/USDC (Groth16 Falcon-QC) and BTC (BitVM2) bridges. Experimental testnet. Bridge status: [BRIDGES-2300.md](https://github.com/beartec-jpg/Falcon-faucet-wallet/blob/main/docs/BRIDGES-2300.md). This read-up is ledger/consensus history, not the bridge spec. Not an audit.
 
 **From the DAG diversion, to the ordered ledger, to measured throughput vs the original Falcon ~30 tx/s wall.**
 
@@ -10,10 +10,10 @@
 | **Ticker** | FPL |
 | **Consensus** | Falcon Consensus |
 | **Signatures** | Falcon-512 (NIST PQC) |
-| **This cut** | **2.9.30** · pre-public beta **network_id 2300** |
+| **This cut** | history through **2.9.30** (testnet now on 2.9.60) |
 | **Not** | A DAG · mainnet |
 
-This is an implementation history with **measured** numbers. It is not a security proof and not a marketing sheet. Sources: [IDENTITY.md](IDENTITY.md), [POC.md](POC.md), [HARDWARE.md](HARDWARE.md), [FEATURES_AND_TOKENOMICS.md](FEATURES_AND_TOKENOMICS.md), 2200 private soak, 2300 multi-host beta.
+This is an implementation history with **measured** numbers. It is not a security proof and not a marketing sheet. Sources: `IDENTITY.md`, `POC.md`, `HARDWARE.md`, `FEATURES_AND_TOKENOMICS.md`, 2200 private soak, 2300 multi-host beta.
 
 ---
 
@@ -76,12 +76,12 @@ Same **Falcon-512** signatures. Different engine. The “30 tx/s” number is th
 
 ## 4. Implementation timeline (what actually shipped)
 
-Condensed. Full change control is [AMENDMENTS.md](AMENDMENTS.md).
+Condensed. Full change control is `AMENDMENTS.md`.
 
 | Era | What landed |
 |-----|-------------|
 | **DAG research** | Narwhal-style mempool DAG. Frozen under `archive/`. |
-| **PL PoC** | Lottery pack, gossip mempool, Falcon-512 dual-host. [POC.md](POC.md) (2026-08-10). |
+| **PL PoC** | Lottery pack, gossip mempool, Falcon-512 dual-host. `POC.md` (2026-08-10). |
 | **2.2–2.6** | Economy, epochs, vaults/AMM/lend/rails as protocol txs. First private fleets. |
 | **2.7** | Public-safety surface: registry-only keys, signed votes, mesh admin lock, unix `--admin-sock`, integer lottery, Hello product+network. |
 | **2.8** | Header gossip + body pull. Light vals. |
@@ -145,7 +145,7 @@ That 30 is an **API / engine wall** on the old stack, not “Falcon-512 max.”
 
 ### 6.2 Measured on Falcon PL (PoC, 2026-08-10)
 
-Dual-host, real Falcon-512, 3 validators ([POC.md](POC.md) §6):
+Dual-host, real Falcon-512, 3 validators (`POC.md` §6):
 
 | Test | Result | vs 30 TPS |
 |------|--------|-----------|
@@ -188,7 +188,7 @@ tps_verify ≈  1000 / V_ms     if one core verifies the body sequentially
 | Run | Rate | Point |
 |-----|------|--------|
 | 2200 11-val Falcon-512 | **25 TPS** intentional | Agree + join-snap + role binaries. ~6–10 ledgers/s then cool. |
-| 2300 pre-public beta | **1 tx / 3 s** | Public params (7d epoch). Keep tip alive. Not a max. |
+| Public testnet | **1 tx / 3 s** | Public params (7d epoch). Keep tip alive. Not a max. |
 
 25 TPS on 11 Falcon-512 vals is **not** slower than the old 30 TPS wall in any interesting way — it is a **chosen** soak. The engine already cleared **500**.
 
@@ -212,7 +212,7 @@ tps_verify ≈  1000 / V_ms     if one core verifies the body sequentially
 
 ## 8. Where we are (2026-08-15)
 
-**One chain: 2300 pre-public beta.** 2200 is stopped (snaps kept, id never flipped).
+**One chain: the public testnet.** 2200 is stopped (snaps kept, id never flipped).
 
 | Seat | Host | Role |
 |------|------|------|
@@ -232,14 +232,14 @@ Idle: alice ↔ bob, 1 Pay / 3 s. Multi-host: all five same tip / hash / state r
 
 ## 9. Public paper
 
-The faucet `/whitepaper` is the Falcon PL paper (**v4.1+**). Falcon Consensus, measured vs the earlier 30 TPS wall, 2300 as pre-public beta.
+The faucet `/whitepaper` is the Falcon PL paper (**v4.1+**). Falcon Consensus, measured vs the earlier 30 TPS wall, the public testnet as the live chain.
 
 | Document | Job |
 |----------|-----|
 | Faucet `/whitepaper` | Public narrative |
 | This read-up | Internal start→finish + numbers |
-| [POC.md](POC.md) | Aug 10–11 load campaign |
-| [IDENTITY.md](IDENTITY.md) | Names |
-| [FEATURES_AND_TOKENOMICS.md](FEATURES_AND_TOKENOMICS.md) | Economy design |
+| `POC.md` | Aug 10–11 load campaign |
+| `IDENTITY.md` | Names |
+| `FEATURES_AND_TOKENOMICS.md` | Economy design |
 
 Do **not** claim 640 TPS, 7-day watcher payday already paid, or “we never had consensus bugs.” Early 2.9 **did** have fork *classes*; they were **fixed**; the long soak after that did not fork.

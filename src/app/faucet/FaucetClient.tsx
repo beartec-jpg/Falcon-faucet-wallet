@@ -189,13 +189,12 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <ProductShell intensity={0.5} className="flex-1 min-h-0">
-      <Header current="faucet" subtitle="Falcon PL · 2300">
+      <Header current="faucet" subtitle="Falcon Ledger testnet">
         <StatusDot online={status.online} state={status.state} />
       </Header>
       <div className="bg-amber-950/50 border-b border-amber-800/40 px-4 py-2 text-center text-xs text-amber-200/90">
-        <span className="font-medium">Falcon PL</span>
-        {' · '}Network ID 2300
-        {' · '}Pre-public beta — test tokens, no cash value
+        <span className="font-medium">Falcon Ledger</span>
+        {' · '}Experimental testnet — test tokens, no cash value
       </div>
 
       {/* Main */}
@@ -242,7 +241,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                   disabled={loading}
                 />
                 <p className="text-[11px] text-slate-500">
-                  Use the account name you created (or the r… on an older wallet). Opening faucet from Wallet fills this in.
+                  Use the Falcon account name you created. Opening the faucet from your Wallet fills this in.
                 </p>
               </div>
 
@@ -306,7 +305,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: 'Tip', value: (status.tip ?? status.ledger)?.toLocaleString() ?? '—' },
-              { label: 'Network', value: status.networkId != null ? String(status.networkId) : '2300' },
+              { label: 'Network', value: 'Testnet' },
               { label: 'Epoch', value: status.epoch != null ? `${status.epoch} / claim ${status.firstClaimEpoch ?? 1}` : '—' },
               { label: 'Mesh', value: status.online ? 'live' : 'offline' },
             ].map(({ label, value }) => (
