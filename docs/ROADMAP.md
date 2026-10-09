@@ -29,4 +29,4 @@ Bridge addresses: [BRIDGES-2300.md](./BRIDGES-2300.md). Protocol paper: in-app [
 - [ ] Native mobile app (PWA is live)
 
 ## History
-Falcon Ledger replaced the earlier Falcon Ledger network (XRPL fork, 1001), which is shut down. Archive: [archive-1001/README.md](archive-1001/README.md).
+The current Falcon Ledger testnet replaced the retired network 1001 (the earlier XRPL-fork implementation), which is shut down. Archive: [archive-1001/README.md](archive-1001/README.md).
