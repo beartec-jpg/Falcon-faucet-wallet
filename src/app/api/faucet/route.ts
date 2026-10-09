@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
   // Falcon PL 2300 — drip to the same account id the wallet shows (r… or a name).
   if (cfg.networkId === 2300) {
     if (!isPlAccount(account)) {
-      return err('Enter the Falcon Ledger account from your wallet (the r… address).')
+      return err('Enter the Falcon Ledger account from your wallet (its account name or r… address).')
     }
 
     const clientIpAddr = ip(req)
