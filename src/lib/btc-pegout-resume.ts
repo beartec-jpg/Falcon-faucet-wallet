@@ -34,7 +34,18 @@ export type BtcPegOutPhase =
   | 'kickoff_signed'
   /** Kickoff broadcast (or already known to Bitcoin); waiting for CSV / take. */
   | 'kickoff_broadcast'
+  /** Take signed, checked and saved; done only once it has ≥1 confirmation. */
+  | 'take_broadcast'
   | 'done'
+
+const PHASES: readonly BtcPegOutPhase[] = [
+  'burn_signed',
+  'burned',
+  'kickoff_signed',
+  'kickoff_broadcast',
+  'take_broadcast',
+  'done',
+]
 
 export type BtcPegOutRecord = {
   v: 1
@@ -54,6 +65,8 @@ export type BtcPegOutRecord = {
   kickoffTxid?: string
   claimSats?: number
   takeTxid?: string
+  /** Exact signed take (checked against the Kickoff and dest before saving). */
+  signedTakeHex?: string
   recoveredFromChain?: boolean
   lastError?: string
   createdAt: number
@@ -86,7 +99,13 @@ export interface BtcPegOutDeps {
   requestKickoff(): Promise<{ signed_btc_tx: string; amount?: number }>
   /** Broadcast to Bitcoin; returns txid. */
   broadcast(rawHex: string): Promise<string>
-  pollConfirmations(txid: string): Promise<number>
+  /** Confirmations of `txid`; `null` (or a throw) = unknown, never read as 0. */
+  pollConfirmations(txid: string): Promise<number | null>
+  /**
+   * Who spent `txid:vout`, as agreed by every Bitcoin explorer (see
+   * agreeSpender). `null` = unknown (an explorer failed or they disagree).
+   */
+  lookupSpender(txid: string, vout: number): Promise<SpenderView | null>
   requestTake(kickoffTxid: string, sats: number): Promise<{ take_txid?: string; signed_btc_tx?: string }>
   sleep(ms: number): Promise<void>
   now(): number
@@ -136,6 +155,9 @@ export type BtcPegOutTiming = {
   chainRecheck: number
   kickoffWaitMs: number
   kickoffPollMs: number
+  /** Wait for the take's first confirmation. */
+  takeWaitMs: number
+  takePollMs: number
 }
 
 const DEFAULT_TIMING: BtcPegOutTiming = {
@@ -144,6 +166,64 @@ const DEFAULT_TIMING: BtcPegOutTiming = {
   chainRecheck: 3,
   kickoffWaitMs: 45 * 60_000,
   kickoffPollMs: 12_000,
+  takeWaitMs: 30 * 60_000,
+  takePollMs: 15_000,
+}
+
+/**
+ * A signed Kickoff is only replaced when one of its inputs was spent by a
+ * DIFFERENT transaction that every explorer reports at least this deep. Then
+ * the old Kickoff can never confirm, so a new one cannot pay twice.
+ */
+export const KICKOFF_REPLACE_MIN_CONFS = 6
+
+/** Largest fee the take may deduct from the Kickoff amount (walletd uses ~1000). */
+export const MAX_TAKE_FEE_SATS = 2_000
+/** Bitcoin dust limit: the payout must stay above it. */
+const DUST_SATS = 546
+
+export type SpenderView = { spent: false } | { spent: true; txid: string; confirmations: number | null }
+
+/** One explorer's answer for an outpoint (`ok: false` = that explorer failed). */
+export type ExplorerSpendAnswer = {
+  ok: boolean
+  spent?: boolean
+  txid?: string
+  confirmed?: boolean
+  blockHeight?: number
+  tip?: number
+}
+
+/**
+ * Combine explorers' outspend answers. Unknown (`null`) unless at least
+ * `minExplorers` answered and all agree on spent / spender txid. Confirmations
+ * are the smallest reported; a confirmed spender with an unknown tip gives
+ * `null` confirmations (unknown), never 0.
+ */
+export function agreeSpender(answers: ExplorerSpendAnswer[], minExplorers = 2): SpenderView | null {
+  if (answers.length < minExplorers) return null
+  if (answers.some((a) => !a.ok || typeof a.spent !== 'boolean')) return null
+  if (answers.some((a) => a.spent !== answers[0].spent)) return null
+  if (!answers[0].spent) return { spent: false }
+  const txid = String(answers[0].txid ?? '').toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(txid)) return null
+  if (answers.some((a) => String(a.txid ?? '').toLowerCase() !== txid)) return null
+  let confs: number | null = Number.POSITIVE_INFINITY
+  for (const a of answers) {
+    let c: number | null
+    if (!a.confirmed) c = 0
+    else {
+      const h = Number(a.blockHeight)
+      const tip = Number(a.tip)
+      c = Number.isFinite(h) && h > 0 && Number.isFinite(tip) && tip >= h ? tip - h + 1 : null
+    }
+    if (c === null) {
+      confs = null
+      break
+    }
+    confs = Math.min(confs as number, c)
+  }
+  return { spent: true, txid, confirmations: confs }
 }
 
 export type BtcPegOutResult = {
@@ -184,11 +264,14 @@ export async function btcWithdrawNoteId(account: string, amountSats: number, des
   return bytesToHex(await sha256(new TextEncoder().encode(msg)))
 }
 
-/**
- * Bitcoin txid (display order) of a raw tx, legacy or segwit. Lets resume know
- * the Kickoff txid even when the explorer answers "already in mempool".
- */
-export async function btcTxidFromRaw(rawHex: string): Promise<string> {
+export type DecodedBtcTx = {
+  txid: string
+  inputs: Array<{ txid: string; vout: number; witness: string[] }>
+  outputs: Array<{ sats: number; spk: string }>
+}
+
+/** Parse a raw Bitcoin tx (legacy or segwit). Throws on malformed input. */
+export async function decodeBtcTx(rawHex: string): Promise<DecodedBtcTx> {
   const b = hexToBytes(rawHex.trim())
   let p = 0
   const need = (n: number) => {
@@ -203,7 +286,14 @@ export async function btcTxidFromRaw(rawHex: string): Promise<string> {
     let v = 0
     for (let i = n - 1; i >= 0; i--) v = v * 256 + b[p + i]
     p += n
+    if (!Number.isSafeInteger(v)) throw new Error('bad Bitcoin varint')
     return v
+  }
+  const take = (n: number) => {
+    need(n)
+    const out = b.subarray(p, p + n)
+    p += n
+    return out
   }
   need(4)
   p = 4
@@ -214,30 +304,31 @@ export async function btcTxidFromRaw(rawHex: string): Promise<string> {
   }
   const ioStart = p
   const nIn = varint()
+  if (nIn === 0) throw new Error('Bitcoin tx has no inputs')
+  const inputs: DecodedBtcTx['inputs'] = []
   for (let i = 0; i < nIn; i++) {
-    need(36)
-    p += 36
+    const prev = take(32)
+    const vb = take(4)
+    const vout = (vb[0] | (vb[1] << 8) | (vb[2] << 16)) + vb[3] * 0x1000000
     const sl = varint()
-    need(sl + 4)
-    p += sl + 4
+    take(sl + 4)
+    inputs.push({ txid: bytesToHex(new Uint8Array(prev).reverse()), vout, witness: [] })
   }
   const nOut = varint()
+  const outputs: DecodedBtcTx['outputs'] = []
   for (let i = 0; i < nOut; i++) {
-    need(8)
-    p += 8
+    const vb = take(8)
+    let sats = 0
+    for (let j = 7; j >= 0; j--) sats = sats * 256 + vb[j]
+    if (!Number.isSafeInteger(sats)) throw new Error('bad Bitcoin output value')
     const sl = varint()
-    need(sl)
-    p += sl
+    outputs.push({ sats, spk: bytesToHex(take(sl)) })
   }
   const ioEnd = p
   if (segwit) {
     for (let i = 0; i < nIn; i++) {
       const items = varint()
-      for (let j = 0; j < items; j++) {
-        const l = varint()
-        need(l)
-        p += l
-      }
+      for (let j = 0; j < items; j++) inputs[i].witness.push(bytesToHex(take(varint())))
     }
   }
   need(4)
@@ -249,7 +340,150 @@ export async function btcTxidFromRaw(rawHex: string): Promise<string> {
   stripped.set(b.subarray(ioStart, ioEnd), 4)
   stripped.set(b.subarray(lockStart, lockStart + 4), 4 + (ioEnd - ioStart))
   const h = await sha256(await sha256(stripped))
-  return bytesToHex(h.reverse())
+  return { txid: bytesToHex(h.reverse()), inputs, outputs }
+}
+
+/**
+ * Bitcoin txid (display order) of a raw tx, legacy or segwit. Lets resume know
+ * the Kickoff txid even when the explorer answers "already in mempool".
+ */
+export async function btcTxidFromRaw(rawHex: string): Promise<string> {
+  return (await decodeBtcTx(rawHex)).txid
+}
+
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+const BECH32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l'
+
+function bech32Polymod(values: number[]): number {
+  const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
+  let chk = 1
+  for (const v of values) {
+    const top = chk >>> 25
+    chk = ((chk & 0x1ffffff) << 5) ^ v
+    for (let i = 0; i < 5; i++) if ((top >>> i) & 1) chk ^= G[i]
+  }
+  return chk >>> 0
+}
+
+/**
+ * scriptPubKey (hex) of a P2PKH or P2WPKH (bech32 v0) payout address — the
+ * two address kinds the dest-lock supports. Throws on anything else.
+ */
+export async function btcDestScriptPubKey(address: string): Promise<string> {
+  const a = address.trim()
+  const lower = a.toLowerCase()
+  const sep = lower.lastIndexOf('1')
+  if (/^(bc|tb|bcrt)1/.test(lower) && sep > 0) {
+    if (a !== lower && a !== a.toUpperCase()) throw new Error('mixed-case bech32 address')
+    const hrp = lower.slice(0, sep)
+    const data: number[] = []
+    for (const ch of lower.slice(sep + 1)) {
+      const v = BECH32.indexOf(ch)
+      if (v < 0) throw new Error('bad bech32 character')
+      data.push(v)
+    }
+    if (data.length < 7) throw new Error('bech32 address too short')
+    const expanded = [...hrp].map((c) => c.charCodeAt(0) >> 5)
+    expanded.push(0, ...[...hrp].map((c) => c.charCodeAt(0) & 31))
+    if (bech32Polymod([...expanded, ...data]) !== 1) throw new Error('bad bech32 checksum')
+    const words = data.slice(0, -6)
+    if (words[0] !== 0) throw new Error('only P2WPKH (segwit v0) payout addresses are supported')
+    let acc = 0
+    let bits = 0
+    const prog: number[] = []
+    for (const w of words.slice(1)) {
+      acc = (acc << 5) | w
+      bits += 5
+      if (bits >= 8) {
+        bits -= 8
+        prog.push((acc >> bits) & 0xff)
+      }
+    }
+    if (bits >= 5 || (acc & ((1 << bits) - 1)) !== 0) throw new Error('bad bech32 padding')
+    if (prog.length !== 20) throw new Error('only P2WPKH (20-byte) payout addresses are supported')
+    return '0014' + bytesToHex(new Uint8Array(prog))
+  }
+  let n = BigInt(0)
+  for (const ch of a) {
+    const v = B58.indexOf(ch)
+    if (v < 0) throw new Error('bad base58 character')
+    n = n * BigInt(58) + BigInt(v)
+  }
+  const bytes: number[] = []
+  while (n > BigInt(0)) {
+    bytes.unshift(Number(n % BigInt(256)))
+    n /= BigInt(256)
+  }
+  for (const ch of a) {
+    if (ch !== '1') break
+    bytes.unshift(0)
+  }
+  if (bytes.length !== 25) throw new Error('bad base58 address length')
+  const raw = new Uint8Array(bytes)
+  const chk = await sha256(await sha256(raw.subarray(0, 21)))
+  for (let i = 0; i < 4; i++) if (chk[i] !== raw[21 + i]) throw new Error('bad base58 checksum')
+  if (raw[0] !== 0x00 && raw[0] !== 0x6f) throw new Error('only P2PKH or P2WPKH payout addresses are supported')
+  return '76a914' + bytesToHex(raw.subarray(1, 21)) + '88ac'
+}
+
+/** hash160 inside a P2PKH / P2WPKH scriptPubKey. */
+function spkHash160(spk: string): string {
+  if (/^76a914[0-9a-f]{40}88ac$/.test(spk)) return spk.slice(6, 46)
+  if (/^0014[0-9a-f]{40}$/.test(spk)) return spk.slice(4, 44)
+  throw new Error('unsupported payout script')
+}
+
+/**
+ * Check a signed Kickoff pays exactly `amount` to a dest-lock (P2WSH) at
+ * vout 0. The dest inside that lock is checked again at take time, when the
+ * take reveals the lock script.
+ */
+export async function checkKickoffTx(
+  hex: string,
+  amount: number,
+): Promise<{ txid: string; lockProgram: string; inputs: Array<{ txid: string; vout: number }> }> {
+  const tx = await decodeBtcTx(hex)
+  const o = tx.outputs[0]
+  if (!o) throw new Error('Kickoff has no outputs')
+  if (o.sats !== amount) throw new Error(`Kickoff pays ${o.sats} sats, not the ${amount} sats requested`)
+  if (!/^0020[0-9a-f]{64}$/.test(o.spk)) throw new Error('Kickoff output 0 is not a dest-lock script')
+  return {
+    txid: tx.txid,
+    lockProgram: o.spk.slice(4),
+    inputs: tx.inputs.map((i) => ({ txid: i.txid, vout: i.vout })),
+  }
+}
+
+/**
+ * Check a signed take spends this Kickoff's dest-lock (vout 0) through a lock
+ * script for `destSpk`, and pays that address the amount less a small fee.
+ * Returns the take txid.
+ */
+export async function checkTakeTx(
+  takeHex: string,
+  kickoffHex: string,
+  amount: number,
+  destSpk: string,
+): Promise<string> {
+  const kick = await checkKickoffTx(kickoffHex, amount)
+  const take = await decodeBtcTx(takeHex)
+  if (take.inputs.length !== 1 || take.inputs[0].txid !== kick.txid || take.inputs[0].vout !== 0) {
+    throw new Error('take does not spend this Kickoff')
+  }
+  const ws = take.inputs[0].witness[take.inputs[0].witness.length - 1] ?? ''
+  if (!ws || bytesToHex(await sha256(hexToBytes(ws))) !== kick.lockProgram) {
+    throw new Error('take does not reveal this Kickoff\'s dest-lock script')
+  }
+  // claim script tail: DUP HASH160 <dest h160> EQUALVERIFY CHECKSIG ENDIF
+  if (!ws.endsWith(`76a914${spkHash160(destSpk)}88ac68`)) {
+    throw new Error('the dest-lock is not for this payout address')
+  }
+  const paid = take.outputs.filter((o) => o.spk === destSpk).reduce((n, o) => n + o.sats, 0)
+  const minPaid = Math.max(DUST_SATS, amount - MAX_TAKE_FEE_SATS)
+  if (paid > amount || paid < minPaid) {
+    throw new Error(`take pays ${paid} sats to the payout address (expected ${amount} less a small fee)`)
+  }
+  return take.txid
 }
 
 // ── storage ──────────────────────────────────────────────────────────────────
@@ -289,15 +523,30 @@ export function kvBtcPegOutStore(kv: KV | null): BtcPegOutStore {
   // overwrite each other's records. Account names are encoded, so names like
   // "constructor" or "__proto__" never touch object prototypes.
   const keyFor = (account: string) => `${BTC_PEGOUT_STORE_KEY}:${encodeURIComponent(acctKey(account))}`
+  // Unreadable storage THROWS: returning [] would let the next save overwrite
+  // (and so lose) records of burns that are still in flight.
   const read = (account: string): BtcPegOutRecord[] => {
     if (!kv) return []
+    let raw: string | null
     try {
-      const raw = kv.getItem(keyFor(account))
-      const v = raw ? (JSON.parse(raw) as unknown) : null
-      return Array.isArray(v) ? (v as BtcPegOutRecord[]) : []
-    } catch {
-      return []
+      raw = kv.getItem(keyFor(account))
+    } catch (e) {
+      throw new Error(`Browser storage could not be read (${errMsg(e)})`)
     }
+    if (raw === null) return []
+    let v: unknown
+    try {
+      v = JSON.parse(raw)
+    } catch {
+      v = undefined
+    }
+    if (!Array.isArray(v) || v.some((r) => !r || typeof r !== 'object' || typeof (r as BtcPegOutRecord).noteId !== 'string')) {
+      throw new Error(
+        'Saved BTC Bridge out records in this browser are unreadable. Nothing was changed; ask for a manual check ' +
+          'before bridging out again',
+      )
+    }
+    return v as BtcPegOutRecord[]
   }
   const write = (account: string, list: BtcPegOutRecord[]) => {
     if (!kv) throw new Error('Browser storage is unavailable')
@@ -361,6 +610,88 @@ export function findOpenBtcPegOut(
 
 // ── engine ───────────────────────────────────────────────────────────────────
 
+/**
+ * A stored record must describe exactly this withdrawal before it drives any
+ * step. Returns a reason when it does not.
+ */
+async function storedRecordProblem(
+  r: BtcPegOutRecord,
+  want: { noteId: string; account: string; network: string; amount: number; dest: string },
+): Promise<string | null> {
+  if (r.v !== 1) return `unknown record version ${String(r.v)}`
+  if (r.noteId !== want.noteId) return 'note id mismatch'
+  if (typeof r.account !== 'string' || acctKey(r.account) !== acctKey(want.account)) return 'account mismatch'
+  if (r.network !== want.network) return `network mismatch (${String(r.network)})`
+  if (r.amountSats !== want.amount) return `amount mismatch (${String(r.amountSats)})`
+  if (r.dest !== want.dest) return 'payout address mismatch'
+  if (!PHASES.includes(r.phase)) return `unknown phase ${String(r.phase)}`
+  if (r.claimSats != null && r.claimSats !== want.amount) return `claim amount mismatch (${String(r.claimSats)})`
+  if (r.phase === 'burn_signed' && !r.burnRawJson) return 'signed burn missing'
+  const needsKickoff = r.phase === 'kickoff_signed' || r.phase === 'kickoff_broadcast' || r.phase === 'take_broadcast'
+  if (needsKickoff) {
+    if (!r.signedKickoffHex) return 'signed Kickoff missing'
+    try {
+      const k = await checkKickoffTx(r.signedKickoffHex, want.amount)
+      if (r.kickoffTxid && r.kickoffTxid !== k.txid) return 'Kickoff txid does not match its signed tx'
+    } catch (e) {
+      return `stored Kickoff invalid (${errMsg(e)})`
+    }
+    if (r.phase !== 'kickoff_signed' && !r.kickoffTxid) return 'Kickoff txid missing'
+  }
+  if (r.phase === 'take_broadcast') {
+    if (!r.signedTakeHex || !r.takeTxid) return 'signed take missing'
+    try {
+      const destSpk = await btcDestScriptPubKey(want.dest)
+      const tid = await checkTakeTx(r.signedTakeHex, r.signedKickoffHex as string, want.amount, destSpk)
+      if (tid !== r.takeTxid) return 'take txid does not match its signed tx'
+    } catch (e) {
+      return `stored take invalid (${errMsg(e)})`
+    }
+  }
+  return null
+}
+
+/**
+ * True only when an input of this Kickoff was spent by a DIFFERENT tx that
+ * every explorer reports ≥ KICKOFF_REPLACE_MIN_CONFS deep. Anything unknown
+ * (explorer failure, disagreement, tip unknown, shallow) → false.
+ */
+async function kickoffProvablyDead(kickoffHex: string, amount: number, d: BtcPegOutDeps): Promise<boolean> {
+  let k: Awaited<ReturnType<typeof checkKickoffTx>>
+  try {
+    k = await checkKickoffTx(kickoffHex, amount)
+  } catch {
+    return false
+  }
+  for (const inp of k.inputs) {
+    let s: SpenderView | null = null
+    try {
+      s = await d.lookupSpender(inp.txid, inp.vout)
+    } catch {
+      s = null
+    }
+    if (
+      s &&
+      s.spent &&
+      s.txid !== k.txid &&
+      typeof s.confirmations === 'number' &&
+      s.confirmations >= KICKOFF_REPLACE_MIN_CONFS
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+async function confsOrNull(d: BtcPegOutDeps, txid: string): Promise<number | null> {
+  try {
+    const c = await d.pollConfirmations(txid)
+    return typeof c === 'number' && Number.isFinite(c) && c >= 0 ? c : null
+  } catch {
+    return null
+  }
+}
+
 function persist(store: BtcPegOutStore, rec: BtcPegOutRecord): void {
   try {
     store.save(rec)
@@ -407,7 +738,21 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
   const noteId = await btcWithdrawNoteId(p.account, amount, dest)
   const step = (m: string) => d.onStep?.(m)
 
-  let rec = d.store.load(p.account, noteId)
+  let rec: BtcPegOutRecord | null
+  try {
+    rec = d.store.load(p.account, noteId)
+  } catch (e) {
+    throw new Error(`${errMsg(e)}. No burn, Kickoff or take was signed.`)
+  }
+  if (rec) {
+    const problem = await storedRecordProblem(rec, { noteId, account: p.account, network: p.network, amount, dest })
+    if (problem) {
+      throw new Error(
+        `The saved progress for this Bridge out does not match it (${problem}). Nothing was signed or sent — ` +
+          `ask for a manual check of withdrawal ${noteId.slice(0, 12)}….`,
+      )
+    }
+  }
   // Phase changes must persist, or a retry could repeat an irreversible step.
   const save = (patch: Partial<BtcPegOutRecord>) => {
     rec = { ...(rec as BtcPegOutRecord), ...patch, updatedAt: d.now() }
@@ -609,7 +954,8 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
   // The coordinator only SIGNS the Kickoff; this client is the only party that
   // broadcasts it. A Kickoff whose response was lost never reached Bitcoin, so
   // asking again while still `burned` cannot pay twice. Once a signed Kickoff
-  // is in hand it is persisted before broadcast and reused from then on.
+  // is in hand it is checked, persisted before broadcast and reused from then
+  // on. It is replaced only when provably dead (kickoffProvablyDead).
   if (rec.phase === 'burned') {
     step('Signing dest-lock Kickoff (claimer CHECKSIG)…')
     let kick: { signed_btc_tx: string; amount?: number }
@@ -626,72 +972,71 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
       note('Kickoff returned no tx')
       throw new Error('FBTC is burned but the Kickoff came back empty. Press Bridge out again to retry — no new burn.')
     }
-    let kickoffTxid = ''
+    // Never broadcast a Kickoff that does not pay exactly this withdrawal.
+    let kickoffTxid: string
     try {
-      kickoffTxid = await btcTxidFromRaw(kick.signed_btc_tx)
-    } catch {
-      /* broadcast result will supply it */
+      if (kick.amount != null && Number(kick.amount) !== amount) {
+        throw new Error(`Kickoff amount ${String(kick.amount)} ≠ ${amount} sats requested`)
+      }
+      kickoffTxid = (await checkKickoffTx(kick.signed_btc_tx, amount)).txid
+    } catch (e) {
+      note(`Kickoff rejected: ${errMsg(e)}`)
+      throw new Error(
+        `FBTC is burned, but the signed Kickoff does not match this withdrawal (${errMsg(e)}). It was NOT ` +
+          'broadcast. No new burn — ask for a manual check before retrying.',
+      )
     }
     save({
       phase: 'kickoff_signed',
       signedKickoffHex: kick.signed_btc_tx,
-      kickoffTxid: kickoffTxid || undefined,
-      claimSats: Number(kick.amount ?? amount),
+      kickoffTxid,
+      claimSats: amount,
       lastError: undefined,
     })
   }
 
+  /**
+   * Broadcast refused because an input is spent. Replace the Kickoff only if
+   * provably dead; otherwise keep the SAME Kickoff and ask for a manual check.
+   */
+  const inputsGone = async (msg: string): Promise<never> => {
+    const kickoffTxid = (rec as BtcPegOutRecord).kickoffTxid as string
+    if (await kickoffProvablyDead((rec as BtcPegOutRecord).signedKickoffHex as string, amount, d)) {
+      save({ phase: 'burned', signedKickoffHex: undefined, kickoffTxid: undefined, lastError: msg })
+      throw new Error(
+        `FBTC is burned, but the signed Kickoff's Bitcoin input was spent by another transaction that is now ` +
+          `${KICKOFF_REPLACE_MIN_CONFS}+ blocks deep, so it can never confirm. Press Bridge out again with the same ` +
+          'amount to get a new Kickoff — no new burn.',
+      )
+    }
+    note(msg)
+    throw new Error(
+      `Bitcoin reports the Kickoff's input as spent (${msg}), and it could not be proven that this Kickoff ` +
+        `(${kickoffTxid}) can never confirm. It is kept as is — no new Kickoff, no new burn. Ask for a manual ` +
+        'check of this Kickoff before retrying.',
+    )
+  }
+
   if (rec.phase === 'kickoff_signed') {
     step('Broadcasting dest-lock Kickoff to Bitcoin testnet…')
-    let txid = rec.kickoffTxid ?? ''
+    const txid = rec.kickoffTxid as string
     try {
       const got = (await d.broadcast(rec.signedKickoffHex as string)).trim().toLowerCase()
-      if (/^[0-9a-f]{64}$/.test(got)) {
-        if (txid && got !== txid) {
-          // The locally computed txid of the signed tx is authoritative.
-          note(`broadcast returned ${got}, expected ${txid}`)
-          throw new Error(
-            `Bitcoin answered with a different txid (${got}) than the signed Kickoff (${txid}). Kept the same ` +
-              'Kickoff — press Bridge out again with the same amount. No new burn.',
-          )
-        }
-        txid = got
+      if (/^[0-9a-f]{64}$/.test(got) && got !== txid) {
+        // The locally computed txid of the signed tx is authoritative.
+        note(`broadcast returned ${got}, expected ${txid}`)
+        throw new Error(
+          `Bitcoin answered with a different txid (${got}) than the signed Kickoff (${txid}). Kept the same ` +
+            'Kickoff — press Bridge out again with the same amount. No new burn.',
+        )
       }
     } catch (e) {
       if (e instanceof Error && /different txid/.test(e.message)) throw e
       const msg = errMsg(e)
       if (isInputsGone(msg)) {
-        // Our Kickoff's input was spent by a different tx. If our Kickoff is not
-        // itself confirmed it can never confirm, so a fresh Kickoff is safe.
-        // Unknown (no txid / lookup failed) must NOT be read as "never confirms".
-        let confs: number | null = null
-        try {
-          confs = txid ? await d.pollConfirmations(txid) : null
-        } catch {
-          confs = null
-        }
-        if (confs === null) {
-          note(msg)
-          throw new Error(
-            `FBTC is burned and the Kickoff is signed, but Bitcoin reported its input as spent (${msg}) and its ` +
-              'status could not be checked. Press Bridge out again later with the same amount — it re-checks the ' +
-              'same Kickoff, no new burn.',
-          )
-        }
-        if (confs > 0) {
-          save({ phase: 'kickoff_broadcast', kickoffTxid: txid, lastError: undefined })
-        } else {
-          save({
-            phase: 'burned',
-            signedKickoffHex: undefined,
-            kickoffTxid: undefined,
-            lastError: msg,
-          })
-          throw new Error(
-            `FBTC is burned, but the signed Kickoff's Bitcoin input was already spent (${msg}). ` +
-              'Press Bridge out again with the same amount to get a new Kickoff — no new burn.',
-          )
-        }
+        // Our own Kickoff may already be confirmed (it spent the input).
+        const own = await confsOrNull(d, txid)
+        if (own === null || own < 1) await inputsGone(msg)
       } else if (!isAlreadyKnown(msg)) {
         note(msg)
         throw new Error(
@@ -702,50 +1047,21 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
         step('Kickoff already known to Bitcoin…')
       }
     }
-    if (rec.phase === 'kickoff_signed' && !txid) {
-      note('Kickoff txid unknown')
-      throw new Error('Kickoff broadcast but its txid is unknown. Press Bridge out again to resume — no new burn.')
-    }
-    if (rec.phase === 'kickoff_signed') {
-      save({ phase: 'kickoff_broadcast', kickoffTxid: txid, lastError: undefined })
-    }
+    save({ phase: 'kickoff_broadcast', kickoffTxid: txid, lastError: undefined })
   }
 
   // ── 4. CSV wait then dest take. ──
-  if (rec.phase === 'kickoff_broadcast' && resumedAt === 'kickoff_broadcast' && rec.signedKickoffHex) {
-    // Resumed while unconfirmed: the Kickoff may have been dropped from mempools.
-    // Re-broadcast the SAME signed tx (never a new one) before polling.
-    let confs: number | null = null
-    try {
-      confs = await d.pollConfirmations(rec.kickoffTxid as string)
-    } catch {
-      confs = null
-    }
-    // 0 or unknown (e.g. dropped from mempools): re-sending the SAME tx is
-    // always safe. Only a KNOWN unconfirmed status may lead to a new Kickoff.
+  if (rec.phase === 'kickoff_broadcast' && resumedAt === 'kickoff_broadcast') {
+    // Resumed while maybe unconfirmed: the Kickoff may have been dropped from
+    // mempools. Re-broadcast the SAME signed tx (never a new one) before polling.
+    const confs = await confsOrNull(d, rec.kickoffTxid as string)
     if (confs === null || confs === 0) {
       step('Re-broadcasting the same Kickoff…')
       try {
-        await d.broadcast(rec.signedKickoffHex)
+        await d.broadcast(rec.signedKickoffHex as string)
       } catch (e) {
         const msg = errMsg(e)
-        if (isInputsGone(msg)) {
-          if (confs === 0) {
-            // Input spent by another tx and ours is known unconfirmed: it can
-            // never confirm, so a fresh Kickoff is safe (still no new burn).
-            save({ phase: 'burned', signedKickoffHex: undefined, kickoffTxid: undefined, lastError: msg })
-            throw new Error(
-              `FBTC is burned, but the signed Kickoff's Bitcoin input was already spent (${msg}). ` +
-                'Press Bridge out again with the same amount to get a new Kickoff — no new burn.',
-            )
-          }
-          note(msg)
-          throw new Error(
-            `Bitcoin reports the Kickoff's input as spent (${msg}) and the Kickoff's own status is unknown. ` +
-              'It is kept as is (no new Kickoff, no new burn). Press Bridge out again later; if this persists, ' +
-              `ask for a manual check of Kickoff ${rec.kickoffTxid}.`,
-          )
-        }
+        if (isInputsGone(msg)) await inputsGone(msg)
         /* already known / transient: keep polling the same txid */
       }
     }
@@ -757,11 +1073,8 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     const t0 = d.now()
     let confs = 0
     while (d.now() - t0 < t.kickoffWaitMs) {
-      try {
-        confs = await d.pollConfirmations(kickoffTxid)
-      } catch {
-        /* explorer blip */
-      }
+      const c = await confsOrNull(d, kickoffTxid)
+      if (c !== null) confs = c
       step(`Kickoff confirmations ${confs} / ${need} (CSV=${need})…`)
       if (confs >= need) break
       await d.sleep(t.kickoffPollMs)
@@ -776,7 +1089,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     step('Dest take after CSV…')
     let take: { take_txid?: string; signed_btc_tx?: string }
     try {
-      take = await d.requestTake(kickoffTxid, Number(rec.claimSats ?? amount))
+      take = await d.requestTake(kickoffTxid, amount)
     } catch (e) {
       note(errMsg(e))
       throw new Error(
@@ -784,55 +1097,79 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
           'to retry the take — no new burn.',
       )
     }
-    // Only mark the withdrawal done once the take is known to be on Bitcoin.
-    let takeTxid = String(take.take_txid ?? '').trim().toLowerCase()
-    let localTakeTxid = ''
-    if (take.signed_btc_tx) {
-      try {
-        localTakeTxid = await btcTxidFromRaw(take.signed_btc_tx)
-      } catch {
-        localTakeTxid = ''
+    // The signed take is required: it is checked (spends this Kickoff through
+    // the dest-lock for this address, pays this address) before it is saved.
+    let takeTxid: string
+    try {
+      if (!take.signed_btc_tx) throw new Error('no signed take returned')
+      takeTxid = await checkTakeTx(take.signed_btc_tx, rec.signedKickoffHex as string, amount, await btcDestScriptPubKey(dest))
+      const claimed = String(take.take_txid ?? '').trim().toLowerCase()
+      if (claimed && claimed !== takeTxid) {
+        throw new Error(`take txid ${claimed} does not match its signed transaction ${takeTxid}`)
       }
-    }
-    const takeMismatch = (got: string) => {
-      note(`take txid ${got} does not match signed take ${localTakeTxid}`)
-      return new Error(
-        `The take came back with a txid (${got}) that does not match its signed transaction (${localTakeTxid}). ` +
-          'Not marked done — press Bridge out again with the same amount to retry the take. No new burn.',
+    } catch (e) {
+      note(`take rejected: ${errMsg(e)}`)
+      throw new Error(
+        `Kickoff is confirmed but the take did not check out (${errMsg(e)}). Nothing was broadcast — press ` +
+          'Bridge out again with the same amount to retry the take. No new burn.',
       )
     }
-    if (takeTxid && localTakeTxid && takeTxid !== localTakeTxid) throw takeMismatch(takeTxid)
-    if (!takeTxid && take.signed_btc_tx) {
+    save({ phase: 'take_broadcast', signedTakeHex: take.signed_btc_tx as string, takeTxid, lastError: undefined })
+  }
+
+  // ── 5. Take: done only after ≥1 confirmation of THIS take txid. ──
+  if (rec.phase === 'take_broadcast') {
+    const takeTxid = rec.takeTxid as string
+    const kickoffTxid = rec.kickoffTxid as string
+    let confs = await confsOrNull(d, takeTxid)
+    if (confs === null || confs < 1) {
+      step('Broadcasting the take to Bitcoin…')
       try {
-        const got = (await d.broadcast(take.signed_btc_tx)).trim().toLowerCase()
-        if (localTakeTxid && /^[0-9a-f]{64}$/.test(got) && got !== localTakeTxid) throw takeMismatch(got)
-        takeTxid = localTakeTxid || got
-      } catch (e) {
-        if (e instanceof Error && /does not match its signed transaction/.test(e.message)) throw e
-        const msg = errMsg(e)
-        if (!isAlreadyKnown(msg)) {
-          note(msg)
+        const got = (await d.broadcast(rec.signedTakeHex as string)).trim().toLowerCase()
+        if (/^[0-9a-f]{64}$/.test(got) && got !== takeTxid) {
+          note(`take broadcast returned ${got}, expected ${takeTxid}`)
           throw new Error(
-            isInputsGone(msg)
-              ? `The take was refused because the Kickoff output is already spent (${msg}). Check that BTC arrived ` +
-                  `at ${dest} (Kickoff ${kickoffTxid}). No new burn will be made.`
-              : `Kickoff is confirmed but the take broadcast failed (${msg}). Press Bridge out again with the same ` +
-                  'amount to retry the take — no new burn.',
+            `Bitcoin answered with a different txid (${got}) than the signed take (${takeTxid}). Not marked done — ` +
+              'press Bridge out again with the same amount. No new burn.',
           )
         }
-        takeTxid = localTakeTxid
+      } catch (e) {
+        if (e instanceof Error && /different txid/.test(e.message)) throw e
+        const msg = errMsg(e)
+        if (isInputsGone(msg)) {
+          confs = await confsOrNull(d, takeTxid)
+          if (confs === null || confs < 1) {
+            note(msg)
+            throw new Error(
+              `Bitcoin reports the Kickoff output as already spent (${msg}), but this take (${takeTxid}) is not ` +
+                `confirmed. Not marked done — ask for a manual check of Kickoff ${kickoffTxid}. No new burn.`,
+            )
+          }
+        } else if (!isAlreadyKnown(msg)) {
+          note(msg)
+          throw new Error(
+            `The take broadcast failed (${msg}). Press Bridge out again with the same amount — it re-sends the ` +
+              'same take. No new burn.',
+          )
+        }
       }
     }
-    if (!/^[0-9a-f]{64}$/.test(takeTxid)) {
-      note('take returned no txid')
+    const t0 = d.now()
+    while ((confs === null || confs < 1) && d.now() - t0 < t.takeWaitMs) {
+      step('Waiting for the take to confirm on Bitcoin…')
+      await d.sleep(t.takePollMs)
+      confs = await confsOrNull(d, takeTxid)
+    }
+    if (confs === null || confs < 1) {
+      note('take not confirmed yet')
       throw new Error(
-        'Kickoff is confirmed but the take returned no Bitcoin transaction. Press Bridge out again with the same ' +
-          'amount to retry the take — no new burn.',
+        `The take (${takeTxid}) is broadcast but not confirmed yet. Press Bridge out again later with the same ` +
+          'amount to check it — it re-sends the same take. No new burn.',
       )
     }
-    // Payout is done; a failed write here must not report an error. Worst case
-    // a retry asks for the take again, which cannot spend the Kickoff twice.
-    rec = { ...rec, phase: 'done', takeTxid, lastError: undefined, updatedAt: d.now() }
+    // Payout confirmed; a failed write here must not report an error. Worst case
+    // a retry re-checks the same take, which is already confirmed.
+    rec = { ...rec, phase: 'done', lastError: undefined, updatedAt: d.now() }
     try {
       d.store.save(rec)
     } catch {

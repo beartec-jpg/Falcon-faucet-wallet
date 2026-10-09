@@ -26,8 +26,93 @@ const m = await import(pathToFileURL(modPath).href)
 rmSync(dir, { recursive: true, force: true })
 
 const ACCOUNT = 'alice'
-const DEST = 'tb1qexampledestaddress0000000000000000000'
 const AMOUNT = 5000
+
+// ── tiny Bitcoin helpers for test vectors (no keys, no network) ──
+const sha256hex = (hex) => createHash('sha256').update(Buffer.from(hex, 'hex')).digest('hex')
+const h160 = (hex) => createHash('ripemd160').update(Buffer.from(sha256hex(hex), 'hex')).digest('hex')
+const BECH = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l'
+function polymod(v) {
+  const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
+  let c = 1
+  for (const x of v) {
+    const t = c >>> 25
+    c = ((c & 0x1ffffff) << 5) ^ x
+    for (let i = 0; i < 5; i++) if ((t >>> i) & 1) c ^= G[i]
+  }
+  return c >>> 0
+}
+function p2wpkhAddress(hrp, hash20hex) {
+  const bytes = Buffer.from(hash20hex, 'hex')
+  const words = [0]
+  let acc = 0
+  let bits = 0
+  for (const b of bytes) {
+    acc = (acc << 8) | b
+    bits += 8
+    while (bits >= 5) {
+      bits -= 5
+      words.push((acc >> bits) & 31)
+    }
+  }
+  if (bits) words.push((acc << (5 - bits)) & 31)
+  const exp = [...hrp].map((c) => c.charCodeAt(0) >> 5).concat([0], [...hrp].map((c) => c.charCodeAt(0) & 31))
+  const pm = polymod([...exp, ...words, 0, 0, 0, 0, 0, 0]) ^ 1
+  const chk = [0, 1, 2, 3, 4, 5].map((i) => (pm >> (5 * (5 - i))) & 31)
+  return hrp + '1' + [...words, ...chk].map((w) => BECH[w]).join('')
+}
+const le = (n, bytes) => {
+  let h = ''
+  let v = BigInt(n)
+  for (let i = 0; i < bytes; i++) {
+    h += (v & 0xffn).toString(16).padStart(2, '0')
+    v >>= 8n
+  }
+  return h
+}
+const vi = (n) => (n < 0xfd ? n.toString(16).padStart(2, '0') : 'fd' + le(n, 2))
+const rev = (hex) => Buffer.from(hex, 'hex').reverse().toString('hex')
+function serializeTx(inputs, outputs) {
+  const segwit = inputs.some((i) => i.witness?.length)
+  let h = '02000000' + (segwit ? '0001' : '') + vi(inputs.length)
+  for (const i of inputs) h += rev(i.txid) + le(i.vout, 4) + '00' + 'fdffffff'
+  h += vi(outputs.length)
+  for (const o of outputs) h += le(o.sats, 8) + vi(o.spk.length / 2) + o.spk
+  if (segwit) for (const i of inputs) {
+    const w = i.witness ?? []
+    h += vi(w.length) + w.map((x) => vi(x.length / 2) + x).join('')
+  }
+  return h + '00000000'
+}
+
+const DEST_H160 = h160('02' + '11'.repeat(32))
+const DEST = p2wpkhAddress('tb', DEST_H160)
+const DEST_SPK = '0014' + DEST_H160
+const OTHER_H160 = h160('03' + '22'.repeat(32))
+const OTHER_DEST = p2wpkhAddress('tb', OTHER_H160)
+/** dest-lock (claim) witness script, same layout as the node's claim_witness_script. */
+const claimScript = (destH160) =>
+  '63a820' + '5a'.repeat(32) + '88' + '51' + '67' + '56' + 'b2' + '75' + '76a914' + destH160 + '88ac' + '68'
+const INSTANCE_TXID = 'aa'.repeat(32)
+function kickoffHex({ amount = AMOUNT, destH160 = DEST_H160, prev = INSTANCE_TXID, vout = 1 } = {}) {
+  return serializeTx(
+    [{ txid: prev, vout, witness: ['ab'.repeat(64)] }],
+    [
+      { sats: amount, spk: '0020' + sha256hex(claimScript(destH160)) },
+      { sats: 90_000, spk: '5120' + 'cd'.repeat(32) },
+    ],
+  )
+}
+const KICKOFF_HEX = kickoffHex()
+const KICKOFF_TXID = await m.btcTxidFromRaw(KICKOFF_HEX)
+function takeHex({ kickoffTxid = KICKOFF_TXID, destH160 = DEST_H160, paySpk = DEST_SPK, pay = AMOUNT - 300 } = {}) {
+  return serializeTx(
+    [{ txid: kickoffTxid, vout: 0, witness: ['30'.repeat(71), '02' + '11'.repeat(32), '', claimScript(destH160)] }],
+    [{ sats: pay, spk: paySpk }],
+  )
+}
+const TAKE_HEX = takeHex()
+const TAKE_TXID = await m.btcTxidFromRaw(TAKE_HEX)
 
 function memKv() {
   const map = new Map()
@@ -39,6 +124,10 @@ const GENESIS_RAW =
   '01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000'
 const GENESIS_TXID = '4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b'
 const segwitOf = (raw) => raw.slice(0, 8) + '0001' + raw.slice(8, -8) + '0140' + 'ab'.repeat(64) + raw.slice(-8)
+
+/** Two explorers' outspend answers → agreed view (what the site adapter does). */
+const spentBy = (txid, { height = 100, tips = [110, 110] } = {}) =>
+  m.agreeSpender(tips.map((tip) => ({ ok: true, spent: true, txid, confirmed: true, blockHeight: height, tip })))
 
 /** Fake Falcon PL + Bitcoin. Counts every irreversible call. */
 function fakeWorld(opts = {}) {
@@ -56,13 +145,22 @@ function fakeWorld(opts = {}) {
     broadcasts: [],
     takes: 0,
     confs: 6,
+    takeConfs: 1,
     failKickoff: 0,
     failBroadcast: 0,
     broadcastError: 'network timeout',
     failSubmit: 0,
     sealOnSubmit: true,
+    spender: null,
+    /** Amount the fake coordinator's Kickoff / take pay. */
+    amount: AMOUNT,
     ...opts,
   }
+  w.kickHex = () => (w.amount === AMOUNT ? KICKOFF_HEX : kickoffHex({ amount: w.amount }))
+  w.takeHexFor = async () =>
+    w.amount === AMOUNT
+      ? TAKE_HEX
+      : takeHex({ kickoffTxid: await m.btcTxidFromRaw(w.kickHex()), pay: w.amount - 300 })
   const noteFor = (amount, dest) =>
     createHash('sha256').update(`wd:BTC:${ACCOUNT}:${amount}:${dest}`).digest('hex')
   w.apply = (raw) => {
@@ -100,7 +198,7 @@ function fakeWorld(opts = {}) {
         w.failKickoff -= 1
         throw new Error('instance has no confirmed Bitcoin UTXO')
       }
-      return { signed_btc_tx: segwitOf(GENESIS_RAW), amount: AMOUNT }
+      return { signed_btc_tx: w.kickHex(), amount: w.amount }
     },
     broadcast: async (hex) => {
       w.broadcasts.push(hex)
@@ -108,12 +206,18 @@ function fakeWorld(opts = {}) {
         w.failBroadcast -= 1
         throw new Error(w.broadcastError)
       }
-      return GENESIS_TXID
+      return m.btcTxidFromRaw(hex)
     },
-    pollConfirmations: async () => w.confs,
+    // The take is unknown to Bitcoin until something broadcast it.
+    pollConfirmations: async (txid) => {
+      const th = await w.takeHexFor()
+      if (txid !== (await m.btcTxidFromRaw(th))) return w.confs
+      return w.broadcasts.includes(th) ? w.takeConfs : null
+    },
+    lookupSpender: async () => w.spender,
     requestTake: async () => {
       w.takes += 1
-      return { take_txid: 'f'.repeat(64) }
+      return { signed_btc_tx: await w.takeHexFor() }
     },
     sleep: async () => {},
     now: (() => {
@@ -132,7 +236,7 @@ const params = {
   dest: DEST,
   fee: 2,
   claimCsv: 6,
-  timing: { burnWaitMs: 20_000, kickoffWaitMs: 60_000 },
+  timing: { burnWaitMs: 20_000, kickoffWaitMs: 60_000, takeWaitMs: 30_000 },
 }
 
 let passed = 0
@@ -161,7 +265,8 @@ await test('fresh withdrawal: one burn, one Kickoff, take, record done', async (
   assert.equal(w.burnsApplied, 1)
   assert.equal(w.kickoffRequests, 1)
   assert.equal(w.takes, 1)
-  assert.equal(out.kickoffTxid, GENESIS_TXID)
+  assert.equal(out.kickoffTxid, KICKOFF_TXID)
+  assert.equal(out.takeTxid, TAKE_TXID)
   assert.equal(out.resumed, false)
   assert.equal(store.listOpen(ACCOUNT).length, 0)
   assert.equal(store.load(ACCOUNT, out.noteId).phase, 'done')
@@ -196,15 +301,14 @@ await test('Kickoff broadcast fails: retry re-broadcasts the SAME Kickoff, no ne
   await m.runBtcPegOut(params, w.deps(store))
   assert.equal(w.burnsSigned, 1)
   assert.equal(w.kickoffRequests, 1)
-  assert.equal(w.broadcasts.length, 2)
-  assert.equal(w.broadcasts[0], w.broadcasts[1])
+  assert.deepEqual(w.broadcasts, [KICKOFF_HEX, KICKOFF_HEX, TAKE_HEX])
 })
 
 await test('"already in mempool" broadcast still learns the Kickoff txid', async () => {
   const store = m.kvBtcPegOutStore(memKv())
   const w = fakeWorld({ failBroadcast: 1, broadcastError: 'txn-already-in-mempool' })
   const out = await m.runBtcPegOut(params, w.deps(store))
-  assert.equal(out.kickoffTxid, GENESIS_TXID)
+  assert.equal(out.kickoffTxid, KICKOFF_TXID)
   assert.equal(w.takes, 1)
 })
 
@@ -216,19 +320,96 @@ await test('CSV not reached: retry resumes the take only', async () => {
   await m.runBtcPegOut(params, w.deps(store))
   assert.equal(w.burnsSigned, 1)
   assert.equal(w.kickoffRequests, 1)
-  assert.equal(w.broadcasts.length, 1)
+  assert.deepEqual(w.broadcasts, [KICKOFF_HEX, TAKE_HEX])
   assert.equal(w.takes, 1)
 })
 
-await test('Kickoff input spent by another tx: retry gets a new Kickoff, still no new burn', async () => {
+await test('agreeSpender: needs every explorer, agreement, and a known tip', async () => {
+  const a = (o) => ({ ok: true, spent: true, txid: 'b'.repeat(64), confirmed: true, blockHeight: 100, tip: 110, ...o })
+  assert.deepEqual(m.agreeSpender([a(), a()]), { spent: true, txid: 'b'.repeat(64), confirmations: 11 })
+  assert.equal(m.agreeSpender([a()]), null, 'one explorer is not enough')
+  assert.equal(m.agreeSpender([a(), { ok: false }]), null, 'an explorer failed')
+  assert.equal(m.agreeSpender([a(), a({ txid: 'c'.repeat(64) })]), null, 'explorers disagree on the spender')
+  assert.equal(m.agreeSpender([a(), a({ spent: false })]), null, 'explorers disagree on spent')
+  assert.equal(m.agreeSpender([a(), a({ tip: undefined })]).confirmations, null, 'tip unknown → unknown, not 0')
+  assert.equal(m.agreeSpender([a(), a({ confirmed: false })]).confirmations, 0)
+  assert.equal(m.agreeSpender([a(), a({ tip: 104 })]).confirmations, 5, 'smallest depth wins')
+  assert.deepEqual(m.agreeSpender([{ ok: true, spent: false }, { ok: true, spent: false }]), { spent: false })
+})
+
+for (const [name, spender] of [
+  ['spender unknown (lookup failed)', null],
+  ['explorers disagree on the spender', m.agreeSpender([
+    { ok: true, spent: true, txid: 'b'.repeat(64), confirmed: true, blockHeight: 100, tip: 110 },
+    { ok: true, spent: true, txid: 'c'.repeat(64), confirmed: true, blockHeight: 100, tip: 110 },
+  ])],
+  ['only one explorer answered', m.agreeSpender([
+    { ok: true, spent: true, txid: 'b'.repeat(64), confirmed: true, blockHeight: 100, tip: 110 },
+    { ok: false },
+  ])],
+  ['spender confirmed but tip unknown', spentBy('b'.repeat(64), { tips: [110, undefined] })],
+  ['spender only 5 deep', spentBy('b'.repeat(64), { height: 100, tips: [104, 104] })],
+  ['spender unconfirmed', m.agreeSpender([
+    { ok: true, spent: true, txid: 'b'.repeat(64), confirmed: false },
+    { ok: true, spent: true, txid: 'b'.repeat(64), confirmed: false },
+  ])],
+  ['spender is our own Kickoff', spentBy(KICKOFF_TXID)],
+]) {
+  await test(`Kickoff input spent, ${name}: SAME Kickoff kept, manual check, no new Kickoff`, async () => {
+    const store = m.kvBtcPegOutStore(memKv())
+    const w = fakeWorld({ failBroadcast: 1, broadcastError: 'bad-txns-inputs-missingorspent', confs: null, spender })
+    await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /could not be proven.*manual/s)
+    const rec = store.listOpen(ACCOUNT)[0]
+    assert.equal(rec.phase, 'kickoff_signed')
+    assert.equal(rec.signedKickoffHex, KICKOFF_HEX)
+    // Retry with the same answer: still the same Kickoff, never a second one.
+    w.failBroadcast = 1
+    await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /could not be proven/)
+    assert.equal(w.kickoffRequests, 1)
+    assert.equal(w.burnsSigned, 1)
+    assert.ok(w.broadcasts.every((h) => h === KICKOFF_HEX))
+  })
+}
+
+await test('Kickoff input spent by a DIFFERENT tx ≥6 deep on every explorer: new Kickoff, no new burn', async () => {
   const store = m.kvBtcPegOutStore(memKv())
-  const w = fakeWorld({ failBroadcast: 1, broadcastError: 'bad-txns-inputs-missingorspent', confs: 0 })
-  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /input was already spent/)
+  const w = fakeWorld({
+    failBroadcast: 1,
+    broadcastError: 'bad-txns-inputs-missingorspent',
+    confs: null,
+    spender: spentBy('b'.repeat(64), { height: 100, tips: [105, 106] }),
+  })
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /can never confirm/)
   assert.equal(store.listOpen(ACCOUNT)[0].phase, 'burned')
   w.confs = 6
   await m.runBtcPegOut(params, w.deps(store))
   assert.equal(w.burnsSigned, 1)
   assert.equal(w.kickoffRequests, 2)
+})
+
+await test('Kickoff input spent by OUR Kickoff (already confirmed): carries on, no new Kickoff', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld({ failBroadcast: 1, broadcastError: 'bad-txns-inputs-missingorspent' })
+  const out = await m.runBtcPegOut(params, w.deps(store))
+  assert.equal(out.kickoffTxid, KICKOFF_TXID)
+  assert.equal(w.kickoffRequests, 1)
+})
+
+await test('Kickoff that does not match the request is never broadcast', async () => {
+  for (const [kick, why] of [
+    [{ signed_btc_tx: KICKOFF_HEX, amount: AMOUNT + 1 }, /Kickoff amount/],
+    [{ signed_btc_tx: kickoffHex({ amount: AMOUNT - 1 }), amount: AMOUNT }, /pays 4999 sats/],
+    [{ signed_btc_tx: serializeTx([{ txid: INSTANCE_TXID, vout: 1 }], [{ sats: AMOUNT, spk: DEST_SPK }]) }, /not a dest-lock/],
+  ]) {
+    const store = m.kvBtcPegOutStore(memKv())
+    const w = fakeWorld()
+    await assert.rejects(
+      m.runBtcPegOut(params, w.deps(store, { requestKickoff: async () => kick })),
+      why,
+    )
+    assert.equal(store.listOpen(ACCOUNT)[0].phase, 'burned')
+    assert.equal(w.broadcasts.length, 0)
+  }
 })
 
 await test('burn submit fails: retry re-sends the same signed burn (no second signature)', async () => {
@@ -338,6 +519,7 @@ await test('lost browser state + changed amount: earlier on-chain withdrawal blo
       return { tx_id: `burn-${sequence}`, rawJson: JSON.stringify({ sequence, amount: AMOUNT + 1, dest: DEST }) }
     },
   })
+  w.amount = AMOUNT + 1
   await m.runBtcPegOut(other, deps)
   assert.equal(shown.length, 1)
   assert.equal(shown[0].amountSats, AMOUNT)
@@ -357,6 +539,7 @@ await test('a locally completed withdrawal does not trigger the earlier-withdraw
       return { tx_id: `burn-${sequence}`, rawJson: JSON.stringify({ sequence, amount: AMOUNT + 7, dest: DEST }) }
     },
   })
+  w.amount = AMOUNT + 7
   await m.runBtcPegOut({ ...params, amountSats: AMOUNT + 7 }, deps)
   assert.equal(w.burnsApplied, 2)
 })
@@ -372,7 +555,7 @@ await test('Kickoff input reported spent but its status is unknown: keep the sam
       },
     })
   w.explorerDown = true
-  await assert.rejects(m.runBtcPegOut(params, deps()), /status could not be checked/)
+  await assert.rejects(m.runBtcPegOut(params, deps()), /could not be proven/)
   assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_signed')
   w.explorerDown = false
   await m.runBtcPegOut(params, deps())
@@ -441,7 +624,7 @@ await test('storage fails after the burn: stops before requesting a Kickoff it c
   assert.equal(w.takes, 1)
 })
 
-await test('take: never marked done without a Bitcoin take; signed take is broadcast', async () => {
+await test('take: never marked done without a checked, confirmed Bitcoin take', async () => {
   // Empty take response → stays open, retry completes.
   const store = m.kvBtcPegOutStore(memKv())
   const w = fakeWorld()
@@ -450,38 +633,86 @@ await test('take: never marked done without a Bitcoin take; signed take is broad
     w.deps(store, {
       requestTake: async () => {
         w.takes += 1
-        return empty ? {} : { signed_btc_tx: GENESIS_RAW }
+        return empty ? {} : { signed_btc_tx: TAKE_HEX }
       },
     })
-  await assert.rejects(m.runBtcPegOut(params, deps()), /take returned no Bitcoin transaction/)
+  await assert.rejects(m.runBtcPegOut(params, deps()), /no signed take returned/)
   assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
   empty = false
   const out = await m.runBtcPegOut(params, deps())
-  assert.equal(out.takeTxid, GENESIS_TXID)
-  assert.equal(w.broadcasts.length, 2) // Kickoff once + take once
+  assert.equal(out.takeTxid, TAKE_TXID)
+  assert.deepEqual(w.broadcasts, [KICKOFF_HEX, TAKE_HEX])
   assert.equal(w.burnsSigned, 1)
   assert.equal(w.kickoffRequests, 1)
 
-  // Take broadcast fails → stays open (not done).
+  // Take broadcast fails → saved as take_broadcast (not done); retry re-sends the SAME take.
   const store2 = m.kvBtcPegOutStore(memKv())
-  const w2 = fakeWorld()
+  const w2 = fakeWorld({ takeConfs: null })
   let failTake = true
-  await assert.rejects(
-    m.runBtcPegOut(
-      params,
-      w2.deps(store2, {
-        requestTake: async () => ({ signed_btc_tx: GENESIS_RAW }),
-        broadcast: async (hex) => {
-          w2.broadcasts.push(hex)
-          if (hex === GENESIS_RAW && failTake) throw new Error('network timeout')
-          return GENESIS_TXID
-        },
-      }),
-    ),
-    /take broadcast failed/,
-  )
-  assert.equal(store2.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
+  const attempts = []
+  const deps2 = () =>
+    w2.deps(store2, {
+      broadcast: async (hex) => {
+        attempts.push(hex)
+        if (hex === TAKE_HEX && failTake) throw new Error('network timeout')
+        w2.broadcasts.push(hex) // only a successful send reaches Bitcoin
+        return m.btcTxidFromRaw(hex)
+      },
+    })
+  await assert.rejects(m.runBtcPegOut(params, deps2()), /take broadcast failed/)
+  assert.equal(store2.listOpen(ACCOUNT)[0].phase, 'take_broadcast')
   failTake = false
+  w2.takeConfs = 1
+  await m.runBtcPegOut(params, deps2())
+  assert.equal(w2.takes, 1, 'take not requested again')
+  assert.deepEqual(attempts, [KICKOFF_HEX, TAKE_HEX, TAKE_HEX])
+  assert.equal(store2.listOpen(ACCOUNT).length, 0)
+})
+
+await test('take broadcast but unconfirmed: NOT done; resume waits for ≥1 confirmation of that txid', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld({ takeConfs: 0 })
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /not confirmed yet/)
+  const rec = store.listOpen(ACCOUNT)[0]
+  assert.equal(rec.phase, 'take_broadcast')
+  assert.equal(rec.takeTxid, TAKE_TXID)
+  // Unknown status is not a confirmation either.
+  w.takeConfs = null
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /not confirmed yet/)
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'take_broadcast')
+  // A different tx confirming does not count: only TAKE_TXID is polled.
+  const polled = []
+  w.takeConfs = 1
+  const out = await m.runBtcPegOut(params, w.deps(store, {
+    pollConfirmations: async (txid) => {
+      polled.push(txid)
+      return txid === TAKE_TXID ? w.takeConfs : 0
+    },
+  }))
+  assert.ok(polled.every((t) => t === TAKE_TXID))
+  assert.equal(out.takeTxid, TAKE_TXID)
+  assert.equal(w.takes, 1)
+  assert.equal(w.kickoffRequests, 1)
+  assert.equal(w.burnsSigned, 1)
+  assert.equal(store.load(ACCOUNT, out.noteId).phase, 'done')
+})
+
+await test('take that does not pay this withdrawal is rejected and never broadcast', async () => {
+  const otherKick = await m.btcTxidFromRaw(kickoffHex({ vout: 2 }))
+  for (const [hex, why] of [
+    [takeHex({ paySpk: '0014' + OTHER_H160 }), /pays 0 sats/],
+    [takeHex({ destH160: OTHER_H160, paySpk: '0014' + OTHER_H160 }), /dest-lock script/],
+    [takeHex({ kickoffTxid: otherKick }), /does not spend this Kickoff/],
+    [takeHex({ pay: AMOUNT - 2001 }), /expected 5000/],
+    [takeHex({ pay: AMOUNT + 1 }), /expected 5000/],
+  ]) {
+    const store = m.kvBtcPegOutStore(memKv())
+    const w = fakeWorld()
+    await assert.rejects(m.runBtcPegOut(params, w.deps(store, { requestTake: async () => ({ signed_btc_tx: hex }) })), why)
+    assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
+    assert.deepEqual(w.broadcasts, [KICKOFF_HEX])
+  }
+  void OTHER_DEST
 })
 
 await test('account named "constructor" works (null-prototype store)', async () => {
@@ -525,13 +756,19 @@ await test('resumed kickoff_broadcast with 0 confirmations re-broadcasts the SAM
   assert.equal(w.burnsSigned, 1)
 })
 
-await test('resumed kickoff_broadcast whose input was spent elsewhere: new Kickoff, no new burn', async () => {
+await test('resumed Kickoff, input spent elsewhere, 0 confs: kept unless a different spender is ≥6 deep', async () => {
   const store = m.kvBtcPegOutStore(memKv())
   const w = fakeWorld({ confs: 0 })
   await assert.rejects(m.runBtcPegOut({ ...params, timing: { ...params.timing, kickoffWaitMs: 1 } }, w.deps(store)))
   w.failBroadcast = 1
   w.broadcastError = 'bad-txns-inputs-missingorspent'
-  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /input was already spent/)
+  // 0 confirmations alone (old behaviour) is NOT enough to replace it.
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /could not be proven/)
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
+  assert.equal(w.kickoffRequests, 1)
+  w.failBroadcast = 1
+  w.spender = spentBy('b'.repeat(64), { height: 100, tips: [110, 110] })
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /can never confirm/)
   assert.equal(store.listOpen(ACCOUNT)[0].phase, 'burned')
   w.confs = 6
   await m.runBtcPegOut(params, w.deps(store))
@@ -546,7 +783,7 @@ await test('resumed Kickoff with UNKNOWN status: re-sent as the same tx; spent i
   const unknownPoll = { pollConfirmations: async () => { throw new Error('Tx not found yet') } }
   w.failBroadcast = 1
   w.broadcastError = 'bad-txns-inputs-missingorspent'
-  await assert.rejects(m.runBtcPegOut(params, w.deps(store, unknownPoll)), /status is unknown/)
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store, unknownPoll)), /could not be proven/)
   assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
   assert.equal(w.kickoffRequests, 1, 'no new Kickoff on unknown status')
   assert.equal(w.broadcasts.length, 2)
@@ -622,16 +859,15 @@ await test('a duplicate-input validation failure is NOT "already known": take no
   let n = 0
   await assert.rejects(
     m.runBtcPegOut(params, w.deps(store, {
-      requestTake: async () => ({ signed_btc_tx: GENESIS_RAW }),
       broadcast: async (hex) => {
         n += 1
         if (n === 2) throw new Error('bad-txns-inputs-duplicate')
-        return GENESIS_TXID
+        return m.btcTxidFromRaw(hex)
       },
     })),
     /take broadcast failed/,
   )
-  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'take_broadcast')
 })
 
 await test('mismatched txids are rejected (Kickoff and take)', async () => {
@@ -643,14 +879,68 @@ await test('mismatched txids are rejected (Kickoff and take)', async () => {
     /different txid/,
   )
   assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_signed')
-  assert.equal(store.listOpen(ACCOUNT)[0].kickoffTxid, GENESIS_TXID)
+  assert.equal(store.listOpen(ACCOUNT)[0].kickoffTxid, KICKOFF_TXID)
   await assert.rejects(
-    m.runBtcPegOut(params, w.deps(store, { requestTake: async () => ({ take_txid: bad, signed_btc_tx: GENESIS_RAW }) })),
+    m.runBtcPegOut(params, w.deps(store, { requestTake: async () => ({ take_txid: bad, signed_btc_tx: TAKE_HEX }) })),
     /does not match its signed transaction/,
   )
   assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
   assert.equal(w.kickoffRequests, 1)
   assert.equal(w.burnsSigned, 1)
+})
+
+await test('corrupt saved records: refuses to run and never overwrites them', async () => {
+  const kv = memKv()
+  const key = `${m.BTC_PEGOUT_STORE_KEY}:${encodeURIComponent(ACCOUNT)}`
+  kv.setItem(key, '{not json')
+  const store = m.kvBtcPegOutStore(kv)
+  const w = fakeWorld()
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /unreadable/)
+  assert.equal(w.burnsSigned, 0)
+  assert.throws(() => store.save({ v: 1, noteId: 'x', account: ACCOUNT, phase: 'burned' }), /unreadable/)
+  assert.throws(() => store.listOpen(ACCOUNT), /unreadable/)
+  assert.equal(kv.getItem(key), '{not json', 'left untouched')
+  kv.setItem(key, '[1,2]')
+  assert.throws(() => store.load(ACCOUNT, 'x'), /unreadable/)
+})
+
+await test('stored record that does not match this withdrawal is refused (nothing signed)', async () => {
+  for (const patch of [
+    { v: 2 },
+    { amountSats: AMOUNT + 1 },
+    { network: 'mainnet' },
+    { dest: OTHER_DEST },
+    { account: 'mallory' },
+    { claimSats: AMOUNT + 9 },
+    { kickoffTxid: 'c'.repeat(64) },
+    { signedKickoffHex: kickoffHex({ amount: AMOUNT - 1 }) },
+    { phase: 'weird' },
+  ]) {
+    const kv = memKv()
+    const store = m.kvBtcPegOutStore(kv)
+    const w = fakeWorld({ confs: 2 })
+    await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /Wait for 6/)
+    const rec = store.listOpen(ACCOUNT)[0]
+    const key = `${m.BTC_PEGOUT_STORE_KEY}:${encodeURIComponent(ACCOUNT)}`
+    kv.setItem(key, JSON.stringify([{ ...rec, ...patch }]))
+    const before = w.broadcasts.length
+    w.confs = 6
+    await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /does not match it/, JSON.stringify(patch))
+    assert.equal(w.broadcasts.length, before)
+    assert.equal(w.takes, 0)
+    assert.equal(w.kickoffRequests, 1)
+  }
+})
+
+await test('dest address forms: P2WPKH and P2PKH accepted, others refused', async () => {
+  assert.equal(await m.btcDestScriptPubKey(DEST), DEST_SPK)
+  // Known testnet P2PKH vector (hash160 of 0x00…): mfWxJ45yp2SFn7UciZyNpvDKrzbhyfKrY8
+  assert.equal(
+    await m.btcDestScriptPubKey('mfWxJ45yp2SFn7UciZyNpvDKrzbhyfKrY8'),
+    '76a914' + '00'.repeat(20) + '88ac',
+  )
+  await assert.rejects(m.btcDestScriptPubKey(DEST.slice(0, -1) + (DEST.endsWith('q') ? 'p' : 'q')), /checksum/)
+  await assert.rejects(m.btcDestScriptPubKey('2N3oefVeg6stiTb5Kh3ozCSkaqmx91FDbsm'), /only P2PKH/)
 })
 
 console.log(`\n${passed} BTC peg-out resume checks passed`)

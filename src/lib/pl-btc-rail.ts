@@ -11,10 +11,23 @@ import {
   BITVM2_MIN_PEGOUT_SATS,
 } from './btc-spv-policy'
 import {
+  agreeSpender,
   browserBtcPegOutStore,
   runBtcPegOut,
   type ChainBtcWithdraw,
+  type ExplorerSpendAnswer,
 } from './btc-pegout-resume'
+import btcBridgeConfig from '../../public/config/btc-spv-bridge.json'
+
+/**
+ * FBTC → BTC withdrawals switch: `btc_withdrawals_enabled` in
+ * public/config/btc-spv-bridge.json, read the same way as the withdrawals-off
+ * change. Anything other than an explicit `true` (including a missing key)
+ * counts as OFF.
+ */
+export function btcWithdrawalsEnabled(): boolean {
+  return (btcBridgeConfig as { btc_withdrawals_enabled?: unknown }).btc_withdrawals_enabled === true
+}
 
 const RAIL = 'BTC'
 const FEE = 2
@@ -400,6 +413,28 @@ export async function pegOutPlBtc(opts: {
   if (!BTC_RAIL_LIVE) {
     throw new Error('BTC rail is not live — e2e not passed (BTC_RAIL_LIVE=false)')
   }
+  if (!btcWithdrawalsEnabled()) {
+    // Nothing is signed while withdrawals are off — not even a resume step.
+    // An in-flight withdrawal stays recorded and is reported as pending.
+    let open: ReturnType<ReturnType<typeof browserBtcPegOutStore>['listOpen']> = []
+    let unreadable = false
+    try {
+      open = browserBtcPegOutStore().listOpen(opts.account)
+    } catch {
+      unreadable = true
+    }
+    if (open.length > 0 || unreadable) {
+      const w = open[0]
+      throw new Error(
+        'BTC withdrawals are in final testing and switched off for now. ' +
+          (w
+            ? `Your Bridge out of ${w.amountSats} sats to ${w.dest} is pending (${w.phase}): it has not been paid yet ` +
+              'and its record is kept. Ask for a manual check of it; nothing new was signed.'
+            : 'This browser has saved Bridge out progress it cannot read. Ask for a manual check; nothing was signed.'),
+      )
+    }
+    throw new Error('BTC withdrawals are in final testing and switched off for now. Nothing was signed.')
+  }
   const amount = Math.floor(opts.amountSats)
   if (amount < BITVM2_MIN_PEGOUT_SATS) {
     throw new Error(`Amount too small (min ${BITVM2_MIN_PEGOUT_SATS} sats)`)
@@ -461,12 +496,21 @@ export async function pegOutPlBtc(opts: {
         return { signed_btc_tx: kickJ.signed_btc_tx, amount: kickJ.amount }
       },
       broadcast: async (hex) => (await broadcastBtcTx(hex, 'testnet')).trim(),
-      // A not-found / waiting lookup is UNKNOWN, not "0 confirmations": throw so
-      // the engine never reads it as proof that a Kickoff can be replaced.
+      // A not-found / waiting / depth-unknown lookup is UNKNOWN (null), never 0.
       pollConfirmations: async (txid) => {
         const st = await pollSpvConfirmations(txid, 'testnet')
-        if (st.waiting) throw new Error(st.waiting)
+        if (st.waiting) return null
         return st.confirmations
+      },
+      // Every explorer must answer and agree (agreeSpender), else unknown.
+      lookupSpender: async (txid, vout) => {
+        const r = await fetch(
+          `/api/wallet/btc-proxy?op=outspend&network=testnet&txid=${encodeURIComponent(txid)}&vout=${vout}`,
+          { cache: 'no-store' },
+        )
+        if (!r.ok) return null
+        const j = (await r.json().catch(() => ({}))) as { answers?: ExplorerSpendAnswer[] }
+        return Array.isArray(j.answers) ? agreeSpender(j.answers) : null
       },
       requestTake: async (kickoffTxid, sats) => {
         const take = await fetch('/api/wallet/pl', {

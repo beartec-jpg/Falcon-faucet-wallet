@@ -873,9 +873,13 @@ export async function POST(req: NextRequest) {
 
     // Status-only: conf tracking after refresh (no merkle proof required)
     if (action === 'status') {
+      // Confirmed but the tip (or block height) is unknown: depth is UNKNOWN,
+      // not 0 — report null so no caller reads it as "unconfirmed".
+      const depthUnknown = confirmed && !(blockHeight > 0 && tip > 0)
       return NextResponse.json({
         confirmed,
-        confirmations,
+        confirmations: depthUnknown ? null : confirmations,
+        tipUnknown: depthUnknown || undefined,
         blockHeight: confirmed ? blockHeight : undefined,
         tip: tip || undefined,
         blockHash: status.status?.block_hash?.replace(/^0x/i, ''),
