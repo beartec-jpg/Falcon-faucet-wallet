@@ -678,8 +678,10 @@ export async function pollSpvConfirmations(
     if (r.ok && j.confirmed && typeof j.confirmations !== 'number') {
       // Confirmed, depth unknown (tip lookup failed): ask explorers directly;
       // otherwise report the lower bound 1 and flag it as still waiting.
+      // Only a CONFIRMED explorer answer may refine the depth; a lagging
+      // explorer must not downgrade a known confirmation to 0.
       const expl = await explorerTxStatus(txid, network)
-      if (expl) return expl
+      if (expl?.confirmed && expl.confirmations >= 1) return expl
       return {
         confirmed: true,
         confirmations: 1,

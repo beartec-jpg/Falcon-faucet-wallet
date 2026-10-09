@@ -599,8 +599,11 @@ await test('storage unavailable or not keeping writes: stops BEFORE the burn', a
   assert.equal(w2.submits, 0)
 
   const w3 = fakeWorld()
-  await assert.rejects(m.runBtcPegOut(params, w3.deps(m.kvBtcPegOutStore(null))), /Could not save/)
+  await assert.rejects(m.runBtcPegOut(params, w3.deps(m.kvBtcPegOutStore(null))), /storage is unavailable/)
   assert.equal(w3.submits, 0)
+  assert.equal(w3.burnsSigned, 0)
+  // Inaccessible storage is never reported as "no open withdrawal".
+  assert.throws(() => m.kvBtcPegOutStore(null).listOpen(ACCOUNT), /unavailable/)
 })
 
 await test('storage fails after the burn: stops before requesting a Kickoff it could not remember', async () => {

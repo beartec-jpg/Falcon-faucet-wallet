@@ -13,11 +13,15 @@
  * - The record is written BEFORE the burn is submitted, with the signed burn
  *   (public once broadcast; no secret material), so a crash mid-submit still
  *   resumes by re-broadcasting the same tx (same sequence → cannot apply twice).
- * - Once a Kickoff has been signed it is stored and re-broadcast on retry; a new
- *   Kickoff is not requested for a withdrawal that already has one. Single
- *   exception: Bitcoin reports the stored Kickoff's input as spent AND its own
- *   status is known to be unconfirmed (it can never confirm) — then it is
- *   discarded and a new Kickoff is requested. Unknown status never qualifies.
+ * - Once a Kickoff has been signed it is checked, stored and re-broadcast on
+ *   retry; a new Kickoff is not requested for a withdrawal that already has
+ *   one. Single exception: Bitcoin reports an input of the stored Kickoff as
+ *   spent AND every explorer agrees that a DIFFERENT transaction spent it and
+ *   is at least KICKOFF_REPLACE_MIN_CONFS deep with a known tip (so ours can
+ *   never confirm). Knowing only that our Kickoff is unconfirmed is NOT
+ *   enough; any unknown or disputed answer keeps the same Kickoff and asks
+ *   for a manual check.
+ * - The withdrawal is `done` only once the checked take has ≥1 confirmation.
  * - If browser state is lost, the on-chain BTC rail withdraw note proves the
  *   burn happened; resume from it requires explicit confirmation because the
  *   chain does not record whether the Kickoff was already paid.
@@ -526,7 +530,8 @@ export function kvBtcPegOutStore(kv: KV | null): BtcPegOutStore {
   // Unreadable storage THROWS: returning [] would let the next save overwrite
   // (and so lose) records of burns that are still in flight.
   const read = (account: string): BtcPegOutRecord[] => {
-    if (!kv) return []
+    // Inaccessible storage is not "no records": saved progress may exist.
+    if (!kv) throw new Error('Browser storage is unavailable')
     let raw: string | null
     try {
       raw = kv.getItem(keyFor(account))
