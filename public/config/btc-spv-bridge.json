@@ -17,9 +17,9 @@
     "tb1pj9d6d6eaayw7f7hc3mr2lm3xhuscuhtw6kpjqz5jvvuf4mh2lduq2pqytm",
     "tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5"
   ],
-  "notes": "STATUS SoT: NUMS P2TR even-Y pool is primary peg-in. Peg-out is the non-custodial BitVM2 rail (btc_exit_mode bitvm2), working end to end on the experimental testnet. Odd-Y v1 and prior BitVM2 instance are historical.",
+  "notes": "STATUS SoT: NUMS P2TR even-Y pool is primary peg-in. Peg-out is the BitVM2 rail (btc_exit_mode bitvm2): trust-minimised BitVM2 withdrawals in final testing on the experimental testnet. Odd-Y v1 and prior BitVM2 instance are historical.",
   "btc_exit_mode": "bitvm2",
-  "trust_note": "Live BTC exit is the non-custodial BitVM2 rail (BTC_EXIT_MODE=bitvm2), working end to end on the experimental testnet. Test assets only.",
+  "trust_note": "BTC bridge (BitVM2): deposits live on testnet; trust-minimised BitVM2 withdrawals (BTC_EXIT_MODE=bitvm2) in final testing. Test assets only.",
   "historical_watch_addresses": {
     "prior_bitvm2_instance": "tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5",
     "odd_y_v1": "tb1pq9mgl62e4dskkc9h4jxwfsfdt56hn9vl22u9xhqgz2l8jxfpwsascq6098"

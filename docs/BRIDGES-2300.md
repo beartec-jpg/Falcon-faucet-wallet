@@ -2,13 +2,13 @@
 
 **Product version 2.9.60.** Experimental testnet. Auditable, not audited.
 
-**Status:** the ETH/USDC (Groth16 Falcon-QC) and BTC (BitVM2) bridges the wallet uses today are non-custodial and working end to end on the experimental Falcon Ledger testnet. Test assets only. The Ethereum bridge contract has no owner and no admin withdraw.
+**Status:** the ETH/USDC (Groth16 Falcon-QC) bridge the wallet uses today is non-custodial and working end to end on the experimental Falcon Ledger testnet. BTC bridge (BitVM2): deposits live on testnet; trust-minimised BitVM2 withdrawals in final testing. Test assets only. The Ethereum bridge contract has no owner and no admin withdraw.
 
 | Rail | In | Out |
 |------|----|-----|
 | ETH Sepolia → FETH | `depositEth(dest20)` on the Falcon QC bridge, then mint | burn → 4× OPEN=1 Groth16 Falcon-512 proofs → `openClaim` / `take` |
 | USDC Sepolia → F-USDC | `depositUsdc` on the Falcon QC bridge, then mint | same |
-| BTC testnet → FBTC | pay even-Y NUMS P2TR pool + FALC memo; mint after confs | burn → BitVM2 non-custodial exit (`BTC_EXIT_MODE=bitvm2`) |
+| BTC testnet → FBTC | pay even-Y NUMS P2TR pool + FALC memo; mint after confs | burn → trust-minimised BitVM2 exit, in final testing (`BTC_EXIT_MODE=bitvm2`) |
 
 `dest20 = sha256(lowercase PL account)[:20]`
 

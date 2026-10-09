@@ -1,6 +1,6 @@
 # Falcon Ledger Web Portal
 
-Official web portal for **Falcon Ledger (FPL)**, a quantum-safe L1 focused on lending and AMM pools across chains. This is the **experimental Falcon Ledger testnet**: passkey wallet, faucet, explorer, AMM pools, lending, and non-custodial ETH, USDC and BTC bridges. Test tokens have no cash value.
+Official web portal for **Falcon Ledger (FPL)**, a quantum-safe L1 focused on lending and AMM pools across chains. This is the **experimental Falcon Ledger testnet**: passkey wallet, faucet, explorer, AMM pools, lending, a non-custodial ETH and USDC bridge, and a BTC bridge (BitVM2) with deposits live and trust-minimised BitVM2 withdrawals in final testing. Test tokens have no cash value.
 
 **Live:** [falcon-ledger.com](https://falcon-ledger.com) · **Repo:** [Falcon-faucet-wallet](https://github.com/beartec-jpg/Falcon-faucet-wallet)
 
@@ -25,7 +25,7 @@ Official web portal for **Falcon Ledger (FPL)**, a quantum-safe L1 focused on le
 
 ### Bridges (Sepolia / Bitcoin testnet ↔ Falcon Ledger testnet)
 
-Non-custodial bridges, working end to end on an experimental testnet; test assets only. Addresses: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
+Non-custodial ETH/USDC bridge (Groth16 Falcon-QC), working end to end on an experimental testnet. BTC bridge (BitVM2): deposits live on testnet; trust-minimised BitVM2 withdrawals in final testing. Test assets only. Addresses: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
 
 - **ETH / USDC (Sepolia) — FalconQcBridge:** `depositEth(bytes20)` / `depositUsdc` on `0xf8F1471643792eb1cD5d0C31061629777E55bc48`. No owner and no admin withdraw; withdrawals are released only by a Groth16 proof of Falcon quorum certificates. Groth16 verifier `0x9992cD8e45A2b7983E2b7f8fC725308a0E4845EC`. Peg-out: burn → Falcon-512 proofs → `openClaim` / `take`. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json`.
 - **Legacy DestLock (Kickoff only):** `0xdBF6855b00B78c047A729A21E13bfE5f4C991C05` — not the live peg-in.
@@ -87,7 +87,7 @@ F-USDC and Sepolia USDC are **not** the same token — the bridge converts betwe
 | Validators | 7 bonded seats |
 | Epoch | 7 days; first claimable epoch **1** on testnet |
 | Min validator bond | 1,000 FPL |
-| Bridges | Non-custodial ETH/USDC (Groth16 Falcon-QC) + BTC (BitVM2) — [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md) |
+| Bridges | Non-custodial ETH/USDC (Groth16 Falcon-QC) + BTC bridge (BitVM2): deposits live on testnet; trust-minimised BitVM2 withdrawals in final testing — [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md) |
 
 Network **1001** (Falcon Ledger / XRPL fork) is shut down. Do not use `:6005`, `r…` issuers, or `FalconCollateralLock`. Admin is a unix `--admin-sock`, not a public TCP admin port.
 
@@ -176,7 +176,7 @@ Public validator nodes are coming next. Today the testnet runs on seven bonded v
 
 ## Recent releases
 
-- **Oct 2026:** seven-seat validator set; Release A (2.9.60: Sepolia Gloas light-client fix, 7-day ETH header window); non-custodial ETH/USDC (Groth16 Falcon-QC) and BTC (BitVM2) bridges working end to end; AMM pools (F-USDC/FPL, FETH/FPL, FBTC/FPL) and lending on testnet
+- **Oct 2026:** seven-seat validator set; Release A (2.9.60: Sepolia Gloas light-client fix, 7-day ETH header window); non-custodial ETH/USDC (Groth16 Falcon-QC) bridge working end to end; BTC bridge (BitVM2): deposits live on testnet; trust-minimised BitVM2 withdrawals in final testing; AMM pools (F-USDC/FPL, FETH/FPL, FBTC/FPL) and lending on testnet
 - **4 Sep 2026:** ETH/USDC Groth16 Falcon-QC bridge e2e on Sepolia; BTC rail on Bitcoin testnet (`BTC_RAIL_LIVE`); named FPL accounts
 - July 2026 (1001, archived): permissionless lending, passkey wallet, lock-mint USDC bridge — see [docs/archive-1001/README.md](docs/archive-1001/README.md)
 

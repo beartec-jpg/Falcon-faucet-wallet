@@ -9,7 +9,7 @@
 | Groth16 verifier | `0x9992cD8e45A2b7983E2b7f8fC725308a0E4845EC` | `sepolia.verifier` |
 | USDC | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` | `sepolia.usdc_token` |
 | BTC peg-in | even-Y `tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34` | `btc-spv-bridge.json` `watch_address` + `BITVM2_INSTANCE_ADDRESS` |
-| BTC peg-out | `BTC_EXIT_MODE=bitvm2` | Public wording (Scott, 9 Oct 2026): BitVM2 (BTC) and Groth16 Falcon-QC (ETH/USDC) are non-custodial bridges, always next to experimental/testnet framing. Never "operator-fronting" or "not custodialess" in public copy. |
+| BTC peg-out | `BTC_EXIT_MODE=bitvm2` | Public wording (9 Oct 2026): Groth16 Falcon-QC (ETH/USDC) is a non-custodial bridge. BTC is "BTC bridge (BitVM2): deposits live on testnet; trust-minimised BitVM2 withdrawals in final testing"; don't call the BTC lane non-custodial. Always next to experimental/testnet framing. Never "operator-fronting" or "not custodialess" in public copy. |
 | FalconDestLock | legacy Kickoff only | `legacy_destlock` — never marketed as live peg-in |
 
 Historical configs (`feth-bridge.json`, `usdc-bridge.json`, archive-1001) stay shipped but labeled **historical**.

@@ -260,7 +260,7 @@ interface BridgeWithdrawResult {
   falconTxHash?: string
   amount: string
   sepoliaRecipient: string
-  /** Bitcoin vault claim spend (non-custodial SPV out) */
+  /** Bitcoin vault claim spend (SPV out) */
   btcClaimTxid?: string
   btcClaimExplorerUrl?: string
   payoutSats?: number

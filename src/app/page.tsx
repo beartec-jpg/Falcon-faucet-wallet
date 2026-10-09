@@ -113,8 +113,8 @@ export default function MarketingHomePage() {
               genesis. Test tokens have no cash value.
             </p>
             <p className="hero-status reveal-load" data-delay="500">
-              Try the wallet, AMM pools, lending and non-custodial ETH, USDC and BTC bridges
-              today.
+              Try the wallet, AMM pools, lending, the non-custodial ETH and USDC bridge, and BTC
+              deposits today.
             </p>
             <div className="hero-actions reveal-load" data-delay="600">
               <Link href="/wallet" className="btn btn-primary">
@@ -202,7 +202,8 @@ export default function MarketingHomePage() {
               <h2 className="section-title">What you can try today</h2>
               <p className="section-intro">
                 Everything here runs on the Falcon Ledger testnet today: wallet, faucet, explorer, AMM
-                pools, lending, and non-custodial ETH, USDC and BTC bridges. It&apos;s experimental, so
+                pools, lending, a non-custodial ETH and USDC bridge, and a BitVM2 BTC bridge (deposits live,
+                trust-minimised withdrawals in final testing). It&apos;s experimental, so
                 expect rough edges and resets. Test tokens only.
               </p>
             </div>
@@ -270,10 +271,10 @@ export default function MarketingHomePage() {
               },
               {
                 n: '02',
-                title: 'Non-custodial bridges',
+                title: 'Bridges',
                 badge: 'Testnet',
-                p1: 'Bring ETH and USDC over from Ethereum Sepolia and BTC from Bitcoin testnet, and send them back out. ETH and USDC withdrawals are released only by a Groth16 proof of Falcon quorum certificates. BTC runs on BitVM2.',
-                p2: 'No custodian holds your funds: the Ethereum bridge contract has no owner and no admin withdraw. Experimental testnet, test assets only.',
+                p1: 'Bring ETH and USDC over from Ethereum Sepolia and BTC from Bitcoin testnet, and send them back out. ETH and USDC withdrawals are released only by a Groth16 proof of Falcon quorum certificates. BTC deposits are live on Bitcoin testnet, and trust-minimised BitVM2 withdrawals are in final testing.',
+                p2: 'The ETH and USDC bridge is non-custodial: the Ethereum bridge contract has no owner and no admin withdraw. Experimental testnet, test assets only.',
                 img: '/assets/images/features/feature-bridge.jpg',
                 reverse: true,
               },

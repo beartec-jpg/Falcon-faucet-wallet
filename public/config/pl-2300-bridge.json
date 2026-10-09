@@ -2,7 +2,7 @@
   "version": 1,
   "status": "live",
   "network_id": 2300,
-  "description": "Falcon Ledger testnet peg-in: FalconQcBridge depositEth/depositUsdc (bridge field). Peg-out openClaim + dest take uses legacy_qc_v2 (FalconQcBridgeV2), the contract whose fplTip is past start_height. legacy_destlock is Kickoff leftover only. No operator self-dest. ETH/USDC (Groth16 Falcon-QC) and BTC (BitVM2) are non-custodial bridges, working end to end on the experimental testnet.",
+  "description": "Falcon Ledger testnet peg-in: FalconQcBridge depositEth/depositUsdc (bridge field). Peg-out openClaim + dest take uses legacy_qc_v2 (FalconQcBridgeV2), the contract whose fplTip is past start_height. legacy_destlock is Kickoff leftover only. No operator self-dest. ETH/USDC (Groth16 Falcon-QC) is a non-custodial bridge, working end to end on the experimental testnet. BTC bridge (BitVM2): deposits live on testnet; trust-minimised BitVM2 withdrawals in final testing.",
   "sepolia": {
     "chain_id": 11155111,
     "chain_name": "Sepolia",

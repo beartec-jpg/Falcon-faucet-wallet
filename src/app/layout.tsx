@@ -10,13 +10,13 @@ const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mon
 export const metadata: Metadata = {
   title: 'Falcon Ledger — Quantum-safe L1 for cross-chain lending and AMM pools (testnet)',
   description:
-    'Falcon Ledger is an experimental, quantum-safe L1 focused on lending and AMM pools across chains. On the Falcon Ledger testnet you can use the passkey wallet, AMM pools, lending, and non-custodial ETH, USDC and BTC bridges. Falcon-512 from genesis. Test tokens have no cash value.',
+    'Falcon Ledger is an experimental, quantum-safe L1 focused on lending and AMM pools across chains. On the Falcon Ledger testnet you can use the passkey wallet, AMM pools, lending, a non-custodial ETH and USDC bridge, and a BitVM2 BTC bridge. Falcon-512 from genesis. Test tokens have no cash value.',
   icons: { icon: '/assets/images/brand/logo-mark.jpg', apple: '/assets/images/brand/apple-touch-icon.jpg' },
   manifest: '/manifest.json',
   openGraph: {
     title: 'Falcon Ledger (FPL) — testnet',
     description:
-      'Quantum-safe L1 for cross-chain lending and AMM pools. Experimental testnet with non-custodial ETH, USDC and BTC bridges. Test tokens have no cash value.',
+      'Quantum-safe L1 for cross-chain lending and AMM pools. Experimental testnet with a non-custodial ETH and USDC bridge and a BitVM2 BTC bridge. Test tokens have no cash value.',
     images: ['/assets/images/brand/og-image.jpg'],
   },
   appleWebApp: {

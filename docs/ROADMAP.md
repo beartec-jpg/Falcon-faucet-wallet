@@ -14,7 +14,8 @@ Bridge addresses: [BRIDGES-2300.md](./BRIDGES-2300.md). Protocol paper: in-app [
 - [x] Lending markets for F-USDC, FETH and FBTC (supply, borrow against FPL collateral, repay)
 - [x] PoPL epoch rewards for validators, watchers, AMM LPs and lending LPs
 - [x] Non-custodial ETH and USDC bridge (Ethereum Sepolia): withdrawals released only by a Groth16 proof of Falcon quorum certificates; no owner and no admin withdraw
-- [x] Non-custodial BTC bridge (Bitcoin testnet) on BitVM2
+- [x] BTC bridge (Bitcoin testnet) on BitVM2: deposits live
+- [ ] Trust-minimised BitVM2 BTC withdrawals (in final testing)
 - [x] Release A (2.9.60): Sepolia Gloas light-client fix and 7-day ETH header window
 
 ## Next (no dates yet)

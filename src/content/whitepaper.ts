@@ -356,14 +356,14 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'p',
-        text: 'Native FPL sits beside bridged assets from listed rails. On the Falcon Ledger testnet, ETH and USDC arrive from Ethereum Sepolia through the Falcon QC bridge contract, which has no owner and no admin withdraw. Withdrawals are released on Ethereum only by a **Groth16** proof that a Falcon quorum certificate (4 of the committee’s 6 Falcon-512 signatures) committed the burn. BTC uses a **BitVM2** bridge on Bitcoin testnet, and BTC deposits are verified on Falcon by Bitcoin header SPV. Both bridges are non-custodial. They run on an experimental testnet and carry test assets only. This paper does not claim an external audit.',
+        text: 'Native FPL sits beside bridged assets from listed rails. On the Falcon Ledger testnet, ETH and USDC arrive from Ethereum Sepolia through the Falcon QC bridge contract, which has no owner and no admin withdraw. Withdrawals are released on Ethereum only by a **Groth16** proof that a Falcon quorum certificate (4 of the committee’s 6 Falcon-512 signatures) committed the burn. BTC uses a **BitVM2** bridge on Bitcoin testnet, and BTC deposits are verified on Falcon by Bitcoin header SPV. The ETH/USDC bridge is non-custodial. BTC deposits are live on testnet, and trust-minimised BitVM2 withdrawals are in final testing. Both run on an experimental testnet and carry test assets only. This paper does not claim an external audit.',
       },
       {
         type: 'table',
         headers: ['Rail (Falcon Ledger testnet)', 'Role'],
         rows: [
           ['Falcon Ledger', 'Settlement, FPL, AMM pools, lending, rewards'],
-          ['Bitcoin testnet', 'BitVM2 non-custodial bridge (FBTC)'],
+          ['Bitcoin testnet', 'BitVM2 bridge (FBTC): deposits live; trust-minimised withdrawals in final testing'],
           ['Ethereum Sepolia', 'Groth16 Falcon-QC non-custodial bridge (FETH, F-USDC)'],
           // TODO(Scott): keep or drop the BNB and XRP rows below. Current wording kept until then.
           ['BNB', 'Protocol rail exists; not a public dest-lock product'],
@@ -528,7 +528,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ['Join', 'Bond → archive join-snap → certified residual → pong at tip'],
           ['Leave', 'Unbond, 14-day lock, out of lottery immediately'],
           ['Rewards', 'PoPL — pack, check, watch, provide liquidity'],
-          ['Markets', 'AMM pools, collateralised lending, non-custodial bridges (ETH, USDC, BTC)'],
+          ['Markets', 'AMM pools, collateralised lending, non-custodial ETH/USDC bridge, BTC bridge (BitVM2) in final testing'],
           ['Public mint', 'Epoch settlement only'],
         ],
       },

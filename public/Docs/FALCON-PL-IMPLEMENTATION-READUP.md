@@ -1,6 +1,6 @@
 # Falcon Ledger — start-to-finish implementation read-up
 
-**October 2026:** the Falcon Ledger testnet now runs AMM pools, lending, and non-custodial ETH/USDC (Groth16 Falcon-QC) and BTC (BitVM2) bridges. Experimental testnet. Bridge status: [BRIDGES-2300.md](https://github.com/beartec-jpg/Falcon-faucet-wallet/blob/main/docs/BRIDGES-2300.md). This read-up is ledger/consensus history, not the bridge spec. Not an audit.
+**October 2026:** the Falcon Ledger testnet now runs AMM pools, lending, a non-custodial ETH/USDC (Groth16 Falcon-QC) bridge, and a BTC bridge (BitVM2) with deposits live and trust-minimised BitVM2 withdrawals in final testing. Experimental testnet. Bridge status: [BRIDGES-2300.md](https://github.com/beartec-jpg/Falcon-faucet-wallet/blob/main/docs/BRIDGES-2300.md). This read-up is ledger/consensus history, not the bridge spec. Not an audit.
 
 **From the DAG diversion, to the ordered ledger, to measured throughput vs the original Falcon ~30 tx/s wall.**
 
