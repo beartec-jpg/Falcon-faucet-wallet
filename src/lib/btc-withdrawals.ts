@@ -56,8 +56,10 @@ export function btcWithdrawalsPausedResponse(): {
  * naming BTC together with a kickoff / take / peg-out / withdraw step, counts.
  */
 export function isBtcWithdrawWalletdAction(action: unknown): boolean {
-  if (action == null) return false
-  const a = String(action).trim().toLowerCase()
+  // Strings only: a non-string action is rejected with 400 by the route's
+  // action parser, never forwarded.
+  if (typeof action !== 'string') return false
+  const a = action.trim().toLowerCase()
   if (!a) return false
   if (/^btc[-_]/.test(a)) return true
   return /btc|fbtc|bitcoin/.test(a) && /kick|take|peg|withdraw|claim/.test(a)
