@@ -484,4 +484,59 @@ await test('take: never marked done without a Bitcoin take; signed take is broad
   failTake = false
 })
 
+await test('account named "constructor" works (null-prototype store)', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  assert.deepEqual(store.listOpen('constructor'), [])
+  assert.equal(store.load('constructor', 'x'), null)
+  const now = Date.now()
+  store.save({ v: 1, noteId: 'n1', account: 'constructor', network: 't', amountSats: 1, dest: 'd', sequence: 0,
+    burnTxId: '', burnRawJson: '', phase: 'burned', createdAt: now, updatedAt: now })
+  assert.equal(store.listOpen('constructor').length, 1)
+  assert.equal(store.load('__proto__', 'n1'), null)
+})
+
+await test('dead burn whose record cannot be cleared: says so, does not claim a fresh start', async () => {
+  const kv = memKv()
+  const store = m.kvBtcPegOutStore(kv)
+  const w = fakeWorld({ sealOnSubmit: false })
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /not confirmed it sealed yet/)
+  w.seq += 1
+  const ro = { getItem: kv.getItem, setItem: () => { throw new Error('QuotaExceededError') } }
+  await assert.rejects(m.runBtcPegOut(params, w.deps(m.kvBtcPegOutStore(ro))), /could not clear its record/)
+  assert.equal(w.burnsApplied, 0)
+})
+
+await test('resumed kickoff_broadcast with 0 confirmations re-broadcasts the SAME Kickoff', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld({ confs: 0 })
+  await assert.rejects(m.runBtcPegOut({ ...params, timing: { ...params.timing, kickoffWaitMs: 1 } }, w.deps(store)), /Wait for 6/)
+  assert.equal(w.broadcasts.length, 1)
+  w.confs = 6
+  let first = true
+  await m.runBtcPegOut(params, w.deps(store, {
+    pollConfirmations: async () => {
+      if (first) { first = false; return 0 } // dropped from mempool
+      return 6
+    },
+  }))
+  assert.equal(w.broadcasts.length, 2)
+  assert.equal(w.broadcasts[0], w.broadcasts[1])
+  assert.equal(w.kickoffRequests, 1)
+  assert.equal(w.burnsSigned, 1)
+})
+
+await test('resumed kickoff_broadcast whose input was spent elsewhere: new Kickoff, no new burn', async () => {
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld({ confs: 0 })
+  await assert.rejects(m.runBtcPegOut({ ...params, timing: { ...params.timing, kickoffWaitMs: 1 } }, w.deps(store)))
+  w.failBroadcast = 1
+  w.broadcastError = 'bad-txns-inputs-missingorspent'
+  await assert.rejects(m.runBtcPegOut(params, w.deps(store)), /input was already spent/)
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'burned')
+  w.confs = 6
+  await m.runBtcPegOut(params, w.deps(store))
+  assert.equal(w.kickoffRequests, 2)
+  assert.equal(w.burnsSigned, 1)
+})
+
 console.log(`\n${passed} BTC peg-out resume checks passed`)

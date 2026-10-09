@@ -251,15 +251,24 @@ function acctKey(account: string): string {
 
 /** Store backed by any localStorage-like KV (browser localStorage by default). */
 export function kvBtcPegOutStore(kv: KV | null): BtcPegOutStore {
+  // Null-prototype map: account names such as "constructor" must not resolve
+  // to inherited Object.prototype members.
   const read = (): Record<string, BtcPegOutRecord[]> => {
-    if (!kv) return {}
+    const out = Object.create(null) as Record<string, BtcPegOutRecord[]>
+    if (!kv) return out
     try {
       const raw = kv.getItem(BTC_PEGOUT_STORE_KEY)
-      const m = raw ? (JSON.parse(raw) as Record<string, BtcPegOutRecord[]>) : {}
-      return m && typeof m === 'object' ? m : {}
+      const m = raw ? (JSON.parse(raw) as unknown) : null
+      if (m && typeof m === 'object' && !Array.isArray(m)) {
+        for (const k of Object.keys(m)) {
+          const v = (m as Record<string, unknown>)[k]
+          if (Array.isArray(v)) out[k] = v as BtcPegOutRecord[]
+        }
+      }
     } catch {
-      return {}
+      /* corrupt → empty */
     }
+    return out
   }
   const write = (m: Record<string, BtcPegOutRecord[]>) => {
     if (!kv) throw new Error('Browser storage is unavailable')
@@ -287,11 +296,7 @@ export function kvBtcPegOutStore(kv: KV | null): BtcPegOutStore {
       const m = read()
       const k = acctKey(account)
       m[k] = (m[k] ?? []).filter((r) => r.noteId !== noteId)
-      try {
-        write(m)
-      } catch {
-        /* a stale dead record only blocks; it can never cause a burn */
-      }
+      write(m) // throws: the caller must not claim the record was cleared
     },
     listOpen(account) {
       return (read()[acctKey(account)] ?? [])
@@ -406,6 +411,7 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
   }
 
   const resumed = !!rec
+  const resumedAt: BtcPegOutPhase | null = rec ? rec.phase : null
   let chain: ChainBtcWithdraw[] | null = null
   const noteOnChain = async (): Promise<boolean | null> => {
     try {
@@ -525,7 +531,14 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
     if (sealed === 'dead') {
       // Sequence consumed by something else and the note is not on-chain:
       // the signed burn can never apply. Drop the record; nothing was burned.
-      d.store.remove(rec.account, rec.noteId)
+      try {
+        d.store.remove(rec.account, rec.noteId)
+      } catch (e) {
+        throw new Error(
+          `The earlier burn never sealed and can no longer apply, but this browser could not clear its record ` +
+            `(${errMsg(e)}). No FBTC was burned for it. Allow site storage and press Bridge out again.`,
+        )
+      }
       throw new Error(
         'The earlier burn never sealed and can no longer apply (its sequence was used by another transaction). ' +
           'No FBTC was burned for it. Press Bridge out again to start fresh.',
@@ -637,6 +650,35 @@ async function runBtcPegOutLocked(p: BtcPegOutParams, d: BtcPegOutDeps): Promise
   }
 
   // ── 4. CSV wait then dest take. ──
+  if (rec.phase === 'kickoff_broadcast' && resumedAt === 'kickoff_broadcast' && rec.signedKickoffHex) {
+    // Resumed while unconfirmed: the Kickoff may have been dropped from mempools.
+    // Re-broadcast the SAME signed tx (never a new one) before polling.
+    let confs: number | null = null
+    try {
+      confs = await d.pollConfirmations(rec.kickoffTxid as string)
+    } catch {
+      confs = null
+    }
+    if (confs === 0) {
+      step('Re-broadcasting the same Kickoff…')
+      try {
+        await d.broadcast(rec.signedKickoffHex)
+      } catch (e) {
+        const msg = errMsg(e)
+        if (isInputsGone(msg)) {
+          // Input spent by another tx and ours has 0 confirmations: it can never
+          // confirm, so a fresh Kickoff is safe (still no new burn).
+          save({ phase: 'burned', signedKickoffHex: undefined, kickoffTxid: undefined, lastError: msg })
+          throw new Error(
+            `FBTC is burned, but the signed Kickoff's Bitcoin input was already spent (${msg}). ` +
+              'Press Bridge out again with the same amount to get a new Kickoff — no new burn.',
+          )
+        }
+        /* already known / transient: keep polling the same txid */
+      }
+    }
+  }
+
   if (rec.phase === 'kickoff_broadcast') {
     const kickoffTxid = rec.kickoffTxid as string
     const need = p.claimCsv

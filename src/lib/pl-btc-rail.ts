@@ -355,10 +355,15 @@ async function listChainBtcWithdrawals(account: string, network: string): Promis
   }
 }
 
-/** Exclusive across tabs via Web Locks; throws if another tab holds it. */
+/** Exclusive across tabs via Web Locks; throws if another tab holds it or locks are unsupported. */
 async function withTabLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
-  if (!locks?.request) return fn()
+  if (!locks?.request) {
+    // Fail closed: without a cross-tab lock two tabs could each burn.
+    throw new Error(
+      'This browser cannot lock BTC Bridge out to one tab (Web Locks unsupported). Update the browser — no burn was made.',
+    )
+  }
   return locks.request(key, { ifAvailable: true }, async (lock) => {
     if (!lock) {
       throw new Error('A BTC Bridge out is already running in another tab. Finish or close it first — no burn was made here.')
