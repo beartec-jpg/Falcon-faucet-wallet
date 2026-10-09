@@ -1,10 +1,6 @@
 import { existsSync } from 'fs'
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  BTC_WITHDRAWALS_ENABLED,
-  btcWithdrawalsOffResponse,
-  isBtcWithdrawWalletdAction,
-} from '@/lib/btc-withdrawals'
+import { btcWithdrawalsPausedResponse, isBtcWithdrawWalletdAction } from '@/lib/btc-withdrawals'
 import { isOriginAllowed } from '@/lib/origin'
 import { plAccount, plStatus } from '@/lib/pl-rpc'
 import { ctlPay, ctlVaultLock, ctlVaultOpen, PL_CTL } from '@/lib/pl-ctl'
@@ -80,9 +76,6 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isOriginAllowed(req)) {
-    return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
-  }
   let body: {
     action?: string
     from?: string
@@ -102,19 +95,28 @@ export async function POST(req: NextRequest) {
     vout?: number | string
     sats?: number | string
   }
+  let bodyOk = true
   try {
     body = (await req.json()) as typeof body
   } catch {
+    body = {}
+    bodyOk = false
+  }
+
+  // BTC withdrawals are paused: BTC Kickoff/take actions are refused first,
+  // before any other check and before anything is forwarded.
+  if (isBtcWithdrawWalletdAction(body?.action)) {
+    const paused = btcWithdrawalsPausedResponse()
+    return NextResponse.json(paused.body, { status: paused.status })
+  }
+
+  if (!isOriginAllowed(req)) {
+    return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
+  }
+  if (!bodyOk || !body || typeof body !== 'object') {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
   const action = String(body.action ?? 'pay')
-
-  // BTC withdrawal steps (btc-kickoff, btc-take, any btc-*) are refused before
-  // anything reaches walletd while the btc_withdrawals_enabled flag is off.
-  if (!BTC_WITHDRAWALS_ENABLED && isBtcWithdrawWalletdAction(action)) {
-    const off = btcWithdrawalsOffResponse()
-    return NextResponse.json(off.body, { status: off.status })
-  }
 
   if (action === 'vault-activate') {
     const account = String(body.account ?? body.from ?? '').trim()

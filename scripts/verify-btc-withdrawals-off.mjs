@@ -4,9 +4,9 @@
  *
  * - config: public/config/btc-spv-bridge.json has a boolean btc_withdrawals_enabled
  * - API: with the flag off, /api/wallet/submit refuses a BTC rail_withdraw (FBTC burn)
- *   and /api/wallet + /api/wallet/pl refuse btc-kickoff / btc-take before walletd
- *   is called; ETH/USDC and read-only actions still go through. With the flag on,
- *   the same requests are forwarded again.
+ *   before the node is called; ETH/USDC and read-only actions still go through.
+ * - API: /api/wallet + /api/wallet/pl refuse btc-kickoff / btc-take (and aliases)
+ *   with 403 whatever the flag says, with or without an Origin header.
  * - UI: BridgeDepositPanel gates the FBTC Bridge out handler, button and input.
  */
 import assert from 'node:assert/strict'
@@ -22,6 +22,7 @@ const ts = require('typescript')
 const CONFIG = path.join(root, 'public/config/btc-spv-bridge.json')
 // Placeholder only: fetch is stubbed below, nothing is ever contacted.
 process.env.FALCON_PL_WALLET_API = 'http://walletd.invalid'
+process.env.VERCEL = '1' // origin check runs in production mode
 const MSG = 'BTC withdrawals are in final testing'
 
 let failures = 0
@@ -146,39 +147,60 @@ await check('lib: flag follows config; error text', () => {
   assert.ok(off.isBtcPegOutPlTx(JSON.stringify(plTx('btc'))))
   assert.ok(!off.isBtcPegOutPlTx(plTx('ETH')))
   assert.ok(!off.isBtcPegOutPlTx(plTx('USDC')))
-  assert.ok(off.isBtcWithdrawWalletdAction('btc-kickoff'))
-  assert.ok(off.isBtcWithdrawWalletdAction('btc-take'))
+  for (const a of ['btc-kickoff', 'btc-take', 'btc_kickoff', 'BTC-Take', ' btc-kickoff ', 'resume-btc-kickoff', 'kickoff-btc', 'fbtc-take']) {
+    assert.ok(off.isBtcWithdrawWalletdAction(a), a)
+  }
   for (const a of ['eth-kickoff', 'eth-open-claim', 'claim-proof', 'header-proof', 'mint-status', 'mint-eth-deposit', 'vault-activate', 'pay']) {
     assert.ok(!off.isBtcWithdrawWalletdAction(a), a)
   }
 })
 
+const PAUSED = 'BTC withdrawals are paused'
+const SITE = 'https://site.example'
+const reqWith = (body, origin) => {
+  const headers = new Headers({ host: 'site.example', 'x-forwarded-proto': 'https' })
+  if (origin) headers.set('origin', origin)
+  return { json: async () => body, headers, url: `${SITE}/api/wallet/pl`, nextUrl: new URL(`${SITE}/api/wallet/pl`) }
+}
+
 for (const file of ['src/app/api/wallet/pl/route.ts', 'src/app/api/wallet/route.ts']) {
-  for (const body of [kickoff, take]) {
-    await check(`API ${file}: ${body.action} refused with flag off (walletd not called)`, async () => {
-      const { calls, mocks } = makeEnv()
-      const route = loadTs(file, { mocks, config: OFF })
-      const res = await route.POST(req(body))
-      assert.equal(res.status, 503)
-      assert.ok(String(res.body.error).includes(MSG), res.body.error)
-      assert.equal(res.body.code, 'btc_withdrawals_disabled')
-      assert.equal(calls.fetch.length, 0, 'request was forwarded to walletd')
-    })
-    await check(`API ${file}: ${body.action} forwarded with flag on`, async () => {
-      const { calls, mocks } = makeEnv()
-      const route = loadTs(file, { mocks, config: ON })
-      const res = await route.POST(req(body))
-      assert.equal(res.status, 200)
-      assert.equal(calls.fetch.length, 1)
-      assert.equal(JSON.parse(calls.fetch[0].body).action, body.action)
-    })
+  const actions = [kickoff, take, { ...kickoff, action: 'btc_kickoff' }, { ...take, action: 'BTC-TAKE' }]
+  for (const [cfgName, config] of [['off', OFF], ['on', ON]]) {
+    for (const origin of [null, SITE, 'https://other.example']) {
+      for (const body of actions) {
+        await check(`API ${file}: ${body.action} refused (flag ${cfgName}, origin ${origin ?? 'none'})`, async () => {
+          const { calls, mocks } = makeEnv()
+          delete mocks['@/lib/origin'] // real origin check (production mode)
+          const route = loadTs(file, { mocks, config })
+          const res = await route.POST(reqWith(body, origin))
+          assert.equal(res.status, 403)
+          assert.ok(String(res.body.error).includes(PAUSED), res.body.error)
+          assert.equal(res.body.code, 'btc_withdrawals_paused')
+          assert.equal(calls.fetch.length, 0, 'request was forwarded to walletd')
+        })
+      }
+    }
   }
-  await check(`API ${file}: mint-status (read-only) still forwarded with flag off`, async () => {
+  await check(`API ${file}: mint-status (read-only) still forwarded`, async () => {
     const { calls, mocks } = makeEnv()
     const route = loadTs(file, { mocks, config: OFF })
     const res = await route.POST(req({ action: 'mint-status', account: 'alice', txHash: 'aa'.repeat(32), asset: 'ETH' }))
     assert.equal(res.status, 200)
     assert.equal(calls.fetch.length, 1)
+  })
+  await check(`API ${file}: eth-kickoff not caught by the BTC pause`, async () => {
+    const { mocks } = makeEnv()
+    const route = loadTs(file, { mocks, config: OFF })
+    const res = await route.POST(req({ action: 'eth-kickoff', noteId: 'x', dest: '0x', amount: '1', asset: 'ETH' }))
+    assert.notEqual(res.body.code, 'btc_withdrawals_paused')
+  })
+  await check(`API ${file}: other actions still need an allowed Origin`, async () => {
+    const { calls, mocks } = makeEnv()
+    delete mocks['@/lib/origin']
+    const route = loadTs(file, { mocks, config: OFF })
+    const res = await route.POST(reqWith({ action: 'mint-status', account: 'alice', txHash: 'aa'.repeat(32) }, 'https://other.example'))
+    assert.equal(res.status, 403)
+    assert.equal(calls.fetch.length, 0)
   })
 }
 

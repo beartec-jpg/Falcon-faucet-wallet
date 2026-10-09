@@ -8,8 +8,9 @@
  * Gated entry points (keep in sync; checked by scripts/verify-btc-withdrawals-off.mjs):
  *   - UI: BridgeDepositPanel FBTC Bridge out (button + handler)
  *   - API: /api/wallet/submit refuses a BTC rail_withdraw (the FBTC burn)
- *   - API: /api/wallet and /api/wallet/pl refuse every btc-* walletd action
- *     (btc-kickoff, btc-take) before anything is forwarded
+ *   - API: /api/wallet and /api/wallet/pl refuse every BTC Kickoff/take walletd
+ *     action (btc-kickoff, btc-take, any btc-* alias) UNCONDITIONALLY, whatever
+ *     this flag says, until a later re-enable PR removes that check
  * Read-only status/lookup routes stay open so a pending withdrawal stays visible.
  */
 import btcBridgeConfig from '../../public/config/btc-spv-bridge.json'
@@ -32,13 +33,29 @@ export function btcWithdrawalsOffResponse(): {
   return { body: { error: BTC_WITHDRAWALS_OFF_ERROR, code: BTC_WITHDRAWALS_OFF_CODE }, status: 503 }
 }
 
+export const BTC_WITHDRAWALS_PAUSED_ERROR = 'BTC withdrawals are paused.'
+
+export const BTC_WITHDRAWALS_PAUSED_CODE = 'btc_withdrawals_paused'
+
+/** JSON body + HTTP status for a refused BTC Kickoff/take walletd action. */
+export function btcWithdrawalsPausedResponse(): {
+  body: { error: string; code: string }
+  status: number
+} {
+  return { body: { error: BTC_WITHDRAWALS_PAUSED_ERROR, code: BTC_WITHDRAWALS_PAUSED_CODE }, status: 403 }
+}
+
 /**
  * walletd actions that sign or broadcast a BTC-side withdrawal step
- * (today: btc-kickoff, btc-take). Every `btc-*` / `btc_*` action counts, so a
- * future BTC withdrawal action is refused by default while the flag is off.
+ * (today: btc-kickoff, btc-take). Any `btc-*` / `btc_*` action, and any action
+ * naming BTC together with a kickoff / take / peg-out / withdraw step, counts.
  */
 export function isBtcWithdrawWalletdAction(action: unknown): boolean {
-  return typeof action === 'string' && /^btc[-_]/i.test(action.trim())
+  if (action == null) return false
+  const a = String(action).trim().toLowerCase()
+  if (!a) return false
+  if (/^btc[-_]/.test(a)) return true
+  return /btc|fbtc|bitcoin/.test(a) && /kick|take|peg|withdraw|claim/.test(a)
 }
 
 /**
