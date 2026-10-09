@@ -20,6 +20,8 @@ const require = createRequire(import.meta.url)
 const ts = require('typescript')
 
 const CONFIG = path.join(root, 'public/config/btc-spv-bridge.json')
+// Placeholder only: fetch is stubbed below, nothing is ever contacted.
+process.env.FALCON_PL_WALLET_API = 'http://walletd.invalid'
 const MSG = 'BTC withdrawals are in final testing'
 
 let failures = 0

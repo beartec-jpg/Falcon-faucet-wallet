@@ -1,5 +1,6 @@
 {
   "status": "live",
+  "btc_withdrawals_enabled": false,
   "network": "falcon-pl",
   "network_id": 2300,
   "btc_network": "testnet",
@@ -7,7 +8,6 @@
   "payment_script_hex": "51206ebeb0289c396f1f0ace996500600f831350d95c0cc89f412ed0eca650abb38f",
   "min_confirmations": 1,
   "peg_out": "bitvm2-operator-fronting",
-  "btc_withdrawals_enabled": false,
   "claim_csv": 6,
   "retired_watch_addresses": [
     "mxuamPnEtoMaiRnBnAUnrCZeXTYPVX4hik",
