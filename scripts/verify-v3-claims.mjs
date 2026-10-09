@@ -46,7 +46,6 @@ t('v2 answer stays on V2 even when V3 is configured (no fallback)', () => {
     bridge: V2,
     version: 'v2',
   })
-  assert.deepEqual(m.resolveTakeBridge({ bridgeVersion: 'v2' }, V2, SYNTHETIC_V3).bridge, V2)
 })
 t('v2 with a different address is refused', () => {
   assert.throws(() => m.resolveTakeBridge({ bridge: OTHER, bridgeVersion: 'v2' }, V2, SYNTHETIC_V3), /V2 bridge/)
@@ -62,11 +61,28 @@ t('v3 while the site has no V3 address is refused', () => {
 })
 t('v3 naming an unknown address is refused', () => {
   assert.throws(() => m.resolveTakeBridge({ bridge: OTHER, bridgeVersion: 'v3' }, V2, SYNTHETIC_V3), /V3 bridge/)
-  assert.throws(() => m.resolveTakeBridge({ bridge: OTHER }, V2, SYNTHETIC_V3), /V3 bridge/)
+})
+t('partial routing (only one of bridge / bridgeVersion) is refused', () => {
+  assert.throws(() => m.resolveTakeBridge({ bridgeVersion: 'v2' }, V2, SYNTHETIC_V3), /partial/)
+  assert.throws(() => m.resolveTakeBridge({ bridgeVersion: 'v3' }, V2, SYNTHETIC_V3), /partial/)
+  assert.throws(() => m.resolveTakeBridge({ bridge: V2 }, V2, SYNTHETIC_V3), /partial/)
+  assert.throws(() => m.resolveTakeBridge({ bridge: SYNTHETIC_V3 }, V2, SYNTHETIC_V3), /partial/)
 })
 t('unknown version / malformed address are refused', () => {
-  assert.throws(() => m.resolveTakeBridge({ bridgeVersion: 'v4' }, V2, SYNTHETIC_V3), /unknown bridgeVersion/)
+  assert.throws(() => m.resolveTakeBridge({ bridge: SYNTHETIC_V3, bridgeVersion: 'v4' }, V2, SYNTHETIC_V3), /unknown bridgeVersion/)
   assert.throws(() => m.resolveTakeBridge({ bridge: '0x1234', bridgeVersion: 'v2' }, V2, SYNTHETIC_V3), /malformed/)
+})
+t('openClaimDone: fresh tx or alreadyOpen, then take() on the returned bridge', () => {
+  const tx = '0x' + '11'.repeat(32)
+  assert.equal(m.openClaimDone(true, { ok: true, tx, bridge: V2, bridgeVersion: 'v2' }), true)
+  // walletd (Falcon-PL #38): already open on that bridge, nothing sent.
+  const already = { ok: true, tx: '', alreadyOpen: true, bridge: SYNTHETIC_V3, bridgeVersion: 'v3' }
+  assert.equal(m.openClaimDone(true, already), true)
+  assert.deepEqual(m.resolveTakeBridge(already, V2, SYNTHETIC_V3), { bridge: SYNTHETIC_V3, version: 'v3' })
+  assert.equal(m.openClaimDone(true, { ok: true, tx: '' }), false)
+  assert.equal(m.openClaimDone(false, { ok: false, waiting: true, alreadyOpen: true }), false)
+  assert.equal(m.openClaimDone(true, { ok: false, alreadyOpen: true }), false)
+  assert.equal(m.openClaimDone(true, { waiting: true, tx }), false)
 })
 t('qcV3Bridge: config, env fallback, invalid', () => {
   const cfg = (qc_v3) => ({ sepolia: { qc_v3 } })

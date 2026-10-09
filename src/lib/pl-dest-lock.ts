@@ -9,6 +9,7 @@ import { SEPOLIA_RPC_FALLBACKS } from '@/lib/evm-bridge-client'
 import { JsonRpcProvider } from 'ethers'
 import {
   assertRefundSigner,
+  openClaimDone,
   parseDepositId,
   qcV3Bridge,
   resolveTakeBridge,
@@ -594,7 +595,7 @@ export async function pegOutDestLock(opts: {
         }),
       })
       openJ = (await open.json()) as typeof openJ
-      if (open.ok && openJ.tx) break
+      if (openClaimDone(open.ok, openJ)) break
       if (open.status === 409 || openJ.waiting) {
         opts.onStep?.(
           openJ.message ||
@@ -605,7 +606,7 @@ export async function pegOutDestLock(opts: {
       }
       throw new Error(openJ.error || 'openClaim failed')
     }
-    if (!openJ.tx) {
+    if (!openClaimDone(true, openJ)) {
       throw new Error(
         'Burn is packed. The bridge headers have not caught this claimRoot yet. Keep this panel and retry Bridge out — do not burn again.',
       )
@@ -699,14 +700,17 @@ export async function claimV3Refund(opts: {
   const v3 = qcV3Bridge(opts.cfg)
   if (!v3) throw new Error('FalconQcBridgeV3 is not configured on this site yet')
   const noteId = v3RefundNoteId(depositId)
-  const signer = new Wallet(opts.evmPrivateKey).address
+  // Stored keys are hex without 0x; normalize once for the signer check and take().
+  const evmPrivateKey = '0x' + opts.evmPrivateKey.trim().replace(/^0x/i, '')
+  const signer = new Wallet(evmPrivateKey).address
 
   opts.onStep?.('Looking up the refund note on Falcon PL…')
   const rec = await postClaimProof({ depositId, asset: opts.asset })
   if (rec.kind !== 'v3_refund' || (rec.noteId || '').toLowerCase() !== noteId) {
     throw new Error('Falcon PL did not return a V3 refund note for this deposit')
   }
-  if (typeof rec.isUsdc === 'boolean' && rec.isUsdc !== (opts.asset === 'USDC')) {
+  if (typeof rec.isUsdc !== 'boolean') throw new Error('Falcon PL refund note has no asset (isUsdc)')
+  if (rec.isUsdc !== (opts.asset === 'USDC')) {
     throw new Error(`This refund is ${rec.isUsdc ? 'USDC' : 'ETH'}, not ${opts.asset}`)
   }
   assertRefundSigner(rec.dest, signer)
@@ -732,7 +736,7 @@ export async function claimV3Refund(opts: {
         body: JSON.stringify({ action: 'eth-open-claim', depositId, asset: opts.asset }),
       })
       openJ = (await res.json()) as OpenClaimResponse
-      if (res.ok && openJ.tx) break
+      if (openClaimDone(res.ok, openJ)) break
       if (res.status === 409 || openJ.waiting) {
         opts.onStep?.(openJ.message || 'Waiting for a V3 bridge header…')
         await new Promise((r) => setTimeout(r, 8000))
@@ -740,16 +744,16 @@ export async function claimV3Refund(opts: {
       }
       throw new Error(openJ.error || 'V3 refund openClaim failed')
     }
-    if (!openJ.tx) throw new Error('The V3 header has not caught this refund yet. Try again later.')
+    if (!openClaimDone(true, openJ)) throw new Error('The V3 header has not caught this refund yet. Try again later.')
     const target = resolveTakeBridge(openJ, pegOutBridge(opts.cfg), v3)
     if (target.version !== 'v3') throw new Error('walletd opened this refund on a non-V3 bridge; not calling take()')
-    openHash = openJ.tx
+    openHash = openJ.tx || ''
   }
 
   opts.onStep?.('take() refund to the deposit sender…')
   const takeHash = await takeDestLockClaim({
     cfg: opts.cfg,
-    evmPrivateKey: opts.evmPrivateKey,
+    evmPrivateKey,
     noteId,
     onStep: opts.onStep,
     lock: v3,

@@ -8,7 +8,8 @@
  *     stay on V2; there is no V3 fallback for them.
  *   - v3: must equal the configured FalconQcBridgeV3 (`qc_v3`, or NEXT_PUBLIC_QC_V3_BRIDGE).
  *     Unset means V3 is not live on this site and nothing is sent to it.
- * A walletd that predates V3 routing returns neither field; that is V2.
+ * A walletd that predates V3 routing returns neither field; that is V2. Exactly one of
+ * the two fields is malformed and refused.
  *
  * V3 refunds: refund note id = sha256("refund|" || depositId), the same bytes as
  * FalconQcBridgeV3.refundNoteId. Only the deposit sender can take() a refund.
@@ -38,6 +39,18 @@ export type OpenClaimResponse = {
   kind?: string
   depositId?: string
   mode?: string
+  /** walletd found the note already open on `bridge` and sent nothing (tx is ""). */
+  alreadyOpen?: boolean
+}
+
+/**
+ * True when eth-open-claim leaves the claim open on walletd's bridge: a fresh openClaim tx,
+ * or `{ok: true, tx: "", alreadyOpen: true}` (already open there, e.g. a racing request).
+ * Either way the next step is take() on the returned bridge (resolveTakeBridge).
+ */
+export function openClaimDone(httpOk: boolean, resp: OpenClaimResponse): boolean {
+  if (!httpOk || resp.ok === false || resp.waiting) return false
+  return Boolean(resp.tx) || resp.alreadyOpen === true
 }
 
 function sameAddr(a: string, b: string): boolean {
@@ -71,17 +84,21 @@ export function resolveTakeBridge(
     // walletd before V2/V3 routing: every claim is V2.
     return { bridge: v2Bridge, version: 'v2' }
   }
-  if (ver === 'v2' || (!ver && addr && sameAddr(addr, v2Bridge))) {
-    if (addr && !sameAddr(addr, v2Bridge)) {
+  // Routing walletd always sends both fields; a partial answer is malformed, not a hint.
+  if (!ver || !addr) {
+    throw new Error('walletd returned partial bridge routing (bridge and bridgeVersion must both be set); not calling take()')
+  }
+  if (ver === 'v2') {
+    if (!sameAddr(addr, v2Bridge)) {
       throw new Error(`walletd named V2 bridge ${addr} but this site's FalconQcBridgeV2 is ${v2Bridge}; not calling take()`)
     }
     return { bridge: v2Bridge, version: 'v2' }
   }
-  if (ver === 'v3' || (!ver && addr)) {
+  if (ver === 'v3') {
     if (!v3Bridge) {
       throw new Error('This claim is on FalconQcBridgeV3, which is not configured on this site yet; not calling take()')
     }
-    if (addr && !sameAddr(addr, v3Bridge)) {
+    if (!sameAddr(addr, v3Bridge)) {
       throw new Error(`walletd named V3 bridge ${addr} but this site's FalconQcBridgeV3 is ${v3Bridge}; not calling take()`)
     }
     return { bridge: v3Bridge, version: 'v3' }

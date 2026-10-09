@@ -209,7 +209,8 @@ export async function POST(req: NextRequest) {
     const amount = String(body.amount ?? '').trim()
     const asset = String(body.asset ?? 'ETH').trim().toUpperCase()
     const account = String(body.account ?? '').trim()
-    // V3 refund: named by depositId only (no PL account; walletd fills dest/amount).
+    // V3 refund: named by depositId + asset only (no PL account; walletd takes dest/amount
+    // from the node's refund note, so caller-supplied noteId/dest/amount are not forwarded).
     const depositId = String(body.depositId ?? '').trim()
     if (depositId && !DEPOSIT_ID_RE.test(depositId)) {
       return NextResponse.json({ error: 'depositId must be 32-byte hex' }, { status: 400 })
@@ -226,7 +227,7 @@ export async function POST(req: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           depositId
-            ? { action: 'eth-open-claim', depositId, asset, noteId, dest, amount }
+            ? { action: 'eth-open-claim', depositId, asset }
             : { action: 'eth-open-claim', noteId, dest, amount, asset, account },
         ),
       })
