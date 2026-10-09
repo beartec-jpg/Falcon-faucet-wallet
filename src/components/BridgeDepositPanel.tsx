@@ -89,6 +89,7 @@ import {
   type SpvWithdrawPhase,
 } from '@/lib/btc-spv-withdraw-pending'
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
+import { V3RefundClaim } from '@/components/V3RefundClaim'
 import { plAccountId } from '@/lib/pl-names'
 import { BTC_RAIL_LIVE, pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
 import { hasBtcWallet, provisionBtcWalletForStoredWallet } from '@/lib/create-btc-wallet'
@@ -267,6 +268,8 @@ interface BridgeWithdrawResult {
   payoutSats?: number
   sepoliaTxHash?: string
   noteId?: string
+  /** take() was already done for this note (walletd alreadyOpen + taken). */
+  alreadyPaid?: boolean
 }
 
 type ReleaseStatus = 'pending' | 'released' | 'unconfirmed' | null
@@ -304,6 +307,8 @@ export default function BridgeDepositPanel({
   const [amount, setAmount] = useState('')
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [busy, setBusy] = useState(false)
+  /** busy is held by the V3 refund claim (shared lock; only the button labels differ). */
+  const [refundBusy, setRefundBusy] = useState(false)
   const [step, setStep] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BridgeDepositResult | null>(null)
@@ -1680,6 +1685,7 @@ export default function BridgeDepositPanel({
           amount: withdrawAmount,
           sepoliaRecipient: wallet.evmAddress,
           noteId: out.noteId,
+          ...(out.alreadyTaken ? { alreadyPaid: true } : {}),
         })
         setWithdrawAmount('')
         setTimeout(() => {
@@ -3273,7 +3279,7 @@ const handleSpvCompleteClaim = async () => {
                   }
                   className="btn-primary flex items-center justify-center gap-2"
                 >
-                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge out'}
+                  {busy ? (refundBusy ? 'Refund claim in progress…' : <><Spinner /> {step ?? 'Signing…'}</>) : 'Bridge out'}
                 </button>
                 <details className="text-xs text-slate-500">
                   <summary className="cursor-pointer hover:text-slate-300">Advanced</summary>
@@ -3291,6 +3297,22 @@ const handleSpvCompleteClaim = async () => {
                     {busy ? step ?? 'Working…' : 'Return F-USDC to issuer'}
                   </button>
                 </details>
+                {isPl2300 && destLockCfg && wallet.evmEncrypted && (
+                  <V3RefundClaim
+                    cfg={destLockCfg}
+                    evmAddress={wallet.evmAddress}
+                    // One EVM-key operation at a time: shares the panel's busy state.
+                    disabled={busy}
+                    onBusyChange={(b) => {
+                      setRefundBusy(b)
+                      setBusy(b)
+                    }}
+                    getEvmKey={async () => {
+                      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+                      return decryptSeed(wallet.evmEncrypted!, keyBytes)
+                    }}
+                  />
+                )}
               </>
             )}
 
@@ -3527,7 +3549,7 @@ const handleSpvCompleteClaim = async () => {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-medium text-brand-300">
-                {withdrawResult.btcClaimTxid || withdrawResult.sepoliaTxHash
+                {withdrawResult.btcClaimTxid || withdrawResult.sepoliaTxHash || withdrawResult.alreadyPaid
                   ? 'Bridge out complete'
                   : 'Bridge out submitted'}
               </div>
@@ -3569,6 +3591,9 @@ const handleSpvCompleteClaim = async () => {
             >
               Sepolia take {withdrawResult.sepoliaTxHash.slice(0, 16)}…
             </a>
+          )}
+          {withdrawResult.alreadyPaid && (
+            <div className="text-[11px] text-emerald-400/90">Already paid on Sepolia (this note was taken earlier).</div>
           )}
           {withdrawResult.btcClaimTxid && (
             <div className="space-y-1">
