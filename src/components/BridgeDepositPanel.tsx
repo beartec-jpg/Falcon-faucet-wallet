@@ -3474,7 +3474,7 @@ const handleSpvCompleteClaim = async () => {
                             BitVM2 instance · SPV{' '}
                             {isPl2300
                               ? spvStatus?.spv === 'bitcoin'
-                                ? 'Bitcoin headers live'
+                                ? 'Bitcoin headers live · deposits live · withdrawals in final testing'
                                 : 'deposits live · withdrawals in final testing'
                               : spvLive
                                 ? 'live'

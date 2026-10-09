@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
     )
     if (v2Live && process.env.DESTLOCK_EXIT !== '1') {
       return NextResponse.json(
-        { error: 'claimer Kickoff is leftover-only after V2; set DESTLOCK_EXIT=1' },
+        { error: 'This withdrawal path is not enabled on this deployment' },
         { status: 403 },
       )
     }

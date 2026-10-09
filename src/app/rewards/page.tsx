@@ -7,6 +7,7 @@ import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
+import { firstClaimEpoch } from '@/lib/reward-epochs'
 import {
   isPasskeySupported,
   authenticatePasskey,
@@ -725,7 +726,7 @@ export default function RewardsPage() {
                   {bond && !bond.can_claim && (
                     <p className="text-xs text-amber-500/90">
                       Need bonded status, score ≥ 500 bps, and a non-zero epoch pool (first emission
-                      epoch 1 on testnet).
+                      epoch {firstClaimEpoch(networkKey)} on {networkKey}).
                     </p>
                   )}
                 </>
