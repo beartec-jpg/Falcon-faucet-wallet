@@ -25,14 +25,14 @@ import {
 import { clientIp } from '@/lib/security'
 import { existsSync } from 'fs'
 import { ctlFaucet, PL_CTL } from '@/lib/pl-ctl'
+import { walletApiHeaders, walletApiUrl } from '@/lib/walletd'
 
-const WALLET_API =
-  process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
+const WALLET_API = walletApiUrl()
 
 async function faucetViaHttp(to: string, amount: number) {
   const r = await fetch(WALLET_API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: walletApiHeaders(),
     body: JSON.stringify({ action: 'faucet', account: to, amount }),
   })
   const d = (await r.json()) as { error?: string; txId?: string; raw?: string }

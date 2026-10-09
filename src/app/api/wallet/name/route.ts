@@ -18,13 +18,13 @@ import { isOriginAllowed } from '@/lib/origin'
 import { activateName, reserveName, viewName } from '@/lib/pl-name-store'
 import { activationFeeFpl, normalizePlName } from '@/lib/pl-names'
 import { plAccount } from '@/lib/pl-rpc'
+import { walletApiHeaders, walletApiUrl } from '@/lib/walletd'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
-const WALLET_API =
-  process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
+const WALLET_API = walletApiUrl()
 
 function useLocalStore() {
   return existsSync(
@@ -36,7 +36,7 @@ function useLocalStore() {
 async function remoteName(action: string, body: Record<string, unknown>) {
   const r = await fetch(WALLET_API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: walletApiHeaders(),
     body: JSON.stringify({ action, ...body }),
   })
   const d = (await r.json()) as Record<string, unknown>

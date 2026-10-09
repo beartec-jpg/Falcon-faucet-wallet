@@ -16,6 +16,7 @@ import {
   liveBtcWatchAddresses,
 } from '@/lib/btc-spv-policy'
 import { isDeadSpvTxid } from '@/lib/btc-spv-pending'
+import { walletApiAuthHeaders, walletApiUrl } from '@/lib/walletd'
 
 /**
  * Bitcoin SPV light-client bridge status + claim proof helper.
@@ -255,10 +256,9 @@ export async function GET(req: NextRequest) {
         .trim()
         .replace(/^0x/i, '')
       try {
-        const walletApi =
-          process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
-        const dep = await fetch(`${walletApi.replace(/\/$/, '')}/btc-deposit`, {
+        const dep = await fetch(`${walletApiUrl()}/btc-deposit`, {
           cache: 'no-store',
+          headers: walletApiAuthHeaders(),
           signal: AbortSignal.timeout(4_000),
         })
         if (dep.ok) {
@@ -908,10 +908,9 @@ export async function POST(req: NextRequest) {
         (fileCfg.watch_address as string | undefined)?.trim() ||
         BITVM2_INSTANCE_ADDRESS
       try {
-        const walletApi =
-          process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
-        const dep = await fetch(`${walletApi.replace(/\/$/, '')}/btc-deposit`, {
+        const dep = await fetch(`${walletApiUrl()}/btc-deposit`, {
           cache: 'no-store',
+          headers: walletApiAuthHeaders(),
           signal: AbortSignal.timeout(4_000),
         })
         if (dep.ok) {

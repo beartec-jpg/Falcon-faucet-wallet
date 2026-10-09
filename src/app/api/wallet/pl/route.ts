@@ -5,14 +5,14 @@ import { isOriginAllowed } from '@/lib/origin'
 import { plAccount, plRpc, plStatus } from '@/lib/pl-rpc'
 import { filterWalletNotes } from '@/lib/pl-pending-notes'
 import { ctlPay, ctlVaultLock, ctlVaultOpen, PL_CTL } from '@/lib/pl-ctl'
+import { walletApiHeaders, walletApiUrl } from '@/lib/walletd'
 
-const WALLET_API =
-  process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
+const WALLET_API = walletApiUrl()
 
 async function payViaHttp(from: string, to: string, amount: number) {
   const r = await fetch(WALLET_API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: walletApiHeaders(),
     body: JSON.stringify({ action: 'pay', from, to, amount }),
   })
   const d = (await r.json()) as { error?: string; raw?: string }
@@ -174,7 +174,7 @@ export async function POST(req: NextRequest) {
       }
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify({ action: 'vault-activate', account, destination }),
       })
       const d = await r.json()
@@ -219,7 +219,7 @@ export async function POST(req: NextRequest) {
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify({ action: 'eth-kickoff', noteId, dest, amount, asset }),
       })
       const d = await r.json()
@@ -291,7 +291,7 @@ export async function POST(req: NextRequest) {
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify(
           depositId
             ? { action: 'eth-open-claim', depositId, asset }
@@ -320,7 +320,7 @@ export async function POST(req: NextRequest) {
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify({ action: 'header-proof', height }),
       })
       const d = await r.json()
@@ -352,7 +352,7 @@ export async function POST(req: NextRequest) {
       try {
         const r = await fetch(WALLET_API, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: walletApiHeaders(),
           body: JSON.stringify({ action: 'claim-proof', depositId, asset }),
         })
         const d = await r.json()
@@ -380,7 +380,7 @@ export async function POST(req: NextRequest) {
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify({ action: 'claim-proof', account, dest, asset, amount, noteId }),
       })
       const d = await r.json()
@@ -410,7 +410,7 @@ export async function POST(req: NextRequest) {
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify({ action, account, txHash, asset: asset || undefined }),
       })
       const d = await r.json()
@@ -456,7 +456,7 @@ export async function POST(req: NextRequest) {
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify(payload),
       })
       const d = await r.json()
