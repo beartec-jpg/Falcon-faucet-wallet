@@ -3277,6 +3277,9 @@ const handleSpvCompleteClaim = async () => {
                   <V3RefundClaim
                     cfg={destLockCfg}
                     evmAddress={wallet.evmAddress}
+                    // One EVM-key operation at a time: shares the panel's busy state.
+                    disabled={busy}
+                    onBusyChange={setBusy}
                     getEvmKey={async () => {
                       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
                       return decryptSeed(wallet.evmEncrypted!, keyBytes)

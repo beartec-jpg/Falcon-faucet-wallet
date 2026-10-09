@@ -13,6 +13,10 @@ export function V3RefundClaim(props: {
   evmAddress?: string
   /** Decrypts the Sepolia key after a passkey prompt. */
   getEvmKey: () => Promise<string>
+  /** Another operation on the same EVM key is running (e.g. bridge out). */
+  disabled?: boolean
+  /** Reports this claim's busy state to the parent, so it can block its own sends. */
+  onBusyChange?: (busy: boolean) => void
 }) {
   const [depositId, setDepositId] = useState('')
   const [asset, setAsset] = useState<'ETH' | 'USDC'>('ETH')
@@ -26,7 +30,9 @@ export function V3RefundClaim(props: {
   const explorer = props.cfg.sepolia.explorer_url || 'https://sepolia.etherscan.io'
 
   async function onClaim() {
+    if (busy || props.disabled) return
     setBusy(true)
+    props.onBusyChange?.(true)
     setError(null)
     setDone(null)
     try {
@@ -43,6 +49,7 @@ export function V3RefundClaim(props: {
       setError(e instanceof Error ? e.message : 'Refund claim failed')
     } finally {
       setBusy(false)
+      props.onBusyChange?.(false)
       setStep(null)
     }
   }
@@ -60,12 +67,14 @@ export function V3RefundClaim(props: {
           value={depositId}
           onChange={(e) => setDepositId(e.target.value)}
           placeholder="Deposit id (0x…)"
+          aria-label="Deposit ID"
           spellCheck={false}
           className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 font-mono text-xs text-slate-200"
         />
         <div className="flex gap-2">
           <select
             value={asset}
+            aria-label="Refund asset"
             onChange={(e) => setAsset(e.target.value === 'USDC' ? 'USDC' : 'ETH')}
             className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-2 text-xs text-slate-200"
           >
@@ -75,7 +84,7 @@ export function V3RefundClaim(props: {
           <button
             type="button"
             onClick={onClaim}
-            disabled={busy || !depositId.trim()}
+            disabled={busy || props.disabled || !depositId.trim()}
             className="flex-1 py-2 rounded-xl border border-slate-700 text-slate-300 text-xs hover:bg-slate-800/60 disabled:opacity-50"
           >
             {busy ? step ?? 'Working…' : 'Claim refund'}
