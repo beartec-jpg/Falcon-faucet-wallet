@@ -4,6 +4,7 @@
  */
 
 import { spawn } from 'child_process'
+import { existsSync } from 'fs'
 import os from 'os'
 import path from 'path'
 
@@ -18,6 +19,15 @@ export const PL_ADDR = process.env.FALCON_PL_RPC?.trim() || '127.0.0.1:19301'
 const _ctlNid = Number(process.env.FALCON_PL_NETWORK_ID ?? '2300')
 export const PL_NETWORK_ID =
   _ctlNid === 1001 || _ctlNid === 2200 || !Number.isFinite(_ctlNid) ? 2300 : _ctlNid
+
+/** True when a local falcon-pl-ctl binary exists (never on Vercel). */
+export function ctlAvailable(): boolean {
+  try {
+    return existsSync(PL_CTL)
+  } catch {
+    return false
+  }
+}
 
 export function runCtl(
   args: string[],
@@ -105,42 +115,9 @@ export async function ctlFaucet(to: string, amount = 10_000): Promise<{ txId: st
   return { txId: txIdOf(out), raw: out }
 }
 
-export async function ctlWatcherWork(
-  account: string,
-  count = 168,
-  asset = 'BTC',
-): Promise<{ accepted: number; lastTx: string; raw: string }> {
-  const out = mustOk(
-    await runCtl(
-      [
-        'watcher-work',
-        '--account',
-        account,
-        '--asset',
-        asset,
-        '--count',
-        String(count),
-        '--scheme',
-        PL_SCHEME,
-        '--keys-dir',
-        PL_KEYS,
-        '--network-id',
-        String(PL_NETWORK_ID),
-        '--fee',
-        '2',
-      ],
-      { timeoutMs: 180_000 },
-    ),
-    'watcher-work',
-  )
-  const m = out.match(/accepted=(\d+)/)
-  const last = out.match(/last_tx=([0-9a-fA-F]+)/)
-  return {
-    accepted: m ? Number(m[1]) : 0,
-    lastTx: last?.[1] ?? '',
-    raw: out,
-  }
-}
+// `watcher-work` (synthetic BTC headers) was removed: the BTC rail only takes
+// real 80-byte Bitcoin headers and ctl refuses BTC watcher-work. Watcher work is
+// now a browser-signed `rail_header` built from /api/watcher/btc-next.
 
 export async function ctlClaim(account: string): Promise<{ txId: string; raw: string }> {
   const out = mustOk(

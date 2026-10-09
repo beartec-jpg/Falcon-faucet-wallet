@@ -382,6 +382,46 @@ export async function signVaultLock(opts: {
   })
 }
 
+/** `TxBody::Claim` — moves this account's settled `claimable` FPL into its balance. */
+export async function signPlClaim(opts: {
+  account: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'claim' },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+/** `TxBody::WatcherHeartbeat` — marks the current hour slot for this account (no work). */
+export async function signPlWatcherHeartbeat(opts: {
+  account: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'watcher_heartbeat' },
+    falconSecret: opts.falconSecret,
+  })
+}
+
 export type PlBridgeProof = {
   external_txid: string
   block_hash: string

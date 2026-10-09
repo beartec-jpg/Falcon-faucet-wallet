@@ -35,6 +35,7 @@ import {
 } from '@/lib/validator-credentials-store'
 import { resolveNetworkTokens } from '@/lib/stables-config'
 import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
+import PlRewards from '@/components/PlRewards'
 
 interface BondInfo {
   registered: boolean
@@ -124,7 +125,7 @@ function fmt(n: number | null | undefined, digits = 4): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
-export default function RewardsPage() {
+function LegacyRewardsPage() {
   const { networkKey, network } = useNetwork()
   const [payoutWallet, setPayoutWallet] = useState<StoredWallet | null>(null)
   const [valCreds, setValCreds] = useState<StoredValidatorCredentials | null>(null)
@@ -1010,4 +1011,19 @@ export default function RewardsPage() {
       </main>
     </ProductShell>
   )
+}
+
+/** Falcon PL 2300 reads the live chain; other networks keep the legacy XRPL view. */
+export default function RewardsPage() {
+  const { network } = useNetwork()
+  if (network.networkId === 2300) {
+    return (
+      <ProductShell intensity={0.4}>
+        <Header current="wallet" subtitle="Rewards · claim · epoch economy" />
+        <NetworkBanner />
+        <PlRewards />
+      </ProductShell>
+    )
+  }
+  return <LegacyRewardsPage />
 }

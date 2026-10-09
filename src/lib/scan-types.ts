@@ -90,6 +90,9 @@ export interface ScanData extends MeshHead {
     lpProviderCount: number | null
     cidEmissionPct: number | null
     cidYearlyAvgPct: number | null
+    emissionBps?: number | null
+    emissionPctPerYear?: number | null
+    epochMs?: number | null
     firstClaimEpoch: number
     epochClaimable: boolean
     lastSettledEpoch: number
