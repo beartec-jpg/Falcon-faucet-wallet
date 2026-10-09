@@ -306,6 +306,8 @@ export default function BridgeDepositPanel({
   const [amount, setAmount] = useState('')
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [busy, setBusy] = useState(false)
+  /** busy is held by the V3 refund claim (shared lock; only the button labels differ). */
+  const [refundBusy, setRefundBusy] = useState(false)
   const [step, setStep] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BridgeDepositResult | null>(null)
@@ -3255,7 +3257,7 @@ const handleSpvCompleteClaim = async () => {
                   }
                   className="btn-primary flex items-center justify-center gap-2"
                 >
-                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge out'}
+                  {busy ? (refundBusy ? 'Refund claim in progress…' : <><Spinner /> {step ?? 'Signing…'}</>) : 'Bridge out'}
                 </button>
                 <details className="text-xs text-slate-500">
                   <summary className="cursor-pointer hover:text-slate-300">Advanced</summary>
@@ -3279,7 +3281,10 @@ const handleSpvCompleteClaim = async () => {
                     evmAddress={wallet.evmAddress}
                     // One EVM-key operation at a time: shares the panel's busy state.
                     disabled={busy}
-                    onBusyChange={setBusy}
+                    onBusyChange={(b) => {
+                      setRefundBusy(b)
+                      setBusy(b)
+                    }}
                     getEvmKey={async () => {
                       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
                       return decryptSeed(wallet.evmEncrypted!, keyBytes)

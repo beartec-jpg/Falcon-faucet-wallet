@@ -10,6 +10,7 @@ import { JsonRpcProvider } from 'ethers'
 import {
   assertClaimDest,
   assertRefundSigner,
+  checkClaimForTake,
   openClaimDone,
   qcV2Bridge,
   parseDepositId,
@@ -712,8 +713,9 @@ async function readQcClaim(
 
 /**
  * take() after a successful eth-open-claim, on the (already checked) bridge walletd returned.
- * walletd's alreadyOpen answer carries `taken`/`dest`: taken → nothing to do (take() would
- * revert); not taken → take; no `taken` → read claims(note) on that bridge first.
+ * walletd's alreadyOpen answer carries `taken`/`dest`: not taken (with dest) → take; taken, or
+ * no `taken`/`dest` → read claims(note) on that bridge first. Only that chain read can report
+ * "already paid" (and so clear the resume record); if the chain says not taken, take() as usual.
  */
 async function takeAfterOpen(opts: {
   cfg: Pl2300BridgeConfig
@@ -728,13 +730,10 @@ async function takeAfterOpen(opts: {
   const action = takeActionAfterOpen(opts.openJ)
   // Dest first: a claim that pays someone else is neither "already paid" to us nor takeable.
   if (opts.openJ.alreadyOpen) assertClaimDest(opts.openJ.dest, signer)
-  if (action === 'skip') return { takeHash: '', alreadyTaken: true }
-  if (action === 'read') {
+  if (action === 'skip' || action === 'read') {
     opts.onStep?.('Claim already open; checking it on chain…')
     const st = await readQcClaim(opts.cfg, opts.bridge, opts.noteId)
-    assertClaimDest(st.dest, signer)
-    if (st.taken) return { takeHash: '', alreadyTaken: true }
-    if (!st.open) throw new Error('walletd reported this claim open, but it is not open on that bridge; not calling take()')
+    if (checkClaimForTake(st, signer) === 'taken') return { takeHash: '', alreadyTaken: true }
   }
   const takeHash = await takeDestLockClaim({
     cfg: opts.cfg,

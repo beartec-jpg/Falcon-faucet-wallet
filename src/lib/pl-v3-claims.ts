@@ -47,12 +47,30 @@ export type OpenClaimResponse = {
   dest?: string
 }
 
+/** claims(note) as read on chain (dest, open, taken). */
+export type QcClaimState = { dest: string; open: boolean; taken: boolean }
+
+/**
+ * Decide from an on-chain claims(note) read: 'taken' (already paid to this wallet) or 'take'.
+ * Throws when no claim is recorded (dest 0x0), it pays another address, or it is not open.
+ * This read, not walletd's word, is what allows "already paid" and clearing the resume record.
+ */
+export function checkClaimForTake(st: QcClaimState, signer: string): 'taken' | 'take' {
+  const d = (st.dest ?? '').trim()
+  if (!d || ZERO_ADDR_RE.test(d)) throw new Error(CLAIM_NOT_OPEN)
+  assertClaimDest(d, signer)
+  if (st.taken) return 'taken'
+  if (!st.open) throw new Error('Claim not open on that bridge; not calling take()')
+  return 'take'
+}
+
 /** What to do after eth-open-claim succeeded (openClaimDone). */
 export type TakeAction = 'take' | 'skip' | 'read'
 
 /**
  * - fresh openClaim tx → take
- * - alreadyOpen + taken: true + a dest → skip (already paid; take() would revert)
+ * - alreadyOpen + taken: true + a dest → skip, but only after the caller confirms it on chain
+ *   (checkClaimForTake): a bad walletd reply must never hide a still-open claim
  * - alreadyOpen + taken: false + a dest → take on the returned bridge
  * - alreadyOpen without a boolean taken, or without a dest → read claims(note) on that bridge first
  * The caller checks the dest against its wallet (assertClaimDest) before skip or take.
@@ -65,11 +83,16 @@ export function takeActionAfterOpen(resp: Pick<OpenClaimResponse, 'alreadyOpen' 
   return 'read'
 }
 
-/** An open claim is takeable only by its recorded dest; refuse before a reverting take(). */
+const ZERO_ADDR_RE = /^0x0{40}$/i
+const CLAIM_NOT_OPEN = 'Claim not open on that bridge (no claim recorded for this note); not calling take()'
+
+/** An open claim is takeable only by its recorded dest; refuse before a reverting take().
+ *  dest 0x0 is how the contract reports "no claim": that is "not open", not a wrong payee. */
 export function assertClaimDest(claimDest: string | undefined, signer: string): void {
   const d = (claimDest ?? '').trim()
   if (!d) return
   if (!ADDR_RE.test(d)) throw new Error('walletd returned a malformed claim dest')
+  if (ZERO_ADDR_RE.test(d)) throw new Error(CLAIM_NOT_OPEN)
   if (!sameAddr(d, signer)) {
     throw new Error(`This claim pays ${d}, not this wallet (${signer}); only that address can take() it.`)
   }

@@ -95,6 +95,29 @@ t('alreadyOpen: taken → skip, not taken → take, unknown → read claims(note
   assert.equal(m.takeActionAfterOpen({ alreadyOpen: true }), 'read')
   assert.equal(m.takeActionAfterOpen({ alreadyOpen: true, taken: 'yes' }), 'read')
 })
+t('taken:true from walletd is confirmed on chain before "already paid"', () => {
+  // walletd says taken, but takeAfterOpen always reads claims(note) for 'skip' (and 'read').
+  assert.equal(m.takeActionAfterOpen({ alreadyOpen: true, taken: true, dest: OTHER }), 'skip')
+  // Chain agrees: already paid (only now may the resume record be cleared).
+  assert.equal(m.checkClaimForTake({ dest: OTHER, open: false, taken: true }, OTHER), 'taken')
+  // Bad walletd reply: chain says still open, not taken -> take() as normal.
+  assert.equal(m.checkClaimForTake({ dest: OTHER, open: true, taken: false }, OTHER), 'take')
+  // Chain says it pays someone else: refuse.
+  assert.throws(() => m.checkClaimForTake({ dest: SYNTHETIC_V3, open: true, taken: false }, OTHER), /only that address/)
+  // Recorded but neither open nor taken: refuse.
+  assert.throws(() => m.checkClaimForTake({ dest: OTHER, open: false, taken: false }, OTHER), /Claim not open/)
+})
+t('missing claim (dest 0x0) is "claim not open", not "pays 0x000…"', () => {
+  const zero = '0x' + '00'.repeat(20)
+  assert.throws(() => m.checkClaimForTake({ dest: zero, open: false, taken: false }, OTHER), /Claim not open/)
+  assert.throws(() => m.checkClaimForTake({ dest: '', open: false, taken: false }, OTHER), /Claim not open/)
+  assert.throws(() => m.assertClaimDest(zero, OTHER), /Claim not open/)
+  try {
+    m.checkClaimForTake({ dest: zero, open: false, taken: false }, OTHER)
+  } catch (e) {
+    assert.doesNotMatch(String(e.message), /pays 0x0/)
+  }
+})
 t('assertClaimDest: only the recorded dest may take()', () => {
   m.assertClaimDest(undefined, OTHER)
   m.assertClaimDest(OTHER.toUpperCase().replace('0X', '0x'), OTHER)
