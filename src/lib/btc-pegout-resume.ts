@@ -499,6 +499,10 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
   }
 
   // ── 3. Kickoff: request once, then always re-broadcast the same tx. ──
+  // The coordinator only SIGNS the Kickoff; this client is the only party that
+  // broadcasts it. A Kickoff whose response was lost never reached Bitcoin, so
+  // asking again while still `burned` cannot pay twice. Once a signed Kickoff
+  // is in hand it is persisted before broadcast and reused from then on.
   if (rec.phase === 'burned') {
     step('Signing dest-lock Kickoff (claimer CHECKSIG)…')
     let kick: { signed_btc_tx: string; amount?: number }
@@ -604,22 +608,9 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
       )
     }
     step('Dest take after CSV…')
-    let takeTxid = ''
+    let take: { take_txid?: string; signed_btc_tx?: string }
     try {
-      const take = await d.requestTake(kickoffTxid, Number(rec.claimSats ?? amount))
-      takeTxid = take.take_txid || ''
-      if (take.signed_btc_tx && !takeTxid) {
-        try {
-          takeTxid = (await d.broadcast(take.signed_btc_tx)).trim()
-        } catch {
-          /* coordinator may have broadcast */
-          try {
-            takeTxid = await btcTxidFromRaw(take.signed_btc_tx)
-          } catch {
-            /* unknown */
-          }
-        }
-      }
+      take = await d.requestTake(kickoffTxid, Number(rec.claimSats ?? amount))
     } catch (e) {
       note(errMsg(e))
       throw new Error(
@@ -627,9 +618,40 @@ export async function runBtcPegOut(p: BtcPegOutParams, d: BtcPegOutDeps): Promis
           'to retry the take — no new burn.',
       )
     }
+    // Only mark the withdrawal done once the take is known to be on Bitcoin.
+    let takeTxid = String(take.take_txid ?? '').trim().toLowerCase()
+    if (!takeTxid && take.signed_btc_tx) {
+      try {
+        takeTxid = (await d.broadcast(take.signed_btc_tx)).trim().toLowerCase()
+      } catch (e) {
+        const msg = errMsg(e)
+        if (!isAlreadyKnown(msg)) {
+          note(msg)
+          throw new Error(
+            isInputsGone(msg)
+              ? `The take was refused because the Kickoff output is already spent (${msg}). Check that BTC arrived ` +
+                  `at ${dest} (Kickoff ${kickoffTxid}). No new burn will be made.`
+              : `Kickoff is confirmed but the take broadcast failed (${msg}). Press Bridge out again with the same ` +
+                  'amount to retry the take — no new burn.',
+          )
+        }
+        try {
+          takeTxid = await btcTxidFromRaw(take.signed_btc_tx)
+        } catch {
+          takeTxid = ''
+        }
+      }
+    }
+    if (!/^[0-9a-f]{64}$/.test(takeTxid)) {
+      note('take returned no txid')
+      throw new Error(
+        'Kickoff is confirmed but the take returned no Bitcoin transaction. Press Bridge out again with the same ' +
+          'amount to retry the take — no new burn.',
+      )
+    }
     // Payout is done; a failed write here must not report an error. Worst case
     // a retry asks for the take again, which cannot spend the Kickoff twice.
-    rec = { ...rec, phase: 'done', takeTxid: takeTxid || undefined, lastError: undefined, updatedAt: d.now() }
+    rec = { ...rec, phase: 'done', takeTxid, lastError: undefined, updatedAt: d.now() }
     try {
       d.store.save(rec)
     } catch {

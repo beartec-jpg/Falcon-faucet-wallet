@@ -342,4 +342,47 @@ await test('storage fails after the burn: stops before requesting a Kickoff it c
   assert.equal(w.takes, 1)
 })
 
+await test('take: never marked done without a Bitcoin take; signed take is broadcast', async () => {
+  // Empty take response → stays open, retry completes.
+  const store = m.kvBtcPegOutStore(memKv())
+  const w = fakeWorld()
+  let empty = true
+  const deps = () =>
+    w.deps(store, {
+      requestTake: async () => {
+        w.takes += 1
+        return empty ? {} : { signed_btc_tx: GENESIS_RAW }
+      },
+    })
+  await assert.rejects(m.runBtcPegOut(params, deps()), /take returned no Bitcoin transaction/)
+  assert.equal(store.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
+  empty = false
+  const out = await m.runBtcPegOut(params, deps())
+  assert.equal(out.takeTxid, GENESIS_TXID)
+  assert.equal(w.broadcasts.length, 2) // Kickoff once + take once
+  assert.equal(w.burnsSigned, 1)
+  assert.equal(w.kickoffRequests, 1)
+
+  // Take broadcast fails → stays open (not done).
+  const store2 = m.kvBtcPegOutStore(memKv())
+  const w2 = fakeWorld()
+  let failTake = true
+  await assert.rejects(
+    m.runBtcPegOut(
+      params,
+      w2.deps(store2, {
+        requestTake: async () => ({ signed_btc_tx: GENESIS_RAW }),
+        broadcast: async (hex) => {
+          w2.broadcasts.push(hex)
+          if (hex === GENESIS_RAW && failTake) throw new Error('network timeout')
+          return GENESIS_TXID
+        },
+      }),
+    ),
+    /take broadcast failed/,
+  )
+  assert.equal(store2.listOpen(ACCOUNT)[0].phase, 'kickoff_broadcast')
+  failTake = false
+})
+
 console.log(`\n${passed} BTC peg-out resume checks passed`)
