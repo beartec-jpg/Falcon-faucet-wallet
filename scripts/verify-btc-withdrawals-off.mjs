@@ -2,7 +2,7 @@
  * Offline checks for the btc_withdrawals_enabled flag (no network, no node).
  * Run: node scripts/verify-btc-withdrawals-off.mjs
  *
- * - config: public/config/btc-spv-bridge.json has a boolean btc_withdrawals_enabled
+ * - config: public/config/btc-spv-bridge.json has btc_withdrawals_enabled === false
  * - API: with the flag off, /api/wallet/submit refuses a BTC rail_withdraw (FBTC burn)
  *   before the node is called; ETH/USDC and read-only actions still go through.
  * - API: /api/wallet + /api/wallet/pl refuse btc-kickoff / btc-take (and aliases)
@@ -129,9 +129,13 @@ const plTx = (asset) => ({
 const kickoff = { action: 'btc-kickoff', account: 'alice', dest: 'tb1qexampledestinationaddressxxxxxxxxxxxx', amount: '5000' }
 const take = { ...kickoff, action: 'btc-take', destSecret: 'cd'.repeat(32), prevTxid: 'ef'.repeat(32), vout: 0, sats: 5000 }
 
-await check('config: btc_withdrawals_enabled is a boolean', () => {
-  assert.equal(typeof baseConfig.btc_withdrawals_enabled, 'boolean')
-  console.log(`     (current value: ${baseConfig.btc_withdrawals_enabled})`)
+await check('config: btc_withdrawals_enabled is false (BTC withdrawals off)', () => {
+  // The re-enable PR flips this to true and updates this check with it.
+  assert.equal(
+    baseConfig.btc_withdrawals_enabled,
+    false,
+    'btc_withdrawals_enabled must be false while BTC withdrawals are in final testing',
+  )
 })
 
 await check('lib: flag follows config; error text', () => {
