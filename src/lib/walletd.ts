@@ -10,11 +10,13 @@
  *   FALCON_PL_WALLET_API_KEY  shared key (server-only; never NEXT_PUBLIC_)
  */
 
-/** Old droplet relay. Kept only as a fallback until the droplet is retired. */
-const LEGACY_WALLET_API = 'http://192.241.247.158:19312'
-
+/**
+ * walletd base URL. No hard-coded fallback (the droplet relay was retired on
+ * 2026-10-09): when unset, walletd calls fail and each route returns its 503 JSON.
+ */
 export function walletApiUrl(): string {
-  return (process.env.FALCON_PL_WALLET_API?.trim() || LEGACY_WALLET_API).replace(/\/+$/, '')
+  const url = process.env.FALCON_PL_WALLET_API?.trim()
+  return url ? url.replace(/\/+$/, '') : 'http://walletd-not-configured.invalid'
 }
 
 /** Shared-key auth header for the walletd gateway, if configured. */

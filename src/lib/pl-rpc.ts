@@ -6,7 +6,8 @@
  * FALCON_PL_RPC to the authenticated HTTPS wire gateway on falcon1
  * (`https://…/wire`, Bearer FALCON_PL_RPC_KEY or FALCON_PL_WALLET_API_KEY);
  * it forwards status_req / account_query / submit_tx only. Plain `host:port`
- * entries still use raw TCP. The droplet TCP proxy is a legacy fallback.
+ * entries still use raw TCP. There is no public fallback: the old droplet
+ * proxy was retired on 2026-10-09.
  */
 
 import net from 'net'
@@ -14,8 +15,6 @@ import { createHash, createHmac } from 'crypto'
 
 const _plNid = Number(process.env.FALCON_PL_NETWORK_ID ?? '2300')
 export const PL_NETWORK_ID = _plNid === 1001 || _plNid === 2200 || !Number.isFinite(_plNid) ? 2300 : _plNid
-/** Public TCP proxy on the droplet → falcon1 :19301 archive. */
-export const PL_PUBLIC_PROXY = '192.241.247.158:19311'
 
 function isServerlessRuntime(): boolean {
   return (
@@ -50,17 +49,17 @@ export function plRpcAddrs(): string[] {
     .map((s) => s.trim())
     .filter(Boolean)
   const serverless = isServerlessRuntime()
-  const fallbacks = serverless ? [PL_PUBLIC_PROXY] : ['127.0.0.1:19301', PL_PUBLIC_PROXY]
+  // Local dev / on-host builds talk to the seat directly; serverless needs FALCON_PL_RPC.
+  const fallbacks = serverless ? [] : ['127.0.0.1:19301']
   const out: string[] = []
   for (const a of [...fromEnv, ...fallbacks]) {
     if (serverless && isLoopbackAddr(a)) continue
     if (!out.includes(a)) out.push(a)
   }
-  if (out.length === 0) out.push(PL_PUBLIC_PROXY)
   return out
 }
 
-export const PL_DEFAULT_ADDR = plRpcAddrs()[0]
+export const PL_DEFAULT_ADDR = plRpcAddrs()[0] ?? ''
 export const PL_WATCHER_ACCOUNT =
   process.env.FALCON_PL_WATCHER_ACCOUNT?.trim() || 'watcher-browser'
 export const PL_FAUCET_ACCOUNT = process.env.FALCON_PL_FAUCET_ACCOUNT?.trim() || 'faucet'
@@ -255,7 +254,7 @@ export async function plRpc(
       last = e instanceof Error ? e : new Error(String(e))
     }
   }
-  throw last ?? new Error('pl rpc: no endpoints')
+  throw last ?? new Error('pl rpc: no endpoints (set FALCON_PL_RPC)')
 }
 
 export async function plStatus(includeAccounts = false): Promise<Record<string, unknown>> {
@@ -292,5 +291,5 @@ export async function plSubmitRaw(txJson: string): Promise<{ ok: boolean; msg: s
       last = e instanceof Error ? e : new Error(String(e))
     }
   }
-  throw last ?? new Error('pl rpc: no endpoints')
+  throw last ?? new Error('pl rpc: no endpoints (set FALCON_PL_RPC)')
 }

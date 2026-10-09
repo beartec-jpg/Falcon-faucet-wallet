@@ -86,7 +86,7 @@ const TESTNET: NetworkConfig = {
   networkId: envTestnetNetworkId(),
   rpcUrl: envStr(
     'NEXT_PUBLIC_TESTNET_RPC_URL',
-    envStr('NEXT_PUBLIC_RPC_URL', '192.241.247.158:19311'),
+    envStr('NEXT_PUBLIC_RPC_URL', ''),
   ),
   dripAmountFpl: TESTNET_DRIP_FPL,
   dripAmountQxrp: TESTNET_DRIP_FPL,
