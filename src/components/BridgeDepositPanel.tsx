@@ -3167,9 +3167,9 @@ const handleSpvCompleteClaim = async () => {
                 {spvLive && (
                   <div className="space-y-1.5 rounded-xl border border-slate-700/60 bg-slate-900/40 px-3 py-2.5">
                     <p className="text-[11px] text-slate-500 leading-snug">
-                      Peg-out burns FBTC, then a dest-lock Kickoff (claimer CHECKSIG, no FROST). After
-                      CSV={spvStatus?.pegOut?.csv ?? 6} your Bitcoin key takes. One Kickoff spends one
-                      output and can pay{' '}
+                      BitVM2 withdrawals are in final testing. Design target: peg-out burns FBTC, then a
+                      dest-lock Kickoff pays your Bitcoin address, and after CSV={spvStatus?.pegOut?.csv ?? 6}{' '}
+                      your Bitcoin key takes it. One Kickoff spends one output and can pay{' '}
                       {spvStatus?.pegOut?.maxSats != null
                         ? `${spvStatus.pegOut.maxSats} sats`
                         : 'that output minus the fee'}
@@ -3475,7 +3475,7 @@ const handleSpvCompleteClaim = async () => {
                             {isPl2300
                               ? spvStatus?.spv === 'bitcoin'
                                 ? 'Bitcoin headers live'
-                                : 'rail live'
+                                : 'deposits live · withdrawals in final testing'
                               : spvLive
                                 ? 'live'
                                 : 'pending'}

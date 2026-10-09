@@ -615,10 +615,9 @@ export default function RewardsPage() {
         <div>
           <h1 className="text-xl font-bold text-white">Claim rewards</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Each epoch, PoPL emissions start from base buckets: validators 55%, watchers 5%, AMM LPs 20%
-            and lending LPs 20%. Any watcher or LP share left unpaid rolls into the validator pot, so
-            validators can receive more than 55%. All claims are manual pulls from the treasury — nothing
-            auto-tops pools.
+            Each epoch, PoPL emissions are split into base buckets: validators (55%), watchers (5%), AMM
+            LPs (20%) and lending LPs (20%). Any watcher or LP allocation left unpaid goes to validators.
+            All claims are manual pulls from the treasury — nothing auto-tops pools.
           </p>
         </div>
 
@@ -726,7 +725,7 @@ export default function RewardsPage() {
                   {bond && !bond.can_claim && (
                     <p className="text-xs text-amber-500/90">
                       Need bonded status, score ≥ 500 bps, and a non-zero epoch pool (first emission
-                      epoch 8).
+                      epoch 1 on testnet).
                     </p>
                   )}
                 </>

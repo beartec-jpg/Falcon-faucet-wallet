@@ -333,7 +333,7 @@ export async function GET(req: NextRequest) {
         holdKind: 'bitvm2-instance',
         message:
           spv === 'bitcoin'
-            ? 'Falcon PL Bitcoin SPV — send testnet BTC to the BitVM2 instance + FALC memo, then mint. Peg-out is dest-lock Kickoff + your key after CSV. No FROST.'
+            ? 'Falcon Ledger Bitcoin SPV — send testnet BTC to the BitVM2 instance + FALC memo, then mint. BitVM2 withdrawals are in final testing.'
             : 'BTC deposits are live. You can send testnet BTC now; mint waits until Bitcoin headers are on Falcon.',
         btcNetwork: 'testnet',
         watchAddress,
