@@ -726,14 +726,15 @@ async function takeAfterOpen(opts: {
   const evmPrivateKey = '0x' + opts.evmPrivateKey.trim().replace(/^0x/i, '')
   const signer = new Wallet(evmPrivateKey).address
   const action = takeActionAfterOpen(opts.openJ)
-  if (action === 'skip') return { takeHash: '', alreadyTaken: true }
+  // Dest first: a claim that pays someone else is neither "already paid" to us nor takeable.
   if (opts.openJ.alreadyOpen) assertClaimDest(opts.openJ.dest, signer)
+  if (action === 'skip') return { takeHash: '', alreadyTaken: true }
   if (action === 'read') {
     opts.onStep?.('Claim already open; checking it on chain…')
     const st = await readQcClaim(opts.cfg, opts.bridge, opts.noteId)
+    assertClaimDest(st.dest, signer)
     if (st.taken) return { takeHash: '', alreadyTaken: true }
     if (!st.open) throw new Error('walletd reported this claim open, but it is not open on that bridge; not calling take()')
-    assertClaimDest(st.dest, signer)
   }
   const takeHash = await takeDestLockClaim({
     cfg: opts.cfg,
@@ -771,11 +772,9 @@ export async function claimV3Refund(opts: {
   }
   assertRefundSigner(rec.dest, signer)
 
-  const state = await withSepolia(opts.cfg.sepolia.rpc_url, async (p) => {
-    const c = new Contract(v3, QC_CLAIMS_ABI, p)
-    const row = await c.claims(noteId)
-    return { open: Boolean(row?.open ?? row?.[6]), taken: Boolean(row?.taken ?? row?.[7]) }
-  })
+  const state = await readQcClaim(opts.cfg, v3, noteId)
+  // Recorded on V3 (open or taken): it must pay this wallet before we report or take it.
+  if (state.open || state.taken) assertClaimDest(state.dest, signer)
   if (state.taken) {
     return { noteId, openHash: '', takeHash: '', bridge: v3, alreadyTaken: true }
   }
