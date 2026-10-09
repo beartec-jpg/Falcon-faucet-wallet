@@ -2,8 +2,11 @@
  * Falcon PL (network 2300) wire client.
  *
  * Nodes speak newline-JSON `WireMsg` on TCP, not XRPL JSON-RPC.
- * Local seats use 127.0.0.1:19301. Vercel / public deploys fall through to
- * the droplet TCP proxy (forwards to the falcon1 archive over Tailscale).
+ * Local seats use 127.0.0.1:19301. Vercel / public deploys set
+ * FALCON_PL_RPC to the authenticated HTTPS wire gateway on falcon1
+ * (`https://…/wire`, Bearer FALCON_PL_RPC_KEY or FALCON_PL_WALLET_API_KEY);
+ * it forwards status_req / account_query / submit_tx only. Plain `host:port`
+ * entries still use raw TCP. The droplet TCP proxy is a legacy fallback.
  */
 
 import net from 'net'
@@ -22,7 +25,12 @@ function isServerlessRuntime(): boolean {
   )
 }
 
+function isHttpAddr(addr: string): boolean {
+  return /^https?:\/\//i.test(addr)
+}
+
 function isLoopbackAddr(addr: string): boolean {
+  if (isHttpAddr(addr)) return false
   const host =
     addr
       .replace(/^tcp:\/\//i, '')
@@ -144,13 +152,49 @@ export function signPlTx(opts: {
   }
 }
 
+function wireGatewayKey(): string {
+  return (
+    process.env.FALCON_PL_RPC_KEY?.trim() || process.env.FALCON_PL_WALLET_API_KEY?.trim() || ''
+  )
+}
+
+/** One wire message over the HTTPS wire gateway (POST body = one JSON line). */
+async function plRpcHttpOnce(line: string, url: string, timeoutMs: number): Promise<PlWire> {
+  const key = wireGatewayKey()
+  const r = await fetch(url, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Wire-Timeout-Ms': String(timeoutMs),
+      ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    },
+    body: line,
+    signal: AbortSignal.timeout(timeoutMs + 5_000),
+  })
+  const text = (await r.text()).trim()
+  let parsed: PlWire | null = null
+  try {
+    parsed = JSON.parse(text) as PlWire
+  } catch {
+    parsed = null
+  }
+  // A filtered message comes back as a wire `err` (403): surface it like a node reply.
+  if (parsed && typeof parsed === 'object' && parsed.type && (r.ok || parsed.type === 'err')) {
+    parsed.raw = text
+    return parsed
+  }
+  throw new Error(`pl wire gateway ${r.status}`)
+}
+
 function plRpcOnce(
   msg: Record<string, unknown> | string,
   addr: string,
   timeoutMs: number,
 ): Promise<PlWire> {
-  const { host, port } = parseAddr(addr)
   const line = typeof msg === 'string' ? msg.replace(/\s+$/, '') : JSON.stringify(msg)
+  if (isHttpAddr(addr)) return plRpcHttpOnce(line, addr, timeoutMs)
+  const { host, port } = parseAddr(addr)
 
   return new Promise((resolve, reject) => {
     const sock = net.connect({ host, port })
