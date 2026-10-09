@@ -1,7 +1,8 @@
-/** Falcon PL white paper — technical system paper for /whitepaper (v5.0) */
+/** Falcon Ledger white paper — technical system paper for /whitepaper (v5.2) */
 
-export const WHITEPAPER_VERSION = '5.1'
-export const WHITEPAPER_DATE = '26 August 2026'
+export const WHITEPAPER_VERSION = '5.2'
+// TODO(Scott: v5.2 date): publish date still open; left undated on purpose (do not invent one).
+export const WHITEPAPER_DATE = ''
 
 export interface WhitepaperDownload {
   title: string
@@ -11,10 +12,11 @@ export interface WhitepaperDownload {
   format?: string
 }
 
-/** PDFs live in repo Docs/ — served from public/Docs/. */
+/** PDFs live in repo Docs/ — served from public/Docs/.
+ * TODO(Scott): keep the six Historical (1001) downloads here, or move/drop them (files stay at /Docs/). */
 export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
   {
-    title: 'Falcon PL — Implementation notes',
+    title: 'Falcon Ledger — Implementation notes',
     description: 'Engineering companion: measured throughput, soak history, and operator runbooks.',
     href: '/Docs/FALCON-PL-IMPLEMENTATION-READUP.md',
     filename: 'FALCON-PL-IMPLEMENTATION-READUP.md',
@@ -22,19 +24,19 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
   },
   {
     title: 'Historical (1001) — Testnet E2E Report',
-    description: 'Falcon Ledger 1001 lock-mint stack. Not 2300 dest-lock.',
+    description: 'Falcon Ledger 1001 lock-mint stack (retired network).',
     href: '/Docs/FALCON-TESTNET-E2E-REPORT.pdf',
     filename: 'FALCON-TESTNET-E2E-REPORT.pdf',
   },
   {
     title: 'Historical (1001) — Security Report — Wallet',
-    description: 'Passkey wallet on the 1001 fork. Not 2300 dest-lock.',
+    description: 'Passkey wallet on the retired 1001 fork.',
     href: '/Docs/FALCON-SECURITY-REPORT-wallet-send-receive-backup-restore.pdf',
     filename: 'FALCON-SECURITY-REPORT-wallet-send-receive-backup-restore.pdf',
   },
   {
     title: 'Historical (1001) — Security Report — Bridge, Pool, AMM & Orders',
-    description: 'Custodial lock-mint bridge on 1001. Not FalconBridge dest-lock.',
+    description: 'Custodial lock-mint bridge on the retired 1001 network. Not the current bridges.',
     href: '/Docs/FALCON-SECURITY-REPORT-bridge-pool-amm-swap-orders.pdf',
     filename: 'FALCON-SECURITY-REPORT-bridge-pool-amm-swap-orders.pdf',
   },
@@ -52,7 +54,7 @@ export const WHITEPAPER_DOWNLOADS: WhitepaperDownload[] = [
   },
   {
     title: 'Historical (1001) — Multi-Chain Wallet & Bridge Report',
-    description: '1001 lock-mint multi-chain. Not FROST / Groth16 dest-lock.',
+    description: '1001 lock-mint multi-chain (retired network). Not the current bridges.',
     href: '/Docs/FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
     filename: 'FALCON-MULTICHAIN-WALLET-BRIDGE-REPORT.pdf',
   },
@@ -86,7 +88,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'lead',
-        text: 'Falcon PL is a quantum-safe **participation ledger**. Settlement is a single hash-linked chain: one parent, one height, one hash. **Falcon Consensus** elects a packer from bonded seats, requires a 4-of-6 committee certificate to commit, and skips a silent packer so the height can still close. Every transaction, vote, and seal is **Falcon-512**. The native unit **FPL** pays security, liquidity, collateral, and rail work under one set of rules.',
+        text: 'Falcon Ledger (protocol: Falcon PL) is a quantum-safe **participation ledger**. Settlement is a single hash-linked chain: one parent, one height, one hash. **Falcon Consensus** elects a packer from bonded seats, requires a 4-of-6 committee certificate to commit, and skips a silent packer so the height can still close. Every transaction, vote, and seal is **Falcon-512**. It is an L1 built for lending and AMM pools across chains. The native unit **FPL** pays security, liquidity, collateral, and rail work under one set of rules.',
       },
       {
         type: 'p',
@@ -105,12 +107,12 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'Falcon PL takes the other shape. The chain is ordered. Participation is the product. **FPL** is the unit that measures who packed, who checked, who provided liquidity, who watched a rail, and who may claim at epoch payday. Signatures are Falcon-512 from height 1. Ninety-eight percent of supply sits in a keyless protocol treasury and leaves only through published emission rules.',
+        text: 'Falcon Ledger takes the other shape. The chain is ordered. Participation is the product. **FPL** is the unit that measures who packed, who checked, who provided liquidity, who watched a rail, and who may claim at epoch payday. Signatures are Falcon-512 from height 1. Ninety-eight percent of supply sits in a keyless protocol treasury and leaves only through published emission rules.',
       },
       {
         type: 'stats',
         items: [
-          { label: 'Product', value: 'Falcon PL' },
+          { label: 'Product', value: 'Falcon Ledger' },
           { label: 'Token', value: 'FPL' },
           { label: 'Agreement', value: 'Falcon Consensus' },
           { label: 'Crypto', value: 'Falcon-512' },
@@ -119,7 +121,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       {
         type: 'callout',
         title: 'Names',
-        text: '**Falcon-512** is the signature scheme. **Falcon Consensus** is the agreement protocol. **Falcon PL** is the chain. Proof of Participation & Liquidity (PoPL) is the **reward** layer — who is paid at epoch — not the algorithm that chooses the next ledger.',
+        text: '**Falcon-512** is the signature scheme. **Falcon Consensus** is the agreement protocol. **Falcon Ledger** is the chain. Proof of Participation & Liquidity (PoPL) is the **reward** layer — who is paid at epoch — not the algorithm that chooses the next ledger.',
       },
     ],
   },
@@ -263,7 +265,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'p',
-        text: 'Classical signatures (ECDSA, Ed25519) will not remain adequate for multi-decade financial infrastructure. Falcon PL uses Falcon-512 lattice signatures — NIST-aligned, hash-and-sign — for account transactions, consensus votes, and ledger seals, from genesis, not as a later migration.',
+        text: 'Classical signatures (ECDSA, Ed25519) will not remain adequate for multi-decade financial infrastructure. Falcon Ledger uses Falcon-512 lattice signatures — NIST-aligned, hash-and-sign — for account transactions, consensus votes, and ledger seals, from genesis, not as a later migration.',
       },
       {
         type: 'bullets',
@@ -303,7 +305,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'Treasury funds leave only through protocol epoch emission. There is no human withdrawal key. Emission follows Continuous Inflationary Decline: a declining share of remaining treasury (first claimable epoch 30 bps). The epoch is **7 days**. Pre-public testnet **2300** pays from **epoch 1**. Mainnet keeps a bootstrap: epochs 1–7 emit nothing, first claim at epoch 8. Claims are pull-based.',
+        text: 'Treasury funds leave only through protocol epoch emission. There is no human withdrawal key. Emission follows Continuous Inflationary Decline: a declining share of remaining treasury (first claimable epoch 30 bps). The epoch is **7 days**. The Falcon Ledger testnet pays from **epoch 1**. Mainnet keeps a bootstrap: epochs 1–7 emit nothing, first claim at epoch 8. Claims are pull-based.',
       },
       {
         type: 'table',
@@ -354,22 +356,23 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'p',
-        text: 'Native FPL sits beside represented assets from hardcoded rails. On public testnet **2300**, ETH and USDC enter through a **dest-lock** Ethereum contract with no owner and no admin withdraw. BTC enters a BitVM2 instance (NUMS key-path dead). Peg-out is a claimer dest-lock Kickoff, then the user’s Bitcoin key after CSV. Setup n-of-n is used once to presign Challenge/abort, then those secrets are wiped. Live Kickoff is not FROST and not a federated operator withdraw key. After Kickoff, only dest CHECKSIG (CSV) or a published abort can spend the claim. This paper does not claim an external audit.',
+        text: 'Native FPL sits beside bridged assets from listed rails. On the Falcon Ledger testnet, ETH and USDC arrive from Ethereum Sepolia through the Falcon QC bridge contract, which has no owner and no admin withdraw. Withdrawals are released on Ethereum only by a **Groth16** proof that a Falcon quorum certificate (4 of the committee’s 6 Falcon-512 signatures) committed the burn. BTC uses a **BitVM2** bridge on Bitcoin testnet, and BTC deposits are verified on Falcon by Bitcoin header SPV. The ETH/USDC bridge is non-custodial. BTC deposits are live on testnet, and trust-minimised BitVM2 withdrawals are in final testing. Both run on an experimental testnet and carry test assets only. This paper does not claim an external audit.',
       },
       {
         type: 'table',
-        headers: ['Rail (2300 testnet)', 'Role'],
+        headers: ['Rail (Falcon Ledger testnet)', 'Role'],
         rows: [
-          ['Falcon PL', 'Settlement, FPL, lending, AMM, rewards'],
-          ['Bitcoin testnet', 'BitVM2 instance + dest-lock Kickoff (FBTC); no FROST'],
-          ['Ethereum Sepolia', 'FalconDestLock: dest-lock Kickoff + dest take (no live n-of-n)'],
+          ['Falcon Ledger', 'Settlement, FPL, AMM pools, lending, rewards'],
+          ['Bitcoin testnet', 'BitVM2 bridge (FBTC): deposits live; trust-minimised withdrawals in final testing'],
+          ['Ethereum Sepolia', 'Groth16 Falcon-QC non-custodial bridge (FETH, F-USDC)'],
+          // TODO(Scott): keep or drop the BNB and XRP rows below. Current wording kept until then.
           ['BNB', 'Protocol rail exists; not a public dest-lock product'],
           ['XRP', 'Classic XRPL FXRP corridor — not 1001, not dest-lock'],
         ],
       },
       {
         type: 'p',
-        text: 'Supported rails are genesis- or governance-listed. Arbitrary user-added bridges are not a day-one path. Public mint of native FPL remains epoch settlement only. Live addresses and the trust model: portal `docs/BRIDGES-2300.md` and Falcon-PL `docs/BRIDGES_2300_STATUS.md`.',
+        text: 'Supported rails are genesis- or governance-listed. Arbitrary user-added bridges are not a day-one path. Public mint of native FPL remains epoch settlement only. Live addresses: portal `docs/BRIDGES-2300.md` on GitHub.',
       },
     ],
   },
@@ -452,11 +455,11 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ],
           [
             'Admin drain of bridged ETH/USDC',
-            'FalconBridge has no owner and no open withdraw. take() is dest-locked. Auto-mint is liveness only.',
+            'The ETH/USDC bridge has no owner and no admin withdraw. Funds are released only with a Groth16 proof of a Falcon quorum certificate. Auto-mint is liveness only.',
           ],
           [
             'Stranger spend of BTC claim',
-            'After Kickoff, ELSE is dest CHECKSIG + CSV; IF is abort only after a valid FPL challenge. Kickoff is claimer CHECKSIG on the instance (setup keys already wiped).',
+            'Design target (BitVM2 withdrawals in final testing): the user takes the dest-lock output with their own key after CSV; dispute paths are for challenges only.',
           ],
         ],
       },
@@ -503,7 +506,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'The live pre-public beta is network **2300**. It is a genesis of this protocol, not a mainnet, and not a cash market. Mainnet follows a published ceremony, freeze pin, and external audit.',
+        text: 'The live network is the experimental Falcon Ledger testnet. It is a genesis of this protocol, not a mainnet, and not a cash market. Mainnet follows a published ceremony, freeze pin, and external audit.',
       },
     ],
   },
@@ -516,14 +519,14 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
         type: 'table',
         headers: ['Item', 'Detail'],
         rows: [
-          ['Chain', 'Falcon PL (Falcon Participation Ledger)'],
+          ['Chain', 'Falcon Ledger'],
           ['Token', 'FPL — 200B hard cap, 98% keyless treasury'],
           ['Consensus', 'Falcon Consensus — lottery packer, 4-of-6 commit, skip failover'],
           ['Signatures', 'Falcon-512 on txs, votes, and seals'],
           ['Join', 'Bond → archive join-snap → certified residual → pong at tip'],
           ['Leave', 'Unbond, 14-day lock, out of lottery immediately'],
           ['Rewards', 'PoPL — pack, check, watch, provide liquidity'],
-          ['Markets', 'AMM, collateralised lending, hardcoded rails'],
+          ['Markets', 'AMM pools, collateralised lending, non-custodial ETH/USDC bridge, BTC bridge (BitVM2) in final testing'],
           ['Public mint', 'Epoch settlement only'],
         ],
       },

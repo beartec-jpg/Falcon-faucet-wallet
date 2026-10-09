@@ -18,7 +18,7 @@ const STEPS = [
   {
     n: 1,
     title: 'Create a Falcon-512 identity',
-    body: 'Open Wallet and create a passkey-secured Falcon PL account. Back up your falcon_secret. Named PL accounts are the live path — not classic r-addresses.',
+    body: 'Open Wallet and create a passkey-secured Falcon Ledger account. Back up your falcon_secret. Named Falcon accounts are the main path; older r… addresses still work.',
   },
   {
     n: 2,
@@ -65,13 +65,13 @@ export default function ValidatorGuidePage() {
           </p>
           <h1 className="text-2xl font-bold text-white">Run a <span className="text-cyan-400">Validator</span></h1>
           <p className="text-sm text-slate-400 mt-1">
-            Falcon PL · Network ID 2300 · Bond 1,000 FPL · Faucet drip {DRIP_AMOUNT.toLocaleString()} FPL
+            Falcon Ledger testnet · Bond 1,000 FPL · Faucet drip {DRIP_AMOUNT.toLocaleString()} FPL
           </p>
         </div>
 
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-          Live path is <strong>Bond → archive join-snap → residual NeedLedgers → pong at tip</strong>.
-          The retired 1001 RPC / docker one-liner is shut down and is not the 2300 product.
+          Public validator nodes are coming next. Today&apos;s bonded seats join by{' '}
+          <strong>Bond → archive join-snap → residual NeedLedgers → pong at tip</strong>.
         </div>
 
         <section className="card p-5 space-y-3">
@@ -106,7 +106,7 @@ export default function ValidatorGuidePage() {
         <section className="card p-5 space-y-2">
           <h2 className="text-sm font-semibold text-white uppercase tracking-wide">Requirements</h2>
           <ul className="text-xs text-slate-400 space-y-1 list-disc list-inside">
-            <li>Falcon-512 identity (passkey wallet) on Falcon PL 2300</li>
+            <li>Falcon-512 identity (passkey wallet) on the Falcon Ledger testnet</li>
             <li>≥1,000 FPL to Bond (faucet drip covers this on testnet)</li>
             <li>Node started with <code className="text-slate-300">--join</code> against published seeds</li>
             <li>Archive join-snap available when tip is 0 or lag ≥ 2,048</li>

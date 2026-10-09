@@ -152,7 +152,7 @@ export default function WhitepaperPage() {
           <div className="max-w-3xl mx-auto px-4 pt-12 pb-10 sm:pt-16 sm:pb-14 text-center">
             <Image
               src="/falcon-logo.png"
-              alt="Falcon PL"
+              alt="Falcon Ledger"
               width={88}
               height={88}
               className="mx-auto rounded-2xl shadow-[0_0_48px_rgba(192,120,56,0.28)] mb-6 object-cover border border-brand-500/20"
@@ -162,7 +162,7 @@ export default function WhitepaperPage() {
               Technical white paper
             </p>
             <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-3">
-              Falcon PL
+              Falcon Ledger
             </h1>
             <p className="text-base sm:text-lg text-slate-400 max-w-xl mx-auto leading-relaxed">
               A quantum-safe participation ledger —{' '}
@@ -170,7 +170,7 @@ export default function WhitepaperPage() {
               <span className="text-brand-400 font-medium">FPL</span> at the centre.
             </p>
             <p className="text-xs text-slate-600 mt-4">
-              Version {WHITEPAPER_VERSION} · {WHITEPAPER_DATE}
+              Version {WHITEPAPER_VERSION}{WHITEPAPER_DATE ? ` · ${WHITEPAPER_DATE}` : ''}
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
@@ -339,7 +339,7 @@ export default function WhitepaperPage() {
           </section>
 
           <footer className="border-t border-slate-800 pt-8 pb-14 text-center text-sm text-slate-600">
-            <p>© {new Date().getFullYear()} Falcon PL · White paper v{WHITEPAPER_VERSION}</p>
+            <p>© {new Date().getFullYear()} Falcon Ledger · White paper v{WHITEPAPER_VERSION}</p>
             <p className="mt-3 flex flex-wrap justify-center gap-4">
               <Link href="/" className="text-brand-500 hover:text-brand-400">
                 Home

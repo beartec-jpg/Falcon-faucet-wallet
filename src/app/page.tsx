@@ -44,7 +44,7 @@ export default function MarketingHomePage() {
             <Image
               className="nav-logo"
               src="/assets/images/brand/logo.jpg"
-              alt="Falcon PL"
+              alt="Falcon Ledger"
               width={160}
               height={36}
               priority
@@ -103,18 +103,18 @@ export default function MarketingHomePage() {
           <div className="hero-glow" aria-hidden="true" />
           <div className="hero-content container">
             <h1 className="hero-title reveal-load" data-delay="0">
-              Falcon PL
+              Falcon Ledger
             </h1>
             <p className="hero-subtitle reveal-load" data-delay="200">
-              A quantum-safe participation ledger
+              A quantum-safe L1 for lending and liquidity across chains
             </p>
             <p className="hero-support reveal-load" data-delay="400">
-              Pre-public Falcon-512 testnet 2300. Test tokens have no cash value.
-              Post-quantum signatures from genesis.
+              Now on the experimental Falcon Ledger testnet. Falcon-512 post-quantum signatures from
+              genesis. Test tokens have no cash value.
             </p>
             <p className="hero-status reveal-load" data-delay="500">
-              PQC testnet + wallet + faucet + explorer. AMM, lend, and dest-lock
-              bridge are experimental.
+              Try the wallet, AMM pools, lending, the non-custodial ETH and USDC bridge, and BTC
+              deposits today.
             </p>
             <div className="hero-actions reveal-load" data-delay="600">
               <Link href="/wallet" className="btn btn-primary">
@@ -146,9 +146,11 @@ export default function MarketingHomePage() {
               <p className="section-eyebrow">Introduction</p>
               <h2 className="section-title">What is Falcon?</h2>
               <p className="section-intro">
-                Falcon PL is a quantum-safe participation ledger — Falcon Consensus and Falcon-512,
-                designed for long-term security and fair participation. This site is the pre-public
-                2300 testnet, not a finished multi-chain product.
+                Falcon Ledger is a quantum-safe Layer 1 built for lending and AMM pools across chains.
+                It runs Falcon Consensus with Falcon-512 signatures on a seven-seat bonded validator
+                set, and pays the people who secure and use it through Proof of Participation &amp;
+                Liquidity. This is the experimental Falcon Ledger testnet, a working preview rather
+                than mainnet.
               </p>
             </div>
             <div className="feature-grid">
@@ -196,11 +198,13 @@ export default function MarketingHomePage() {
         <section className="section section-roof" id="platform">
           <div className="container">
             <div className="section-header reveal">
-              <p className="section-eyebrow">Testnet 2300</p>
+              <p className="section-eyebrow">Falcon Ledger testnet</p>
               <h2 className="section-title">What you can try today</h2>
               <p className="section-intro">
-                Wallet, faucet, and explorer are live on this PQC testnet. AMM, lend, and dest-lock
-                are experimental — not a finished wallet + pools + lend + earn stack.
+                Everything here runs on the Falcon Ledger testnet today: wallet, faucet, explorer, AMM
+                pools, lending, a non-custodial ETH and USDC bridge, and a BitVM2 BTC bridge (deposits live,
+                trust-minimised withdrawals in final testing). It&apos;s experimental, so
+                expect rough edges and resets. Test tokens only.
               </p>
             </div>
             <div className="roof-grid">
@@ -208,21 +212,21 @@ export default function MarketingHomePage() {
                 { src: '/assets/images/platform/platform-wallet.jpg', title: 'Testnet wallet', href: '/wallet' },
                 {
                   src: '/assets/images/platform/platform-bridge.jpg',
-                  title: 'Testnet dest-lock',
+                  title: 'Bridges',
                   href: '/wallet',
-                  badge: 'Experimental',
+                  badge: 'Testnet',
                 },
                 {
                   src: '/assets/images/platform/platform-pools.jpg',
                   title: 'Liquidity pools',
                   href: '/pool',
-                  badge: 'Experimental',
+                  badge: 'Testnet',
                 },
                 {
                   src: '/assets/images/platform/platform-lending.jpg',
                   title: 'Lending',
                   href: '/lend',
-                  badge: 'Experimental',
+                  badge: 'Testnet',
                 },
                 {
                   src: '/assets/images/platform/platform-rewards.jpg',
@@ -260,35 +264,35 @@ export default function MarketingHomePage() {
               {
                 n: '01',
                 title: 'Testnet wallet',
-                p1: 'Hold FPL on Falcon PL 2300. ETH/USDC: Groth16 FalconQcBridge (STATUS). BTC peg-out live today is BitVM2 A1 operator-fronting — not custodialess. Testnet 2300 (test tokens, no cash value).',
-                p2: 'Passkey wallet on this testnet. Test tokens have no cash value.',
+                p1: 'Hold FPL, FETH, F-USDC and FBTC in one passkey-secured wallet. Your Falcon-512 keys are created and kept on your device, and signing happens in your browser.',
+                p2: 'Experimental testnet. Test tokens have no cash value.',
                 img: '/assets/images/features/feature-wallet.jpg',
                 reverse: false,
               },
               {
                 n: '02',
-                title: 'Testnet dest-lock',
-                badge: 'Experimental',
-                p1: 'ETH/USDC: Groth16 FalconQcBridge (STATUS). BTC: BitVM2 A1 operator-fronting (not custodialess BitVM2 Disprove). Testnet 2300 only.',
-                p2: 'Experimental testnet corridor — not a finished bridge product.',
+                title: 'Bridges',
+                badge: 'Testnet',
+                p1: 'Bring ETH and USDC over from Ethereum Sepolia and send them back out. ETH and USDC withdrawals are released only by a Groth16 proof of Falcon quorum certificates. You can also bring BTC in from Bitcoin testnet today; trust-minimised BitVM2 withdrawals are in final testing.',
+                p2: 'The ETH and USDC bridge is non-custodial: the Ethereum bridge contract has no owner and no admin withdraw. Experimental testnet, test assets only.',
                 img: '/assets/images/features/feature-bridge.jpg',
                 reverse: true,
               },
               {
                 n: '03',
                 title: 'Liquidity pools',
-                badge: 'Experimental AMM',
-                p1: 'Three testnet pools: F-USDC/FPL, FETH/FPL, and FBTC/FPL. FBNB is not listed.',
-                p2: 'Experimental. Not a production market-maker.',
+                badge: 'Testnet',
+                p1: 'Three AMM pools are open on testnet: F-USDC/FPL, FETH/FPL and FBTC/FPL. Swap, add liquidity, and earn a share of epoch rewards as an LP.',
+                p2: 'Testnet rewards only. Test tokens have no cash value.',
                 img: '/assets/images/features/feature-pools.jpg',
                 reverse: false,
               },
               {
                 n: '04',
                 title: 'Lending',
-                badge: 'Experimental',
-                p1: 'F-USDC vault only. FETH and FBTC are pool pairs with FPL, not lend assets.',
-                p2: 'Experimental. Not a production lending market.',
+                badge: 'Testnet',
+                p1: 'Supply to on-chain lending markets and borrow against FPL collateral. F-USDC, FETH and FBTC markets are open on testnet.',
+                p2: 'Experimental testnet lending. Test tokens have no cash value.',
                 img: '/assets/images/features/feature-lending.jpg',
                 reverse: true,
               },
@@ -349,7 +353,7 @@ export default function MarketingHomePage() {
                 {
                   n: '03',
                   title: 'Real rewards for the people who secure and use the network',
-                  text: 'On testnet 2300, validators, liquidity providers, and participants earn from the protocol. Testnet rewards only — test tokens have no cash value.',
+                  text: 'On the Falcon Ledger testnet, validators, liquidity providers and lenders earn from the protocol. Testnet rewards only — test tokens have no cash value.',
                 },
                 {
                   n: '04',
@@ -374,9 +378,10 @@ export default function MarketingHomePage() {
             <div className="cta-content reveal">
               <h2 className="section-title">Ready to explore?</h2>
               <p className="cta-text">
-                Falcon PL is a pre-public testnet.
+                Falcon Ledger is live on testnet.
                 <br />
-                Start with the wallet, faucet, or explorer. Test tokens have no cash value.
+                Grab test FPL from the faucet, then try pools, lending and the bridges. Test tokens have
+                no cash value.
               </p>
               <div className="cta-actions">
                 <Link href="/wallet" className="btn btn-primary">
@@ -405,7 +410,7 @@ export default function MarketingHomePage() {
             <Image
               className="footer-logo"
               src="/assets/images/brand/logo.jpg"
-              alt="Falcon PL"
+              alt="Falcon Ledger"
               width={140}
               height={32}
               style={{ height: 32, width: 'auto' }}
@@ -426,8 +431,8 @@ export default function MarketingHomePage() {
             </a>
           </nav>
           <p className="footer-copy">
-            &copy; <span id="year"></span> Falcon PL. Pre-public testnet 2300. Test tokens have no cash
-            value.
+            &copy; <span id="year"></span> Falcon Ledger (FPL). Experimental testnet. Test tokens have no
+            cash value.
           </p>
         </div>
       </footer>

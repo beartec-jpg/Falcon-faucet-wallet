@@ -1,6 +1,6 @@
-# Falcon PL Web Portal
+# Falcon Ledger Web Portal
 
-Official public portal for **Falcon PL** testnet (network ID **2300**) — Falcon Consensus + Falcon-512. The old Falcon Ledger / XRPL fork (network **1001**) is shut down; those balances are lost.
+Official web portal for **Falcon Ledger (FPL)**, a quantum-safe L1 focused on lending and AMM pools across chains. This is the **experimental Falcon Ledger testnet**: passkey wallet, faucet, explorer, AMM pools, lending, a non-custodial ETH and USDC bridge, and a BTC bridge (BitVM2) with deposits live and trust-minimised BitVM2 withdrawals in final testing. Test tokens have no cash value.
 
 **Live:** [falcon-ledger.com](https://falcon-ledger.com) · **Repo:** [Falcon-faucet-wallet](https://github.com/beartec-jpg/Falcon-faucet-wallet)
 
@@ -10,31 +10,26 @@ Official public portal for **Falcon PL** testnet (network ID **2300**) — Falco
 
 ### Faucet
 - Rate-limited testnet **FPL** drip (default 2,000 per request)
-- Falcon PL named accounts (network **2300**), not classic `r…` XRPL addresses
+- Falcon Ledger account names (or the classic `r…` address on an older wallet)
 
 ### Wallet (passkey-secured)
 - **Create** Falcon-512 wallets with WebAuthn passkeys — keys generated on-device
 - **Restore** from saved `falcon_secret` or unlock an existing passkey-encrypted wallet
-- **Send / receive FPL** — named Falcon PL accounts or QR
-- **Send / receive F-USDC** — dest-lock USDC on 2300 (peg-in live)
+- **Send / receive FPL** — named Falcon Ledger accounts or QR
+- **Send / receive FETH, F-USDC and FBTC** — bridged test assets
 - **Recent transactions** — FPL and rail-asset labels
-- **Validator onboarding** — one-click deploy command with your address as `--payout` (1,000 FALCON bond)
 - **PWA** — installable progressive web app with offline shell
 
 ### Swap
-- **Instant swap** — buy/sell **F-USDC** via the on-chain AMM (FALCON ↔ F-USDC)
-- **Limit orders** — DEX order book with crossing fills by default; **Post only** for passive resting orders
-- **Order book** — live bids/asks; dust remainders filtered from public book
-- **Open orders** — persistent panel with cancel and fill status
-- Price field is **FALCON per F-USDC** (inverse helper shown in UI)
+- **Instant swap** on the F-USDC/FPL, FETH/FPL and FBTC/FPL AMM pools
 
-### Bridge (Sepolia ↔ Falcon PL 2300)
+### Bridges (Sepolia / Bitcoin testnet ↔ Falcon Ledger testnet)
 
-Paperwork: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
+Non-custodial ETH/USDC bridge (Groth16 Falcon-QC), working end to end on an experimental testnet. BTC bridge (BitVM2): deposits live on testnet; trust-minimised BitVM2 withdrawals in final testing. Test assets only. Addresses: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
 
-- **ETH/USDC (FalconQcBridge)** — `depositEth(bytes20)` / `depositUsdc` on `0xf8F1471643792eb1cD5d0C31061629777E55bc48`; Groth16 verifier `0x9992cD8e45A2b7983E2b7f8fC725308a0E4845EC`. Peg-out: burn → Falcon-512 proofs → `openClaim` / `take`. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: live`).
+- **ETH / USDC (Sepolia) — FalconQcBridge:** `depositEth(bytes20)` / `depositUsdc` on `0xf8F1471643792eb1cD5d0C31061629777E55bc48`. No owner and no admin withdraw; withdrawals are released only by a Groth16 proof of Falcon quorum certificates. Groth16 verifier `0x9992cD8e45A2b7983E2b7f8fC725308a0E4845EC`. Peg-out: burn → Falcon-512 proofs → `openClaim` / `take`. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json`.
 - **Legacy DestLock (Kickoff only):** `0xdBF6855b00B78c047A729A21E13bfE5f4C991C05` — not the live peg-in.
-- **BTC** — even-Y NUMS pool `tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34` (primary). Peg-out live: BitVM2 A1 operator-fronting (`BTC_EXIT_MODE=bitvm2`) — **not** custodialess. `BTC_RAIL_LIVE = true`. Prior instance `tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5` is historical.
+- **BTC (Bitcoin testnet) — BitVM2:** even-Y NUMS pool `tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34` (primary). Exit mode `BTC_EXIT_MODE=bitvm2`. `BTC_RAIL_LIVE = true`. Prior instance `tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5` is historical.
 - **Classic XRPL FXRP** — separate corridor; not the 1001 Falcon Ledger fork.
 - **Passkey Sepolia wallet** — no MetaMask; EVM keys encrypted on-device.
 - **Send Out** — move Sepolia ETH or USDC to any external `0x` address.
@@ -43,25 +38,19 @@ Paperwork: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
 Do **not** send to old FalconCollateralLock `0x2dae31…` / `0x11808B…` (`public/config/usdc-bridge.json` is the retired 1001 lock, kept for FXRP notes only).
 
 ### Pool
-- **Add liquidity** — deposit FALCON + F-USDC into the FALCON/F-USDC AMM
-- **Withdraw liquidity** — partial or full LP burn
-- Live pool stats, LP share %, and estimated withdrawal amounts
+- **Add / withdraw liquidity** on the F-USDC/FPL, FETH/FPL and FBTC/FPL AMM pools
+- Earn an LP share of epoch rewards; live pool stats and LP share %
 
 ### Lend
-- **Protocol live** — `SingleAssetVault`, `LendingProtocol`, `LendingCollateral`, and `LendingPermissionless` (fleet rollout) on testnet
-- **Permissionless borrow** — post FALCON collateral (150% min health factor at AMM price); no broker `CounterpartySignature` when `LendingPermissionless` is enabled
-- **Overview** — pool utilization, AMM mid price, APY panel, risk monitor, health-factor preview
-- **Supply / Borrow / Repay** — portal-signed `VaultDeposit`, `LoanSet`, `LoanPay`, `VaultWithdraw`, and `ClaimLPReward`
-- **Positions** — multi-loan selector, on-chain collateral + health factor, repay preflight, claim estimates
-- **Liquidation** — on-chain `LoanManage` (HF breach or late payment); **FALCON is not sold** — forfeited collateral goes to the vault **LP claim pot** (`VaultClaimCollateral`); LPs stay in F-USDC for interest via share value
-- **LP yield** — borrower interest returns as F-USDC to the vault; epoch FALCON emissions via `ClaimLPReward` (PoPL participation split)
-- **Legacy broker path** — pre-permissionless borrows still use `POST /api/lend/cosign` + broker cover (testnet only)
+- **Markets** — F-USDC, FETH and FBTC lending markets on testnet
+- **Supply / Borrow / Repay** — supply to a market, borrow against FPL collateral, repay, all settled on chain
+- **Positions** — on-chain collateral and health factor
 
 ### Explorer
 - Ledger and transaction lookup by hash or address
 
 ### Rewards / Validator
-- Register, bond (1,000 FALCON), unbond, and **ClaimReward** from the portal
+- Register, bond (1,000 FPL), unbond, and **ClaimReward** from the portal
 - Composite score and epoch emission visibility
 
 ### Message Board
@@ -79,9 +68,9 @@ Do **not** send to old FalconCollateralLock `0x2dae31…` / `0x11808B…` (`publ
 
 | UI label | What it is | Where used |
 |----------|------------|------------|
-| **FPL** | Native Falcon PL asset (network 2300) | Wallet, Swap, Pool, DEX |
-| **F-USDC / FETH** | Dest-lock USDC / ETH on Falcon PL 2300 (live on Sepolia testnet) | Wallet, Bridge |
-| **FBTC** | Dest-lock Bitcoin testnet on Falcon PL 2300 (`BTC_RAIL_LIVE`) | Wallet, Bridge |
+| **FPL** | Native Falcon Ledger asset | Wallet, Swap, Pool, DEX |
+| **F-USDC / FETH** | Bridged Sepolia USDC / ETH (testnet) | Wallet, Bridge |
+| **FBTC** | Bridged Bitcoin testnet BTC (`BTC_RAIL_LIVE`) | Wallet, Bridge |
 | **Sepolia USDC** | Circle ERC-20 on Ethereum Sepolia | Multi-chain / Bridge |
 | **FXRP** | Classic XRPL XRP corridor | Bridge (not 1001) |
 
@@ -93,13 +82,12 @@ F-USDC and Sepolia USDC are **not** the same token — the bridge converts betwe
 
 | Item | Value |
 |------|-------|
-| Name | Falcon PL public testnet |
-| Network ID | **`2300`** |
-| Product | Falcon PL · Falcon Consensus · Falcon-512 (`product_version` 2.9.43) |
-| Public RPC | operator hub on falcon1 port **19301** (Tailscale mesh; not the retired 1001 `:6005`) |
+| Name | Falcon Ledger testnet (experimental) |
+| Product | Falcon Consensus · Falcon-512 (`product_version` 2.9.60) |
+| Validators | 7 bonded seats |
 | Epoch | 7 days; first claimable epoch **1** on testnet |
 | Min validator bond | 1,000 FPL |
-| Bridges | Dest-lock ETH/USDC + BTC — [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md) |
+| Bridges | Non-custodial ETH/USDC (Groth16 Falcon-QC) + BTC bridge (BitVM2): deposits live on testnet; trust-minimised BitVM2 withdrawals in final testing — [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md) |
 
 Network **1001** (Falcon Ledger / XRPL fork) is shut down. Do not use `:6005`, `r…` issuers, or `FalconCollateralLock`. Admin is a unix `--admin-sock`, not a public TCP admin port.
 
@@ -107,7 +95,7 @@ Network **1001** (Falcon Ledger / XRPL fork) is shut down. Do not use `:6005`, `
 
 ## Falcon signing
 
-User accounts and the faucet use **Falcon-512** keys. There is no classical signing path for 2300 txs.
+User accounts and the faucet use **Falcon-512** keys. There is no classical signing path for Falcon Ledger testnet txs.
 
 - **Browser:** Client-side signing via `@openforge-sh/liboqs` WASM
 - Store your `falcon_secret` when creating a wallet — it cannot be derived from a passkey afterwards.
@@ -116,14 +104,14 @@ User accounts and the faucet use **Falcon-512** keys. There is no classical sign
 
 ## Documentation
 
-Current 2300 docs: [docs/README.md](docs/README.md).
+Current docs: [docs/README.md](docs/README.md).
 
 | Doc | Description |
 |-----|-------------|
-| [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md) | Dest-lock ETH / USDC / BTC (current) |
+| [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md) | ETH / USDC / BTC bridges (current) |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Shipped features and mainnet plan |
-| [docs/archive-1001/README.md](docs/archive-1001/README.md) | Historical 1001 PDFs (not dest-lock) |
-| [public/config/pl-2300-bridge.json](public/config/pl-2300-bridge.json) | Live Sepolia dest-lock manifest |
+| [docs/archive-1001/README.md](docs/archive-1001/README.md) | Historical 1001 PDFs (retired network) |
+| [public/config/pl-2300-bridge.json](public/config/pl-2300-bridge.json) | Live Sepolia bridge manifest |
 | [public/config/usdc-bridge.json](public/config/usdc-bridge.json) | Retired 1001 lock + FXRP notes only |
 | [docs/sql/board-schema.sql](docs/sql/board-schema.sql) | Neon SQL schema for the message board |
 | [.env.example](.env.example) | Environment variable reference |
@@ -158,7 +146,7 @@ See [.env.example](.env.example) for the full list. Key variables:
 |----------|---------|
 | `XRPLD_RPC_URL` | Public node on port 6005 |
 | `TESTNET_FAUCET_ACCOUNT` / `TESTNET_FAUCET_SECRET` | Falcon faucet (`falcon_secret` hex) |
-| `SIGNER_PROXY_URL` / `SIGNER_PROXY_TOKEN` | Falcon signing proxy on node1 |
+| `SIGNER_PROXY_URL` / `SIGNER_PROXY_TOKEN` | Server-side Falcon signing proxy |
 | `NEXT_PUBLIC_TESTNET_USDC_ISSUER` | F-USDC issuer (or auto from `testnet-stables.json`) |
 | `NEXT_PUBLIC_SEPOLIA_LOCK_CONTRACT` | Sepolia bridge lock contract |
 | `DATABASE_URL` | Neon Postgres connection string (message board) |
@@ -182,21 +170,14 @@ Use **`pnpm add`** for new dependencies — `npm install` will desync `pnpm-lock
 
 ## Becoming a validator
 
-Inside the **Wallet** tab:
-
-1. Load your address (or create one).
-2. Click the **node / server icon** in the action bar.
-3. Confirm you have **1,000 FALCON** to bond.
-4. Copy the one-liner (your wallet address is pre-filled as `--payout`).
-5. Run on Ubuntu 22.04/24.04 with Docker.
-
-2300 validator join is Bond → archive join-snap → residual NeedLedgers (see the in-app whitepaper). Do not follow the retired qXRP/1001 docker one-liner as if it were 2300.
+Public validator nodes are coming next. Today the testnet runs on seven bonded validator seats; see [falcon-ledger.com/validator](https://falcon-ledger.com/validator) for how bonding and joining work.
 
 ---
 
 ## Recent releases
 
-- **Aug 2026 (2300):** dest-lock ETH/USDC in and out; BTC dest-lock + FROST Kickoff (`BTC_RAIL_LIVE`); named FPL accounts
+- **Oct 2026:** seven-seat validator set; Release A (2.9.60: Sepolia Gloas light-client fix, 7-day ETH header window); non-custodial ETH/USDC (Groth16 Falcon-QC) bridge working end to end; BTC bridge (BitVM2): deposits live on testnet; trust-minimised BitVM2 withdrawals in final testing; AMM pools (F-USDC/FPL, FETH/FPL, FBTC/FPL) and lending on testnet
+- **4 Sep 2026:** ETH/USDC Groth16 Falcon-QC bridge e2e on Sepolia; BTC rail on Bitcoin testnet (`BTC_RAIL_LIVE`); named FPL accounts
 - July 2026 (1001, archived): permissionless lending, passkey wallet, lock-mint USDC bridge — see [docs/archive-1001/README.md](docs/archive-1001/README.md)
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full feature timeline.

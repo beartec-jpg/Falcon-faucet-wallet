@@ -289,9 +289,8 @@ export default function ArcadePage() {
       </Header>
       <div className="shrink-0">
         <div className="bg-amber-950/50 border-b border-amber-800/40 px-4 py-2 text-center text-xs text-amber-200/90">
-          <span className="font-medium">Falcon PL</span>
-          {' · '}Network ID 2300
-          {' · '}FPL testnet — no real value
+          <span className="font-medium">Falcon Ledger</span>
+                    {' · '}FPL testnet — no real value
         </div>
       </div>
 

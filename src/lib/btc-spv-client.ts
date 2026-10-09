@@ -318,7 +318,7 @@ export async function sendSpvDeposit(opts: {
 }
 
 /**
- * Non-custodial peg-in: fund BitVM vault P2WSH + OP_RETURN, return vault material for claim/out.
+ * Vault peg-in: fund BitVM vault P2WSH + OP_RETURN, return vault material for claim/out.
  */
 export async function sendSpvVaultDeposit(opts: {
   privateKeyHex: string

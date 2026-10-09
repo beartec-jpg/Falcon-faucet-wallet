@@ -189,13 +189,12 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <ProductShell intensity={0.5} className="flex-1 min-h-0">
-      <Header current="faucet" subtitle="Falcon PL · 2300">
+      <Header current="faucet" subtitle="Falcon Ledger testnet">
         <StatusDot online={status.online} state={status.state} />
       </Header>
       <div className="bg-amber-950/50 border-b border-amber-800/40 px-4 py-2 text-center text-xs text-amber-200/90">
-        <span className="font-medium">Falcon PL</span>
-        {' · '}Network ID 2300
-        {' · '}Pre-public beta — test tokens, no cash value
+        <span className="font-medium">Falcon Ledger</span>
+        {' · '}Experimental testnet — test tokens, no cash value
       </div>
 
       {/* Main */}
@@ -208,7 +207,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
           {/* Hero */}
           <div className="text-center space-y-2">
             <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-brand-400/90">
-              Falcon PL faucet
+              Falcon Ledger faucet
             </p>
             <h1 className="text-3xl font-bold text-white tracking-tight">
               Get testnet{' '}
@@ -228,7 +227,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
               <input type="hidden" name="account" value={address.trim()} />
               <div className="space-y-1.5">
                 <label htmlFor="address" className="block text-sm font-medium text-slate-300">
-                  Your Falcon PL account
+                  Your Falcon Ledger account
                 </label>
                 <input
                   id="address"
@@ -242,7 +241,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                   disabled={loading}
                 />
                 <p className="text-[11px] text-slate-500">
-                  Use the account name you created (or the r… on an older wallet). Opening faucet from Wallet fills this in.
+                  Use your Falcon account name (or the r… address on an older wallet).
                 </p>
               </div>
 
@@ -306,7 +305,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: 'Tip', value: (status.tip ?? status.ledger)?.toLocaleString() ?? '—' },
-              { label: 'Network', value: status.networkId != null ? String(status.networkId) : '2300' },
+              { label: 'Network', value: 'Testnet' },
               { label: 'Epoch', value: status.epoch != null ? `${status.epoch} / claim ${status.firstClaimEpoch ?? 1}` : '—' },
               { label: 'Mesh', value: status.online ? 'live' : 'offline' },
             ].map(({ label, value }) => (
@@ -327,7 +326,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
               </svg>
-              Open Falcon PL wallet
+              Open Falcon Ledger wallet
             </div>
             <svg className="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -337,7 +336,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
           {/* Help text */}
           <p className="text-center text-xs text-slate-500">
             <Link href="/" className="text-brand-400/90 hover:text-brand-300 underline underline-offset-2">
-              ← Falcon PL home
+              ← Falcon Ledger home
             </Link>
             {' · '}
             Tokens have no real value · For testing only

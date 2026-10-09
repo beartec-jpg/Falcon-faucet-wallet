@@ -71,7 +71,7 @@ function TickerStrip({
         Commit <span className="text-slate-300 font-mono">{commit}</span>
       </span>
       <span>
-        Network <span className="text-slate-300">Falcon PL 2300</span>
+        Network <span className="text-slate-300">Falcon Ledger testnet</span>
       </span>
     </div>
   )
@@ -117,7 +117,7 @@ function SearchBar() {
       const r = await fetch(`/api/scan?account=${encodeURIComponent(q)}`, { signal: ctrl.signal })
       const d = (await r.json()) as Record<string, unknown>
       if (d.found === false || d.exists === false) {
-        setError('Account not found on Falcon PL 2300')
+        setError('Account not found on the Falcon Ledger testnet')
         setResult(null)
         return
       }
@@ -201,8 +201,8 @@ function RailsTable({ rails }: { rails: RailRow[] }) {
         Protocol rails
       </h2>
       <p className="text-[10px] text-slate-600 mb-4">
-        Live dest-lock rails. Minted/burned counts start at the public zero-point;
-        new peg-ins add from here.
+        Bridge rails (testnet). Minted and burned counts start at the public zero-point;
+        new deposits add from here.
       </p>
       <div className="card overflow-hidden">
         <table className="w-full text-sm">
@@ -315,7 +315,7 @@ export default function ScanExplorer({
         />
       )}
 
-      <Header current="scan" subtitle="Falcon PL · 2300" />
+      <Header current="scan" subtitle="Falcon Ledger testnet" />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8 space-y-8">
         <Logo />
@@ -376,7 +376,7 @@ export default function ScanExplorer({
               Network overview
             </h2>
             <p className="text-[10px] text-slate-600 mb-3">
-              Falcon PL 2300 · Falcon Consensus · Falcon-512
+              Falcon Ledger testnet · Falcon Consensus · Falcon-512
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <ClickableStatCard
@@ -562,7 +562,7 @@ export default function ScanExplorer({
       </main>
 
       <footer className="border-t border-slate-800 py-4 px-4 text-center text-xs text-slate-600">
-        Falcon PL 2300 · test tokens · no cash value ·{' '}
+        Falcon Ledger testnet · test tokens · no cash value ·{' '}
         <a
           href="https://github.com/beartec-jpg/Falcon-faucet-wallet"
           target="_blank"

@@ -333,8 +333,8 @@ export async function GET(req: NextRequest) {
         holdKind: 'bitvm2-instance',
         message:
           spv === 'bitcoin'
-            ? 'Falcon PL Bitcoin SPV — send testnet BTC to the BitVM2 instance + FALC memo, then mint. Peg-out is dest-lock Kickoff + your key after CSV. No FROST.'
-            : 'BitVM2 dest-lock is live. You can send testnet BTC now; mint waits until Bitcoin headers are on Falcon.',
+            ? 'Falcon Ledger Bitcoin SPV — send testnet BTC to the BitVM2 instance + FALC memo, then mint. BitVM2 withdrawals are in final testing.'
+            : 'BTC deposits are live. You can send testnet BTC now; mint waits until Bitcoin headers are on Falcon.',
         btcNetwork: 'testnet',
         watchAddress,
         paymentScriptHex,
@@ -379,7 +379,7 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json(
       {
-        error: 'Falcon Ledger (network 1001) is shut down. Use Falcon PL 2300.',
+        error: 'Falcon Ledger (network 1001) is shut down. Use the Falcon Ledger testnet.',
         retired: true,
       },
       { status: 410 },
@@ -562,7 +562,7 @@ export async function POST(req: NextRequest) {
 
   if (action === 'find_redeem') {
     return NextResponse.json(
-      { error: 'Falcon Ledger redeem is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Falcon Ledger (network 1001) redeem is retired. Use the Falcon Ledger testnet.', retired: true },
       { status: 410 },
     )
   }
@@ -723,7 +723,7 @@ export async function POST(req: NextRequest) {
       }
     }
     return NextResponse.json(
-      { error: 'Falcon Ledger withdraw list is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Falcon Ledger (network 1001) withdraw list is retired. Use the Falcon Ledger testnet.', retired: true },
       { status: 410 },
     )
     if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account)) {
@@ -772,7 +772,7 @@ export async function POST(req: NextRequest) {
   // SPV peg-out: poll BtcWithdrawal challenge window
   if (action === 'withdraw_status') {
     return NextResponse.json(
-      { error: 'Falcon Ledger withdraw status is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Falcon Ledger (network 1001) withdraw status is retired. Use the Falcon Ledger testnet.', retired: true },
       { status: 410 },
     )
     const account = (body.account || '').trim()

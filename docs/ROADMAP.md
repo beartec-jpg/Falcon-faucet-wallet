@@ -1,177 +1,33 @@
-# Falcon PL portal — Roadmap
+# Falcon Ledger roadmap
 
-**Last updated:** 2026-09-19  
-**Current testnet:** Falcon PL network ID **2300** (Falcon Consensus + Falcon-512, live `product_version` 2.9.43).  
-**Falcon Ledger / XRPL fork 1001 is shut down.**
+**Network:** experimental Falcon Ledger testnet (test tokens, no cash value)
 
-Bridge status (testnet **live** ETH/USDC FalconQcBridge + BTC even-Y / BitVM2 A1 operator-fronting): [BRIDGES-2300.md](./BRIDGES-2300.md). Protocol living report: Falcon-PL `docs/BRIDGES_2300_STATUS.md`.
+Falcon Ledger is a quantum-safe L1 focused on lending and AMM pools across chains. Ticker **FPL**.
 
-This roadmap covers the **web portal** (`Falcon-faucet-wallet`). Protocol papers: in-app [whitepaper](/whitepaper) (v5.1).
+Bridge addresses: [BRIDGES-2300.md](./BRIDGES-2300.md). Protocol paper: in-app [whitepaper](https://falcon-ledger.com/whitepaper).
 
-**Not an external audit.** Hardening that still refers to 1001 SPV/shared-reserve is archived: [BRIDGE-AND-CUSTODY-HARDENING-PLAN.md](./BRIDGE-AND-CUSTODY-HARDENING-PLAN.md).
+## Done (on testnet)
+- [x] Falcon Consensus with Falcon-512 signatures from genesis
+- [x] Seven bonded validator seats
+- [x] Passkey wallet, faucet and explorer
+- [x] AMM pools: F-USDC/FPL, FETH/FPL, FBTC/FPL
+- [x] Lending markets for F-USDC, FETH and FBTC (supply, borrow against FPL collateral, repay)
+- [x] PoPL epoch rewards for validators, watchers, AMM LPs and lending LPs
+- [x] Non-custodial ETH and USDC bridge (Ethereum Sepolia): withdrawals released only by a Groth16 proof of Falcon quorum certificates; no owner and no admin withdraw
+- [x] BTC bridge (Bitcoin testnet) on BitVM2: deposits live
+- [ ] Trust-minimised BitVM2 BTC withdrawals (in final testing)
+- [x] Release A (2.9.60): Sepolia Gloas light-client fix and 7-day ETH header window
 
----
+## Next (no dates yet)
+- [ ] Public validator nodes
+- [ ] External security audit before mainnet (whitepaper §12)
+- [ ] Mainnet: published ceremony, freeze pin, genesis validator set, network config and RPC endpoints
+- [ ] Portal: PRF-only passkey mode; mainnet go-live toggle
 
-## Shipped — testnet live today
-
-### Wallet & identity
-- [x] Passkey-secured Falcon-512 wallet create / restore / unlock
-- [x] Client-side Falcon transaction signing (WASM / liboqs)
-- [x] Encrypted seed storage (IndexedDB + passkey-derived key)
-- [x] FALCON send with address validation
-- [x] F-USDC peer-to-peer send (IOU Payment)
-- [x] QR code scanner for recipient addresses
-- [x] Receive QR code display
-- [x] Recent transactions with correct FALCON / F-USDC labels
-- [x] PWA install prompt and service worker
-- [x] Validator deploy one-liner (1,000 FALCON bond warning)
-
-### Faucet & explorer
-- [x] Rate-limited FALCON faucet drip
-- [x] Ledger / transaction explorer (`/scan`)
-- [x] Network switcher (testnet / mainnet placeholder)
-
-### Swap & DEX
-- [x] FALCON ↔ F-USDC instant AMM swap
-- [x] DEX limit orders (OfferCreate / OfferCancel)
-- [x] Default crossing behavior (immediate match against book)
-- [x] Post-only passive orders (`TF_PASSIVE` opt-in)
-- [x] Live order book panel
-- [x] Open orders panel with persistence and cancel
-- [x] Dust offer filtering on public book
-- [x] Price inverse helper (FALCON per F-USDC semantics)
-- [x] F-USDC labeling on swap UI (distinct from Sepolia USDC)
-
-### Liquidity pool
-- [x] AMM pool page (`/pool`)
-- [x] Add liquidity (FALCON + F-USDC deposit)
-- [x] Remove liquidity (partial / full LP withdraw)
-- [x] Pool stats, LP share %, estimated withdrawal amounts
-- [x] F-USDC labels on pool UI
-
-### Dest-lock bridges (2300)
-- [x] Passkey-encrypted Sepolia EVM wallet (no MetaMask)
-- [x] ETH/USDC dest-lock in: `depositEth` / `depositUsdc` + auto-mint (`pl-2300-bridge.json` live)
-- [x] ETH/USDC dest-lock out: burn → sampled LC header → `openClaim` / `take`
-- [x] BTC dest-lock in/out: BitVM2 instance Kickoff + CSV take (`BTC_RAIL_LIVE = true`; no FROST)
-- [x] Send Out: Sepolia ETH / USDC to external `0x` addresses
-- [x] Encrypted EVM wallet backup export/import
-- [x] Retired 1001 `usdc-bridge.json` lock kept as notes only
-
-### Validator & rewards
-- [x] Validator register / bond / unbond UI
-- [x] ClaimReward from portal
-- [x] Bond status and composite score display
-
-### Lending
-- [x] `SingleAssetVault`, `LendingProtocol`, and `LendingCollateral` amendments enabled on testnet
-- [x] Lend tab: balances, AMM price, health-factor calculator, APY panel
-- [x] Portal wiring for `VaultDeposit` / `LoanSet` / `LoanPay` / `VaultWithdraw` / `ClaimLPReward`
-- [x] FALCON collateral in `LoanSet` + on-chain health display (`LendingCollateral`)
-- [x] Permissionless borrow path in portal (`LendingPermissionless` — no broker co-sign when amendment live)
-- [x] On-chain liquidation via `LoanManage` (HF monitor daemon + `/api/lend/loan-manage`)
-- [x] Risk monitor panel, borrow/repay/claim/withdraw preflight APIs, multi-loan Positions
-
-### Protocol (testnet)
-- [x] Falcon-512 account creation and transaction signing
-- [x] Falcon validator consensus fleet upgrade (`validation_falcon_secret`, Falcon hex UNL)
-- [x] Protocol treasury, CID epoch emission, participation-based LP split (1% per vault depositor, cap 50%)
-- [x] Validator PoP scoring and ClaimReward
-- [x] Double-sign slashing (100% bond)
-- [x] On-chain governance proposals and voting
-- [x] Sustained load testing (850k+ payments, 71+ hours)
-
-### Message board
-- [x] Neon Postgres-backed community board (`/board`)
-- [x] Falcon sign-to-post authentication
-- [x] Threaded replies (one level deep)
-- [x] Per-wallet rate limit (10 posts/hour)
-
-### Documentation & QA
-- [x] Comprehensive E2E test report with on-ledger references
-- [x] Falcon signing verification script (`pnpm verify:sign`)
-- [x] CI: `pnpm-lock.yaml` sync enforcement
-
----
-
-## In progress — August 2026
-
-### Protocol
-- [x] `LendingPermissionless` + `LoanCollateralDeposit` fleet on `qxrp/xrpld:lending-v2` (7/7 nodes, July 2026)
-- [ ] Real latency scoring (currently neutral floor at 5,000 bps)
-- [ ] Additional slashing offenses (absence, invalid-vote — currently `temDISABLED` on testnet)
-
-### Portal
-- [x] Portal lend UI: permissionless borrow, duration picker (1–52 epochs), Positions add-collateral (`LoanCollateralDeposit`)
-- [ ] Retire `TESTNET_LENDING_BROKER_SECRET` if legacy co-sign fully unused
-- [ ] Live APY from epoch `EmissionRate` in overview (currently fixed APR display)
-- [ ] Post-genesis E2E PDF report regeneration
-- [ ] Mainnet network config and go-live toggle (`NEXT_PUBLIC_MAINNET_LIVE`)
-- [ ] Production security audit for passkey + bridge flows
-- [ ] Mobile-native wallet app (PWA is live; native TBD)
-- [ ] Transaction history pagination and filtering
-- [ ] Push notifications for incoming payments
-
-### Liquidity
-- [ ] Additional stablecoin pairs (USDT) on testnet
-- [ ] Deeper AMM liquidity bootstrap program
-- [ ] Cross-wallet order matching stress tests at scale
-
----
-
-## Planned — mainnet prep
-
-### Must-have before mainnet
-- [ ] Mainnet genesis validator set finalized
-- [ ] External security audit (wallet crypto, bridge relay, signer proxy)
-- [ ] Mainnet Network ID and RPC endpoints published
-- [ ] Faucet disabled or capped on mainnet; real economic flows only
-- [ ] PRF-only passkey mode enforced (drop rawId fallback)
-- [ ] Bridge production contracts (Ethereum L1 or chosen L2)
-- [ ] MPT-native USDC on Falcon ledger (reduce IOU trust-line friction)
-
-### Nice-to-have
+## Later / ideas
 - [ ] Hardware wallet integration
-- [ ] Multi-account passkey profiles
-- [ ] Fiat on-ramp partner integration
-- [ ] Validator fleet dashboard in portal
-- [ ] Governance proposal UI (read + vote)
-- [ ] NFT / MPT marketplace expansion
+- [ ] Governance proposal UI
+- [ ] Native mobile app (PWA is live)
 
----
-
-## Known limitations (testnet)
-
-| Area | Limitation | Tracking |
-|------|------------|----------|
-| AMM | High slippage on thin pool | Add LP before large swaps |
-| Bridge | LC prover needs Sepolia ETH; BTC headers must follow testnet reorgs | Operator liveness, not a drain key |
-| Bridge | BTC Kickoff is dest-lock (claimer CHECKSIG); CSV take | Honest dest after Kickoff; setup keys wiped |
-| DEX | Partial-fill dust remainders | Cancel manually; hidden from book |
-| F-USDC | Requires trust line before receive / bridge mint | Explicit TrustSet step on Bridge tab (and Swap tab for P2P) |
-| Lend | `LendingPermissionless` not yet enabled on all validators | Fleet docker rebuild + amendment vote in progress |
-| Lend | Broker co-sign path legacy only | Remove `TESTNET_LENDING_BROKER_SECRET` once permissionless live |
-| Passkeys | rawId fallback weaker than PRF | Testnet only — see `src/lib/passkey.ts` |
-| Signing | Server routes need signer proxy on node1 | Documented in `.env.example` |
-
----
-
-## How to contribute / test
-
-1. Clone repo, `pnpm install`, `pnpm dev`
-2. Create a passkey wallet on testnet
-3. Fund via faucet; run through [E2E regression checklist](./TESTNET-E2E-REPORT.md#appendix-c--suggested-regression-checklist)
-4. File issues on [GitHub](https://github.com/beartec-jpg/Falcon-faucet-wallet/issues)
-
----
-
-## Version history (portal)
-
-| Date | Highlights |
-|------|------------|
-| Aug 2026 | 2300 dest-lock ETH/USDC + BTC; whitepaper v5.1; archive 1001 PDFs |
-| Jul 2026 | Permissionless lending, HF liquidation, multi-loan Positions, lending preflight APIs, whitepaper v2.5 |
-| Jul 2026 | Post-genesis issuer, lending amendments, bridge trust-line gate, PoPL LP participation, whitepaper v2.3 |
-| Jul 2026 | Bridge, pool, DEX limit orders, F-USDC P2P, QR scanner, tx label fix, E2E report |
-| Jun 2026 | Client-side Falcon signing, passkey PWA wallet |
-| Earlier | Faucet, explorer, validator onboarding, whitepaper |
+## History
+The current Falcon Ledger testnet replaced the retired network 1001 (the earlier XRPL-fork implementation), which is shut down. Archive: [archive-1001/README.md](archive-1001/README.md).

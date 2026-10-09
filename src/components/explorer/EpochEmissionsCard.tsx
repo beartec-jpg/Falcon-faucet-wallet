@@ -53,7 +53,7 @@ export default function EpochEmissionsCard({ epoch }: { epoch: EpochOverview | n
           </div>
           <div className="sm:col-span-1 col-span-2">
             <p className="text-slate-600 leading-relaxed">
-              7-day epochs. Testnet 2300 pays from epoch 1. Mainnet keeps the epoch-8 bootstrap.
+              7-day epochs. The testnet pays from epoch 1. Mainnet keeps the epoch-8 bootstrap.
               CID declines each epoch; year-1 averages 12% of remaining treasury.
             </p>
           </div>

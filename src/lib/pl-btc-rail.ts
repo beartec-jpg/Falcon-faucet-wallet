@@ -353,7 +353,7 @@ export async function pegOutPlBtc(opts: {
   }
   if (snap.balance < FEE) throw new Error(`Need ${FEE} FPL for the withdraw fee`)
 
-  opts.onStep?.('Burning FBTC (no FROST Kickoff)…')
+  opts.onStep?.('Burning FBTC…')
   const tx = await signRailWithdraw({
     account: opts.account,
     sequence: snap.sequence,
@@ -365,7 +365,7 @@ export async function pegOutPlBtc(opts: {
   await postTx(tx, opts.network)
   await waitSeq(opts.account, opts.network, snap.sequence + 1)
 
-  opts.onStep?.('Signing dest-lock Kickoff (claimer CHECKSIG)…')
+  opts.onStep?.('Preparing Bitcoin withdrawal…')
   const kick = await fetch('/api/wallet/pl', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

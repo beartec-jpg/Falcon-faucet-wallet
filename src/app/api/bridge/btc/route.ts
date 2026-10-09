@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 export async function GET() {
   return NextResponse.json(
     {
-      error: 'Falcon Ledger custodial BTC bridge is shut down. Use Falcon PL 2300.',
+      error: 'Falcon Ledger custodial BTC bridge is shut down. Use the Falcon Ledger testnet.',
       retired: true,
     },
     { status: 410 },

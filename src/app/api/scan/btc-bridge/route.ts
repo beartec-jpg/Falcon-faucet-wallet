@@ -161,7 +161,7 @@ export async function GET(req: NextRequest) {
         checked_at: new Date().toISOString(),
         btcNetwork: 'testnet',
         ready: String(btc.spv) === 'bitcoin',
-        message: 'Falcon PL 2300 BTC rail',
+        message: 'Falcon Ledger testnet BTC rail',
         amendment: { name: 'FalconPL', supported: true, enabled: true },
         falcon: {
           ledger: Number(st.tip_height ?? st.height ?? 0),
@@ -200,7 +200,7 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json(
       {
-        error: 'Falcon Ledger (network 1001) BTC bridge scan is retired. Use Falcon PL 2300.',
+        error: 'Falcon Ledger (network 1001) BTC bridge scan is retired. Use the Falcon Ledger testnet.',
         retired: true,
       },
       { status: 410 },

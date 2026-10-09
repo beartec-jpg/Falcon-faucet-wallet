@@ -261,7 +261,7 @@ interface BridgeWithdrawResult {
   falconTxHash?: string
   amount: string
   sepoliaRecipient: string
-  /** Bitcoin vault claim spend (non-custodial SPV out) */
+  /** Bitcoin vault claim spend (SPV out) */
   btcClaimTxid?: string
   btcClaimExplorerUrl?: string
   payoutSats?: number
@@ -363,7 +363,7 @@ export default function BridgeDepositPanel({
   const btcPaymentScriptHex =
     spvStatus?.paymentScriptHex ||
     (isPl2300 && BTC_RAIL_LIVE ? BITVM2_INSTANCE_SPK : '')
-  /** BitVM2 dest-lock is live. Header lag is a warning, not “unconfigured”. */
+  /** BTC deposits are live (BitVM2 withdrawals in final testing). Header lag is a warning, not “unconfigured”. */
   const fbtcReady = isPl2300 && BTC_RAIL_LIVE
   const spvLive = fbtcReady && !!(btcWatchAddress || btcPaymentScriptHex)
   const fxrpReady = !!(fxrpIssuer && fxrpCustody)
@@ -1575,7 +1575,7 @@ export default function BridgeDepositPanel({
         setBusy(true)
         setError(null)
         setWithdrawResult(null)
-        setStep('Burning FBTC on Falcon PL…')
+        setStep('Burning FBTC on Falcon Ledger…')
         try {
           const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
           const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
@@ -1611,7 +1611,7 @@ export default function BridgeDepositPanel({
         }
         return
       }
-      setError('Falcon Ledger BTC bridge is retired. Use Falcon PL 2300.')
+      setError('This older BTC bridge is retired. Use the current BTC rail.')
       return
     }
 
@@ -1807,7 +1807,7 @@ const handleSpvCompleteClaim = async () => {
   }
   setBusy(true);
   setError(null);
-  setStep(isPl2300 ? 'Passkey to mint FBTC on Falcon PL…' : 'Passkey to submit BTCDepositClaim…');
+  setStep(isPl2300 ? 'Passkey to mint FBTC on Falcon Ledger…' : 'Passkey to submit BTCDepositClaim…');
   // Do NOT write status=claiming to localStorage until after passkey succeeds.
   // Cancelled/aborted passkey used to leave "claiming" forever → grey Claim FBTC.
   const txid = spvPending.txid;
@@ -1886,7 +1886,7 @@ const handleSpvCompleteClaim = async () => {
       return
     }
 
-    throw new Error('Falcon Ledger BTCDepositClaim is retired. Use Falcon PL 2300.')
+    throw new Error('This older BTC deposit claim is retired. Use the current BTC rail.')
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Claim failed'
     if (/tecDUPLICATE|already spent|already minted/i.test(msg)) {
@@ -2022,7 +2022,7 @@ const handleSpvCompleteClaim = async () => {
           : isPl2300 && (isFethRoute || (!isFbnbRoute && !isFxrpRoute))
             ? destLockInReady
               ? 'Open the Sepolia EVM wallet on Multi-chain first.'
-              : 'ETH/USDC dest-lock config missing live FalconQcBridge. Do not send yet.'
+              : 'ETH/USDC bridge is not ready yet. Please don’t send.'
             : 'Open the Sepolia EVM wallet on Multi-chain first.',
       )
       return
@@ -2126,7 +2126,7 @@ const handleSpvCompleteClaim = async () => {
           setSpvPending(pending)
           setResult({
             depositHash: dep.txid,
-            depositId: 'BTC sent — minting FBTC on Falcon PL…',
+            depositId: 'BTC sent — minting FBTC on Falcon Ledger…',
           })
           setAmount('')
           setStep('Waiting for Bitcoin confirmations, then minting FBTC…')
@@ -2143,7 +2143,7 @@ const handleSpvCompleteClaim = async () => {
           return
         }
 
-        throw new Error('Falcon Ledger BTC bridge is retired. Use Falcon PL 2300.')
+        throw new Error('This older BTC bridge is retired. Use the current BTC rail.')
       }
 
       setStep(
@@ -2158,7 +2158,7 @@ const handleSpvCompleteClaim = async () => {
       let res: BridgeDepositResult
       if (isPl2300 && destLockCfg && (isFethRoute || (!isFbnbRoute && !isFxrpRoute && !isFbtcRoute))) {
         if (!destLockInReady) {
-          throw new Error('ETH/USDC dest-lock is not the live FalconQcBridge. Do not send yet.')
+          throw new Error('ETH/USDC bridge is not ready yet. Please don’t send.')
         }
         if (isFethRoute) {
           const d = await depositEthDestLock({
@@ -2176,7 +2176,7 @@ const handleSpvCompleteClaim = async () => {
             explorerUrl: explorer,
             status: 'minting',
           })
-          setStep('Queuing Falcon PL mint…')
+          setStep('Queuing Falcon Ledger mint…')
           const queued = await queueDestLockMint({
             account: falconId,
             txHash: d.depositHash,
@@ -2195,7 +2195,7 @@ const handleSpvCompleteClaim = async () => {
             depositHash: d.depositHash,
             depositId:
               queued.status === 'done'
-                ? 'FETH minted on Falcon PL'
+                ? 'FETH minted on Falcon Ledger'
                 : 'Locked on Sepolia — minting FETH in the background. You can bridge USDC now.',
           }
         } else {
@@ -2214,7 +2214,7 @@ const handleSpvCompleteClaim = async () => {
             explorerUrl: explorer,
             status: 'minting',
           })
-          setStep('Queuing Falcon PL mint…')
+          setStep('Queuing Falcon Ledger mint…')
           const queued = await queueDestLockMint({
             account: falconId,
             txHash: d.depositHash,
@@ -2234,7 +2234,7 @@ const handleSpvCompleteClaim = async () => {
             approveHash: d.approveHash,
             depositId:
               queued.status === 'done'
-                ? 'F-USDC minted on Falcon PL'
+                ? 'F-USDC minted on Falcon Ledger'
                 : 'Locked on Sepolia — minting F-USDC in the background. You can bridge ETH now.',
           }
         }
@@ -3188,9 +3188,9 @@ const handleSpvCompleteClaim = async () => {
                 {spvLive && (
                   <div className="space-y-1.5 rounded-xl border border-slate-700/60 bg-slate-900/40 px-3 py-2.5">
                     <p className="text-[11px] text-slate-500 leading-snug">
-                      Peg-out burns FBTC, then a dest-lock Kickoff (claimer CHECKSIG, no FROST). After
-                      CSV={spvStatus?.pegOut?.csv ?? 6} your Bitcoin key takes. One Kickoff spends one
-                      output and can pay{' '}
+                      BitVM2 withdrawals are in final testing. Design target: peg-out burns FBTC, then a
+                      dest-lock Kickoff pays your Bitcoin address, and after CSV={spvStatus?.pegOut?.csv ?? 6}{' '}
+                      your Bitcoin key takes it. One Kickoff spends one output and can pay{' '}
                       {spvStatus?.pegOut?.maxSats != null
                         ? `${spvStatus.pegOut.maxSats} sats`
                         : 'that output minus the fee'}
@@ -3320,7 +3320,7 @@ const handleSpvCompleteClaim = async () => {
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 leading-snug">
-                      Send testnet BTC to the BitVM2 instance + FALC memo. Peg-out is dest-lock Kickoff, then your key. No FROST.
+                      Send testnet BTC to the BitVM2 rail address with your FALC memo. FBTC mints after confirmations.
                     </p>
                   </div>
                 ) : (
@@ -3496,8 +3496,8 @@ const handleSpvCompleteClaim = async () => {
                             BitVM2 instance · SPV{' '}
                             {isPl2300
                               ? spvStatus?.spv === 'bitcoin'
-                                ? 'Bitcoin headers live'
-                                : 'dest-lock live'
+                                ? 'Bitcoin headers live · deposits live · withdrawals in final testing'
+                                : 'deposits live · withdrawals in final testing'
                               : spvLive
                                 ? 'live'
                                 : 'pending'}
@@ -3541,8 +3541,8 @@ const handleSpvCompleteClaim = async () => {
                       : 'FBTC · shared-reserve redeem (any holder)'
                   : isPl2300
                     ? isFethRoute
-                      ? 'FETH burned · Sepolia ETH dest-locked to your 0x'
-                      : 'F-USDC burned · Sepolia USDC dest-locked to your 0x'
+                      ? 'FETH burned · Sepolia ETH on its way to your 0x'
+                      : 'F-USDC burned · Sepolia USDC on its way to your 0x'
                     : 'F-USDC · release usually under a few minutes'}
               </p>
             </div>

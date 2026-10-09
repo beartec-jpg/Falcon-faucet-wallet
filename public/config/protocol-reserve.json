@@ -1,6 +1,6 @@
 {
   "status": "retired",
-  "note": "Falcon Ledger WP4 reserve (and COMPLETE preimage) died with network 1001. Falcon PL 2300 uses public/config/btc-spv-bridge.json only.",
+  "note": "Falcon Ledger WP4 reserve (and COMPLETE preimage) died with network 1001. The Falcon testnet uses public/config/btc-spv-bridge.json only.",
   "retired_hold_addresses": [
     "tb1qqxf9h0ytl0valyrmfqq53ws48mq88n8rzxcnkcvt2wg98kh8uj5qtzhm5f",
     "tb1q40fswfaq0e5nvnmayutp7qw3s0r0ctgy62p48w0k4zq79wx6w27s6ulwpv",

@@ -661,7 +661,7 @@ export default function LendPage() {
         ) : (
           <>
             <p className="text-xs text-slate-500">
-              Lend is the F-USDC vault only. FETH and FBTC trade in FPL pools, not here. FBNB is not listed.
+              This view shows the F-USDC lending vault. On the Falcon Ledger testnet, lending covers F-USDC, FETH and FBTC markets. FBNB is not listed.
             </p>
             <LendProtocolBanner data={data} />
 

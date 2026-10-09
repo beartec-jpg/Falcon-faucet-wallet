@@ -2196,7 +2196,7 @@ export default function WalletPage() {
                         {plAccountId(wallet)}
                       </div>
                       <div className="text-xs text-slate-500 mt-0.5">
-                        Falcon PL account
+                        Falcon Ledger account
                       </div>
                       <button
                         type="button"
@@ -2429,7 +2429,7 @@ export default function WalletPage() {
                                           job.lcExecution != null &&
                                           job.lcExecution < job.depositBlock
                                         ? `Locked on Sepolia. Waiting for Ethereum finality (light client ${job.lcExecution} / deposit ${job.depositBlock}). Not lost — you can still bridge another asset.`
-                                        : 'Locked on Sepolia — minting on Falcon PL. BTC, ETH, and USDC can run at the same time.'}
+                                        : 'Locked on Sepolia — minting on Falcon Ledger. BTC, ETH, and USDC can run at the same time.'}
                                   </p>
                                   <div className="flex items-center gap-3">
                                     <button
@@ -3183,7 +3183,7 @@ export default function WalletPage() {
                       </div>
 
                       <p className="text-xs text-slate-500 leading-relaxed text-center">
-                        Share your account name. Only send Falcon PL assets here.
+                        Share your account name. Only send Falcon Ledger assets here.
                       </p>
 
                       {recvAddr ? (
@@ -3868,7 +3868,7 @@ export default function WalletPage() {
                       </div>
                       <p className="text-xs text-slate-500">
                         {network.networkId === 2300
-                          ? 'Peer-to-peer on Falcon PL — not a bridge.'
+                          ? 'Peer-to-peer on Falcon Ledger — not a bridge.'
                           : 'Peer-to-peer transfer on Falcon Ledger — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.'}
                       </p>
                       <button
@@ -4220,10 +4220,10 @@ export default function WalletPage() {
 
           {/* ── Footer note ── */}
           <p className="text-center text-xs text-slate-700">
-            {network.badge === 'testnet' ? 'Testnet tokens · No real value' : `${network.name} · Network ID ${network.networkId}`}
+            {network.badge === 'testnet' ? 'Testnet tokens · No real value' : network.name}
             {' · '}
             <a
-              href="https://github.com/beartec-jpg/qXRP"
+              href="https://github.com/beartec-jpg/Falcon-faucet-wallet"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-slate-500 underline underline-offset-2 transition-colors"

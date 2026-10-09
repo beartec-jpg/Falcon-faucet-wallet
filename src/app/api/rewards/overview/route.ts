@@ -3,12 +3,12 @@ import { isOriginAllowed } from '@/lib/origin'
 import { loadLendingManifestServer } from '@/lib/lending-config'
 import { isActiveVaultLp, mptScaled } from '@/lib/lend-pool-stats'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
+import { firstClaimEpoch } from '@/lib/reward-epochs'
 import { loadPoolPairTokens, type StableTokenRef } from '@/lib/swap/token-config'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const BPS = 10_000
 const DROPS = 1_000_000
-
 function parseDrops(em: unknown): number {
   if (typeof em === 'string' || typeof em === 'number') {
     return parseInt(String(em), 10) || 0
@@ -114,8 +114,8 @@ async function buildAmmPoolRow(
       base.reason = shareDrops === 0 ? 'Estimated reward rounds to zero' : undefined
     } else {
       base.reason =
-        epoch.number != null && epoch.number < 8
-          ? `Emissions start at epoch 8 (now ${epoch.number})`
+        epoch.number != null && epoch.number < firstClaimEpoch(networkKey)
+          ? `Emissions start at epoch ${firstClaimEpoch(networkKey)} (now ${epoch.number})`
           : 'No AMM LP allocation this epoch'
     }
 
@@ -267,8 +267,8 @@ export async function GET(req: NextRequest) {
                 : undefined
           } else {
             vaultLp.reason =
-              epoch.number != null && epoch.number < 8
-                ? `Emissions start at epoch 8 (now ${epoch.number})`
+              epoch.number != null && epoch.number < firstClaimEpoch(networkKey)
+                ? `Emissions start at epoch ${firstClaimEpoch(networkKey)} (now ${epoch.number})`
                 : 'No vault LP allocation this epoch'
           }
         }

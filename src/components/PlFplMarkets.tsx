@@ -1159,7 +1159,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
   return (
     <div className="space-y-4">
       <p className="text-xs text-slate-500">
-        Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. FBNB is not a market.
+        Falcon Ledger on-chain markets: swaps, liquidity and loans all settle on the ledger.
       </p>
       {mode === 'swap' && (
         <div className="card p-5 space-y-3">

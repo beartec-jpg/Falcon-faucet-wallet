@@ -107,7 +107,7 @@ export default function AirdropPage() {
           <h1 className="text-2xl font-semibold text-white">Community airdrop</h1>
           <p className="text-sm text-slate-400 mt-1">
             1% of supply (2B FPL) for mainnet contributors. Score window: genesis → +60 days.
-            Emissions start at epoch 8.
+            Mainnet emissions start at epoch 8 (the testnet pays from epoch 1).
           </p>
         </div>
 
