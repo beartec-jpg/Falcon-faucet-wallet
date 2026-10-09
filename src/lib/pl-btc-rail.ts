@@ -300,7 +300,7 @@ export async function pegInPlBtc(opts: {
   }
 
   if (snap.sequence === 0) {
-    opts.onStep?.('Enrolling this account on Falcon PL…')
+    opts.onStep?.('Enrolling this account on Falcon Ledger…')
     const pay = await signPlPay({
       account: opts.account,
       destination: 'faucet',
