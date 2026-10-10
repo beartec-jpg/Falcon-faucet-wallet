@@ -173,30 +173,50 @@ export default function ValidatorPage() {
         {err && <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">Network status unavailable: {err}</div>}
 
         <section className="card space-y-3 p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Install a node (one line)</h2>
-          <p className="text-xs text-slate-400">
-            Linux x86_64. Downloads the published binaries, checks the release signature and SHA-256, generates your keys
-            locally (they never leave your machine), installs a systemd service, peers over the public seed (no VPN)
-            and waits until it is in sync. Safe to re-run; manage it with <code className="text-slate-300">falcon-node status | logs | upgrade | uninstall</code>.
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Create an observer node</h2>
+          <p className="text-sm text-slate-300">
+            An observer follows the chain and checks it. It keeps the last 128 ledgers, serves your own wallet and <code className="text-slate-200">falcon-pl-ctl</code>, and does not bond or get paid.
           </p>
+          <ul className="list-disc space-y-1 pl-5 text-xs text-slate-400">
+            <li>Linux x86_64, about 2 GB RAM and 10 GB disk.</li>
+            <li>Keys stay on that machine. The installer checks the release signature, installs a service, and peers through the public seeds.</li>
+            <li>No seat id and no bond. Re-run any time. Manage it with <code className="text-slate-300">falcon-node status</code>, <code className="text-slate-300">logs</code>, <code className="text-slate-300">upgrade</code>, or <code className="text-slate-300">uninstall</code>.</li>
+          </ul>
           <Cmd cmd={INSTALL_CMD} />
-          <p className="pt-1 text-xs text-slate-400">Validator: enter the seat id and a contact. The command below is built from those fields. Rewards are paid to that seat account on the node, not to a separate wallet.</p>
+        </section>
+
+        <section className="card space-y-3 p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Create a validator node</h2>
+          <p className="text-sm text-slate-300">
+            A validator does everything an observer does, then bonds 50,000 FPL and can seal blocks and vote. Pay is credited to the seat account on this node, not to another wallet.
+          </p>
+          <ul className="list-disc space-y-1 pl-5 text-xs text-slate-400">
+            <li>About 4–8 GB RAM, 20 GB disk, and online all the time.</li>
+            <li>Enter a seat id and a contact. The command underneath is built from those two fields.</li>
+            <li>After it syncs, Scott approves the seat and you fund the bond account. The installer bonds from that machine.</li>
+          </ul>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input
-              value={seatId}
-              onChange={(e) => setSeatId(e.target.value)}
-              placeholder="Seat id"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              className="rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-200"
-            />
-            <input
-              value={contact}
-              onChange={(e) => setContact(e.target.value)}
-              placeholder="Contact (email or handle)"
-              className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
-            />
+            <label className="block text-xs text-slate-400">
+              Seat id
+              <input
+                value={seatId}
+                onChange={(e) => setSeatId(e.target.value)}
+                placeholder="your-seat"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-200"
+              />
+            </label>
+            <label className="block text-xs text-slate-400">
+              Contact
+              <input
+                value={contact}
+                onChange={(e) => setContact(e.target.value)}
+                placeholder="email or handle"
+                className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+              />
+            </label>
           </div>
           {seat && !seatOk && (
             <p className="text-xs text-amber-300">Seat id must start with a letter, be 3–32 characters (a–z, 0–9, hyphen), and not be a reserved name.</p>
@@ -204,9 +224,9 @@ export default function ValidatorPage() {
           {contactText && !contactOk && (
             <p className="text-xs text-amber-300">Contact must be 3–120 characters, on one line, with no quotes.</p>
           )}
-          {validatorCmd ? <Cmd cmd={validatorCmd} /> : <p className="text-xs text-slate-500">Enter a seat id and a contact to build the install command.</p>}
+          {validatorCmd ? <Cmd cmd={validatorCmd} /> : <p className="text-xs text-slate-500">The install command appears here after the seat id and contact are filled in.</p>}
           <p className="text-[11px] text-slate-500">
-            Binaries, checksums and the installer source:{' '}
+            Binaries and checksums:{' '}
             <a className="text-brand-400 hover:underline" href={`https://github.com/${RELEASES_REPO}/releases`} target="_blank" rel="noreferrer">
               github.com/{RELEASES_REPO}
             </a>
