@@ -1466,18 +1466,8 @@ export default function WalletPage() {
         return
       }
       to = name
-      try {
-        const r = await fetch(
-          withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(name)}`, networkKey),
-        )
-        const j = (await r.json()) as { exists?: boolean }
-        if (r.ok && j.exists === false) {
-          setError(`No Falcon account named “${name}”`)
-          return
-        }
-      } catch {
-        /* a status blip should not block a send to a real name */
-      }
+      // A first payment to a new name creates the account. Do not block
+      // exists===false — that was the manual 1 FPL drip before a bond fund.
     }
 
     const destNameNorm = network.networkId === 2300 || isValidFalconAddress(to)
