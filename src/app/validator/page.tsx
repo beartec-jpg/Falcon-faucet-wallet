@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
+import { DISCORD_INVITE_URL } from '@/lib/community-links'
 import {
   APPLICATIONS_REPO,
   FIRST_VALIDATOR_VERSION,
@@ -94,13 +95,10 @@ export default function ValidatorPage() {
   const [err, setErr] = useState<string | null>(null)
   const [lookup, setLookup] = useState('')
   const [seatId, setSeatId] = useState('')
-  const [contact, setContact] = useState('')
   const seat = seatId.trim().toLowerCase()
-  const contactText = contact.trim()
   const seatOk = ID_RE.test(seat) && !/^(?:v\d+|faucet|treasury|community|builder|alice|bob|watcher-.*)$/.test(seat)
-  const contactOk = contactText.length === 0 || (contactText.length <= 120 && !/[\r\n']/.test(contactText))
-  const validatorCmd = seatOk && contactOk
-    ? `curl -fsSL https://falcon-ledger.com/install.sh | bash -s -- --validator --id ${seat}${contactText ? ` --contact '${contactText}'` : ''}`
+  const validatorCmd = seatOk
+    ? `curl -fsSL https://falcon-ledger.com/install.sh | bash -s -- --validator --id ${seat}`
     : ''
 
   const load = useCallback(async () => {
@@ -191,43 +189,33 @@ export default function ValidatorPage() {
           </p>
           <ul className="list-disc space-y-1 pl-5 text-xs text-slate-400">
             <li>About 4–8 GB RAM, 20 GB disk, and online all the time.</li>
-            <li>Enter a seat id. A contact is optional and is not stored on the chain.</li>
+            <li>Enter a seat id. That name is the account on the chain. No contact field.</li>
             <li>After it syncs, Scott approves the seat and you fund the bond account. The installer bonds from that machine.</li>
           </ul>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="block text-xs text-slate-400">
-              Seat id
-              <input
-                value={seatId}
-                onChange={(e) => setSeatId(e.target.value)}
-                placeholder="your-seat"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-200"
-              />
-            </label>
-            <label className="block text-xs text-slate-400">
-              Contact, optional
-              <input
-                value={contact}
-                onChange={(e) => setContact(e.target.value)}
-                placeholder="leave blank"
-                className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
-              />
-            </label>
-          </div>
+          <label className="block max-w-sm text-xs text-slate-400">
+            Seat id
+            <input
+              value={seatId}
+              onChange={(e) => setSeatId(e.target.value)}
+              placeholder="your-seat"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-200"
+            />
+          </label>
           {seat && !seatOk && (
             <p className="text-xs text-amber-300">Seat id must start with a letter, be 3–32 characters (a–z, 0–9, hyphen), and not be a reserved name.</p>
-          )}
-          {contactText && !contactOk && (
-            <p className="text-xs text-amber-300">Contact must be one line, at most 120 characters, with no quotes.</p>
           )}
           {validatorCmd ? <Cmd cmd={validatorCmd} /> : <p className="text-xs text-slate-500">The install command appears here after the seat id is valid.</p>}
           <ol className="list-inside list-decimal space-y-1 text-xs text-slate-400">
             <li>Run that command. The node syncs first, then writes <code className="text-slate-300">application.json</code> on that machine. The file has the public key only.</li>
             <li>The installer prints a link. Open it and send the application. That is the only use of the application page.</li>
-            <li>Scott approves that id and key on the chain.</li>
+            <li>
+              For activation, say the seat id in{' '}
+              <a className="text-brand-400 hover:underline" href={DISCORD_INVITE_URL} target="_blank" rel="noreferrer">Discord</a>.
+              Scott approves that id and key on the chain.
+            </li>
             <li>Send 50,000 FPL plus fees to the bond account. The installer bonds from the node.</li>
             <li>The seat joins the lottery with the same odds as every other seat. Pay stays on this node.</li>
           </ol>
