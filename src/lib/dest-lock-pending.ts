@@ -80,6 +80,7 @@ export function destLockProgressText(job: Pick<
   DestLockPending,
   'status' | 'lastError' | 'asset' | 'depositBlock' | 'lcExecution' | 'sepoliaSafe'
 >): string {
+  if (job.status === 'done') return 'Transaction complete.'
   const dep = job.depositBlock
   const lc = job.lcExecution
   const safe = job.sepoliaSafe

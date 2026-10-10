@@ -552,10 +552,6 @@ export default function WalletPage() {
       const jobs = listDestLockPending(id)
       const stillOpen: DestLockPending[] = []
       for (const job of jobs) {
-        if (job.status === 'done') {
-          clearDestLockPending(id, job.txHash)
-          continue
-        }
         try {
           const st = await fetchDestLockMintStatus({
             account: job.falconAccount || id,
@@ -563,9 +559,24 @@ export default function WalletPage() {
             asset: job.asset,
           })
           if (cancelled) return
-          if (st.status === 'done' || st.status === 'error') {
+          if (st.status === 'error') {
             clearDestLockPending(id, job.txHash)
-            if (st.status === 'done') void refreshBalance(id)
+            continue
+          }
+          if (st.status === 'done') {
+            const done = { ...job, status: 'done' as const }
+            upsertDestLockPending(id, {
+              txHash: done.txHash,
+              asset: done.asset,
+              explorerUrl: done.explorerUrl,
+              status: 'done',
+              amountLabel: done.amountLabel,
+              depositBlock: st.deposit_block ?? done.depositBlock,
+              lcExecution: st.lc_execution ?? done.lcExecution,
+              sepoliaSafe: st.sepolia_safe ?? done.sepoliaSafe,
+            })
+            stillOpen.push({ ...done, depositBlock: st.deposit_block ?? done.depositBlock })
+            void refreshBalance(id)
             continue
           }
           const next = {
@@ -2420,7 +2431,7 @@ export default function WalletPage() {
                       </div>
 
                       {(() => {
-                        const openDest = destLockHomeJobs.filter((j) => j.status !== 'done')
+                        const openDest = destLockHomeJobs
                         const openBtc =
                           spvHomePending && spvHomePending.status !== 'claimed'
                             ? spvHomePending

@@ -721,7 +721,16 @@ export default function BridgeDepositPanel({
           })
           if (cancelled) return
           if (st.status === 'done') {
-            clearDestLockPending(job.falconAccount, job.txHash)
+            upsertDestLockPending(job.falconAccount, {
+              txHash: job.txHash,
+              asset: job.asset,
+              explorerUrl: job.explorerUrl,
+              status: 'done',
+              amountLabel: job.amountLabel,
+              depositBlock: st.deposit_block ?? job.depositBlock,
+              lcExecution: st.lc_execution ?? job.lcExecution,
+              sepoliaSafe: st.sepolia_safe ?? job.sepoliaSafe,
+            })
             refreshFusdcBalance()
             onFalconRefresh?.()
             continue
@@ -2667,7 +2676,7 @@ const handleSpvCompleteClaim = async () => {
                   >
                     <div>
                       <div className="text-sm font-medium text-emerald-300">
-                        {job.asset === 'USDC' ? 'F-USDC minted' : 'FETH minted'}
+                        Transaction complete
                       </div>
                       <p className="text-[11px] font-mono text-slate-500 mt-0.5">
                         {job.txHash.slice(0, 12)}…
