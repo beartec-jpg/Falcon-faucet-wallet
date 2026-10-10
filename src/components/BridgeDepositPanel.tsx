@@ -275,6 +275,10 @@ interface BridgeWithdrawResult {
 
 type ReleaseStatus = 'pending' | 'released' | 'unconfirmed' | null
 
+// Sepolia deposit gas is a fraction of a cent at normal fees. The old 0.001 ETH
+// reserve was the same size as a 0.001 deposit, so 0.001562 ETH could not send 0.001.
+const SEPOLIA_GAS_RESERVE_ETH = 0.0002
+
 export default function BridgeDepositPanel({
   wallet,
   bridgeCfg,
@@ -2070,8 +2074,8 @@ const handleSpvCompleteClaim = async () => {
       }
     } else if (isFethRoute) {
       const ethBal = parseFloat(balances?.eth ?? '0')
-      if (Number.isFinite(ethBal) && amt + 0.001 > ethBal) {
-        setError(`Need ${amount} ETH + ~0.001 gas (have ${fmt(ethBal, 6)} ETH)`)
+      if (Number.isFinite(ethBal) && amt + SEPOLIA_GAS_RESERVE_ETH > ethBal) {
+        setError(`Need ${amount} ETH + ~${SEPOLIA_GAS_RESERVE_ETH} gas (have ${fmt(ethBal, 6)} ETH)`)
         return
       }
     } else {
@@ -3137,7 +3141,7 @@ const handleSpvCompleteClaim = async () => {
                 {isFbnbRoute && bnbAvail < 0.002 && (
                   <p className="text-xs text-amber-400/90">Low BNB for gas</p>
                 )}
-                {!isFbnbRoute && !isFbtcRoute && !isFxrpRoute && ethAvail < 0.001 && (
+                {!isFbnbRoute && !isFbtcRoute && !isFxrpRoute && ethAvail < SEPOLIA_GAS_RESERVE_ETH && (
                   <p className="text-xs text-amber-400/90">Low ETH for gas</p>
                 )}
                 {balanceError && (
@@ -3473,10 +3477,10 @@ const handleSpvCompleteClaim = async () => {
                               </button>
                             )
                           : isFethRoute
-                            ? ethAvail > 0.002 && (
+                            ? ethAvail > SEPOLIA_GAS_RESERVE_ETH && (
                                 <button
                                   type="button"
-                                  onClick={() => setAmount(String(Math.max(0, ethAvail - 0.0015)))}
+                                  onClick={() => setAmount(String(Math.max(0, ethAvail - SEPOLIA_GAS_RESERVE_ETH)))}
                                   className="text-brand-500"
                                 >
                                   Max
@@ -3504,7 +3508,7 @@ const handleSpvCompleteClaim = async () => {
                       ? btcAvail < 0.00005
                       : isFbnbRoute
                         ? bnbAvail < 0.0025
-                        : ethAvail < (isFethRoute ? 0.0015 : 0.0001))
+                        : ethAvail < (isFethRoute ? SEPOLIA_GAS_RESERVE_ETH : 0.0001))
                   }
                   className="btn-primary flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500"
                 >
