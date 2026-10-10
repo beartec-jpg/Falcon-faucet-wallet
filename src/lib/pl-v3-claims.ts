@@ -206,7 +206,8 @@ export function assertRefundSigner(refundDest: string, signer: string): void {
 /**
  * Peg-in target. V3 only when the bridge config says so explicitly (`sepolia.pegin_v3: true`)
  * AND names a valid FalconQcBridgeV3 in `qc_v3` (the env fallback is ignored here: the
- * switch is a config change that every visitor sees at once). Otherwise null (V1 peg-in).
+ * switch is a config change that every visitor sees at once). Otherwise null, and the
+ * deposit is refused. There is no V1 peg-in fallback.
  */
 export function pegInV3Bridge(cfg: Pl2300BridgeConfig | null | undefined): string | null {
   if (cfg?.sepolia?.pegin_v3 !== true) return null

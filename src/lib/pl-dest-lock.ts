@@ -109,6 +109,8 @@ export const PL2300_BRIDGE_FALLBACK: Pl2300BridgeConfig = {
     legacy_destlock: '0xdBF6855b00B78c047A729A21E13bfE5f4C991C05',
     legacy_qc_v2: '0x811854827627024B38926Ea9DCc0f88ACd5fB23e',
     legacy_verifier_v2: '0x2Cb70e9f082F2DF91E9A5e6E7C9DF6b8b11B4F80',
+    qc_v3: '0xEd4eE497F21a9255a59e87535FF2A6097592Cfd4',
+    pegin_v3: true,
     falcon_key_root: '0x04a9ad1908569884ff307f63291c592af16fe345fb471c22104d0c0717bcfd8a',
     start_height: 353110,
   },
@@ -143,10 +145,13 @@ async function withSepolia<T>(rpcUrl: string, fn: (p: JsonRpcProvider) => Promis
   throw last instanceof Error ? last : new Error('Sepolia RPC unavailable')
 }
 
-/** Peg-in: FalconQcBridgeV3 once the config switches it on (`pegin_v3`), else the V1
- * FalconQcBridge. Same depositEth/depositUsdc ABI on both. Peg-out routing is walletd's answer. */
+/** Peg-in is FalconQcBridgeV3 only. A missing config must not fall back to V1. */
 export function pegInBridge(cfg: Pl2300BridgeConfig): string {
-  return pegInV3Bridge(cfg) ?? cfg.sepolia.bridge
+  const v3 = pegInV3Bridge(cfg)
+  if (!v3) {
+    throw new Error('ETH/USDC peg-in is V3 only. The bridge config did not load, so nothing was sent.')
+  }
+  return v3
 }
 
 /** True when peg-in deposits go to FalconQcBridgeV3 (mint by the V3 watcher, refund after 3 days). */
@@ -184,7 +189,8 @@ export function destLockContractReady(cfg: Pl2300BridgeConfig | null): boolean {
   return !!(
     cfg &&
     cfg.status === 'live' &&
-    cfg.sepolia?.bridge?.match(/^0x[a-fA-F0-9]{40}$/)
+    cfg.sepolia?.bridge?.match(/^0x[a-fA-F0-9]{40}$/) &&
+    pegInIsV3(cfg)
   )
 }
 
