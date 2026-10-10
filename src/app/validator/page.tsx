@@ -15,7 +15,6 @@ import {
   FIRST_VALIDATOR_VERSION,
   ID_RE,
   INSTALL_CMD,
-  INSTALL_VALIDATOR_CMD,
   RELEASES_REPO,
   type QueueRow,
   type ValidatorsResponse,
@@ -94,6 +93,16 @@ export default function ValidatorPage() {
   const [data, setData] = useState<ValidatorsResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [lookup, setLookup] = useState('')
+  const [seatId, setSeatId] = useState('')
+  const [contact, setContact] = useState('')
+  const seat = seatId.trim().toLowerCase()
+  const contactText = contact.trim()
+  const seatOk = ID_RE.test(seat) && !/^(?:v\d+|faucet|treasury|community|builder|alice|bob|watcher-.*)$/.test(seat)
+  const contactOk = contactText.length >= 3 && contactText.length <= 120 && !/[\r\n']/.test(contactText)
+  const validatorCmd =
+    seatOk && contactOk
+      ? `curl -fsSL https://falcon-ledger.com/install.sh | bash -s -- --validator --id ${seat} --contact '${contactText}'`
+      : ''
 
   const load = useCallback(async () => {
     try {
@@ -171,8 +180,31 @@ export default function ValidatorPage() {
             and waits until it is in sync. Safe to re-run; manage it with <code className="text-slate-300">falcon-node status | logs | upgrade | uninstall</code>.
           </p>
           <Cmd cmd={INSTALL_CMD} />
-          <p className="pt-1 text-xs text-slate-400">Validator (after {FIRST_VALIDATOR_VERSION}): the same installer builds your application, waits for approval and funding, bonds and activates.</p>
-          <Cmd cmd={INSTALL_VALIDATOR_CMD} />
+          <p className="pt-1 text-xs text-slate-400">Validator: enter the seat id and a contact. The command below is built from those fields. Rewards are paid to that seat account on the node, not to a separate wallet.</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input
+              value={seatId}
+              onChange={(e) => setSeatId(e.target.value)}
+              placeholder="Seat id"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className="rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-200"
+            />
+            <input
+              value={contact}
+              onChange={(e) => setContact(e.target.value)}
+              placeholder="Contact (email or handle)"
+              className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
+            />
+          </div>
+          {seat && !seatOk && (
+            <p className="text-xs text-amber-300">Seat id must start with a letter, be 3–32 characters (a–z, 0–9, hyphen), and not be a reserved name.</p>
+          )}
+          {contactText && !contactOk && (
+            <p className="text-xs text-amber-300">Contact must be 3–120 characters, on one line, with no quotes.</p>
+          )}
+          {validatorCmd ? <Cmd cmd={validatorCmd} /> : <p className="text-xs text-slate-500">Enter a seat id and a contact to build the install command.</p>}
           <p className="text-[11px] text-slate-500">
             Binaries, checksums and the installer source:{' '}
             <a className="text-brand-400 hover:underline" href={`https://github.com/${RELEASES_REPO}/releases`} target="_blank" rel="noreferrer">
@@ -208,7 +240,7 @@ export default function ValidatorPage() {
             <input
               value={lookup}
               onChange={(e) => setLookup(e.target.value)}
-              placeholder="validator id, e.g. myname"
+              placeholder="Seat id"
               className="flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-200"
             />
             <Link href="/validator/apply" className="rounded border border-brand-500/40 px-3 py-2 text-sm text-brand-300 hover:bg-brand-500/10">
