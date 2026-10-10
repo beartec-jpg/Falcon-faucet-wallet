@@ -98,11 +98,10 @@ export default function ValidatorPage() {
   const seat = seatId.trim().toLowerCase()
   const contactText = contact.trim()
   const seatOk = ID_RE.test(seat) && !/^(?:v\d+|faucet|treasury|community|builder|alice|bob|watcher-.*)$/.test(seat)
-  const contactOk = contactText.length >= 3 && contactText.length <= 120 && !/[\r\n']/.test(contactText)
-  const validatorCmd =
-    seatOk && contactOk
-      ? `curl -fsSL https://falcon-ledger.com/install.sh | bash -s -- --validator --id ${seat} --contact '${contactText}'`
-      : ''
+  const contactOk = contactText.length === 0 || (contactText.length <= 120 && !/[\r\n']/.test(contactText))
+  const validatorCmd = seatOk && contactOk
+    ? `curl -fsSL https://falcon-ledger.com/install.sh | bash -s -- --validator --id ${seat}${contactText ? ` --contact '${contactText}'` : ''}`
+    : ''
 
   const load = useCallback(async () => {
     try {
@@ -192,7 +191,7 @@ export default function ValidatorPage() {
           </p>
           <ul className="list-disc space-y-1 pl-5 text-xs text-slate-400">
             <li>About 4–8 GB RAM, 20 GB disk, and online all the time.</li>
-            <li>Enter a seat id and a contact. The command underneath is built from those two fields.</li>
+            <li>Enter a seat id. A contact is optional and is not stored on the chain.</li>
             <li>After it syncs, Scott approves the seat and you fund the bond account. The installer bonds from that machine.</li>
           </ul>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -209,11 +208,11 @@ export default function ValidatorPage() {
               />
             </label>
             <label className="block text-xs text-slate-400">
-              Contact
+              Contact, optional
               <input
                 value={contact}
                 onChange={(e) => setContact(e.target.value)}
-                placeholder="email or handle"
+                placeholder="leave blank"
                 className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200"
               />
             </label>
@@ -222,9 +221,9 @@ export default function ValidatorPage() {
             <p className="text-xs text-amber-300">Seat id must start with a letter, be 3–32 characters (a–z, 0–9, hyphen), and not be a reserved name.</p>
           )}
           {contactText && !contactOk && (
-            <p className="text-xs text-amber-300">Contact must be 3–120 characters, on one line, with no quotes.</p>
+            <p className="text-xs text-amber-300">Contact must be one line, at most 120 characters, with no quotes.</p>
           )}
-          {validatorCmd ? <Cmd cmd={validatorCmd} /> : <p className="text-xs text-slate-500">The install command appears here after the seat id and contact are filled in.</p>}
+          {validatorCmd ? <Cmd cmd={validatorCmd} /> : <p className="text-xs text-slate-500">The install command appears here after the seat id is valid.</p>}
           <ol className="list-inside list-decimal space-y-1 text-xs text-slate-400">
             <li>Run that command. The node syncs first, then writes <code className="text-slate-300">application.json</code> on that machine. The file has the public key only.</li>
             <li>The installer prints a link. Open it and send the application. That is the only use of the application page.</li>
