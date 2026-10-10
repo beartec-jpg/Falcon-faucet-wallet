@@ -69,6 +69,88 @@ export function confTierForSats(amountSats: number): ConfTier {
   return CONF_TIERS[CONF_TIERS.length - 1]
 }
 
+/**
+ * Blocks still required after the deposit before Claim is allowed.
+ * Null when the Falcon Bitcoin tip is unknown — do not invent a block.
+ */
+export function btcReorgBlocksLeft(
+  amountSats: number,
+  depositHeight?: number | null,
+  falconTip?: number | null,
+): number | null {
+  const height = Number(depositHeight)
+  const tip = Number(falconTip)
+  if (!Number.isFinite(height) || height <= 0) return null
+  if (!Number.isFinite(tip) || tip <= 0) return null
+  const buf = confTierForSats(amountSats || 0).reorgBuffer
+  return Math.max(0, buf - (tip - height))
+}
+
+/** Claim is allowed only after Bitcoin confs and the reorg buffer. */
+export function spvClaimReady(p: {
+  confirmations: number
+  minConfirmations: number
+  amountSats: number
+  blockHeight?: number | null
+  falconBtcTip?: number | null
+  lastError?: string
+}): boolean {
+  if (p.confirmations < p.minConfirmations) return false
+  const left = btcReorgBlocksLeft(p.amountSats, p.blockHeight, p.falconBtcTip)
+  if (left != null && left > 0) return false
+  if (p.lastError && /reorg buffer|before claim turns on|waiting for bitcoin block/i.test(p.lastError)) return false
+  return true
+}
+
+/** Same shape as the ETH/USDC card: waiting for block Y, currently at X. */
+export function btcDepositProgressText(p: {
+  confirmations: number
+  minConfirmations: number
+  amountSats: number
+  blockHeight?: number | null
+  falconBtcTip?: number | null
+  status?: string
+}): string {
+  if (p.status === 'claimed') return 'Transaction complete.'
+  if (p.confirmations < p.minConfirmations) {
+    return `Waiting for Bitcoin confirmations. Have ${p.confirmations} of ${p.minConfirmations}.`
+  }
+  const dep = Number(p.blockHeight)
+  const tip = Number(p.falconBtcTip)
+  const buf = confTierForSats(p.amountSats || 0).reorgBuffer
+  if (Number.isFinite(dep) && dep > 0 && Number.isFinite(tip) && tip > 0) {
+    const need = dep + buf
+    if (tip < need) {
+      const left = need - tip
+      const mins = Math.max(1, left * 10)
+      return `Waiting for Bitcoin block ${need.toLocaleString()}. This deposit is in block ${dep.toLocaleString()}. Falcon is at block ${tip.toLocaleString()}, ${left} ${left === 1 ? 'block' : 'blocks'} behind (about ${mins} min).`
+    }
+  }
+  if (p.status === 'claiming') return 'Minting FBTC on Falcon.'
+  if (p.status === 'ready_to_claim' || (Number.isFinite(tip) && tip > 0 && Number.isFinite(dep) && tip >= dep + buf)) {
+    return 'Ready to claim on Falcon.'
+  }
+  return 'Waiting for Falcon’s Bitcoin tip.'
+}
+
+/** Plain wait copy. Null once the buffer has cleared or the tip is unknown. */
+export function btcReorgWaitCopy(
+  amountSats: number,
+  depositHeight?: number | null,
+  falconTip?: number | null,
+): string | null {
+  const text = btcDepositProgressText({
+    confirmations: Number.MAX_SAFE_INTEGER,
+    minConfirmations: 1,
+    amountSats,
+    blockHeight: depositHeight,
+    falconBtcTip: falconTip,
+    status: 'waiting_confs',
+  })
+  if (text.startsWith('Waiting for Bitcoin block')) return text
+  return null
+}
+
 /** Protocol min is source of truth on 2300 (live overlay is 1 conf). */
 export function effectiveMinConfirmations(
   amountSats: number,

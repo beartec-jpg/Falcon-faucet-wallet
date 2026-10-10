@@ -82,6 +82,7 @@ import {
   shouldSkipSpvRestore,
   type SpvPendingDeposit,
 } from '@/lib/btc-spv-pending'
+import { btcDepositProgressText } from '@/lib/btc-spv-policy'
 import WalletAssetPicker from '@/components/WalletAssetPicker'
 import {
   FALCON_WALLET_ASSETS,
@@ -2522,9 +2523,7 @@ export default function WalletPage() {
                                       : ''}
                                   </p>
                                   <p className="text-xs text-slate-400 leading-relaxed">
-                                    {openBtc.confirmations >= openBtc.minConfirmations
-                                      ? `${openBtc.confirmations} confirmations · ready to claim`
-                                      : `${openBtc.confirmations} of ${openBtc.minConfirmations} confirmations`}
+                                    {btcDepositProgressText(openBtc)}
                                   </p>
                                   <p className="text-[11px] font-mono text-brand-400/90 truncate">
                                     {openBtc.txid.slice(0, 10)}…{openBtc.txid.slice(-8)}

@@ -873,11 +873,21 @@ export async function POST(req: NextRequest) {
 
     // Status-only: conf tracking after refresh (no merkle proof required)
     if (action === 'status') {
+      let falconTipHeight: number | undefined
+      if (isPl2300Request(req, body.network)) {
+        try {
+          const rail = await fetchPlBtcRailTip()
+          if (rail.height > 0) falconTipHeight = rail.height
+        } catch {
+          /* tip unknown — client must not pretend the buffer is clear */
+        }
+      }
       return NextResponse.json({
         confirmed,
         confirmations,
         blockHeight: confirmed ? blockHeight : undefined,
         tip: tip || undefined,
+        falconTipHeight,
         blockHash: status.status?.block_hash?.replace(/^0x/i, ''),
       })
     }

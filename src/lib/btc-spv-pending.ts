@@ -31,6 +31,8 @@ export interface SpvPendingDeposit {
   /** Bitcoin block time in unix milliseconds, when the explorer knows it. */
   blockTime?: number
   blockHeight?: number
+  /** Falcon's stored Bitcoin header tip. Claim stays off until this clears the reorg buffer. */
+  falconBtcTip?: number
   claimHash?: string
   lastError?: string
   createdAt: number
@@ -586,7 +588,7 @@ export function isSpvWaitMessage(msg: string): boolean {
     /tx not found|not found yet|not confirmed yet|wait for|mempool|indexer|unavailable|raw tx not found|merkle proof unavailable|status \d+|502|503|504|404|409/i.test(
       m,
     ) ||
-    /headers have not|header submitter|falcon tip|blocks behind|still catching up|did not commit the rail|no header at height|older block|no longer has bitcoin block/i.test(
+    /headers have not|header submitter|falcon tip|blocks behind|still catching up|did not commit the rail|no header at height|older block|no longer has bitcoin block|reorg buffer|before claim turns on/i.test(
       m,
     )
   )
@@ -595,6 +597,19 @@ export function isSpvWaitMessage(msg: string): boolean {
 export function spvWaitUserMessage(msg?: string): string {
   if (!msg) return 'Waiting for Bitcoin explorers to index your deposit…'
   const m = msg.toLowerCase()
+  if (/reorg buffer/i.test(m)) {
+    const parsed = msg.match(/buffer \((\d+)[\s\S]*?height (\d+)[\s\S]*?tip (\d+)/i)
+    if (parsed) {
+      const buf = Number(parsed[1])
+      const height = Number(parsed[2])
+      const tip = Number(parsed[3])
+      const need = height + buf
+      const left = Math.max(0, need - tip)
+      const mins = Math.max(1, left * 10)
+      return `Waiting for Bitcoin block ${need.toLocaleString()}. This deposit is in block ${height.toLocaleString()}. Falcon is at block ${tip.toLocaleString()}, ${left} ${left === 1 ? 'block' : 'blocks'} behind (about ${mins} min).`
+    }
+    return 'Waiting for Falcon’s Bitcoin tip to move past this deposit.'
+  }
   if (/no header at height|headers have not|header submitter|falcon tip|blocks behind|older block|no longer has bitcoin block/i.test(m)) {
     return 'Bitcoin confirmations are OK. Falcon is loading the older block this deposit is in. Wait, then Claim FBTC again — do not re-send BTC.'
   }
@@ -620,6 +635,10 @@ export function spvWaitUserMessage(msg?: string): string {
   // Never surface raw Node/fetch errors under Bridge In
   if (/^still waiting:/i.test(msg.trim())) {
     return 'Still checking deposit status — deposit is not cancelled. Retrying…'
+  }
+  const plain = msg.trim()
+  if (plain.length > 0 && plain.length < 400 && !/typeerror|node_modules|failed to fetch/i.test(plain)) {
+    return plain
   }
   return 'Still checking deposit status — deposit is not cancelled. Retrying…'
 }
@@ -661,7 +680,13 @@ async function explorerTxStatus(
 export async function pollSpvConfirmations(
   txid: string,
   network: 'testnet' | 'mainnet' = 'testnet',
-): Promise<{ confirmed: boolean; confirmations: number; blockHeight?: number; waiting?: string }> {
+): Promise<{
+  confirmed: boolean
+  confirmations: number
+  blockHeight?: number
+  falconBtcTip?: number
+  waiting?: string
+}> {
   try {
     const r = await fetch('/api/bridge/btc-spv', {
       method: 'POST',
@@ -673,13 +698,19 @@ export async function pollSpvConfirmations(
       confirmed?: boolean
       confirmations?: number
       blockHeight?: number
+      falconTipHeight?: number
       error?: string
     }
+    const falconBtcTip =
+      typeof j.falconTipHeight === 'number' && j.falconTipHeight > 0
+        ? j.falconTipHeight
+        : undefined
     if (r.ok) {
       return {
         confirmed: !!j.confirmed,
         confirmations: typeof j.confirmations === 'number' ? j.confirmations : 0,
         blockHeight: j.blockHeight,
+        falconBtcTip,
       }
     }
     // API blip / indexer lag: ask Bitcoin explorers directly so Claim FBTC

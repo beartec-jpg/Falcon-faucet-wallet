@@ -56,6 +56,7 @@ import {
   waitForSpvRedeemPayment,
   type SpvStatus,
 } from '@/lib/btc-spv-client'
+import { btcDepositProgressText, btcReorgWaitCopy, spvClaimReady } from '@/lib/btc-spv-policy'
 import {
   clearSpvPending,
   createSpvPending,
@@ -1124,20 +1125,29 @@ export default function BridgeDepositPanel({
         // Prefer never decreasing confs on transient explorer lag
         const conf = Math.max(spvPending.confirmations, st.confirmations)
         if (spvPending.status === 'claimed') return
+        const blockHeight = st.blockHeight || spvPending.blockHeight
+        const falconBtcTip = st.falconBtcTip || spvPending.falconBtcTip
+        const reorgWait = btcReorgWaitCopy(spvPending.amountSats, blockHeight, falconBtcTip)
         // Never keep localStorage "claiming" across polls — that status only
         // makes sense while handleSpvCompleteClaim has busy=true. Surviving
         // refresh as claiming permanently greys Claim FBTC.
         let status: typeof spvPending.status =
-          conf >= spvPending.minConfirmations ? 'ready_to_claim' : 'waiting_confs'
+          conf >= spvPending.minConfirmations && !reorgWait ? 'ready_to_claim' : 'waiting_confs'
         // If a claim is actively in flight (busy), preserve claiming label via React only
         if (busy && spvPending.status === 'claiming') {
           status = 'claiming'
         }
         const next = updateSpvPending(wallet.address, {
           confirmations: conf,
+          blockHeight,
+          falconBtcTip,
           status,
-          // Soft wait note only — not a hard error
-          lastError: st.waiting && conf < spvPending.minConfirmations ? st.waiting : undefined,
+          // Drop a stale "still checking" once the buffer has cleared.
+          lastError: reorgWait
+            ? reorgWait
+            : st.waiting && conf < spvPending.minConfirmations
+              ? st.waiting
+              : undefined,
         })
         if (next) setSpvPending({ ...next })
         if (st.waiting) setError(null) // never show red "Failed to fetch" while tracking
@@ -1943,8 +1953,10 @@ const handleSpvCompleteClaim = async () => {
     }
     if (isSpvWaitMessage(msg)) {
       const wait = spvWaitUserMessage(msg)
-      updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: wait })
-      setSpvPending((p) => (p ? { ...p, status: 'ready_to_claim', lastError: wait } : p))
+      const stillBuffer = /reorg buffer|before claim turns on|waiting for bitcoin block/i.test(`${msg} ${wait}`)
+      const status = stillBuffer ? 'waiting_confs' : 'ready_to_claim'
+      updateSpvPending(wallet.address, { status, lastError: wait })
+      setSpvPending((p) => (p ? { ...p, status, lastError: wait } : p))
       setError(null)
     } else {
       updateSpvPending(wallet.address, { status: 'ready_to_claim', lastError: msg })
@@ -2560,10 +2572,8 @@ const handleSpvCompleteClaim = async () => {
                               ? ` · tracked ${new Date(openBtc.createdAt).toLocaleString()}`
                               : ''}
                         </p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {openBtc.confirmations >= openBtc.minConfirmations
-                            ? `${openBtc.confirmations} confirmations · ready to claim`
-                            : `${openBtc.confirmations} of ${openBtc.minConfirmations} confirmations`}
+                        <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+                          {btcDepositProgressText(openBtc)}
                         </p>
                       </div>
                       <button
@@ -2597,21 +2607,22 @@ const handleSpvCompleteClaim = async () => {
                         />
                       </div>
                       <div className="text-xs font-semibold tabular-nums text-slate-300 shrink-0">
-                        {openBtc.confirmations >= openBtc.minConfirmations
+                        {spvClaimReady(openBtc)
                           ? 'ready'
                           : `${openBtc.confirmations}/${openBtc.minConfirmations}`}
                       </div>
                     </div>
-                    <p className="text-xs text-slate-500">
-                      {openBtc.status === 'waiting_confs' && 'Waiting for confirmations…'}
-                      {openBtc.status === 'ready_to_claim' && 'Ready to claim on Falcon'}
-                      {openBtc.status === 'claiming' && (step || 'Claiming…')}
-                      {openBtc.status === 'broadcast' && 'Confirming…'}
-                      {openBtc.status === 'failed' &&
-                        spvWaitUserMessage(openBtc.lastError || 'Failed')}
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      {openBtc.status === 'claiming'
+                        ? step || 'Minting FBTC on Falcon.'
+                        : openBtc.status === 'failed'
+                          ? spvWaitUserMessage(openBtc.lastError || 'Failed')
+                          : btcDepositProgressText(openBtc)}
                     </p>
                     {openBtc.lastError &&
                       openBtc.status !== 'failed' &&
+                      openBtc.status !== 'waiting_confs' &&
+                      openBtc.status !== 'ready_to_claim' &&
                       (isSpvWaitMessage(openBtc.lastError) ||
                         /waiting|still need|explorers|mempool|confirmations|econn|blip|retrying/i.test(
                           openBtc.lastError,
@@ -2637,9 +2648,9 @@ const handleSpvCompleteClaim = async () => {
                         {spvWaitUserMessage(error)}
                       </div>
                     )}
-                    {openBtc.status === 'ready_to_claim' ||
+                    {(openBtc.status === 'ready_to_claim' && spvClaimReady(openBtc)) ||
                     (openBtc.status === 'claiming' &&
-                      openBtc.confirmations >= openBtc.minConfirmations) ? (
+                      spvClaimReady(openBtc)) ? (
                       <button
                         type="button"
                         onClick={handleSpvCompleteClaim}
@@ -2660,7 +2671,9 @@ const handleSpvCompleteClaim = async () => {
                         openBtc.status !== 'failed') ? (
                       <div className="flex items-center gap-2 text-xs text-slate-500">
                         <Spinner className="w-3.5 h-3.5" />
-                        Confirming on Bitcoin
+                        {openBtc.confirmations >= openBtc.minConfirmations
+                          ? 'Waiting for Falcon’s Bitcoin tip'
+                          : 'Confirming on Bitcoin'}
                         <span className="tabular-nums text-slate-400">
                           ({openBtc.confirmations}/{openBtc.minConfirmations})
                         </span>
