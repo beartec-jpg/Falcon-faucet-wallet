@@ -326,7 +326,7 @@ export default function ValidatorPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.seats.map((s) => {
+                {data.seats.filter((s) => !s.jailed).map((s) => {
                   const state = s.jailed ? 'jailed' : s.inactive ? 'inactive' : s.lotteryReady ? 'active' : 'bonded'
                   const cls = s.jailed ? 'text-red-400' : s.inactive ? 'text-amber-300' : s.lotteryReady ? 'text-emerald-300' : 'text-slate-400'
                   return (

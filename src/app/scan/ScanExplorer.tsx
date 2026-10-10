@@ -467,7 +467,7 @@ export default function ScanExplorer({
               <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
                 Bonded seats
                 <span className="ml-2 font-normal normal-case tracking-normal text-slate-600">
-                  · {d.validators.length} bonded · {d.online_seats.length} online
+                  · {d.validators.filter((v) => !v.jailed).length} bonded · {d.online_seats.length} online
                 </span>
               </h2>
               <div className="card overflow-hidden overflow-x-auto">
@@ -481,7 +481,7 @@ export default function ScanExplorer({
                     </tr>
                   </thead>
                   <tbody>
-                    {d.validators.map((v: ValidatorEntry) => {
+                    {d.validators.filter((v) => !v.jailed).map((v: ValidatorEntry) => {
                       const on = d.online_seats.includes(v.account)
                       return (
                         <tr key={v.account} className="border-b border-slate-800/50">

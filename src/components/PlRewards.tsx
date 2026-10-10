@@ -320,7 +320,7 @@ export default function PlRewards() {
               </tr>
             </thead>
             <tbody>
-              {data.seats.map((s) => (
+              {data.seats.filter((s) => !s.jailed).map((s) => (
                 <tr key={s.id} className="border-t border-slate-800 text-slate-300">
                   <td className="py-1 pr-3">{s.id}</td>
                   <td className={`py-1 pr-3 ${s.jailed ? 'text-amber-400' : 'text-emerald-400'}`}>{s.jailed ? 'jailed' : 'active'}</td>
