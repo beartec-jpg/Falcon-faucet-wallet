@@ -542,9 +542,9 @@ export default function WalletPage() {
             asset: job.asset,
           })
           if (cancelled) return
-          if (st.status === 'done') {
+          if (st.status === 'done' || st.status === 'error') {
             clearDestLockPending(id, job.txHash)
-            void refreshBalance(id)
+            if (st.status === 'done') void refreshBalance(id)
             continue
           }
           stillOpen.push(job)
@@ -2397,9 +2397,20 @@ export default function WalletPage() {
                               <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
                                 Active bridges
                               </p>
-                              <p className="text-[10px] text-slate-600 tabular-nums">
-                                {openN} open
-                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const id = plAccountId(wallet)
+                                  clearDestLockPending(id)
+                                  clearSpvPending(id)
+                                  clearSpvPending(wallet.address)
+                                  setDestLockHomeJobs([])
+                                  setSpvHomePending(null)
+                                }}
+                                className="text-[10px] text-slate-500 hover:text-slate-300"
+                              >
+                                Clear all
+                              </button>
                             </div>
                             <div className="space-y-2.5">
                               {openDest.map((job) => (

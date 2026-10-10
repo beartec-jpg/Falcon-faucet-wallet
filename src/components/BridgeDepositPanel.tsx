@@ -697,15 +697,7 @@ export default function BridgeDepositPanel({
             continue
           }
           if (st.status === 'error') {
-            upsertDestLockPending(job.falconAccount, {
-              txHash: job.txHash,
-              asset: job.asset,
-              explorerUrl: job.explorerUrl,
-              status: 'error',
-              lastError: st.error || 'Mint failed',
-              depositBlock: st.deposit_block ?? job.depositBlock,
-              lcExecution: st.lc_execution ?? job.lcExecution,
-            })
+            clearDestLockPending(job.falconAccount, job.txHash)
             continue
           }
           if (st.status === 'queued' || st.status === 'running') {
@@ -2448,9 +2440,17 @@ const handleSpvCompleteClaim = async () => {
                 <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
                   Active bridges
                 </p>
-                <p className="text-[10px] text-slate-600 tabular-nums">
-                  {openN} open{doneN > 0 ? ` · ${doneN} done` : ''}
-                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearDestLockPending(falconId)
+                    if (spvPending) handleSpvClearPending()
+                    setDestLockJobs([])
+                  }}
+                  className="text-[10px] text-slate-500 hover:text-slate-300"
+                >
+                  Clear all
+                </button>
               </div>
               <div className="space-y-2.5">
                 {openDest.map((job) => (
