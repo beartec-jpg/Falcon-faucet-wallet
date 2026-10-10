@@ -16,6 +16,8 @@ export interface DestLockPending {
   lastError?: string
   depositBlock?: number
   lcExecution?: number
+  /** Highest Sepolia block the watcher will scan (finalised head, minus the reorg margin). */
+  sepoliaSafe?: number
   /** FalconQcBridgeV3 deposit id (V3 peg-in only): needed to claim a refund after 3 days. */
   v3DepositId?: string
   createdAt: number
@@ -70,6 +72,28 @@ function parseOne(raw: string | null): DestLockPending | null {
   } catch {
     return null
   }
+}
+
+/** What the bridge card should say. A deposit above the safe head is not minting yet. */
+export function destLockProgressText(job: Pick<
+  DestLockPending,
+  'status' | 'lastError' | 'asset' | 'depositBlock' | 'lcExecution' | 'sepoliaSafe'
+>): string {
+  const dep = job.depositBlock
+  const lc = job.lcExecution
+  const safe = job.sepoliaSafe
+  const cursor = safe != null && safe > 0 ? safe : lc
+  if (dep && cursor != null && cursor < dep) {
+    const behind = dep - cursor
+    const mins = Math.max(1, Math.round((behind * 12) / 60))
+    const head = lc != null ? lc.toLocaleString() : 'unknown'
+    return `Waiting for Sepolia headers. This transaction is in block ${dep.toLocaleString()}. The light client is at block ${head}, ${behind.toLocaleString()} blocks behind (about ${mins} min).`
+  }
+  if (job.status === 'error') return job.lastError || 'Mint failed'
+  if (dep && cursor != null && cursor >= dep) {
+    return job.asset === 'USDC' ? 'Minting F-USDC on Falcon.' : 'Minting FETH on Falcon.'
+  }
+  return 'Waiting for Sepolia headers.'
 }
 
 export function listDestLockPending(account: string): DestLockPending[] {

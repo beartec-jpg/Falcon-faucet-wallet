@@ -65,7 +65,9 @@ import BridgeDepositPanel from '@/components/BridgeDepositPanel'
 import { fetchDestLockMintStatus } from '@/lib/pl-dest-lock'
 import {
   clearDestLockPending,
+  destLockProgressText,
   listDestLockPending,
+  upsertDestLockPending,
   type DestLockPending,
 } from '@/lib/dest-lock-pending'
 import {
@@ -547,7 +549,22 @@ export default function WalletPage() {
             if (st.status === 'done') void refreshBalance(id)
             continue
           }
-          stillOpen.push(job)
+          const next = {
+            ...job,
+            depositBlock: st.deposit_block ?? job.depositBlock,
+            lcExecution: st.lc_execution ?? job.lcExecution,
+            sepoliaSafe: st.sepolia_safe ?? job.sepoliaSafe,
+          }
+          upsertDestLockPending(id, {
+            txHash: next.txHash,
+            asset: next.asset,
+            explorerUrl: next.explorerUrl,
+            status: next.status,
+            depositBlock: next.depositBlock,
+            lcExecution: next.lcExecution,
+            sepoliaSafe: next.sepoliaSafe,
+          })
+          stillOpen.push(next)
         } catch {
           stillOpen.push(job)
         }
@@ -2426,15 +2443,7 @@ export default function WalletPage() {
                                     {job.depositBlock ? `Sepolia block ${job.depositBlock.toLocaleString()}` : 'Sepolia deposit'}
                                     {job.createdAt ? ` · ${new Date(job.createdAt).toLocaleString()}` : ''}
                                   </p>
-                                  <p className="text-xs text-slate-400 leading-relaxed">
-                                    {job.status === 'error'
-                                      ? job.lastError || 'Mint failed'
-                                      : job.depositBlock &&
-                                          job.lcExecution != null &&
-                                          job.lcExecution < job.depositBlock
-                                        ? `Locked on Sepolia. Waiting for Ethereum finality (light client ${job.lcExecution} / deposit ${job.depositBlock}). Not lost — you can still bridge another asset.`
-                                        : 'Locked on Sepolia — minting on Falcon PL. BTC, ETH, and USDC can run at the same time.'}
-                                  </p>
+                                  <p className="text-xs text-slate-400 leading-relaxed">{destLockProgressText(job)}</p>
                                   <div className="flex items-center gap-3">
                                     <button
                                       type="button"

@@ -38,6 +38,7 @@ import {
 } from '@/lib/pl-dest-lock'
 import {
   clearDestLockPending,
+  destLockProgressText,
   listDestLockPending,
   upsertDestLockPending,
   type DestLockPending,
@@ -709,6 +710,7 @@ export default function BridgeDepositPanel({
               lastError: '',
               depositBlock: st.deposit_block ?? job.depositBlock,
               lcExecution: st.lc_execution ?? job.lcExecution,
+              sepoliaSafe: st.sepolia_safe ?? job.sepoliaSafe,
             })
             continue
           }
@@ -719,6 +721,7 @@ export default function BridgeDepositPanel({
             status: job.status,
             depositBlock: st.deposit_block ?? job.depositBlock,
             lcExecution: st.lc_execution ?? job.lcExecution,
+            sepoliaSafe: st.sepolia_safe ?? job.sepoliaSafe,
           })
         } catch {
           /* keep last known status */
@@ -2473,17 +2476,7 @@ const handleSpvCompleteClaim = async () => {
                             V3 deposit id {job.v3DepositId}
                           </p>
                         ) : null}
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          {job.status === 'error'
-                            ? job.lastError || 'Mint failed'
-                            : job.depositBlock &&
-                                job.lcExecution != null &&
-                                job.lcExecution < job.depositBlock
-                              ? `Waiting for Ethereum finality. Light client is at block ${job.lcExecution.toLocaleString()}, deposit is in ${job.depositBlock.toLocaleString()}.`
-                              : job.status === 'minting'
-                                ? `Minting ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} on Falcon.`
-                                : 'Deposit in progress'}
-                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">{destLockProgressText(job)}</p>
                       </div>
                       <button
                         type="button"

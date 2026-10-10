@@ -215,6 +215,8 @@ export type DestLockMintJob = {
   error?: string
   deposit_block?: number
   lc_execution?: number
+  sepolia_safe?: number
+  waiting_blocks?: number
   lc_finalized_slot?: number
 }
 
