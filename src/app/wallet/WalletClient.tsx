@@ -62,10 +62,12 @@ import {
 } from '@/lib/create-evm-wallet'
 import { type UsdcBridgeManifest } from '@/lib/bridge-config'
 import BridgeDepositPanel from '@/components/BridgeDepositPanel'
-import { fetchDestLockMintStatus } from '@/lib/pl-dest-lock'
+import { fetchDestLockMintStatus, fetchOpenDestDeposits } from '@/lib/pl-dest-lock'
 import {
   clearDestLockPending,
   destLockProgressText,
+  dismissDestLock,
+  isDestLockDismissed,
   listDestLockPending,
   upsertDestLockPending,
   type DestLockPending,
@@ -530,6 +532,23 @@ export default function WalletPage() {
     const id = plAccountId(wallet)
     const sync = async () => {
       purgeDeadSpvStorage([id, wallet.address])
+      try {
+        const found = await fetchOpenDestDeposits(id)
+        for (const dep of found) {
+          if (isDestLockDismissed(id, dep.txHash)) continue
+          if (listDestLockPending(id).some((j) => j.txHash.toLowerCase() === dep.txHash.toLowerCase())) continue
+          upsertDestLockPending(id, {
+            txHash: dep.txHash,
+            asset: dep.asset,
+            explorerUrl: `https://sepolia.etherscan.io/tx/${dep.txHash}`,
+            status: 'minting',
+            amountLabel: dep.amountLabel,
+            depositBlock: dep.depositBlock,
+          })
+        }
+      } catch {
+        /* the cards already in this browser still show */
+      }
       const jobs = listDestLockPending(id)
       const stillOpen: DestLockPending[] = []
       for (const job of jobs) {
@@ -2418,6 +2437,7 @@ export default function WalletPage() {
                                 type="button"
                                 onClick={() => {
                                   const id = plAccountId(wallet)
+                                  for (const job of listDestLockPending(id)) dismissDestLock(id, job.txHash)
                                   clearDestLockPending(id)
                                   clearSpvPending(id)
                                   clearSpvPending(wallet.address)
@@ -2462,7 +2482,7 @@ export default function WalletPage() {
                                       type="button"
                                       onClick={() => {
                                         const id = plAccountId(wallet)
-                                        clearDestLockPending(id, job.txHash)
+                                        dismissDestLock(id, job.txHash)
                                         setDestLockHomeJobs((prev) =>
                                           prev.filter((j) => j.txHash !== job.txHash),
                                         )

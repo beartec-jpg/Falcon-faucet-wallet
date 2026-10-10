@@ -279,6 +279,29 @@ export async function mintAfterDestLockDeposit(opts: {
   return { ...queued, status: 'running', txid: txHash, account, asset: opts.asset }
 }
 
+export async function fetchOpenDestDeposits(account: string): Promise<
+  Array<{ txHash: string; asset: 'ETH' | 'USDC'; depositBlock?: number; amountLabel?: string }>
+> {
+  const res = await fetch('/api/wallet/pl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'open-deposits', account }),
+  })
+  const d = (await res.json()) as {
+    deposits?: Array<{ txHash?: string; asset?: string; depositBlock?: number; amountLabel?: string }>
+    error?: string
+  }
+  if (!res.ok) throw new Error(d.error || `open deposits ${res.status}`)
+  return (d.deposits || [])
+    .filter((x) => x.txHash && (x.asset === 'ETH' || x.asset === 'USDC'))
+    .map((x) => ({
+      txHash: x.txHash as string,
+      asset: x.asset as 'ETH' | 'USDC',
+      depositBlock: x.depositBlock,
+      amountLabel: x.amountLabel,
+    }))
+}
+
 export async function fetchDestLockMintStatus(opts: {
   account: string
   txHash: string

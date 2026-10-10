@@ -25,6 +25,7 @@ export interface DestLockPending {
 }
 
 const LIST_PREFIX = 'falcon-destlock-jobs-v2:'
+const DISMISS_PREFIX = 'falcon-destlock-dismissed-v1:'
 const LEGACY_PREFIX = 'falcon-destlock-pending-v1:'
 
 function isBrowser(): boolean {
@@ -138,6 +139,33 @@ export function saveDestLockPending(p: DestLockPending): DestLockPending {
   else jobs.push(next)
   saveList(p.falconAccount, jobs)
   return next
+}
+
+export function isDestLockDismissed(account: string, txHash: string): boolean {
+  if (!isBrowser()) return false
+  try {
+    const raw = localStorage.getItem(DISMISS_PREFIX + account.trim().toLowerCase())
+    const ids = raw ? (JSON.parse(raw) as string[]) : []
+    return ids.includes(txHash.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
+/** Drop the card and do not restore it from a later Sepolia scan. */
+export function dismissDestLock(account: string, txHash?: string) {
+  clearDestLockPending(account, txHash)
+  if (!isBrowser() || !txHash) return
+  const key = DISMISS_PREFIX + account.trim().toLowerCase()
+  let ids: string[] = []
+  try {
+    ids = JSON.parse(localStorage.getItem(key) || '[]') as string[]
+  } catch {
+    ids = []
+  }
+  const want = txHash.toLowerCase()
+  if (!ids.includes(want)) ids.push(want)
+  safeSet(key, JSON.stringify(ids.slice(-50)))
 }
 
 export function clearDestLockPending(account: string, txHash?: string) {

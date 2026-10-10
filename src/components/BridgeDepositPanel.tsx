@@ -31,6 +31,7 @@ import {
   fetchPl2300BridgeConfig,
   PL2300_BRIDGE_FALLBACK,
   fetchDestLockMintStatus,
+  fetchOpenDestDeposits,
   queueDestLockMint,
   pegOutDestLock,
   loadPendingPegOut,
@@ -39,6 +40,8 @@ import {
 import {
   clearDestLockPending,
   destLockProgressText,
+  dismissDestLock,
+  isDestLockDismissed,
   listDestLockPending,
   upsertDestLockPending,
   type DestLockPending,
@@ -675,7 +678,33 @@ export default function BridgeDepositPanel({
   // Restore ETH/USDC dest-lock mint after refresh (status is otherwise React-only).
   useEffect(() => {
     if (!isPl2300 || !falconId) return
-    setDestLockJobs(listDestLockPending(falconId))
+    const restore = async () => {
+      try {
+        const found = await fetchOpenDestDeposits(falconId)
+        for (const dep of found) {
+          if (isDestLockDismissed(falconId, dep.txHash)) continue
+          if (listDestLockPending(falconId).some((j) => j.txHash.toLowerCase() === dep.txHash.toLowerCase())) {
+            continue
+          }
+          upsertDestLockPending(falconId, {
+            txHash: dep.txHash,
+            asset: dep.asset,
+            explorerUrl: `https://sepolia.etherscan.io/tx/${dep.txHash}`,
+            status: 'minting',
+            amountLabel: dep.amountLabel,
+            depositBlock: dep.depositBlock,
+          })
+        }
+      } catch {
+        /* keep the cards already stored */
+      }
+      if (!cancelled) setDestLockJobs(listDestLockPending(falconId))
+    }
+    let cancelled = false
+    void restore()
+    return () => {
+      cancelled = true
+    }
   }, [isPl2300, falconId])
 
   useEffect(() => {
@@ -2446,6 +2475,7 @@ const handleSpvCompleteClaim = async () => {
                 <button
                   type="button"
                   onClick={() => {
+                    for (const job of listDestLockPending(falconId)) dismissDestLock(falconId, job.txHash)
                     clearDestLockPending(falconId)
                     if (spvPending) handleSpvClearPending()
                     setDestLockJobs([])
@@ -2481,7 +2511,7 @@ const handleSpvCompleteClaim = async () => {
                       <button
                         type="button"
                         onClick={() => {
-                          clearDestLockPending(falconId, job.txHash)
+                          dismissDestLock(falconId, job.txHash)
                           setDestLockJobs(listDestLockPending(falconId))
                         }}
                         className="text-xs text-slate-500 hover:text-slate-300 shrink-0"

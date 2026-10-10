@@ -6,6 +6,7 @@ import { plAccount, plRpc, plStatus } from '@/lib/pl-rpc'
 import { filterWalletNotes } from '@/lib/pl-pending-notes'
 import { ctlPay, ctlVaultLock, ctlVaultOpen, PL_CTL } from '@/lib/pl-ctl'
 import { walletApiHeaders, walletApiUrl } from '@/lib/walletd'
+import { dest20FromAccount } from '@/lib/pl-dest-lock'
 
 const WALLET_API = walletApiUrl()
 
@@ -24,6 +25,57 @@ async function payViaHttp(from: string, to: string, amount: number) {
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
+
+const V3_BRIDGE = '0xEd4eE497F21a9255a59e87535FF2A6097592Cfd4'
+const V3_DEPOSIT_TOPIC = '0xe7783c72791736d4d8af95660d4367bed2f98d8331a095422373e557a4318728'
+const SEPOLIA_RPC = 'https://ethereum-sepolia-rpc.publicnode.com'
+const USDC_TOKEN = '1c7d4b196cb0c7b01d743fbc6116a902379c7238'
+
+async function sepolia(method: string, params: unknown[]): Promise<unknown> {
+  const r = await fetch(SEPOLIA_RPC, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  })
+  const j = (await r.json()) as { result?: unknown; error?: { message?: string } }
+  if (!r.ok || j.error) throw new Error(j.error?.message || `sepolia ${method} ${r.status}`)
+  return j.result
+}
+
+/** V3 deposits to this account in the last ~500 Sepolia blocks, including ones not yet final. */
+async function recentV3Deposits(account: string): Promise<Array<Record<string, unknown>>> {
+  const want = dest20FromAccount(account).slice(2).toLowerCase()
+  const tip = parseInt(String(await sepolia('eth_blockNumber', [])), 16)
+  const from = Math.max(0, tip - 500)
+  const logs = (await sepolia('eth_getLogs', [
+    {
+      address: V3_BRIDGE,
+      fromBlock: '0x' + from.toString(16),
+      toBlock: '0x' + tip.toString(16),
+      topics: [V3_DEPOSIT_TOPIC],
+    },
+  ])) as Array<{ data?: string; transactionHash?: string; blockNumber?: string }>
+  const out: Array<Record<string, unknown>> = []
+  for (const lg of logs || []) {
+    const data = (lg.data || '0x').slice(2)
+    if (data.length < 256) continue
+    const dest = data.slice(0, 40).toLowerCase()
+    if (dest !== want) continue
+    const token = data.slice(64 + 24, 128).toLowerCase()
+    const amount = BigInt('0x' + data.slice(128, 192))
+    const asset = token === USDC_TOKEN ? 'USDC' : token === '0'.repeat(40) ? 'ETH' : ''
+    if (!asset || !lg.transactionHash) continue
+    const block = parseInt(lg.blockNumber || '0x0', 16)
+    const whole = asset === 'USDC' ? Number(amount) / 1e6 : Number(amount) / 1e18
+    out.push({
+      txHash: lg.transactionHash,
+      asset,
+      depositBlock: block,
+      amountLabel: Number.isFinite(whole) ? String(whole) : '',
+    })
+  }
+  return out
+}
 
 const NAME_RE = /^[A-Za-z0-9._-]{2,64}$/
 const DEPOSIT_ID_RE = /^(0[xX])?[a-fA-F0-9]{64}$/
@@ -386,6 +438,22 @@ export async function POST(req: NextRequest) {
       const d = await r.json()
       if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
       return NextResponse.json(d)
+    } catch (e) {
+      return NextResponse.json(
+        { error: String(e instanceof Error ? e.message : e) },
+        { status: 503 },
+      )
+    }
+  }
+
+  if (action === 'open-deposits') {
+    const account = String(body.account ?? '').trim()
+    if (!NAME_RE.test(account)) {
+      return NextResponse.json({ error: 'account must be a PL name' }, { status: 400 })
+    }
+    try {
+      const deposits = await recentV3Deposits(account)
+      return NextResponse.json({ ok: true, deposits })
     } catch (e) {
       return NextResponse.json(
         { error: String(e instanceof Error ? e.message : e) },
