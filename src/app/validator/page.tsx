@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import { DISCORD_INVITE_URL } from '@/lib/community-links'
+import { loadWallets } from '@/lib/wallet-store'
 import {
   APPLICATIONS_REPO,
   FIRST_VALIDATOR_VERSION,
@@ -95,10 +96,15 @@ export default function ValidatorPage() {
   const [err, setErr] = useState<string | null>(null)
   const [lookup, setLookup] = useState('')
   const [seatId, setSeatId] = useState('')
+  const [payout, setPayout] = useState('')
+  const [loaded, setLoaded] = useState<string[]>([])
+  const [loadMsg, setLoadMsg] = useState('')
   const seat = seatId.trim().toLowerCase()
+  const payoutName = payout.trim().toLowerCase()
   const seatOk = ID_RE.test(seat) && !/^(?:v\d+|faucet|treasury|community|builder|alice|bob|watcher-.*)$/.test(seat)
-  const validatorCmd = seatOk
-    ? `curl -fsSL https://falcon-ledger.com/install.sh | bash -s -- --validator --id ${seat}`
+  const payoutOk = payoutName === '' || (/^[a-z][a-z0-9.]{2,31}$/.test(payoutName) && !payoutName.includes('..') && !payoutName.endsWith('.'))
+  const validatorCmd = seatOk && payoutOk
+    ? `curl -fsSL https://falcon-ledger.com/install.sh | bash -s -- --validator --id ${seat}${payoutName ? ` --payout '${payoutName}'` : ''}`
     : ''
 
   const load = useCallback(async () => {
@@ -185,7 +191,7 @@ export default function ValidatorPage() {
         <section className="card space-y-3 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Create a validator node</h2>
           <p className="text-sm text-slate-300">
-            A validator does everything an observer does, then bonds 50,000 FPL and can seal blocks and vote. Pay is credited to the seat account on this node, not to another wallet.
+            A validator does everything an observer does, then bonds 50,000 FPL and can seal blocks and vote. Rewards land on the seat account. An optional payout address receives that spendable balance after each epoch. The bond is not sent.
           </p>
           <ul className="list-disc space-y-1 pl-5 text-xs text-slate-400">
             <li>About 4–8 GB RAM, 20 GB disk, and online all the time.</li>
@@ -207,6 +213,48 @@ export default function ValidatorPage() {
           {seat && !seatOk && (
             <p className="text-xs text-amber-300">Seat id must start with a letter, be 3–32 characters (a–z, 0–9, hyphen), and not be a reserved name.</p>
           )}
+          <label className="block max-w-sm text-xs text-slate-400">
+            Auto payout address, optional
+            <input
+              value={payout}
+              onChange={(e) => setPayout(e.target.value)}
+              placeholder="leave blank to keep rewards on the node"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-200"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:border-brand-400 hover:text-brand-300"
+              onClick={() => {
+                void loadWallets().then((rows) => {
+                  const names = [...new Set(rows.map((w) => (w.accountName || '').trim().toLowerCase()).filter(Boolean))]
+                  setLoaded(names)
+                  setLoadMsg(names.length === 0 ? 'No named wallet is loaded in this browser.' : '')
+                  if (names.length === 1) setPayout(names[0])
+                }).catch(() => setLoadMsg('Could not read wallets in this browser.'))
+              }}
+            >
+              Use a loaded wallet
+            </button>
+            {loaded.map((name) => (
+              <button
+                key={name}
+                type="button"
+                className="rounded border border-brand-500/40 px-2 py-1 font-mono text-xs text-brand-300 hover:bg-brand-500/10"
+                onClick={() => setPayout(name)}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          {loadMsg && <p className="text-xs text-amber-300">{loadMsg}</p>}
+          {payoutName && !payoutOk && (
+            <p className="text-xs text-amber-300">Payout address must be 3–32 characters: a–z, 0–9, and dots.</p>
+          )}
           {validatorCmd ? <Cmd cmd={validatorCmd} /> : <p className="text-xs text-slate-500">The install command appears here after the seat id is valid.</p>}
           <ol className="list-inside list-decimal space-y-1 text-xs text-slate-400">
             <li>Run that command. The node syncs first, then writes <code className="text-slate-300">application.json</code> on that machine. The file has the public key only.</li>
@@ -217,7 +265,7 @@ export default function ValidatorPage() {
               Scott approves that id and key on the chain.
             </li>
             <li>Send 50,000 FPL plus fees to the bond account. The installer bonds from the node.</li>
-            <li>The seat joins the lottery with the same odds as every other seat. Pay stays on this node.</li>
+            <li>The seat joins the lottery with the same odds as every other seat. If a payout address is set, each new epoch sends the seat&apos;s spendable FPL there. The bond stays on the node.</li>
           </ol>
           <p className="text-[11px] text-slate-500">
             Binaries and checksums:{' '}
