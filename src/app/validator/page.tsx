@@ -225,6 +225,13 @@ export default function ValidatorPage() {
             <p className="text-xs text-amber-300">Contact must be 3–120 characters, on one line, with no quotes.</p>
           )}
           {validatorCmd ? <Cmd cmd={validatorCmd} /> : <p className="text-xs text-slate-500">The install command appears here after the seat id and contact are filled in.</p>}
+          <ol className="list-inside list-decimal space-y-1 text-xs text-slate-400">
+            <li>Run that command. The node syncs first, then writes <code className="text-slate-300">application.json</code> on that machine. The file has the public key only.</li>
+            <li>The installer prints a link. Open it and send the application. That is the only use of the application page.</li>
+            <li>Scott approves that id and key on the chain.</li>
+            <li>Send 50,000 FPL plus fees to the bond account. The installer bonds from the node.</li>
+            <li>The seat joins the lottery with the same odds as every other seat. Pay stays on this node.</li>
+          </ol>
           <p className="text-[11px] text-slate-500">
             Binaries and checksums:{' '}
             <a className="text-brand-400 hover:underline" href={`https://github.com/${RELEASES_REPO}/releases`} target="_blank" rel="noreferrer">
@@ -255,31 +262,20 @@ export default function ValidatorPage() {
         </section>
 
         <section className="card space-y-3 p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Application status</h2>
-          <div className="flex gap-2">
-            <input
-              value={lookup}
-              onChange={(e) => setLookup(e.target.value)}
-              placeholder="Seat id"
-              className="flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-200"
-            />
-            <Link href="/validator/apply" className="rounded border border-brand-500/40 px-3 py-2 text-sm text-brand-300 hover:bg-brand-500/10">
-              Check an application →
-            </Link>
-          </div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Look up a seat</h2>
+          <p className="text-xs text-slate-400">Type a seat id to see whether it is waiting for approval, approved, bonded, or not on the chain. This does not install anything.</p>
+          <input
+            value={lookup}
+            onChange={(e) => setLookup(e.target.value)}
+            placeholder="Seat id"
+            className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-200"
+          />
           {lookupResult && (
             <p className="text-sm text-slate-300">
               <span className="font-semibold text-white">{lookupResult.stage}</span>
               <span className="text-slate-500"> · {lookupResult.detail}</span>
             </p>
           )}
-          <ol className="list-inside list-decimal space-y-1 text-xs text-slate-400">
-            <li>Install with <code className="text-slate-300">--validator</code>; the node syncs as an observer first.</li>
-            <li>The installer writes <code className="text-slate-300">application.json</code> (id, validator public key, proof of possession, bond account) and prints a link to send it.</li>
-            <li>Scott reviews it and approves the id + key on chain (admission key).</li>
-            <li>Fund the bond account with 50,000 FPL + fees; the installer bonds (signed locally).</li>
-            <li>The seats see the new seat ready → it enters the lottery with equal odds.</li>
-          </ol>
         </section>
 
         <section className="card overflow-x-auto p-5">
