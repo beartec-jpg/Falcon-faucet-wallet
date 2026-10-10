@@ -36,17 +36,19 @@ export async function buildScanSnapshot(): Promise<ScanData> {
   const valsRaw = Array.isArray(st.validators)
     ? (st.validators as Array<Record<string, unknown>>)
     : []
-  const validators: ValidatorEntry[] = valsRaw.map((v) => ({
-    account: str(v.id || v.bond_account),
-    pubkey: str(v.id),
-    bond_status: v.jailed ? 'jailed' : v.unbonding ? 'unbonding' : 'bonded',
-    bonded_amount: String(num(v.bond)),
-    composite_score: Math.round(num(v.pack_count)),
-    ledger_index: num(v.last_advertised_tip),
-    jailed: Boolean(v.jailed),
-    lottery_ready: Boolean(v.lottery_ready),
-    pack_count: num(v.pack_count),
-  }))
+  const validators: ValidatorEntry[] = valsRaw
+    .filter((v) => !v.jailed)
+    .map((v) => ({
+      account: str(v.id || v.bond_account),
+      pubkey: str(v.id),
+      bond_status: v.unbonding ? 'unbonding' : 'bonded',
+      bonded_amount: String(num(v.bond)),
+      composite_score: Math.round(num(v.pack_count)),
+      ledger_index: num(v.last_advertised_tip),
+      jailed: false,
+      lottery_ready: Boolean(v.lottery_ready),
+      pack_count: num(v.pack_count),
+    }))
 
   const railsRaw = Array.isArray(st.rails) ? (st.rails as Array<Record<string, unknown>>) : []
   const zp = await loadZeroPoint()
