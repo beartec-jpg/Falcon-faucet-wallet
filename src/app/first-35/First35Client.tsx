@@ -1,0 +1,90 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+
+const C = { copper: '#C07838', gold: '#D4922A', panel: '#0F172A', cream: '#E0DBCA' }
+const mono = { fontFamily: "'JetBrains Mono', ui-monospace, monospace" }
+
+export function Seats({ total }: { total: number }) {
+  const [s, setS] = useState<{ filled: number; remaining: number } | null>(null)
+  useEffect(() => {
+    fetch('/api/first35/status', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => j && setS(j))
+      .catch(() => {})
+  }, [])
+  const filled = s?.filled ?? 0
+  return (
+    <div className="max-w-md mx-auto pt-2">
+      <div className="flex justify-between text-xs text-slate-400 mb-1" style={mono}>
+        <span>{s ? `${filled} filled` : '…'}</span>
+        <span>{s ? `${s.remaining} of ${total} remaining` : ''}</span>
+      </div>
+      <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${total}, minmax(0, 1fr))` }}>
+        {Array.from({ length: total }, (_, i) => (
+          <div key={i} className="h-3 rounded-sm" style={{ background: i < filled ? C.gold : '#1E293B' }} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const FIELDS = [
+  { k: 'account', label: 'Testnet account name', ph: 'e.g. yourname' },
+  { k: 'telegram', label: 'Telegram handle', ph: '@handle' },
+  { k: 'discord', label: 'Discord handle', ph: 'handle' },
+  { k: 'x_handle', label: 'X handle', ph: '@handle' },
+] as const
+
+export function Form() {
+  const [v, setV] = useState<Record<string, string>>({ account: '', telegram: '', discord: '', x_handle: '', note: '' })
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setMsg(null)
+    try {
+      const r = await fetch('/api/first35/apply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(v) })
+      const j = await r.json().catch(() => ({}))
+      setMsg(r.ok ? { ok: true, text: 'Application received. Keep testing; approved seats show on the counter above.' } : { ok: false, text: j.error || 'Something went wrong.' })
+    } catch {
+      setMsg({ ok: false, text: 'Network error. Try again.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <form onSubmit={submit} className="rounded-xl border p-5 space-y-3" style={{ background: C.panel, borderColor: '#1E293B' }}>
+      <h2 className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: C.gold }}>Apply for a seat</h2>
+      {FIELDS.map((f) => (
+        <label key={f.k} className="block text-xs text-slate-400">
+          {f.label}
+          <input
+            required
+            value={v[f.k]}
+            onChange={(e) => setV({ ...v, [f.k]: e.target.value })}
+            placeholder={f.ph}
+            className="mt-1 w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-[#C07838]"
+            style={mono}
+          />
+        </label>
+      ))}
+      <label className="block text-xs text-slate-400">
+        Short note (what you are testing, optional)
+        <textarea
+          value={v.note}
+          maxLength={500}
+          onChange={(e) => setV({ ...v, note: e.target.value })}
+          rows={3}
+          className="mt-1 w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-[#C07838]"
+        />
+      </label>
+      <button type="submit" disabled={busy} className="w-full rounded-md py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-60" style={{ background: C.copper }}>
+        {busy ? 'Sending…' : 'Apply'}
+      </button>
+      {msg && <p className="text-xs" style={{ color: msg.ok ? C.gold : '#F87171' }}>{msg.text}</p>}
+    </form>
+  )
+}
+

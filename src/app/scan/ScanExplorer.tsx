@@ -315,6 +315,14 @@ export default function ScanExplorer({
           >
             Live network map ↗
           </a>
+          {tab === 'activity' && (
+            <a
+              href="/first-35"
+              className="px-4 py-2 rounded-lg text-sm font-medium border border-[#D4922A]/40 text-[#D4922A] hover:bg-[#D4922A]/10 transition-colors"
+            >
+              The First 35 →
+            </a>
+          )}
           {lastUpdate && tab === 'network' && (
             <span className="ml-auto self-center text-[10px] text-slate-600 font-mono">
               live · {lastUpdate.toLocaleTimeString()}

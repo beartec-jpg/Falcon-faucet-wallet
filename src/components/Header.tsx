@@ -19,6 +19,7 @@ type NavItem =
   | 'scan'
   | 'arcade'
   | 'whitepaper'
+  | 'first35'
 
 interface HeaderProps {
   current: NavItem
@@ -41,6 +42,7 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'pool', label: 'Pool', href: '/pool' },
   { key: 'lend', label: 'Lend', href: '/lend' },
   { key: 'airdrop', label: 'Airdrop', href: '/airdrop' },
+  { key: 'first35', label: 'First 35', href: '/first-35' },
   { key: 'community', label: 'Community', href: '/community' },
   { key: 'whitepaper', label: 'Whitepaper', href: '/whitepaper' },
 ]
