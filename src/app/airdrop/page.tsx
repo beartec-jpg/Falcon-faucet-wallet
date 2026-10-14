@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+
 import { useCallback, useEffect, useState } from 'react'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
@@ -104,12 +106,23 @@ export default function AirdropPage() {
       <NetworkBanner />
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Community airdrop</h1>
+          <h1 className="text-2xl font-semibold text-white">Community allocation</h1>
           <p className="text-sm text-slate-400 mt-1">
-            1% of supply (2B FPL) for mainnet contributors. Score window: genesis → +60 days.
-            Emissions start at epoch 8.
+            Proposed model. Nothing is promised and everything here is subject to change until the mainnet
+            parameter sheet is published.
           </p>
         </div>
+
+        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-2 text-xs text-slate-300">
+          <h2 className="text-sm font-semibold text-white">How the 2B community bucket is planned</h2>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><span className="text-white">1B pre-mainnet airdrop</span>: from a frozen snapshot of testnet activity, credited at mainnet genesis to the same account name and key.</li>
+            <li><span className="text-white">1B release-phase giveaway</span>: paid per epoch during mainnet epochs 1–7 (before protocol emission starts at epoch 8) for arcade, activity and similar, with caps. The pool below is this one.</li>
+            <li>Validator operators have a separate operators pool.</li>
+            <li>Separately, the <Link href="/first-35" className="text-amber-300 hover:underline">First 35</Link> prize seats (12M FPL) come from the builder pot, and mainnet faucet drips come from the faucet bucket.</li>
+          </ul>
+          <p className="text-slate-500">Testnet activity: <Link href="/scan" className="text-amber-300 hover:underline">Explorer → Activity</Link>.</p>
+        </section>
 
         {loading && <p className="text-sm text-slate-500">Loading…</p>}
         {error && (
@@ -161,25 +174,15 @@ export default function AirdropPage() {
         )}
 
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-white">How you earn points</h2>
+          <h2 className="text-sm font-semibold text-white">Release phase: how points are planned</h2>
           <ul className="text-xs text-slate-400 space-y-2 list-disc pl-4">
-            <li>
-              <span className="text-slate-200">Validator (40%)</span> — bond and stay online during
-              the window
-            </li>
-            <li>
-              <span className="text-slate-200">Setup (10%)</span> — complete validator setup / link
-              payout
-            </li>
-            <li>
-              <span className="text-slate-200">DEX LP (35%)</span> — time-weighted AMM liquidity
-              (not lend vault)
-            </li>
-            <li>
-              <span className="text-slate-200">Faucet (10%)</span> — daily engagement: up to 5
-              claims/day with 1h cooldown; score rewards showing up most days, not one-day farming
-            </li>
+            <li><span className="text-slate-200">Per epoch</span>: the release pool is split across mainnet epochs 1–7, so each week pays on its own.</li>
+            <li><span className="text-slate-200">Activity</span>: DeFi (liquidity, lending, swaps), bridging and payments, log-scaled.</li>
+            <li><span className="text-slate-200">Arcade</span>: verified arcade runs linked to your account.</li>
+            <li><span className="text-slate-200">Caps</span>: per-epoch and per-account caps; linked accounts are scored as one.</li>
+            <li><span className="text-slate-200">Operators</span>: validators are paid from a separate operators pool, not this one.</li>
           </ul>
+          <p className="text-[11px] text-slate-500">Draft rules. Nothing promised; subject to change.</p>
         </section>
 
         <section className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3">

@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     testnetActivityCounts: false,
     note:
       networkKey === 'testnet'
-        ? 'Preview only: airdrop scores mainnet activity after genesis. Testnet does not earn mainnet FPL.'
+        ? 'Preview only: this pool scores mainnet activity in epochs 1-7. Testnet activity is measured separately for the proposed pre-mainnet airdrop. Nothing promised; subject to change.'
         : overview.notes,
   })
 }
