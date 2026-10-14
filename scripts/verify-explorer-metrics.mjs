@@ -25,6 +25,11 @@ function load(name) {
 load('net-metrics')
 load('metric-history')
 load('scan-types')
+load('netmap-layout')
+{
+  const src = fs.readFileSync(path.join(root, 'src/config/network-map.ts'), 'utf8')
+  fs.writeFileSync(path.join(dir, 'network-map.mjs'), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText)
+}
 
 // Minimal localStorage for the ring buffer.
 const mem = new Map()
@@ -108,5 +113,33 @@ assert.equal(mh.getClientSeries('mempool', now).length, 5)
 // Merge: sorted, dedupe within 5s.
 const m = mh.mergeSeries([{ t: now - 10_000, v: 1 }], [{ t: now - 9_000, v: 2 }, { t: now - 100_000, v: 0 }])
 assert.deepEqual(m.map((p) => p.v), [0, 2])
+
+// Network map layout from config.
+const lay = await import(pathToFileURL(path.join(dir, 'netmap-layout.mjs')).href)
+const { NETWORK_MAP_CONFIG: cfg } = await import(pathToFileURL(path.join(dir, 'network-map.mjs')).href)
+const status = ['v1', 'v3', 'v6', 'v10', 'v11', 'v12', 'v13', 'falcon-node', 'scottspersonalnode', 'v99']
+  .map((id) => ({ id, online: true }))
+  .concat([{ id: 'v2', online: false }])
+const L = lay.layoutMap(cfg, status)
+assert.equal(L.hub.id, 'v11')
+assert.ok(!L.seats.some((s) => s.id === 'v11'), 'hub not duplicated in a group')
+assert.equal(L.seats.find((s) => s.id === 'v1').locationId, 'england')
+assert.equal(L.seats.find((s) => s.id === 'scottspersonalnode').locationId, 'helsinki')
+assert.equal(L.seats.find((s) => s.id === 'v12').confirmed, false, 'Hillsboro still TODO')
+assert.equal(L.seats.find((s) => s.id === 'v99').locationId, 'unplaced', 'unknown online seat shown')
+assert.ok(!L.seats.some((s) => s.id === 'v2'), 'unknown offline seat hidden by default')
+assert.equal(L.ingress.seat, 'falcon-node')
+const ids = L.seats.map((s) => s.id)
+assert.equal(new Set(ids).size, ids.length)
+for (let i = 0; i < L.seats.length; i++)
+  for (let j = i + 1; j < L.seats.length; j++) {
+    const a = L.seats[i].pos, b = L.seats[j].pos
+    assert.ok(Math.hypot(a[0] - b[0], a[2] - b[2]) > 1.2, `seats ${ids[i]} / ${ids[j]} overlap`)
+  }
+assert.equal(lay.bulgeCount(0, 10), 0)
+assert.equal(lay.bulgeCount(3, 10), 1)
+assert.equal(lay.bulgeCount(5000, 10), 10, 'bulges capped')
+assert.equal(lay.ringFill(500, 100), 1)
+assert.ok(lay.ringFill(50, 0) === 0.5)
 
 console.log('verify-explorer-metrics: ok')

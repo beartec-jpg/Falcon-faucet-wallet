@@ -351,6 +351,12 @@ export default function ScanExplorer({
               {t.label}
             </button>
           ))}
+          <a
+            href="/scan/map"
+            className="px-4 py-2 rounded-lg text-sm font-medium border border-brand-500/30 text-brand-300 hover:bg-brand-500/10 transition-colors"
+          >
+            Live network map ↗
+          </a>
           {lastUpdate && tab !== 'rails' && (
             <span className="ml-auto self-center text-[10px] text-slate-600 font-mono">
               live · {lastUpdate.toLocaleTimeString()}
