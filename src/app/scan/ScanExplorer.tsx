@@ -1,5 +1,7 @@
 'use client'
 
+import { ActivityBoard, PoolsView, RailsView } from '@/components/explorer/RailsPoolsTabs'
+
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
@@ -198,53 +200,8 @@ function Row({ k, v }: { k: string; v: string }) {
   )
 }
 
-function RailsTable({ rails }: { rails: RailRow[] }) {
-  return (
-    <section>
-      <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">
-        Protocol rails
-      </h2>
-      <p className="text-[10px] text-slate-600 mb-4">
-        Live dest-lock rails. Minted/burned counts start at the public zero-point;
-        new peg-ins add from here.
-      </p>
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-800 text-xs text-slate-500">
-              <th className="text-left px-4 py-2.5 font-medium">Rail</th>
-              <th className="text-right px-4 py-2.5 font-medium">Header tip</th>
-              <th className="text-right px-4 py-2.5 font-medium">Minted</th>
-              <th className="text-right px-4 py-2.5 font-medium">Burned</th>
-              <th className="text-right px-4 py-2.5 font-medium hidden sm:table-cell">Confirms</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rails.map((r) => (
-              <tr key={r.asset} className="border-b border-slate-800/50">
-                <td className="px-4 py-2.5 font-medium text-slate-200">{r.asset}</td>
-                <td className="px-4 py-2.5 text-right font-mono text-slate-300">
-                  {fmtNum(r.tip_height)}
-                </td>
-                <td className="px-4 py-2.5 text-right font-mono text-slate-400">
-                  {fmtNum(r.total_minted)}
-                </td>
-                <td className="px-4 py-2.5 text-right font-mono text-slate-400">
-                  {fmtNum(r.total_burned)}
-                </td>
-                <td className="px-4 py-2.5 text-right font-mono text-slate-500 hidden sm:table-cell">
-                  {r.min_confirmations}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  )
-}
 
-type ScanTab = 'network' | 'rails'
+type ScanTab = 'network' | 'rails' | 'pools' | 'activity'
 type ChartTarget = { kind: 'net'; key: string } | { kind: 'seat'; id: string; metric: SeatMetric }
 
 export default function ScanExplorer({
@@ -335,6 +292,8 @@ export default function ScanExplorer({
             [
               { id: 'network' as const, label: 'Network' },
               { id: 'rails' as const, label: 'Rails' },
+              { id: 'pools' as const, label: 'Pools' },
+              { id: 'activity' as const, label: 'Activity' },
             ] as const
           ).map((t) => (
             <button
@@ -363,15 +322,9 @@ export default function ScanExplorer({
           )}
         </div>
 
-        {tab === 'rails' && d && <RailsTable rails={d.rails} />}
-        {tab === 'rails' && !d && !error && (
-          <div className="text-center text-slate-600 py-20 text-sm">Loading rails…</div>
-        )}
-        {tab === 'rails' && !d && error && (
-          <div className="card p-4 border-red-900 bg-red-950/30 text-red-400 text-sm">
-            Node unavailable: {error}
-          </div>
-        )}
+        {tab === 'rails' && <RailsView />}
+        {tab === 'pools' && <PoolsView />}
+        {tab === 'activity' && <ActivityBoard />}
 
         {tab === 'network' && error && (
           <div className="card p-4 border-red-900 bg-red-950/30 text-red-400 text-sm">

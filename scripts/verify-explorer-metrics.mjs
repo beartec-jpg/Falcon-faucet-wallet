@@ -28,6 +28,8 @@ load('scan-types')
 load('netmap-layout')
 load('db')
 load('scan-watchers')
+load('pl-exact-json')
+load('rails-pools')
 {
   const src = fs.readFileSync(path.join(root, 'src/config/network-map.ts'), 'utf8')
   fs.writeFileSync(path.join(dir, 'network-map.mjs'), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText)
@@ -225,6 +227,25 @@ assert.ok(lay.ringFill(50, 0) === 0.5)
   const av = nm.seriesValues(null, nm.sampleFromScan({ ...scan({ h: 1, tx: 1, p1: 1 }), wallets: { activated: 968, source: 'status.accounts_count' } }, 5))
   assert.equal(av.wallets_activated, 968)
   assert.equal(nm.seriesValues(null, nm.sampleFromScan(scan({ h: 1, tx: 1, p1: 1 }), 5)).wallets_activated, undefined)
+}
+
+// Rails / Pools: exact amounts from the real falcon2 status fixture.
+{
+  const px = await import(pathToFileURL(path.join(dir, 'pl-exact-json.mjs')).href)
+  const rp = await import(pathToFileURL(path.join(dir, 'rails-pools.mjs')).href)
+  const body = px.parseExact(fs.readFileSync(path.join(root, 'tests/fixtures/pl-status-rails-pools.json'), 'utf8')).body
+  const rails = rp.buildRails(body, {})
+  assert.deepEqual(rails.map((r) => r.asset), ['USDC', 'ETH', 'BTC'])
+  for (const r of rails) {
+    const src = body.rails.find((x) => x.asset === r.asset)
+    assert.equal(r.minted, String(src.total_minted), `${r.asset} minted exact`)
+    assert.equal(BigInt(r.outstanding), BigInt(r.minted) - BigInt(r.burned), `${r.asset} outstanding`)
+  }
+  assert.equal(px.formatUnits('330000000000000000', 18), '0.33')
+  const pools = rp.buildPools(body, [])
+  assert.equal(pools.length, body.defi_pools.length, 'every pool listed')
+  for (const p of pools) assert.equal(p.tvl_fpl, Number(p.reserve_a) * 2)
+  assert.equal(rp.inferSwaps([]).length, 0)
 }
 
 console.log('verify-explorer-metrics: ok')

@@ -8,6 +8,7 @@ import {
   previousSampleFromCounters,
   seriesValues,
 } from '@/lib/scan-metrics'
+import { runActivityIndex } from '@/lib/rails-pools-server'
 import { bearerToken, isProductionRuntime, timingSafeEqualString } from '@/lib/security'
 
 export const runtime = 'nodejs'
@@ -35,6 +36,14 @@ export async function GET(req: NextRequest) {
     const values = seriesValues(prev, sample)
     await appendMetricSamples({ ...values, ...counterValues(sample) }, at)
     const pruned = await pruneMetricSamples(at)
+    // Activity index (rails events, pool reserves, per-account LP / lending / tx count). Never fails the metrics run.
+    let activity: unknown = null
+    try {
+      activity = await runActivityIndex(at)
+    } catch (e) {
+      console.error('[cron/sample-metrics] activity index', e)
+      activity = { error: 'activity index failed' }
+    }
     return NextResponse.json({
       ok: true,
       at,
@@ -43,6 +52,7 @@ export async function GET(req: NextRequest) {
       keys: Object.keys(values).length,
       tps: values.tps ?? null,
       pruned,
+      activity,
     })
   } catch (e) {
     console.error('[cron/sample-metrics]', e)
