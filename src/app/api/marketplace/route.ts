@@ -67,7 +67,6 @@ async function getMarketInfo(
       limit: 20,
       ledger_index: 'validated',
     })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const offers: any[] = bookR?.offers ?? []
     if (offers.length > 0) {
       const best = offers[0]
@@ -102,7 +101,6 @@ async function getTokenBalance(
       ledger_index: 'validated',
     })
     const line = (r?.lines ?? []).find(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (l: any) => l.currency === currency && l.account === issuer,
     )
     return line ? { balance: parseFloat(line.balance), limit: parseFloat(line.limit) } : null
