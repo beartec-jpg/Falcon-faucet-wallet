@@ -26,6 +26,8 @@ load('net-metrics')
 load('metric-history')
 load('scan-types')
 load('netmap-layout')
+load('pl-rpc')
+load('scan-watchers')
 {
   const src = fs.readFileSync(path.join(root, 'src/config/network-map.ts'), 'utf8')
   fs.writeFileSync(path.join(dir, 'network-map.mjs'), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 } }).outputText)
@@ -153,5 +155,40 @@ assert.equal(lay.bulgeCount(3, 10), 1)
 assert.equal(lay.bulgeCount(5000, 10), 10, 'bulges capped')
 assert.equal(lay.ringFill(500, 100), 1)
 assert.ok(lay.ringFill(50, 0) === 0.5)
+
+// Watchers: node field preferred; otherwise cached per-account check.
+{
+  const wm = await import(pathToFileURL(path.join(dir, 'scan-watchers.mjs')).href)
+  const st = {
+    watcher_slots: { 'watcher-browser': 82, 'watcher-eth-lc': 64 },
+    watcher_work: { 'watcher-browser': 772, 'watcher-eth-lc': 1188 },
+    watcher_current_slot: 81,
+    watcher_slot_ms: 3600000,
+    watcher_slots_per_epoch: 168,
+  }
+  let calls = 0
+  const q = async (a) => { calls++; return { watcher_in_slot: a === 'watcher-eth-lc' } }
+  wm._resetWatcherCache()
+  const s1 = await wm.watcherSummary(st, q, 1_000)
+  assert.deepEqual(s1.epoch_accounts, ['watcher-browser', 'watcher-eth-lc'])
+  assert.deepEqual(s1.live, ['watcher-eth-lc'])
+  assert.equal(s1.source, 'account_query')
+  assert.equal(s1.work['watcher-eth-lc'], 1188)
+  await wm.watcherSummary(st, q, 10_000)
+  assert.equal(calls, 2, 'cached within 30s: no second fan-out')
+  await wm.watcherSummary({ ...st, watcher_current_slot: 82 }, q, 11_000)
+  assert.equal(calls, 4, 'new slot refreshes')
+  const s2 = await wm.watcherSummary({ ...st, watchers_active_slot: ['watcher-browser'] }, q, 12_000)
+  assert.deepEqual(s2.live, ['watcher-browser'])
+  assert.equal(s2.source, 'status')
+  assert.equal(calls, 4, 'status field avoids fan-out')
+  assert.deepEqual(wm.activeFromStatusField({ slot: 81, accounts: ['a'] }), ['a'])
+  assert.deepEqual(wm.activeFromStatusField([]), [])
+  assert.equal(wm.activeFromStatusField(null), null)
+  const ws = nm.sampleFromScan({ ...scan({ h: 1, tx: 1, p1: 1 }), watchers: s1 }, 5)
+  const wv = nm.seriesValues(null, ws)
+  assert.equal(wv.watchers_live, 1)
+  assert.equal(wv.watchers_epoch, 2)
+}
 
 console.log('verify-explorer-metrics: ok')

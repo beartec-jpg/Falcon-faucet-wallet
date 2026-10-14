@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import type { MapLayout, Vec3 } from '@/lib/netmap-layout'
 import { bulgeCount, ringFill } from '@/lib/netmap-layout'
 import type { PollEvent } from '@/hooks/useNetworkFeed'
+import WatcherRing, { type WatcherRingEvent } from '@/components/netmap/WatcherRing'
 
 export const COLORS = {
   copper: '#C07838',
@@ -33,6 +34,7 @@ export interface SceneProps {
   selected: string | null
   onSelect: (id: string) => void
   fpsRef?: React.MutableRefObject<HTMLSpanElement | null>
+  watchers?: { epoch: string[]; live: string[]; cap: number; event: WatcherRingEvent | null }
 }
 
 const FLASH_S = 1.4
@@ -543,7 +545,7 @@ function AnimDriver({ event, anim, layout }: { event: PollEvent | null; anim: An
 
 // ── Scene ──────────────────────────────────────────────────────────────────
 
-export default function NetworkScene({ layout, seats, event, maxBulges, selected, onSelect, fpsRef }: SceneProps) {
+export default function NetworkScene({ layout, seats, event, maxBulges, selected, onSelect, fpsRef, watchers }: SceneProps) {
   const anim = useRef<Anim>({ flash: new Map(), hubFlash: -10 }).current
   const curves = useMemo(() => {
     const m = new Map<string, THREE.Curve<THREE.Vector3>>()
@@ -585,6 +587,9 @@ export default function NetworkScene({ layout, seats, event, maxBulges, selected
       })}
       {ingressCurve && <Pipe curve={ingressCurve} active />}
       {layout.ingress && <LoadgenNode pos={layout.ingress.pos} label={layout.ingress.label} event={event} />}
+      {watchers && (
+        <WatcherRing center={layout.hub.pos} epoch={watchers.epoch} live={watchers.live} cap={watchers.cap} event={watchers.event} />
+      )}
       <Bulges curves={curves} ingress={ingressCurve} event={event} cap={maxBulges} />
       <HubTower
         id={layout.hub.id}

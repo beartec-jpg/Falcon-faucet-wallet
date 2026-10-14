@@ -107,6 +107,7 @@ export interface ScanData extends MeshHead {
     txs: number
   }
   lottery_winner: string
+  watchers?: WatcherSummary
   rails: RailRow[]
   metrics: {
     ledgers_sealed: number
@@ -114,4 +115,19 @@ export interface ScanData extends MeshHead {
     submit_accepted: number
     fees_burned: number
   }
+}
+
+export interface WatcherSummary {
+  /** Accounts with slots this epoch (keys of status.watcher_slots). */
+  epoch_accounts: string[]
+  /** Accounts that heartbeated in the current slot. */
+  live: string[]
+  /** Cumulative watcher_work per epoch account (bumps = heartbeat landed). */
+  work: Record<string, number>
+  current_slot: number
+  slot_ms: number
+  slots_per_epoch: number
+  /** 'status' = node field watchers_active_slot; 'account_query' = cached per-account check. */
+  source: 'status' | 'account_query'
+  checked_at: number
 }

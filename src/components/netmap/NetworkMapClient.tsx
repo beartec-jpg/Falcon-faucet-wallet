@@ -2,7 +2,8 @@
 
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { WatcherRingEvent } from '@/components/netmap/WatcherRing'
 import { NETWORK_MAP_CONFIG as CFG } from '@/config/network-map'
 import { useNetworkFeed, type SealedBlock } from '@/hooks/useNetworkFeed'
 import { layoutMap } from '@/lib/netmap-layout'
@@ -43,6 +44,34 @@ export default function NetworkMapClient() {
   const [selected, setSelected] = useState<string | null>(null)
   const [modal, setModal] = useState<string | null>(null)
   const fpsRef = useRef<HTMLSpanElement | null>(null)
+  const w = data?.watchers
+  const prevW = useRef<{ epoch: Set<string>; work: Record<string, number> } | null>(null)
+  const [wEvent, setWEvent] = useState<WatcherRingEvent | null>(null)
+  const [toast, setToast] = useState<{ at: number; names: string[] } | null>(null)
+  const wKey = w ? `${w.epoch_accounts.join(',')}|${JSON.stringify(w.work)}` : ''
+  useEffect(() => {
+    if (!w) return
+    const p = prevW.current
+    prevW.current = { epoch: new Set(w.epoch_accounts), work: w.work }
+    if (!p) return
+    const joined = w.epoch_accounts.filter((a) => !p.epoch.has(a))
+    const pulsed = w.epoch_accounts.filter((a) => p.work[a] != null && (w.work[a] ?? 0) > p.work[a])
+    if (!joined.length && !pulsed.length) return
+    const at = Date.now()
+    setWEvent({ at, joined, pulsed })
+    if (joined.length) setToast({ at, names: joined })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wKey])
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3500)
+    return () => clearTimeout(t)
+  }, [toast])
+  const watcherProps = useMemo(
+    () => (w ? { epoch: w.epoch_accounts, live: w.live, cap: CFG.maxWatcherParticles, event: wEvent } : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [wKey, w?.live.join(','), wEvent],
+  )
 
   const seatIdsKey = (data?.validators ?? []).map((v) => `${v.account}:${(data?.online_seats ?? []).includes(v.account) ? 1 : 0}`).join(',')
   const layout = useMemo(() => {
@@ -79,7 +108,7 @@ export default function NetworkMapClient() {
     <div className="netmap-root fixed inset-0 bg-[#020617] text-[#E0DBCA] overflow-hidden" style={{ fontFamily: 'var(--font-inter), Inter, sans-serif' }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="absolute inset-0 right-0 md:right-[340px] bottom-[86px]">
-        {data && <NetworkScene layout={layout} seats={seats} event={event} maxBulges={CFG.maxBulges} selected={selected} onSelect={onSelect} fpsRef={fpsRef} />}
+        {data && <NetworkScene layout={layout} seats={seats} event={event} maxBulges={CFG.maxBulges} selected={selected} onSelect={onSelect} fpsRef={fpsRef} watchers={watcherProps} />}
         {!data && (
           <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">
             {feed.error ? `Status unavailable: ${feed.error}. Retrying…` : 'Connecting to Falcon PL status…'}
@@ -116,6 +145,7 @@ export default function NetworkMapClient() {
           <Legend c="#475569" t="Jailed / offline" />
           <Legend c="#C07838" t={`Hub (${CFG.hub.seat} on ${CFG.hub.host}, config)`} />
           <Legend c="#D4922A" t="Bulges = sealed txs, 1 per 10" dot />
+          <Legend c="#F5E7C8" t="Hub ring = watchers (bright = live this slot)" dot />
         </div>
 
         <div className="rounded-xl border border-slate-800 p-3 text-xs min-h-[120px]">
@@ -145,6 +175,13 @@ export default function NetworkMapClient() {
           <span className="netmap-mono">src/config/network-map.ts</span>.
         </p>
       </aside>
+
+      {toast && (
+        <div key={toast.at} className="netmap-toast absolute top-14 left-1/2 -translate-x-1/2 md:left-[calc(50%-170px)] rounded-lg border border-[#D4922A] bg-[#0F172A]/95 px-3 py-1.5 text-xs netmap-mono">
+          <span className="text-[#D4922A]">new watcher</span> · {toast.names.slice(0, 3).join(', ')}
+          {toast.names.length > 3 ? ` +${toast.names.length - 3}` : ''}
+        </div>
+      )}
 
       {/* Block ticker */}
       <BlockTicker blocks={blocks} />
@@ -219,6 +256,13 @@ const CSS = `
 .netmap-plate-hub .netmap-label-name{font-size:13px}
 .netmap-plate-kicker{font-size:9px;letter-spacing:.25em;color:#D4922A}
 .netmap-plate-ingress{border-style:dashed;border-color:#D4922A}
+.netmap-watch{font-family:var(--font-mono),'JetBrains Mono',monospace;font-size:10px;color:#E0DBCA;white-space:nowrap;padding:2px 8px;border-radius:999px;border:1px solid #D4922A88;background:#020617cc;user-select:none}
+.netmap-watch-dot{display:inline-block;width:6px;height:6px;border-radius:999px;margin-right:6px;background:#475569}
+.netmap-watch-dot[data-on]{background:#F5E7C8;box-shadow:0 0 8px #D4922A}
+.netmap-watch-more{margin-left:6px;color:#D4922A}
+.netmap-watch-empty{font-size:9px;color:#64748B;text-align:center;margin-top:1px}
+@keyframes netmap-toast{0%{opacity:0;transform:translate(-50%,-8px)}10%,85%{opacity:1;transform:translate(-50%,0)}100%{opacity:0}}
+.netmap-toast{animation:netmap-toast 3.5s ease-out forwards}
 .netmap-loc{font-family:var(--font-inter),Inter,sans-serif;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#C07838;white-space:nowrap;user-select:none}
 .netmap-todo{margin-left:6px;font-size:9px;letter-spacing:.05em;padding:1px 5px;border-radius:4px;border:1px dashed #D4922A;color:#D4922A}
 @keyframes netmap-drop{0%{transform:translateY(-38px) scale(.9);opacity:0;box-shadow:0 0 0 #D4922A}40%{opacity:1;box-shadow:0 0 18px #D4922A}100%{transform:none;box-shadow:0 0 0 transparent}}

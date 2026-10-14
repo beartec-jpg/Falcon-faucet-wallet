@@ -28,6 +28,9 @@ export interface NetSample {
   last_pack_packer: string
   min_fee: number
   fee_multiplier: number
+  /** null when the status carried no watcher summary. */
+  watchers_live: number | null
+  watchers_epoch: number | null
   seats: SeatSample[]
 }
 
@@ -61,6 +64,8 @@ export function sampleFromScan(d: ScanData, t = Date.now()): NetSample {
     last_pack_packer: d.last_pack?.packer ?? '',
     min_fee: fin(d.current_fee_drops),
     fee_multiplier: fin(d.fee_multiplier, 1),
+    watchers_live: d.watchers ? d.watchers.live.length : null,
+    watchers_epoch: d.watchers ? d.watchers.epoch_accounts.length : null,
     seats: (d.validators ?? []).map((v) => ({
       id: v.account,
       tip: fin(v.ledger_index),
@@ -125,6 +130,8 @@ export const NET_KEYS = [
   'txs_sealed',
   'min_fee',
   'fee_multiplier',
+  'watchers_live',
+  'watchers_epoch',
 ] as const
 export type NetKey = (typeof NET_KEYS)[number]
 export type SeatMetric = 'tip' | 'lag' | 'packs_min' | 'perf'
@@ -149,6 +156,8 @@ export const SERIES_LABELS: Record<string, string> = {
   txs_sealed: 'Txs sealed (total)',
   min_fee: 'Min fee (FPL)',
   fee_multiplier: 'Fee tier (×)',
+  watchers_live: 'Watchers live (current slot)',
+  watchers_epoch: 'Watchers this epoch',
   tip: 'Advertised tip',
   lag: 'Tip lag (blocks)',
   packs_min: 'Packs / min',
@@ -177,6 +186,8 @@ export function seriesValues(a: NetSample | null, b: NetSample): Record<string, 
     min_fee: b.min_fee,
     fee_multiplier: b.fee_multiplier,
   }
+  if (b.watchers_live != null) out.watchers_live = b.watchers_live
+  if (b.watchers_epoch != null) out.watchers_epoch = b.watchers_epoch
   const r = a ? rateBetween(a, b) : null
   if (r && a) {
     out.tps = round(r.tps, 2)

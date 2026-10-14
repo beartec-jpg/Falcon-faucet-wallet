@@ -33,6 +33,8 @@ export interface NetworkMapConfig {
   pollMs: number
   /** Hard cap on live transaction bulges in the pipes (performance). */
   maxBulges: number
+  /** Max watcher particles in the hub ring; extra watchers show as '+N'. */
+  maxWatcherParticles: number
   /** Show jailed / offline seats that are not in `locations`. */
   showUnplacedOffline: boolean
   locations: MapLocation[]
@@ -43,6 +45,7 @@ export const NETWORK_MAP_CONFIG: NetworkMapConfig = {
   ingress: { seat: 'falcon-node', label: 'loadgen · falcon-pl-loadgen.service' },
   pollMs: 1500,
   maxBulges: 160,
+  maxWatcherParticles: 48,
   showUnplacedOffline: false,
   locations: [
     {
