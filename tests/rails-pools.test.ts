@@ -3,14 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { big, formatUnits, parseExact } from '@/lib/pl-exact-json'
 import { buildPools, buildRails, inferSwaps, lpCandidates, lpValue, type PoolSample } from '@/lib/rails-pools'
 import {
-  boardCsv,
   exclusionSet,
   indexActivity,
   isExcluded,
   memoryActivityStore,
   pickAccounts,
-  pricesFpl,
-  scoreBoard,
   snapshotFromAccountQuery,
   stepAccount,
 } from '@/lib/activity-index'
@@ -133,18 +130,12 @@ describe('activity index', () => {
     const b = stepAccount(a, snap, { lp: 1000, lend: 0 }, a.last_at + 10 * 3600_000)
     expect(b.lp_fpl_hours - a.lp_fpl_hours).toBeCloseTo(a.last_lp_fpl * 0.25)
 
-    const board = scoreBoard(await store.accounts(), ev, pricesFpl(st), exclusionSet(st))
-    expect(board.rows.every((r) => !isExcluded(r.account, exclusionSet(st)))).toBe(true)
-    for (const r of board.rows) {
-      expect(r.score).toBeLessThanOrEqual(100)
-      expect(r.bridge.points).toBeLessThanOrEqual(30)
-      expect(r.swaps.exposed).toBe(false)
-    }
-    // A whale is capped.
-    const whale = scoreBoard([{ ...a, account: 'whale', lp_fpl_hours: 1e15, lend_fpl_hours: 1e15, tx_count: 1e9 }], [], pricesFpl(st), new Set())
-    expect(whale.rows[0].lp.points).toBe(25)
-    expect(whale.rows[0].score).toBeLessThanOrEqual(85)
-    expect(boardCsv(board.rows).split('\n')[0]).toMatch(/^rank,account,score/)
+    // Active days: a baseline on the first run, then tx / lp / lend days once the sequence moves.
+    const later = snapshotFromAccountQuery('dave', { sequence: 57, lp: [{ pool_id: 'usdc-fpl', lp: 605984 }], lend_positions: [] })
+    await indexActivity(st, [later], t0 + 900_000, store)
+    const days = await store.activeDays('1970-01-01')
+    expect(days.filter((d) => d.source === 'tx')).toHaveLength(1)
+    expect(days.some((d) => d.source === 'lp')).toBe(true)
   })
 
   it('rotates account snapshots by staleness and caps them', () => {

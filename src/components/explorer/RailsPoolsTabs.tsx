@@ -9,8 +9,8 @@ import type { RailsPoolsPayload } from '@/lib/rails-pools-server'
 import type { PoolView, RailView, Transfer } from '@/lib/rails-pools'
 import { formatUnits } from '@/lib/pl-exact-json'
 
-const C = { copper: '#C07838', gold: '#D4922A', bg: '#020617', panel: '#0F172A', cream: '#E0DBCA' }
-const mono = { fontFamily: "'JetBrains Mono', ui-monospace, monospace" }
+export const C = { copper: '#C07838', gold: '#D4922A', bg: '#020617', panel: '#0F172A', cream: '#E0DBCA' }
+export const mono = { fontFamily: "'JetBrains Mono', ui-monospace, monospace" }
 
 function useRailsPools() {
   const [d, setD] = useState<RailsPoolsPayload | null>(null)
@@ -35,7 +35,7 @@ function useRailsPools() {
 const fmt = (n: number | null | undefined, max = 2) => (n == null ? '—' : n.toLocaleString('en-US', { maximumFractionDigits: max }))
 const short = (s: string, a = 10, b = 6) => (s.length > a + b + 1 ? `${s.slice(0, a)}…${s.slice(-b)}` : s)
 
-function Panel({ title, children, note }: { title: string; children: React.ReactNode; note?: string }) {
+export function Panel({ title, children, note }: { title: string; children: React.ReactNode; note?: string }) {
   return (
     <section className="rounded-xl border p-4" style={{ background: C.panel, borderColor: '#1E293B' }}>
       <h3 className="text-[11px] font-semibold uppercase tracking-widest mb-3" style={{ color: C.gold }}>{title}</h3>
@@ -45,7 +45,7 @@ function Panel({ title, children, note }: { title: string; children: React.React
   )
 }
 
-function Stat({ k, v, sub }: { k: string; v: string; sub?: string }) {
+export function Stat({ k, v, sub }: { k: string; v: string; sub?: string }) {
   return (
     <div>
       <div className="text-[10px] uppercase tracking-wider text-slate-500">{k}</div>
@@ -55,11 +55,11 @@ function Stat({ k, v, sub }: { k: string; v: string; sub?: string }) {
   )
 }
 
-function Empty({ text }: { text: string }) {
+export function Empty({ text }: { text: string }) {
   return <div className="text-xs text-slate-500 py-3">{text}</div>
 }
 
-function SubTabs<T extends string>({ items, cur, set }: { items: { id: T; label: string }[]; cur: T; set: (t: T) => void }) {
+export function SubTabs<T extends string>({ items, cur, set }: { items: { id: T; label: string }[]; cur: T; set: (t: T) => void }) {
   return (
     <div className="flex flex-wrap gap-2 mb-5" role="tablist">
       {items.map((i) => (
@@ -265,52 +265,7 @@ export function PoolsView() {
   )
 }
 
-export function ActivityBoard() {
-  const { d, err } = useRailsPools()
-  if (!d) return <Status err={err} what="activity" />
-  const a = d.activity
-  return (
-    <div className="space-y-4">
-      <Panel title="Testnet activity leaderboard"
-        note="Scores are capped per address and log-scaled. Validator, bond, watcher, faucet and load-generator accounts are excluded. Swap activity is not exposed per account by the node, so it scores 0 for everyone.">
-        <div className="flex flex-wrap gap-6 mb-4">
-          <Stat k="Accounts indexed" v={fmt(a.indexed_accounts, 0)} />
-          <Stat k="Bridge events" v={fmt(a.events, 0)} />
-          <Stat k="Excluded accounts" v={fmt(a.excluded, 0)} />
-          <a href="/api/scan/activity?format=csv" className="self-end text-xs hover:underline" style={{ color: C.gold }}>Export CSV ↓</a>
-        </div>
-        {a.rows.length === 0 ? <Empty text="The index is still collecting activity." /> : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead><tr className="text-slate-500 text-left border-b border-slate-800">
-                <th className="py-1.5 pr-2 font-medium">#</th><th className="pr-3 font-medium">Account</th><th className="pr-3 font-medium text-right">Score</th>
-                <th className="pr-3 font-medium text-right">Bridging</th><th className="pr-3 font-medium text-right">Swaps</th><th className="pr-3 font-medium text-right">LP (FPL·h)</th>
-                <th className="pr-3 font-medium text-right">Lending (FPL·h)</th><th className="font-medium text-right">Txs</th>
-              </tr></thead>
-              <tbody>
-                {a.rows.map((r, i) => (
-                  <tr key={r.account} className="border-b border-slate-800/50" style={mono}>
-                    <td className="py-1.5 pr-2 text-slate-600">{i + 1}</td>
-                    <td className="pr-3 text-slate-200">{r.account}</td>
-                    <td className="pr-3 text-right" style={{ color: C.gold }}>{fmt(r.score, 1)}</td>
-                    <td className="pr-3 text-right text-slate-300">{r.bridge.count} · {fmt(r.bridge.points, 1)}</td>
-                    <td className="pr-3 text-right text-slate-600">n/a</td>
-                    <td className="pr-3 text-right text-slate-300">{fmt(r.lp.fpl_hours, 0)} · {fmt(r.lp.points, 1)}</td>
-                    <td className="pr-3 text-right text-slate-300">{fmt(r.lending.fpl_hours, 0)} · {fmt(r.lending.points, 1)}</td>
-                    <td className="text-right text-slate-300">{r.tx.count} · {fmt(r.tx.points, 1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
-      <Footer d={d} />
-    </div>
-  )
-}
-
-function Status({ err, what }: { err: string | null; what: string }) {
+export function Status({ err, what }: { err: string | null; what: string }) {
   return err ? <div className="rounded-lg p-4 border border-red-900 bg-red-950/30 text-red-400 text-sm">Node unavailable: {err}</div>
     : <div className="text-center text-slate-600 py-20 text-sm">Loading {what}…</div>
 }

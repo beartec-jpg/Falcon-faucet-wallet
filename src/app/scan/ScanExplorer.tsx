@@ -1,6 +1,7 @@
 'use client'
 
-import { ActivityBoard, PoolsView, RailsView } from '@/components/explorer/RailsPoolsTabs'
+import { PoolsView, RailsView } from '@/components/explorer/RailsPoolsTabs'
+import { TrackerBoard } from '@/components/explorer/TrackerBoard'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Header from '@/components/Header'
@@ -332,7 +333,7 @@ export default function ScanExplorer({
 
         {tab === 'rails' && <RailsView />}
         {tab === 'pools' && <PoolsView />}
-        {tab === 'activity' && <ActivityBoard />}
+        {tab === 'activity' && <TrackerBoard />}
 
         {tab === 'network' && error && (
           <div className="card p-4 border-red-900 bg-red-950/30 text-red-400 text-sm">

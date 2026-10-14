@@ -8,16 +8,14 @@ import { plRpc } from '@/lib/pl-rpc'
 import { parseExact } from '@/lib/pl-exact-json'
 import {
   activityStore,
-  exclusionSet,
   indexActivity,
   pickAccounts,
-  pricesFpl,
-  scoreBoard,
   snapshotFromAccountQuery,
   type AccountSnapshot,
   type ActivityStore,
-  type BoardRow,
 } from '@/lib/activity-index'
+import { pgFaucetSource } from '@/lib/faucet-activity'
+import { classify, statusContext } from '@/lib/tracker'
 import { buildPools, buildRails, lpCandidates, type PoolView, type RailView } from '@/lib/rails-pools'
 
 type Obj = Record<string, unknown>
@@ -57,7 +55,6 @@ export interface RailsPoolsPayload {
   height: number
   rails: RailView[]
   pools: PoolView[]
-  activity: { rows: BoardRow[]; excluded: number; indexed_accounts: number; events: number }
   sources: Record<string, string>
 }
 
@@ -69,7 +66,7 @@ export async function getRailsPools(opts: { store?: ActivityStore; now?: number;
   if (!opts.status && cache && now - cache.at < CACHE_MS) return cache.data
   const store = opts.store ?? activityStore()
   const st = opts.status ?? (await statusExact())
-  const [events, accounts, samples] = await Promise.all([store.events(), store.accounts(), store.poolSamples(now - 24 * 3600_000)])
+  const [events, samples] = await Promise.all([store.events(), store.poolSamples(now - 24 * 3600_000)])
   const snaps = opts.snaps ?? (await snapshots(lpCandidates(st).slice(0, 25)))
   const rails = buildRails(st, {
     config: bridgeConfig,
@@ -77,13 +74,11 @@ export async function getRailsPools(opts: { store?: ActivityStore; now?: number;
     history: events,
   })
   const pools = buildPools(st, snaps.flatMap((x) => x.lp), samples, now)
-  const board = scoreBoard(accounts, events, pricesFpl(st), exclusionSet(st))
   const data: RailsPoolsPayload = {
     generated_at: now,
     height: Number(st.tip_height) || 0,
     rails,
     pools,
-    activity: { ...board, rows: board.rows.slice(0, 50), indexed_accounts: accounts.length, events: events.length },
     sources: {
       rails: 'status_req: rails[], eth_v3_resolutions, eth_v3_bridge, eth_lc, watcher_slots',
       contracts: 'status.eth_v3_bridge + public/config/pl-2300-bridge.json',
@@ -101,7 +96,10 @@ export async function runActivityIndex(now = Date.now(), store: ActivityStore = 
   const st = await statusExact()
   const known = await store.accounts()
   const evAccounts = (await store.events()).map((e) => e.account)
-  const names = pickAccounts([...lpCandidates(st), ...evAccounts, ...known.map((a) => a.account)], known)
+  const faucetAccounts = (await pgFaucetSource().days(new Date(now - 60 * 86_400_000).toISOString().slice(0, 10))).map((f) => f.account)
+  const ctx = statusContext(st)
+  const users = [...lpCandidates(st), ...evAccounts, ...faucetAccounts, ...known.map((a) => a.account)].filter((n) => classify(n, ctx).kind === 'user')
+  const names = pickAccounts(users, known)
   const snaps = await snapshots(names)
   return indexActivity(st, snaps, now, store)
 }
