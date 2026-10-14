@@ -39,6 +39,7 @@ import {
   readCachedAccountName,
 } from '@/lib/account-name'
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
+import { isKeyBindRefusal, KEY_BIND_HELP } from '@/lib/pl-key-commit'
 import {
   activationFeeFpl,
   canonicalNameInput,
@@ -1702,7 +1703,7 @@ export default function WalletPage() {
                 ),
               })
               const out = (await res.json().catch(() => ({}))) as SubmitResult
-              if (out.error) throw new Error(out.error)
+              if (out.error) throw new Error(isKeyBindRefusal(out.error) ? KEY_BIND_HELP : out.error)
               return out
             })().catch((e: unknown): SubmitResult => ({
               success: false,

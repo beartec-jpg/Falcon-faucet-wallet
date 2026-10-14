@@ -93,7 +93,17 @@ export async function ctlHeartbeat(account: string): Promise<{ txId: string; raw
   return { txId: txIdOf(out), raw: out }
 }
 
-export async function ctlFaucet(to: string, amount = 10_000): Promise<{ txId: string; raw: string }> {
+/**
+ * Audit C-1 (chain 2.9.65, key-bind height 571000): from that height a name can
+ * only be spent by a key its funder committed to. Pass `keyHash` (sha256 hex of
+ * the raw Falcon public key) to drip with PayToKey. Only set it once the chain
+ * is past the key-bind height: before it, the node refuses PayToKey.
+ */
+export async function ctlFaucet(
+  to: string,
+  amount = 10_000,
+  keyHash?: string,
+): Promise<{ txId: string; raw: string }> {
   const out = mustOk(
     await runCtl([
       'faucet',
@@ -109,6 +119,7 @@ export async function ctlFaucet(to: string, amount = 10_000): Promise<{ txId: st
       String(PL_NETWORK_ID),
       '--fee',
       '2',
+      ...(keyHash ? ['--key-hash', keyHash] : []),
     ]),
     'faucet',
   )
