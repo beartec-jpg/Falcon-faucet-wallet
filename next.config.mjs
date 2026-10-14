@@ -9,8 +9,8 @@ const nextConfig = {
   // xrpl/noble packages external throws ERR_REQUIRE_ESM. Bundle them instead.
   experimental: {
     esmExternals: false,
-    serverComponentsExternalPackages: ['@openforge-sh/liboqs'],
   },
+  serverExternalPackages: ['@openforge-sh/liboqs'],
   transpilePackages: [
     'xrpl',
     'ripple-binary-codec',
