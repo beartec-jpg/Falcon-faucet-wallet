@@ -28,8 +28,6 @@ Companion to the security hardening work. **Repos are public; secrets and open p
 | `ALLOWED_ORIGINS` | `https://falcon-ledger.com` (+ preview hosts if needed) |
 | `TESTNET_FAUCET_UNLIMITED` | `false` (or unset — default is limited) |
 | `ALLOW_INSECURE_TRANSPORT` | unset or `false` |
-| `ENABLE_LEGACY_SIGN` | unset / false |
-| `ENABLE_SERVER_DERIVE` | unset / false |
 | `CRON_SECRET` | `openssl rand -hex 32` + Vercel Cron Bearer header |
 | `LEND_HF_MONITOR_TOKEN` | `openssl rand -hex 32` for HF monitor daemon |
 | `ALLOWED_DASHBOARD_HOSTS` | Optional. Comma hosts to restrict wallet dashboard proxy. **Unset = allow any public IP** (private/SSRF still blocked). |
@@ -46,7 +44,7 @@ Redeploy after changing any `NEXT_PUBLIC_*` / `VITE_*`.
 ## Code safeguards shipped
 
 - `POST /api/wallet/propose` → **410** (no secret mint)
-- `POST /api/wallet/derive` → **410** in prod unless `ENABLE_SERVER_DERIVE=true`
+- `/api/wallet/sign` and `/api/wallet/derive` removed (audit M-5): the server never receives `falcon_secret`. `ENABLE_LEGACY_SIGN` / `ENABLE_SERVER_DERIVE` no longer do anything and can be deleted from Vercel.
 - LoanManage → daemon token only (no browser origin)
 - Cron → requires `CRON_SECRET` in production
 - Faucet unlimited → opt-in only
