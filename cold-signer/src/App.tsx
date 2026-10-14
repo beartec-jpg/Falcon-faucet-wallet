@@ -46,6 +46,7 @@ import {
 } from '@/lib/vault-protocol'
 import { encodeMultiQr, type EncodedMultiQr, b64uEncode } from '@/lib/multi-qr'
 import { signTxJson } from '@/lib/falcon-tx-sign'
+import { reviewUnsignedTx, currencyLabel, type ReviewedTx } from '@/lib/vault-review'
 import { decodeFalconSecret, zeroize } from '@/lib/falcon-keys'
 import { getFalcon512 } from '@/lib/falcon-wasm'
 
@@ -90,7 +91,7 @@ export default function App() {
 
   // Unlock / sign QR
   const [respEnc, setRespEnc] = useState<EncodedMultiQr | null>(null)
-  const [preview, setPreview] = useState<ReturnType<typeof parseUnsignedPayment> | null>(null)
+  const [preview, setPreview] = useState<ReviewedTx | null>(null)
   const [signedEnc, setSignedEnc] = useState<EncodedMultiQr | null>(null)
 
   const [canNativeInstall, setCanNativeInstall] = useState(
@@ -384,11 +385,10 @@ export default function App() {
     setError('')
     try {
       assertOfflineForVaultOps(true)
+      if (!session) throw new Error('Unlock the vault first')
       const pkg = parseUnsignedPayment(payload)
-      if (session && pkg.display.account !== session.address) {
-        throw new Error('Transaction account does not match this vault')
-      }
-      setPreview(pkg)
+      // Audit H-4: review and sign only what tx_json says; `display` is ignored.
+      setPreview(reviewUnsignedTx(pkg, session.address))
       setStep('sign-preview')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Invalid unsigned tx')
@@ -402,7 +402,9 @@ export default function App() {
     setBusy(true)
     try {
       assertOfflineForVaultOps(true)
-      const tx_blob = await signTxJson(preview.tx_json, session.falcon_secret)
+      // Re-validate and sign the canonical tx rebuilt from the reviewed fields.
+      const reviewed = reviewUnsignedTx({ networkId: preview.networkId, tx_json: preview.tx }, session.address)
+      const tx_blob = await signTxJson(reviewed.tx, session.falcon_secret)
       setSignedEnc(
         encodeMultiQr(
           encodeSignedTx({ type: 'falcon-signed-tx', v: 1, tx_blob }),
@@ -907,28 +909,33 @@ export default function App() {
   }
 
   if (step === 'sign-preview' && preview) {
-    const d = preview.display
+    const d = preview
     const isTrust = d.transactionType === 'TrustSet'
-    const amountLabel = isTrust
-      ? undefined
-      : d.asset === 'F-USDC'
-        ? `${d.amountDrops ?? ''} F-USDC`
-        : `${(Number(d.amountDrops ?? 0) / 1_000_000).toLocaleString()} FALCON`
+    const amountLabel =
+      d.transactionType === 'Payment'
+        ? d.amount.kind === 'native'
+          ? `${(Number(d.amount.drops) / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 })} FPL`
+          : `${d.amount.value} ${currencyLabel(d.amount.currency)}`
+        : undefined
     return (
       <div className="min-h-screen flex flex-col bg-slate-950">
         {header}
         <main className="flex-1 max-w-md mx-auto w-full px-4 py-6 space-y-4">
           <h2 className="text-lg font-bold text-white">Review carefully</h2>
+          <p className="text-[11px] text-slate-500">Shown from the transaction being signed.</p>
           <div className="rounded-2xl border border-amber-600/30 bg-amber-950/20 p-4 space-y-2 text-sm">
             <Row k="Type" v={d.transactionType} />
             <Row k="Account" v={d.account} mono />
-            {!isTrust && d.destination && <Row k="To" v={d.destination} mono />}
-            {!isTrust && amountLabel && <Row k="Amount" v={amountLabel} />}
-            {isTrust && (
+            {d.transactionType === 'Payment' && <Row k="To" v={d.destination} mono />}
+            {amountLabel && <Row k="Amount" v={amountLabel} />}
+            {d.transactionType === 'Payment' && d.amount.kind === 'iou' && (
+              <Row k="Issuer" v={d.amount.issuer} mono />
+            )}
+            {d.transactionType === 'TrustSet' && (
               <>
-                <Row k="Trust asset" v={d.limitCurrency === 'QUC' ? 'F-USDC' : (d.limitCurrency ?? '—')} />
-                <Row k="Issuer" v={d.limitIssuer ?? '—'} mono />
-                <Row k="Limit" v={d.limitValue ?? '—'} />
+                <Row k="Trust asset" v={currencyLabel(d.limit.currency)} />
+                <Row k="Issuer" v={d.limit.issuer} mono />
+                <Row k="Limit" v={d.limit.value} />
               </>
             )}
             <Row k="Fee" v={`${d.fee} drops`} />
