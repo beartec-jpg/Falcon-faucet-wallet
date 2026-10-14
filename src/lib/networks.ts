@@ -31,8 +31,42 @@ export interface NetworkConfig {
   comingSoonMessage?: string
 }
 
+/**
+ * NEXT_PUBLIC_* values must be read with static `process.env.NAME` references:
+ * Next.js only inlines those into the client bundle. A dynamic
+ * `PUBLIC_ENV[name]` is undefined in the browser, so the server rendered the
+ * Vercel value ("Falcon Ledger Testnet") while the client fell back to the
+ * default, which was the /scan hydration error #418.
+ */
+const PUBLIC_ENV: Record<string, string | undefined> = {
+  NEXT_PUBLIC_DRIP_AMOUNT_FPL: process.env.NEXT_PUBLIC_DRIP_AMOUNT_FPL,
+  NEXT_PUBLIC_DRIP_AMOUNT_QXRP: process.env.NEXT_PUBLIC_DRIP_AMOUNT_QXRP,
+  NEXT_PUBLIC_EXPLORER_URL: process.env.NEXT_PUBLIC_EXPLORER_URL,
+  NEXT_PUBLIC_MAINNET_COMING_SOON: process.env.NEXT_PUBLIC_MAINNET_COMING_SOON,
+  NEXT_PUBLIC_MAINNET_DRIP_FPL: process.env.NEXT_PUBLIC_MAINNET_DRIP_FPL,
+  NEXT_PUBLIC_MAINNET_DRIP_QXRP: process.env.NEXT_PUBLIC_MAINNET_DRIP_QXRP,
+  NEXT_PUBLIC_MAINNET_EXPLORER_URL: process.env.NEXT_PUBLIC_MAINNET_EXPLORER_URL,
+  NEXT_PUBLIC_MAINNET_LIVE: process.env.NEXT_PUBLIC_MAINNET_LIVE,
+  NEXT_PUBLIC_MAINNET_NAME: process.env.NEXT_PUBLIC_MAINNET_NAME,
+  NEXT_PUBLIC_MAINNET_NETWORK_ID: process.env.NEXT_PUBLIC_MAINNET_NETWORK_ID,
+  NEXT_PUBLIC_MAINNET_RPC_URL: process.env.NEXT_PUBLIC_MAINNET_RPC_URL,
+  NEXT_PUBLIC_MAINNET_USDC_CURRENCY: process.env.NEXT_PUBLIC_MAINNET_USDC_CURRENCY,
+  NEXT_PUBLIC_MAINNET_USDC_ISSUER: process.env.NEXT_PUBLIC_MAINNET_USDC_ISSUER,
+  NEXT_PUBLIC_QUSDC_CURRENCY: process.env.NEXT_PUBLIC_QUSDC_CURRENCY,
+  NEXT_PUBLIC_QUSDC_ISSUER: process.env.NEXT_PUBLIC_QUSDC_ISSUER,
+  NEXT_PUBLIC_RPC_URL: process.env.NEXT_PUBLIC_RPC_URL,
+  NEXT_PUBLIC_TESTNET_DRIP_FPL: process.env.NEXT_PUBLIC_TESTNET_DRIP_FPL,
+  NEXT_PUBLIC_TESTNET_DRIP_QXRP: process.env.NEXT_PUBLIC_TESTNET_DRIP_QXRP,
+  NEXT_PUBLIC_TESTNET_EXPLORER_URL: process.env.NEXT_PUBLIC_TESTNET_EXPLORER_URL,
+  NEXT_PUBLIC_TESTNET_NAME: process.env.NEXT_PUBLIC_TESTNET_NAME,
+  NEXT_PUBLIC_TESTNET_NETWORK_ID: process.env.NEXT_PUBLIC_TESTNET_NETWORK_ID,
+  NEXT_PUBLIC_TESTNET_RPC_URL: process.env.NEXT_PUBLIC_TESTNET_RPC_URL,
+  NEXT_PUBLIC_TESTNET_USDC_CURRENCY: process.env.NEXT_PUBLIC_TESTNET_USDC_CURRENCY,
+  NEXT_PUBLIC_TESTNET_USDC_ISSUER: process.env.NEXT_PUBLIC_TESTNET_USDC_ISSUER,
+}
+
 function envInt(name: string, fallback: number): number {
-  const v = process.env[name]
+  const v = PUBLIC_ENV[name]
   if (!v) return fallback
   const n = parseInt(v, 10)
   return Number.isFinite(n) ? n : fallback
@@ -41,7 +75,7 @@ function envInt(name: string, fallback: number): number {
 /** First defined finite number among env names (FPL preferred, then legacy QXRP). */
 export function envNumberFirst(names: readonly string[], fallback: number): number {
   for (const name of names) {
-    const v = process.env[name]
+    const v = PUBLIC_ENV[name]
     if (v == null || v === '') continue
     const n = Number(v)
     if (Number.isFinite(n)) return n
@@ -57,7 +91,7 @@ function envTestnetNetworkId(): number {
 }
 
 function envStr(name: string, fallback: string): string {
-  return process.env[name]?.trim() || fallback
+  return PUBLIC_ENV[name]?.trim() || fallback
 }
 
 /** Whether signed txs must include NetworkID (custom networks > 1024). */

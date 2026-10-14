@@ -12,7 +12,8 @@ import type { MetricPoint } from '@/lib/metric-history'
 import TrendChart from '@/components/explorer/TrendChart'
 import MetricModal, { seatOptions } from '@/components/explorer/MetricModal'
 import { seatKey } from '@/lib/net-metrics'
-import type { SeatView } from '@/components/netmap/NetworkScene'
+import type { ConsensusView, SeatView } from '@/components/netmap/NetworkScene'
+import { nextInterval, nextRound, sealedRound } from '@/lib/netmap-consensus'
 
 const NetworkScene = dynamic(() => import('@/components/netmap/NetworkScene'), {
   ssr: false,
@@ -96,6 +97,32 @@ export default function NetworkMapClient() {
     return out
   }, [last])
 
+  // Block cadence (EWMA) from observed heights; drives the estimated phase timing.
+  const phaseRef = useRef<HTMLSpanElement | null>(null)
+  const cadence = useRef<{ h: number; t: number; ms: number }>({ h: 0, t: 0, ms: 0 })
+  const [intervalMs, setIntervalMs] = useState(3000)
+  useEffect(() => {
+    if (!data) return
+    const c = cadence.current
+    const now = Date.now()
+    if (c.h && data.height > c.h) {
+      c.ms = nextInterval(c.ms, data.height - c.h, now - c.t)
+      setIntervalMs(c.ms)
+    }
+    if (!c.h || data.height !== c.h) {
+      c.h = data.height
+      c.t = now
+    }
+  }, [data])
+  const round = useMemo(() => (data ? nextRound(data) : null), [data])
+  const sealed = useMemo(() => (data ? sealedRound(data) : null), [data])
+  const roundKey = round ? `${round.height}|${round.packer}|${round.voters.join(',')}` : ''
+  const consensusView = useMemo<ConsensusView>(
+    () => ({ round, intervalMs, phaseRef }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [roundKey, intervalMs],
+  )
+
   const series = useMemo(() => liveSeries(live.samples), [live.samples, live.samples.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onSelect = useCallback((id: string) => {
@@ -111,7 +138,7 @@ export default function NetworkMapClient() {
     <div className="netmap-root fixed inset-0 bg-[#020617] text-[#E0DBCA] overflow-hidden" style={{ fontFamily: 'var(--font-inter), Inter, sans-serif' }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="absolute inset-0 right-0 md:right-[340px] bottom-[86px]">
-        {data && <NetworkScene layout={layout} seats={seats} event={event} maxBulges={CFG.maxBulges} selected={selected} onSelect={onSelect} fpsRef={fpsRef} watchers={watcherProps} />}
+        {data && <NetworkScene layout={layout} seats={seats} event={event} maxBulges={CFG.maxBulges} selected={selected} onSelect={onSelect} fpsRef={fpsRef} watchers={watcherProps} consensus={consensusView} />}
         {!data && (
           <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">
             {feed.error ? `Status unavailable: ${feed.error}. Retrying…` : 'Connecting to Falcon PL status…'}
@@ -141,14 +168,19 @@ export default function NetworkMapClient() {
         <Spark label="blocks / min" value={live.rate60s?.blocks_min} digits={1} series={series.bpm} hint="60s avg" />
         <Spark label="mempool" value={data?.mempool} digits={0} series={series.mem} hint={`max ${data?.max_mempool?.toLocaleString() ?? '—'}`} />
 
-        <div className="mt-1 rounded-xl border border-slate-800 p-3 text-xs space-y-1.5">
+        <ConsensusPanel round={round} sealed={sealed} intervalMs={intervalMs} phaseRef={phaseRef} />
+
+        <div className="rounded-xl border border-slate-800 p-3 text-xs space-y-1.5">
           <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-1">Legend</div>
-          <Legend c="#22C55E" t="Voting seat (online)" />
-          <Legend c="#D4922A" t="Packer: flash + ring = block txs" />
+          <Legend c="#4ADE80" t="Committee voter this round" />
+          <Legend c="#FFC060" t="Packer (lottery winner) · ring = block txs" />
+          <Legend c="#2F4A3E" t="Online, not in this committee" />
           <Legend c="#475569" t="Jailed / offline" />
-          <Legend c="#C07838" t={`Hub (${CFG.hub.seat} on ${CFG.hub.host}, config)`} />
-          <Legend c="#D4922A" t="Bulges = sealed txs, 1 per 10" dot />
-          <Legend c="#F5E7C8" t="Hub ring = watchers (bright = live this slot)" dot />
+          <Legend c="#C07838" t={`Hub / archive (${CFG.hub.seat} on ${CFG.hub.host})`} />
+          <Legend c="#D4922A" t="Tx beams: hub → seats, 1 per 10 sealed txs" dot />
+          <Legend c="#4ADE80" t="Vote pulse: voter → packer (rail)" dot />
+          <Legend c="#FFC060" t="Sealed package: packer → hub" dot />
+          <Legend c="#F5E7C8" t="Outer ring = watchers (bright = live this slot)" dot />
         </div>
 
         <div className="rounded-xl border border-slate-800 p-3 text-xs min-h-[120px]">
@@ -173,8 +205,9 @@ export default function NetworkMapClient() {
           )}
         </div>
         <p className="text-[10px] text-slate-600 leading-relaxed mt-auto">
-          Every animation is triggered by a real change in <span className="netmap-mono">/api/scan</span> (polled every{' '}
-          {CFG.pollMs / 1000}s). Nothing is interpolated between polls. Layout and locations live in{' '}
+          Blocks, packers, committees and txs come from <span className="netmap-mono">/api/scan</span> (polled every{' '}
+          {CFG.pollMs / 1000}s). Phase timing inside a round (beam → vote → pulse) is estimated from the observed block
+          cadence; the seal fires when the real block arrives. Layout lives in{' '}
           <span className="netmap-mono">src/config/network-map.ts</span>.
         </p>
       </aside>
@@ -218,6 +251,59 @@ function Spark({ label, value, digits, series, hint }: { label: string; value: n
   )
 }
 
+function ConsensusPanel({
+  round,
+  sealed,
+  intervalMs,
+  phaseRef,
+}: {
+  round: ReturnType<typeof nextRound> | null
+  sealed: ReturnType<typeof sealedRound>
+  intervalMs: number
+  phaseRef: React.MutableRefObject<HTMLSpanElement | null>
+}) {
+  return (
+    <div className="rounded-xl border border-slate-800 p-3 text-xs netmap-mono space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-sans">Consensus round</span>
+        <span ref={phaseRef} className="netmap-phase">waiting</span>
+      </div>
+      {round ? (
+        <>
+          <div className="text-[#E0DBCA]">
+            #{round.height.toLocaleString()} · {round.need}-of-{round.voters.length}
+          </div>
+          <div className="text-slate-400">
+            packer <span className="text-[#FFC060]">{round.packer || '—'}</span>
+          </div>
+          <div className="text-slate-400 leading-snug">
+            voters{' '}
+            {round.voters.map((v, i) => (
+              <span key={v} className={v === round.packer ? 'text-[#FFC060]' : 'text-[#4ADE80]'}>
+                {v}
+                {i < round.voters.length - 1 ? ', ' : ''}
+              </span>
+            ))}
+          </div>
+          {sealed && (
+            <div className="text-slate-500 leading-snug">
+              tip #{sealed.height.toLocaleString()} sealed by {sealed.packer || '?'} · committee {sealed.voters.join(', ')}
+            </div>
+          )}
+          <div className="text-[10px] pt-0.5" style={{ color: round.estimated ? '#D4922A' : '#64748B' }}>
+            {round.estimated
+              ? 'committee ESTIMATED (rotation over online seats; node does not expose it)'
+              : 'committee + packer from node (next_committee, lottery_winner_next)'}
+            {' · '}phase timing estimated, ~{(intervalMs / 1000).toFixed(1)}s / block
+          </div>
+        </>
+      ) : (
+        <div className="text-slate-500">Waiting for status…</div>
+      )}
+    </div>
+  )
+}
+
 function Legend({ c, t, dot }: { c: string; t: string; dot?: boolean }) {
   return (
     <div className="flex items-center gap-2 text-slate-300">
@@ -252,6 +338,13 @@ const CSS = `
 .netmap-label-name{font-size:11px;color:#E0DBCA;text-shadow:0 0 6px #020617}
 .netmap-label-sub{font-size:9px;color:#94A3B8;text-shadow:0 0 6px #020617}
 .netmap-label[data-off] .netmap-label-name{color:#64748B}
+.netmap-label .netmap-label-name{transition:color .25s,text-shadow .25s}
+.netmap-label[data-role=vote] .netmap-label-name{color:#86EFAC;text-shadow:0 0 8px #22C55E}
+.netmap-label[data-role=pack] .netmap-label-name{color:#FFD08A;text-shadow:0 0 10px #D4922A}
+.netmap-phase{font-size:10px;padding:1px 8px;border-radius:999px;border:1px solid #334155;color:#94A3B8;text-transform:uppercase;letter-spacing:.12em}
+.netmap-phase[data-p=vote],.netmap-phase[data-p=pulse]{border-color:#22C55E;color:#86EFAC}
+.netmap-phase[data-p=seal]{border-color:#D4922A;color:#FFD08A}
+.netmap-phase[data-p=beam]{border-color:#C07838;color:#E0B080}
 .netmap-tag{display:inline-block;margin:2px 0 1px;font-size:9px;padding:0 5px;border-radius:999px;border:1px solid #C0783866;color:#C07838;background:#020617cc}
 .netmap-tag[data-todo]{border-style:dashed;border-color:#D4922A;color:#D4922A}
 .netmap-plate{font-family:var(--font-mono),'JetBrains Mono',monospace;text-align:center;white-space:nowrap;user-select:none;padding:3px 10px;border-radius:6px;background:linear-gradient(180deg,#0F172Aee,#020617ee);border:1px solid #C07838}

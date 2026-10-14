@@ -12,10 +12,13 @@ export interface WatcherRingEvent {
   pulsed: string[]
 }
 
-const RADIUS = 1.9
+/** Large enough to clear the hub rings (r 1.14) and every pipe, which all leave below the core. */
+const RADIUS = 3.6
+/** Ring floats above the hub core so pipes (which start at the plinth) never cross it. */
+const LIFT = 1.45
 const FLY_S = 1.4
 const PULSE_S = 0.9
-const TILT = new THREE.Euler(Math.PI / 2.25, 0, 0.12)
+const TILT = new THREE.Euler(Math.PI / 2, 0, 0)
 
 /**
  * Orbit cloud around the hub: one particle per watcher account this epoch
@@ -51,7 +54,7 @@ export default function WatcherRing({
     [epoch, liveSet, cap],
   )
   const extra = Math.max(0, epoch.length - shown.length)
-  const colors = useMemo(() => ({ live: new THREE.Color('#F5E7C8'), idle: new THREE.Color('#7C4A22'), gold: new THREE.Color('#D4922A') }), [])
+  const colors = useMemo(() => ({ live: new THREE.Color('#F5E7C8').multiplyScalar(2), idle: new THREE.Color('#7C4A22'), gold: new THREE.Color('#D4922A') }), [])
   const tmp = useMemo(() => new THREE.Color(), [])
 
   useEffect(() => {
@@ -70,7 +73,7 @@ export default function WatcherRing({
     for (let i = 0; i < n; i++) {
       const id = shown[i]
       const ang = (i / Math.max(n, 1)) * Math.PI * 2 + now * 0.18
-      v.set(Math.cos(ang) * RADIUS, Math.sin(ang) * RADIUS, Math.sin(ang * 3 + i) * 0.08).applyQuaternion(q)
+      v.set(Math.cos(ang) * RADIUS, Math.sin(ang) * RADIUS, Math.sin(ang * 3 + i) * 0.06).applyQuaternion(q)
       const j = joinedAt.current.get(id)
       if (j != null) {
         const u = (now - j) / FLY_S
@@ -96,16 +99,16 @@ export default function WatcherRing({
   })
 
   return (
-    <group position={center}>
+    <group position={[center[0], center[1] + LIFT, center[2]]}>
       <mesh rotation={TILT} raycast={() => null}>
-        <torusGeometry args={[RADIUS, 0.012, 6, 96]} />
+        <torusGeometry args={[RADIUS, 0.01, 6, 160]} />
         <meshBasicMaterial ref={ringMat} color="#D4922A" transparent depthWrite={false} blending={THREE.AdditiveBlending} />
       </mesh>
       <instancedMesh ref={mesh} args={[undefined, undefined, Math.max(1, cap)]} frustumCulled={false} raycast={() => null}>
-        <sphereGeometry args={[1, 10, 8]} />
+        <sphereGeometry args={[1, 12, 10]} />
         <meshBasicMaterial toneMapped={false} />
       </instancedMesh>
-      <Html position={[RADIUS + 0.35, 0.55, 0]} zIndexRange={[25, 0]} style={{ pointerEvents: 'none' }}>
+      <Html position={[RADIUS + 0.3, 0.25, 0]} zIndexRange={[25, 0]} style={{ pointerEvents: 'none' }}>
         <div className="netmap-watch">
           <span className="netmap-watch-dot" data-on={live.length ? '1' : undefined} />
           Watchers: {live.length} live · {epoch.length} this epoch
