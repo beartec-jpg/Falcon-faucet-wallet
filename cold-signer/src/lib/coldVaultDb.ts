@@ -3,7 +3,13 @@
  * Secret re-encrypted under cold password OR passkey-derived key material.
  */
 
+import { argon2idAsync } from '@noble/hashes/argon2.js'
+
 export type ColdUnlockMethod = 'password' | 'passkey'
+
+/** Same Argon2id parameters as the hot wallet (audit H-1/H-3). */
+export const COLD_ARGON2ID = { m: 47_104, t: 2, p: 1 } as const
+export type ColdKdf = { alg: 'argon2id'; v: 0x13; m: number; t: number; p: number }
 
 /** Cached on-chain view from hot unlock challenges (read-only). */
 export interface ColdAccountSnapshot {
@@ -38,6 +44,8 @@ export interface ColdVaultRecord {
     iv: string
     salt: string
   }
+  /** Password KDF. Absent = legacy PBKDF2 record (re-wrapped to Argon2id on next unlock). */
+  kdf?: ColdKdf
 }
 
 const DB_NAME = 'falcon-cold-signer'
@@ -93,6 +101,26 @@ async function deriveFromPassphrase(passphrase: string, salt: Uint8Array): Promi
     false,
     ['encrypt', 'decrypt'],
   )
+}
+
+async function deriveArgon2id(passphrase: string, salt: Uint8Array, kdf: ColdKdf): Promise<CryptoKey> {
+  if (kdf.alg !== 'argon2id' || kdf.v !== 0x13 || kdf.m < 19_456 || kdf.t < 2 || kdf.p < 1) {
+    throw new Error('Unsupported vault KDF')
+  }
+  const raw = await argon2idAsync(new TextEncoder().encode(passphrase.normalize('NFKC')), salt, {
+    m: kdf.m,
+    t: kdf.t,
+    p: kdf.p,
+    dkLen: 32,
+  })
+  try {
+    return await crypto.subtle.importKey('raw', raw.slice().buffer as ArrayBuffer, { name: 'AES-GCM' }, false, [
+      'encrypt',
+      'decrypt',
+    ])
+  } finally {
+    raw.fill(0)
+  }
 }
 
 async function deriveFromKeyBytes(keyBytes: Uint8Array, salt: Uint8Array): Promise<CryptoKey> {
@@ -183,66 +211,85 @@ async function putRecord(record: ColdVaultRecord): Promise<void> {
   })
 }
 
+
+type VaultMeta = { address: string; publicKey: string; label: string; createdAt: number }
+export type ColdSession = { falcon_secret: string; address: string; publicKey: string; label: string }
+
+function ab(u: Uint8Array): ArrayBuffer {
+  return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer
+}
+
+async function seal(key: CryptoKey, secret: string, salt: Uint8Array) {
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: ab(iv) }, key, new TextEncoder().encode(secret))
+  return { data: toBase64(enc), iv: toBase64(iv), salt: toBase64(salt) }
+}
+
+async function open_(key: CryptoKey, record: ColdVaultRecord): Promise<string> {
+  const iv = fromBase64(record.encrypted.iv)
+  const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ab(iv) }, key, ab(fromBase64(record.encrypted.data)))
+  return new TextDecoder().decode(dec)
+}
+
+function sessionOf(record: ColdVaultRecord, falcon_secret: string): ColdSession {
+  return { falcon_secret, address: record.address, publicKey: record.publicKey, label: record.label }
+}
+
+function metaOf(r: ColdVaultRecord): VaultMeta {
+  return { address: r.address, publicKey: r.publicKey, label: r.label, createdAt: r.createdAt }
+}
+
+/** True when the stored passkey vault was keyed with the credential ID (pre-H-3). */
+export function isLegacyWeakPasskeyRecord(r: Pick<ColdVaultRecord, 'unlockMethod' | 'hasPrf'>): boolean {
+  return r.unlockMethod === 'passkey' && r.hasPrf !== true
+}
+
 export async function saveColdVaultWithPassword(
-  meta: { address: string; publicKey: string; label: string; createdAt: number },
+  meta: VaultMeta,
   falconSecret: string,
   coldPassword: string,
+  extra: Partial<Pick<ColdVaultRecord, 'lastAccount'>> = {},
 ): Promise<void> {
   if (coldPassword.length < 12) {
     throw new Error('Cold password must be at least 12 characters')
   }
-  const salt = crypto.getRandomValues(new Uint8Array(32))
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const key = await deriveFromPassphrase(coldPassword, salt)
-  const enc = await crypto.subtle.encrypt(
-    {
-      name: 'AES-GCM',
-      iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer,
-    },
-    key,
-    new TextEncoder().encode(falconSecret),
-  )
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const kdf: ColdKdf = { alg: 'argon2id', v: 0x13, ...COLD_ARGON2ID }
+  const key = await deriveArgon2id(coldPassword, salt, kdf)
   await putRecord({
     id: 'main',
     ...meta,
+    ...extra,
     unlockMethod: 'password',
-    encrypted: {
-      data: toBase64(enc),
-      iv: toBase64(iv),
-      salt: toBase64(salt),
-    },
+    kdf,
+    encrypted: await seal(key, falconSecret, salt),
   })
 }
 
+/**
+ * Passkey protection requires WebAuthn PRF output (>= 32 bytes). The credential ID is
+ * public metadata and is never used as key material (audit H-3). Fails closed.
+ */
 export async function saveColdVaultWithPasskey(
-  meta: { address: string; publicKey: string; label: string; createdAt: number },
+  meta: VaultMeta,
   falconSecret: string,
   credentialId: string,
-  keyBytes: Uint8Array,
-  hasPrf: boolean,
+  prfOutput: Uint8Array,
+  extra: Partial<Pick<ColdVaultRecord, 'lastAccount'>> = {},
 ): Promise<void> {
+  if (!(prfOutput instanceof Uint8Array) || prfOutput.byteLength < 32) {
+    throw new Error('This passkey does not support PRF. Use a password to protect the vault.')
+  }
   const salt = crypto.getRandomValues(new Uint8Array(32))
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const key = await deriveFromKeyBytes(keyBytes, salt)
-  const enc = await crypto.subtle.encrypt(
-    {
-      name: 'AES-GCM',
-      iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer,
-    },
-    key,
-    new TextEncoder().encode(falconSecret),
-  )
+  const key = await deriveFromKeyBytes(prfOutput, salt)
   await putRecord({
     id: 'main',
     ...meta,
+    ...extra,
     unlockMethod: 'passkey',
     credentialId,
-    hasPrf,
-    encrypted: {
-      data: toBase64(enc),
-      iv: toBase64(iv),
-      salt: toBase64(salt),
-    },
+    hasPrf: true,
+    encrypted: await seal(key, falconSecret, salt),
   })
 }
 
@@ -260,77 +307,90 @@ async function loadFullRecord(): Promise<ColdVaultRecord> {
   })
 }
 
-export async function unlockColdVaultWithPassword(coldPassword: string): Promise<{
-  falcon_secret: string
-  address: string
-  publicKey: string
-  label: string
-}> {
+export async function unlockColdVaultWithPassword(coldPassword: string): Promise<ColdSession> {
   const record = await loadFullRecord()
   if ((record.unlockMethod ?? 'password') !== 'password') {
     throw new Error('This vault uses passkey unlock')
   }
   const salt = fromBase64(record.encrypted.salt)
-  const iv = fromBase64(record.encrypted.iv)
-  const key = await deriveFromPassphrase(coldPassword, salt)
+  let secret: string
   try {
-    const dec = await crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer,
-      },
-      key,
-      (() => {
-        const b = fromBase64(record.encrypted.data)
-        return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer
-      })(),
-    )
-    return {
-      falcon_secret: new TextDecoder().decode(dec),
-      address: record.address,
-      publicKey: record.publicKey,
-      label: record.label,
-    }
-  } catch {
+    const key = record.kdf
+      ? await deriveArgon2id(coldPassword, salt, record.kdf)
+      : await deriveFromPassphrase(coldPassword, salt)
+    secret = await open_(key, record)
+  } catch (e) {
+    if (e instanceof Error && e.message === 'Unsupported vault KDF') throw e
     throw new Error('Wrong cold password')
   }
+  if (!record.kdf) {
+    // Legacy PBKDF2 record: re-wrap under Argon2id and overwrite.
+    await saveColdVaultWithPassword(metaOf(record), secret, coldPassword, { lastAccount: record.lastAccount })
+  }
+  return sessionOf(record, secret)
 }
 
-export async function unlockColdVaultWithPasskey(keyBytes: Uint8Array): Promise<{
-  falcon_secret: string
-  address: string
-  publicKey: string
-  label: string
-}> {
+/** Unlock a PRF-protected passkey vault. Legacy credential-ID vaults are refused here. */
+export async function unlockColdVaultWithPasskey(prfOutput: Uint8Array | null): Promise<ColdSession> {
   const record = await loadFullRecord()
   if (record.unlockMethod !== 'passkey') {
     throw new Error('This vault uses password unlock')
   }
-  const salt = fromBase64(record.encrypted.salt)
-  const iv = fromBase64(record.encrypted.iv)
-  const key = await deriveFromKeyBytes(keyBytes, salt)
+  if (isLegacyWeakPasskeyRecord(record)) {
+    throw new Error('This vault must be migrated before unlock')
+  }
+  if (!(prfOutput instanceof Uint8Array) || prfOutput.byteLength < 32) {
+    throw new Error('Passkey did not return PRF output; unlock refused')
+  }
   try {
-    const dec = await crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer,
-      },
-      key,
-      (() => {
-        const b = fromBase64(record.encrypted.data)
-        return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer
-      })(),
-    )
-    return {
-      falcon_secret: new TextDecoder().decode(dec),
-      address: record.address,
-      publicKey: record.publicKey,
-      label: record.label,
-    }
+    const key = await deriveFromKeyBytes(prfOutput, fromBase64(record.encrypted.salt))
+    return sessionOf(record, await open_(key, record))
   } catch {
     throw new Error('Passkey unlock failed')
   }
 }
+
+/**
+ * Migrate a pre-H-3 passkey vault (encrypted under the credential ID). The legacy key is used
+ * once, only to decrypt; the secret is immediately re-wrapped and the weak blob overwritten:
+ *  - with PRF output when the authenticator now returns it, otherwise
+ *  - with a new cold password (Argon2id). With neither, migration fails closed.
+ */
+export async function migrateLegacyPasskeyVault(opts: {
+  assertedRawId: Uint8Array
+  prfOutput: Uint8Array | null
+  newPassword?: string
+}): Promise<{ session: ColdSession; method: ColdUnlockMethod }> {
+  const record = await loadFullRecord()
+  if (!isLegacyWeakPasskeyRecord(record)) throw new Error('Vault does not need migration')
+  const usePrf = opts.prfOutput instanceof Uint8Array && opts.prfOutput.byteLength >= 32
+  if (!usePrf && !(opts.newPassword && opts.newPassword.length >= 12)) {
+    throw new Error('This passkey has no PRF support. Set a cold password (12+ characters) to finish the upgrade.')
+  }
+  if (toBase64Url(opts.assertedRawId) !== record.credentialId) {
+    throw new Error('Passkey does not match this vault')
+  }
+  let secret: string
+  try {
+    const legacyKey = await deriveFromKeyBytes(opts.assertedRawId, fromBase64(record.encrypted.salt))
+    secret = await open_(legacyKey, record)
+  } catch {
+    throw new Error('Passkey unlock failed')
+  }
+  if (usePrf) {
+    await saveColdVaultWithPasskey(metaOf(record), secret, record.credentialId!, opts.prfOutput!, {
+      lastAccount: record.lastAccount,
+    })
+  } else {
+    await saveColdVaultWithPassword(metaOf(record), secret, opts.newPassword!, { lastAccount: record.lastAccount })
+  }
+  return { session: sessionOf(record, secret), method: usePrf ? 'passkey' : 'password' }
+}
+
+function toBase64Url(u: Uint8Array): string {
+  return toBase64(u).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
 
 /** @deprecated use unlockColdVaultWithPassword */
 export async function unlockColdVault(coldPassword: string) {
