@@ -22,11 +22,13 @@ import {
   saveColdVaultWithPasskey,
   unlockColdVaultWithPassword,
   unlockColdVaultWithPasskey,
+  migrateLegacyPasskeyVault,
+  isLegacyWeakPasskeyRecord,
   updateLastAccount,
   wipeColdVault,
 } from './lib/coldVaultDb'
 import {
-  authenticateColdPasskey,
+  assertColdPasskey,
   isPasskeySupported,
   registerColdPasskey,
 } from './lib/coldPasskey'
@@ -209,19 +211,13 @@ export default function App() {
         }
         try {
           const reg = await registerColdPasskey(inner.label || 'Falcon Cold Vault')
-          await saveColdVaultWithPasskey(
-            metaBase,
-            inner.falcon_secret,
-            reg.credentialId,
-            reg.keyBytes,
-            reg.hasPrf,
-          )
+          await saveColdVaultWithPasskey(metaBase, inner.falcon_secret, reg.credentialId, reg.prfOutput)
           setMeta({
             id: 'main',
             ...metaBase,
             unlockMethod: 'passkey',
             credentialId: reg.credentialId,
-            hasPrf: reg.hasPrf,
+            hasPrf: true,
           })
         } catch (pkErr) {
           // Keep vault file loaded; user can switch to password without re-picking file
@@ -277,8 +273,29 @@ export default function App() {
     try {
       if (!meta?.credentialId) throw new Error('No passkey registered for this vault')
       setBusy(true)
-      const auth = await authenticateColdPasskey(meta.credentialId, !!meta.hasPrf)
-      const keys = await unlockColdVaultWithPasskey(auth.keyBytes)
+      const auth = await assertColdPasskey(meta.credentialId)
+      let keys
+      if (isLegacyWeakPasskeyRecord(meta)) {
+        // Audit H-3: re-wrap the pre-fix vault (PRF if available, else a new cold password).
+        if (!auth.prfOutput) {
+          if (coldPass.length < 12) {
+            throw new Error(
+              'Security upgrade: this passkey has no PRF. Enter a new cold password (12+ characters) above and unlock again.',
+            )
+          }
+          if (coldPass !== coldPass2) throw new Error('Cold passwords do not match')
+        }
+        const res = await migrateLegacyPasskeyVault({
+          assertedRawId: auth.rawId,
+          prfOutput: auth.prfOutput,
+          newPassword: auth.prfOutput ? undefined : coldPass,
+        })
+        keys = res.session
+        setColdPass('')
+        setColdPass2('')
+      } else {
+        keys = await unlockColdVaultWithPasskey(auth.prfOutput)
+      }
       setSession(keys)
       const m = await loadColdVaultMeta()
       setMeta(m)
@@ -727,6 +744,29 @@ export default function App() {
             </div>
           )}
           {meta?.unlockMethod === 'passkey' ? (
+            <>
+            {isLegacyWeakPasskeyRecord(meta) && (
+              <div className="space-y-2 rounded-xl border border-amber-700/50 bg-amber-950/30 p-3">
+                <p className="text-[11px] text-amber-300">
+                  Security upgrade required. If your passkey supports PRF it will be used automatically;
+                  otherwise set a new cold password (12+ characters) here.
+                </p>
+                <input
+                  type="password"
+                  placeholder="New cold password (only if asked)"
+                  value={coldPass}
+                  onChange={(e) => setColdPass(e.target.value)}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm"
+                />
+                <input
+                  type="password"
+                  placeholder="Confirm new cold password"
+                  value={coldPass2}
+                  onChange={(e) => setColdPass2(e.target.value)}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm"
+                />
+              </div>
+            )}
             <button
               type="button"
               disabled={busy}
@@ -735,6 +775,7 @@ export default function App() {
             >
               {busy ? '…' : 'Unlock with passkey'}
             </button>
+            </>
           ) : (
             <>
               <label className="block text-xs text-slate-400">

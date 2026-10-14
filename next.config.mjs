@@ -78,6 +78,11 @@ const nextConfig = {
         ],
       },
       {
+        // /cold-signer (no trailing slash) serves the same static index.html.
+        source: '/cold-signer',
+        headers: [{ key: 'Content-Security-Policy', value: staticCsp('') }],
+      },
+      {
         source: '/cold-signer/:path*',
         headers: [{ key: 'Content-Security-Policy', value: staticCsp('') }],
       },

@@ -37,8 +37,22 @@ export function isPasskeySupported(): boolean {
 
 export interface ColdPasskeyReg {
   credentialId: string
-  keyBytes: Uint8Array
-  hasPrf: boolean
+  /** WebAuthn PRF output (>= 32 bytes). Registration fails if the authenticator has no PRF. */
+  prfOutput: Uint8Array
+}
+
+export const NO_PRF_MESSAGE =
+  'This passkey does not support PRF, so it cannot protect the vault. Use Password instead.'
+
+function prfFrom(cred: PublicKeyCredential): Uint8Array | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ext = cred.getClientExtensionResults() as any
+  const out = ext?.prf?.results?.first as ArrayBuffer | ArrayBufferView | undefined
+  if (out instanceof ArrayBuffer && out.byteLength >= 32) return new Uint8Array(out)
+  if (out && ArrayBuffer.isView(out) && out.byteLength >= 32) {
+    return new Uint8Array(out.buffer, out.byteOffset, out.byteLength).slice()
+  }
+  return null
 }
 
 /** Map browser/WebAuthn failures to something the user can act on. */
@@ -116,64 +130,57 @@ async function createCredential(opts: {
 }
 
 /**
- * Register a passkey with progressive fallbacks.
- * Prefer no-PRF + preferred resident key — most reliable on Android PWA.
+ * Register a PRF passkey. Every attempt requests PRF; a credential that returns no PRF output
+ * is rejected (fail closed). The credential ID is never used as key material (audit H-3).
  */
 export async function registerColdPasskey(label: string): Promise<ColdPasskeyReg> {
   if (!window.isSecureContext) {
     throw new Error('Passkeys require HTTPS (or localhost). Use Password unlock instead.')
   }
 
-  const attempts: Array<{
-    withPrf: boolean
-    platformOnly: boolean
-    resident: 'required' | 'preferred' | 'discouraged'
-  }> = [
-    // Most compatible first (avoids credential-manager failures)
-    { withPrf: false, platformOnly: true, resident: 'preferred' },
-    { withPrf: false, platformOnly: false, resident: 'preferred' },
-    { withPrf: true, platformOnly: true, resident: 'preferred' },
-    { withPrf: false, platformOnly: true, resident: 'required' },
+  const attempts: Array<{ platformOnly: boolean; resident: 'required' | 'preferred' | 'discouraged' }> = [
+    { platformOnly: true, resident: 'preferred' },
+    { platformOnly: false, resident: 'preferred' },
+    { platformOnly: true, resident: 'required' },
   ]
 
   let lastErr: unknown
   for (const attempt of attempts) {
+    let cred: PublicKeyCredential
     try {
-      const cred = await createCredential({ ...attempt, label })
-      const rawIdBytes = new Uint8Array(cred.rawId)
-      const credentialId = toBase64Url(rawIdBytes)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ext = cred.getClientExtensionResults() as any
-      const prfOut = ext?.prf?.results?.first as ArrayBuffer | undefined
-      const hasPrf = prfOut instanceof ArrayBuffer && prfOut.byteLength >= 32
-      // When PRF unavailable, derive vault key material from credential id
-      // (weaker but local-only; password path is stronger for cold storage).
-      const keyBytes = hasPrf ? new Uint8Array(prfOut!) : rawIdBytes
-      return { credentialId, keyBytes, hasPrf }
+      cred = await createCredential({ ...attempt, withPrf: true, label })
     } catch (e) {
       lastErr = e
       const msg = e instanceof Error ? e.message.toLowerCase() : ''
-      // User cancelled — don't keep retrying
       if (e instanceof Error && e.name === 'NotAllowedError' && !msg.includes('credential manager')) {
         throw new Error(formatPasskeyError(e))
       }
-      // try next attempt
+      continue
     }
+    const credentialId = toBase64Url(new Uint8Array(cred.rawId))
+    // Some authenticators only return PRF on get(); evaluate once to confirm.
+    const prfOutput = prfFrom(cred) ?? (await evaluatePrf(credentialId))
+    if (!prfOutput) throw new Error(NO_PRF_MESSAGE)
+    return { credentialId, prfOutput }
   }
 
   throw new Error(formatPasskeyError(lastErr))
 }
 
-export async function authenticateColdPasskey(
+async function evaluatePrf(credentialId: string): Promise<Uint8Array | null> {
+  const r = await assertColdPasskey(credentialId)
+  return r.prfOutput
+}
+
+/**
+ * Assert the passkey with PRF requested. Returns PRF output (or null when the authenticator
+ * has none) and the asserted raw ID. The raw ID is only for matching/migrating legacy vaults.
+ */
+export async function assertColdPasskey(
   credentialId: string,
-  hasPrf: boolean,
-): Promise<{ keyBytes: Uint8Array; hasPrf: boolean }> {
+): Promise<{ prfOutput: Uint8Array | null; rawId: Uint8Array }> {
   const challenge = crypto.getRandomValues(new Uint8Array(32))
   const rpId = window.location.hostname
-  const extensions: Record<string, unknown> = hasPrf
-    ? { prf: { eval: { first: PRF_INPUT } } }
-    : {}
-
   try {
     const cred = (await navigator.credentials.get({
       publicKey: {
@@ -188,22 +195,11 @@ export async function authenticateColdPasskey(
         ],
         userVerification: 'required',
         timeout: 90_000,
-        extensions,
+        extensions: { prf: { eval: { first: PRF_INPUT } } } as AuthenticationExtensionsClientInputs,
       },
     })) as PublicKeyCredential | null
-
     if (!cred) throw new Error('Authentication was cancelled')
-
-    const rawIdBytes = new Uint8Array(cred.rawId)
-    if (hasPrf) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ext = cred.getClientExtensionResults() as any
-      const prfOut = ext?.prf?.results?.first as ArrayBuffer | undefined
-      if (prfOut instanceof ArrayBuffer && prfOut.byteLength >= 32) {
-        return { keyBytes: new Uint8Array(prfOut), hasPrf: true }
-      }
-    }
-    return { keyBytes: rawIdBytes, hasPrf: false }
+    return { prfOutput: prfFrom(cred), rawId: new Uint8Array(cred.rawId) }
   } catch (e) {
     throw new Error(formatPasskeyError(e))
   }
