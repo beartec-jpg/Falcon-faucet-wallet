@@ -1,127 +1,68 @@
-// Lightweight network metric sampler (RPC) — used by /api/scan, cron, and history backfill.
+// 24h network sampler for the Vercel cron (/api/cron/sample-metrics).
+//
+// One PL status_req per run (the same snapshot /api/scan serves). Rates need two
+// points in time, so the cron stores the raw cumulative counters under `ctr.*`
+// keys and derives tx/s, blocks/min and per-seat packs/min from the previous run.
 
-import { rpcCall } from '@/lib/rpc'
-import type { MetricKey } from '@/lib/metric-history'
+import type { MetricPoint } from '@/lib/metric-history'
+import { buildScanSnapshot } from '@/lib/scan-snapshot'
+import { sampleFromScan, seriesValues, type NetSample } from '@/lib/net-metrics'
 
-const RIPPLE_EPOCH = 946684800
-const CLOSE_EST_SEC = 3.5
+/** Longest gap between cron runs we still compute a rate across. */
+const MAX_RATE_GAP_MS = 20 * 60_000
 
-export interface NetworkMetricSample extends Partial<Record<MetricKey, number>> {
-  validated_ledger?: number
+export function counterValues(s: NetSample): Record<string, number> {
+  const out: Record<string, number> = {
+    'ctr.txs_sealed': s.txs_sealed,
+    'ctr.ledgers_sealed': s.ledgers_sealed,
+    'ctr.height': s.height,
+    'ctr.mempool': s.mempool,
+  }
+  for (const seat of s.seats) out[`ctr.seat.${seat.id}.packs`] = seat.packs
+  return out
 }
 
-export async function collectNetworkMetrics(): Promise<NetworkMetricSample> {
-  const [srvR, feeR] = await Promise.all([
-    rpcCall<{ info: Record<string, unknown> }>('server_info', {}),
-    rpcCall<Record<string, unknown>>('fee', {}),
-  ])
-
-  const info = srvR.info
-  const valSeq = ((info.validated_ledger as Record<string, unknown>)?.seq as number) ?? 0
-  const peers = (info.peers as number) ?? 0
-
-  const ledgerNums = Array.from({ length: 10 }, (_, i) => valSeq - i).filter((s) => s > 0)
-  const ledgerResults = await Promise.all(
-    ledgerNums.map((seq) =>
-      rpcCall<{ ledger: Record<string, unknown> }>('ledger', {
-        ledger_index: seq,
-        transactions: true,
-        expand: false,
-      }).catch(() => null),
-    ),
-  )
-
-  const ledgers = ledgerResults
-    .filter(Boolean)
-    .map((r) => {
-      const l = r!.ledger
-      const txns = (l.transactions as string[] | undefined) ?? []
-      return {
-        seq: (l.seqNum as number) ?? (l.ledger_index as number) ?? 0,
-        txn_count: txns.length,
-        close_time: (l.close_time as number) ?? 0,
-        base_fee: Number(l.base_fee ?? 12),
-      }
-    })
-    .sort((a, b) => a.seq - b.seq)
-
-  let totalTxs = 0
-  let totalSeconds = 0
-  for (let i = 1; i < ledgers.length; i++) {
-    totalTxs += ledgers[i].txn_count
-    const dt = ledgers[i].close_time - ledgers[i - 1].close_time
-    if (dt > 0 && dt < 30) totalSeconds += dt
+/** Rebuild the previous run's sample from stored counters (only fields rates need). */
+export function previousSampleFromCounters(
+  series: Record<string, MetricPoint[] | undefined>,
+  now: number,
+): NetSample | null {
+  const last = (k: string) => {
+    const a = series[k]
+    return a?.length ? a[a.length - 1] : null
   }
-  const avgClose = ledgers.length > 1 ? totalSeconds / (ledgers.length - 1) : 3
-  const avgTxPerL = ledgers.length > 1 ? totalTxs / (ledgers.length - 1) : 0
-  const tps = avgClose > 0 ? avgTxPerL / avgClose : 0
-
-  const drops = (feeR.drops as Record<string, unknown>) ?? {}
-  const medFeeDrops = parseInt((drops.median_fee ?? drops.base_fee ?? '12') as string, 10)
-  const curFeeDrops = parseInt((drops.minimum_fee ?? '12') as string, 10)
-  const txQueue = (feeR.current_queue_size as number) ?? 0
-
+  const tx = last('ctr.txs_sealed')
+  const led = last('ctr.ledgers_sealed')
+  if (!tx || !led || now - tx.t > MAX_RATE_GAP_MS || now - tx.t <= 0) return null
+  const seats = Object.keys(series)
+    .map((k) => /^ctr\.seat\.(.+)\.packs$/.exec(k))
+    .filter((m): m is RegExpExecArray => Boolean(m))
+    .map((m) => {
+      const p = last(m[0])
+      return p && p.t === tx.t
+        ? { id: m[1], tip: 0, packs: p.v, online: false, jailed: false, perf: null }
+        : null
+    })
+    .filter((x): x is NonNullable<typeof x> => Boolean(x))
   return {
-    validated_ledger: valSeq,
-    tps: Math.round(tps * 100) / 100,
-    avg_close: Math.round(avgClose * 10) / 10,
-    base_fee: curFeeDrops,
-    median_fee: medFeeDrops,
-    tx_queue: txQueue,
-    peers,
+    t: tx.t,
+    height: last('ctr.height')?.v ?? led.v,
+    txs_sealed: tx.v,
+    ledgers_sealed: led.v,
+    mempool: last('ctr.mempool')?.v ?? 0,
+    peers: 0,
+    online: 0,
+    last_pack_txs: 0,
+    last_pack_packer: '',
+    min_fee: 0,
+    fee_multiplier: 1,
+    seats,
   }
 }
 
-/** Ledger-sampled backfill for on-chain metrics (TPS, close, base fee). Cron only — not for user requests. */
-export async function ledgerMetricBackfill(points = 24): Promise<Partial<Record<MetricKey, Array<{ t: number; v: number }>>>> {
-  const srvR = await rpcCall<{ info: Record<string, unknown> }>('server_info', {})
-  const valSeq = ((srvR.info.validated_ledger as Record<string, unknown>)?.seq as number) ?? 0
-  if (valSeq <= 0) return {}
-
-  const ledgers24h = Math.floor(86400 / CLOSE_EST_SEC)
-  const span = Math.min(valSeq, ledgers24h)
-  const step = Math.max(1, Math.floor(span / points))
-  const indices = Array.from({ length: Math.min(points, Math.floor(span / step) + 1) }, (_, i) =>
-    Math.max(1, valSeq - i * step),
-  ).reverse()
-
-  const ledgerResults = await Promise.all(
-    indices.map((seq) =>
-      rpcCall<{ ledger: Record<string, unknown> }>('ledger', {
-        ledger_index: seq,
-        transactions: true,
-        expand: false,
-      }).catch(() => null),
-    ),
-  )
-
-  const ledgers = ledgerResults
-    .filter(Boolean)
-    .map((r) => {
-      const l = r!.ledger
-      const txns = (l.transactions as string[] | undefined) ?? []
-      return {
-        txn_count: txns.length,
-        close_time: (l.close_time as number) ?? 0,
-        base_fee: Number(l.base_fee ?? 12),
-      }
-    })
-    .sort((a, b) => a.close_time - b.close_time)
-
-  const tps: Array<{ t: number; v: number }> = []
-  const avgClose: Array<{ t: number; v: number }> = []
-  const baseFee: Array<{ t: number; v: number }> = []
-
-  for (let i = 1; i < ledgers.length; i++) {
-    const cur = ledgers[i]
-    const prev = ledgers[i - 1]
-    const dt = cur.close_time - prev.close_time
-    if (dt <= 0 || dt > 30) continue
-    const ts = (cur.close_time + RIPPLE_EPOCH) * 1000
-    tps.push({ t: ts, v: Math.round((cur.txn_count / dt) * 100) / 100 })
-    avgClose.push({ t: ts, v: Math.round(dt * 10) / 10 })
-    baseFee.push({ t: ts, v: cur.base_fee })
-  }
-
-  return { tps, avg_close: avgClose, base_fee: baseFee }
+export async function collectNetworkSample(at = Date.now()): Promise<NetSample> {
+  const snap = await buildScanSnapshot()
+  return sampleFromScan(snap, at)
 }
+
+export { seriesValues }

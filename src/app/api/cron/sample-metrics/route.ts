@@ -1,18 +1,14 @@
-// Vercel cron — sample network metrics every 5 min into shared Redis (24h retention).
+// Vercel cron — every 5 min, sample the PL status into the shared 24h store.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { appendMetricSamples, getAllStoredSeries, pruneMetricSamples } from '@/lib/metric-store'
 import {
-  appendMetricSamples,
-  getAllStoredSeries,
-  mergeIntoStore,
-  pruneMetricSamples,
-} from '@/lib/metric-store'
-import { collectNetworkMetrics, ledgerMetricBackfill } from '@/lib/scan-metrics'
-import {
-  bearerToken,
-  isProductionRuntime,
-  timingSafeEqualString,
-} from '@/lib/security'
+  collectNetworkSample,
+  counterValues,
+  previousSampleFromCounters,
+  seriesValues,
+} from '@/lib/scan-metrics'
+import { bearerToken, isProductionRuntime, timingSafeEqualString } from '@/lib/security'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,10 +18,7 @@ export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET?.trim()
   if (!secret) {
     if (isProductionRuntime()) {
-      return NextResponse.json(
-        { error: 'CRON_SECRET not configured' },
-        { status: 503 },
-      )
+      return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 503 })
     }
   } else {
     const auth = bearerToken(req)
@@ -35,23 +28,20 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const sample = await collectNetworkMetrics()
-    const { validated_ledger, ...metrics } = sample
     const at = Date.now()
-    await appendMetricSamples(metrics, at)
-
-    const existing = await getAllStoredSeries()
-    if ((existing.tps?.length ?? 0) < 12) {
-      const backfill = await ledgerMetricBackfill(24)
-      await mergeIntoStore(backfill)
-    }
-
+    const sample = await collectNetworkSample(at)
+    const stored = await getAllStoredSeries()
+    const prev = previousSampleFromCounters(stored, at)
+    const values = seriesValues(prev, sample)
+    await appendMetricSamples({ ...values, ...counterValues(sample) }, at)
     const pruned = await pruneMetricSamples(at)
     return NextResponse.json({
       ok: true,
       at,
-      ledger: validated_ledger ?? null,
-      metrics,
+      height: sample.height,
+      rate_base_ms: prev ? at - prev.t : null,
+      keys: Object.keys(values).length,
+      tps: values.tps ?? null,
       pruned,
     })
   } catch (e) {

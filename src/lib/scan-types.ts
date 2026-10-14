@@ -8,6 +8,10 @@ export interface ValidatorEntry {
   jailed?: boolean
   lottery_ready?: boolean
   pack_count?: number
+  /** Seat performance score from status (0..1). */
+  perf?: number
+  /** ms since this seat's last pong seen by the serving node. */
+  pong_age_ms?: number
 }
 
 export interface LedgerSummary {

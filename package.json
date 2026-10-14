@@ -22,6 +22,7 @@
     "verify:multi-qr": "node scripts/verify-multi-qr.mjs",
     "verify:v3-claims": "node scripts/verify-v3-claims.mjs",
     "verify:pl-rewards": "node scripts/verify-pl-rewards-model.mjs",
+    "verify:explorer-metrics": "node scripts/verify-explorer-metrics.mjs",
     "test": "vitest run"
   },
   "dependencies": {

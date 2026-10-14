@@ -3,15 +3,12 @@
 import { Redis } from '@upstash/redis'
 import type { MetricKey, MetricPoint } from '@/lib/metric-history'
 import { getSql, isDbConfigured } from '@/lib/db'
+import { NET_KEYS } from '@/lib/net-metrics'
 
-export const METRIC_KEYS: MetricKey[] = [
-  'tps',
-  'avg_close',
-  'base_fee',
-  'median_fee',
-  'tx_queue',
-  'peers',
-]
+/** Network-wide series. Per-seat series (`seat.<id>.<metric>`) and cron counters
+ * (`ctr.*`) are dynamic and discovered from the store. */
+export const METRIC_KEYS: MetricKey[] = [...NET_KEYS]
+export const COUNTER_PREFIX = 'ctr.'
 
 export type MetricStoreBackend = 'postgres' | 'redis' | 'memory'
 
@@ -19,6 +16,7 @@ export const METRIC_RETENTION_MS = 24 * 60 * 60 * 1000
 const HOURS_24_MS = METRIC_RETENTION_MS
 const DEDUPE_MS = 55_000
 const REDIS_PREFIX = 'falcon:metrics:v1'
+const REDIS_KEYSET = `${REDIS_PREFIX}:keys`
 
 const memStore = new Map<MetricKey, MetricPoint[]>()
 let pgReady = false
@@ -84,6 +82,11 @@ export function metricStoreBackend(): MetricStoreBackend {
   return 'memory'
 }
 
+async function redisKeys(redis: Redis): Promise<MetricKey[]> {
+  const set = await redis.smembers(REDIS_KEYSET)
+  return [...new Set([...METRIC_KEYS, ...set.map(String)])]
+}
+
 function retentionCutoff(at = Date.now()): number {
   return at - HOURS_24_MS
 }
@@ -105,14 +108,14 @@ export async function pruneMetricSamples(at = Date.now()): Promise<number> {
   if (backend === 'redis') {
     const redis = redisClient()
     if (redis) {
-      for (const key of METRIC_KEYS) {
+      for (const key of await redisKeys(redis)) {
         await redis.zremrangebyscore(`${REDIS_PREFIX}:${key}`, 0, cutoff)
       }
     }
     return 0
   }
 
-  for (const key of METRIC_KEYS) {
+  for (const key of [...memStore.keys()]) {
     memStore.set(key, trim(memStore.get(key) ?? [], at))
   }
   return 0
@@ -173,7 +176,7 @@ export async function appendMetricSamples(
   const backend = metricStoreBackend()
   const redis = backend === 'redis' ? redisClient() : null
 
-  for (const key of METRIC_KEYS) {
+  for (const key of Object.keys(samples)) {
     const value = samples[key]
     if (value == null || !Number.isFinite(value)) continue
 
@@ -187,6 +190,7 @@ export async function appendMetricSamples(
         await redis.zrem(zkey, rows[0] as string)
       }
       await redis.zadd(zkey, { score: at, member: `${at}:${value}` })
+      await redis.sadd(REDIS_KEYSET, key)
     } else {
       appendMem(key, value, at)
     }
@@ -234,14 +238,15 @@ export async function getAllStoredSeries(): Promise<Partial<Record<MetricKey, Me
     `
     for (const row of rows) {
       const key = row.metric_key as MetricKey
-      if (!METRIC_KEYS.includes(key)) continue
       ;(out[key] ??= []).push({ t: Number(row.sampled_at), v: Number(row.value) })
     }
     return out
   }
 
+  const redis = backend === 'redis' ? redisClient() : null
+  const keys = redis ? await redisKeys(redis) : [...memStore.keys()]
   await Promise.all(
-    METRIC_KEYS.map(async (key) => {
+    keys.map(async (key) => {
       const series = await getStoredMetricSeries(key)
       if (series.length) out[key] = series
     }),
@@ -255,7 +260,7 @@ export async function mergeIntoStore(incoming: Partial<Record<MetricKey, MetricP
   const cutoff = retentionCutoff(now)
   const redis = backend === 'redis' ? redisClient() : null
 
-  for (const key of METRIC_KEYS) {
+  for (const key of Object.keys(incoming)) {
     const points = incoming[key]
     if (!points?.length) continue
     const fresh = points.filter((p) => p.t >= cutoff)
@@ -269,6 +274,7 @@ export async function mergeIntoStore(incoming: Partial<Record<MetricKey, MetricP
       for (const p of fresh) {
         pipe.zadd(zkey, { score: p.t, member: `${p.t}:${p.v}` })
       }
+      pipe.sadd(REDIS_KEYSET, key)
       await pipe.exec()
     } else {
       memStore.set(key, mergePoints(memStore.get(key) ?? [], fresh))

@@ -46,6 +46,8 @@ export async function buildScanSnapshot(): Promise<ScanData> {
     jailed: Boolean(v.jailed),
     lottery_ready: Boolean(v.lottery_ready),
     pack_count: num(v.pack_count),
+    ...(Number.isFinite(num(v.perf, Number.NaN)) ? { perf: num(v.perf) } : {}),
+    ...(Number.isFinite(num(v.pong_age_ms, Number.NaN)) ? { pong_age_ms: num(v.pong_age_ms) } : {}),
   }))
 
   const railsRaw = Array.isArray(st.rails) ? (st.rails as Array<Record<string, unknown>>) : []

@@ -1,11 +1,14 @@
-// GET /api/scan/history — shared 24h metric time series from Neon (fast read-only).
+// GET /api/scan/history — shared 24h metric time series (Neon / Redis / memory).
+// Network keys: NET_KEYS in src/lib/net-metrics.ts (one per explorer tile).
+// Seat keys: seat.<id>.tip | lag | packs_min | perf.
+// Optional ?prefix=seat.v1. narrows the response.
 
-import { NextResponse } from 'next/server'
-import type { MetricKey } from '@/lib/metric-history'
+import { NextRequest, NextResponse } from 'next/server'
+import type { MetricPoint } from '@/lib/metric-history'
 import {
+  COUNTER_PREFIX,
   getAllStoredSeries,
   metricStoreBackend,
-  METRIC_KEYS,
   type MetricStoreBackend,
 } from '@/lib/metric-store'
 
@@ -13,21 +16,29 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export interface HistoryResponse {
-  series: Partial<Record<MetricKey, Array<{ t: number; v: number }>>>
+  series: Record<string, MetricPoint[]>
   backend: MetricStoreBackend
   points: number
+  /** Server sampling interval (Vercel cron). */
+  interval_ms: number
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const prefix = req.nextUrl.searchParams.get('prefix')?.trim() ?? ''
   try {
-    const series = await getAllStoredSeries()
-    const points = METRIC_KEYS.reduce((n, k) => n + (series[k]?.length ?? 0), 0)
-
-    return NextResponse.json({
-      series,
-      backend: metricStoreBackend(),
-      points,
-    } satisfies HistoryResponse)
+    const all = await getAllStoredSeries()
+    const series: Record<string, MetricPoint[]> = {}
+    let points = 0
+    for (const [k, v] of Object.entries(all)) {
+      if (!v?.length || k.startsWith(COUNTER_PREFIX)) continue
+      if (prefix && !k.startsWith(prefix)) continue
+      series[k] = v
+      points += v.length
+    }
+    return NextResponse.json(
+      { series, backend: metricStoreBackend(), points, interval_ms: 5 * 60_000 } satisfies HistoryResponse,
+      { headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=240' } },
+    )
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 503 })
   }
