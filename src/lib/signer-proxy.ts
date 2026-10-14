@@ -24,7 +24,7 @@ export interface ProxyOptions {
   proxyUrl?: string
   proxyToken?: string
   networkId?: number
-  /** e.g. CounterpartySignature for LoanSet co-sign */
+  /** Optional multi-sign field names (unused: LoanSet co-sign removed). */
   signatureTarget?: string
 }
 

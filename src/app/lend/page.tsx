@@ -203,8 +203,10 @@ export default function LendPage() {
       if (!wallet || !lend?.loanBrokerId) return
       const permissionless =
         data?.protocol.lendingPermissionless && data?.protocol.lendingCollateral
-      if (!permissionless && !lend.cosignReady) {
-        setError('Borrow co-sign not configured — set TESTNET_LENDING_BROKER_SECRET on server')
+      if (!permissionless) {
+        setError(
+          'Borrow requires LendingPermissionless + LendingCollateral on-chain. Broker co-sign has been removed.',
+        )
         return
       }
       const principalNum = parseFloat(principal)
@@ -246,65 +248,27 @@ export default function LendPage() {
 
       await withSecret(async (falcon_secret) => {
         const { sequence, currentLedger } = await fetchSequenceInfo(wallet.address, networkKey)
-        const lastLedgerSequence = currentLedger + 20
-        if (permissionless) {
-          await submitWithSequenceRetry({
-            networkKey,
-            fetchSequence: async () => ({ sequence, currentLedger: currentLedger }),
-            sign: ({ sequence: seq, lastLedgerSequence: ll }) =>
-              signLoanSetBorrowerTx(
-                {
-                  account: wallet.address,
-                  loanBrokerId: lend.loanBrokerId!,
-                  principalRequested: principal,
-                  collateralDrops: collateralDropsFromFalcon(collateralNum),
-                  interestRateTenthBps: lend.interestRateTenthBps ?? 5000,
-                  paymentInterval,
-                  paymentTotal,
-                  gracePeriod,
-                  sequence: seq,
-                  lastLedgerSequence: ll,
-                  networkId: network.networkId,
-                },
-                falcon_secret,
-              ).then((r) => ({ tx_blob: r.tx_blob })),
-          })
-        } else {
-          const { tx_json } = await signLoanSetBorrowerTx(
-            {
-              account: wallet.address,
-              loanBrokerId: lend.loanBrokerId!,
-              principalRequested: principal,
-              collateralDrops: collateralDropsFromFalcon(collateralNum),
-              interestRateTenthBps: lend.interestRateTenthBps ?? 5000,
-              paymentInterval,
-              paymentTotal,
-              gracePeriod,
-              sequence,
-              lastLedgerSequence,
-              networkId: network.networkId,
-            },
-            falcon_secret,
-          )
-          const cosignR = await fetch(withNetworkQuery('/api/lend/cosign', networkKey), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tx_json }),
-          })
-          const cosignJ = await cosignR.json()
-          if (!cosignR.ok || !cosignJ.tx_blob) {
-            throw new Error(cosignJ.error ?? 'Broker co-sign failed')
-          }
-          const subR = await fetch('/api/wallet/submit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tx_blob: cosignJ.tx_blob, network: networkKey }),
-          })
-          const subJ = await subR.json()
-          if (!subJ.success) {
-            throw new Error(explainLendSubmitError(subJ.result, subJ.message, data))
-          }
-        }
+        await submitWithSequenceRetry({
+          networkKey,
+          fetchSequence: async () => ({ sequence, currentLedger }),
+          sign: ({ sequence: seq, lastLedgerSequence: ll }) =>
+            signLoanSetBorrowerTx(
+              {
+                account: wallet.address,
+                loanBrokerId: lend.loanBrokerId!,
+                principalRequested: principal,
+                collateralDrops: collateralDropsFromFalcon(collateralNum),
+                interestRateTenthBps: lend.interestRateTenthBps ?? 5000,
+                paymentInterval,
+                paymentTotal,
+                gracePeriod,
+                sequence: seq,
+                lastLedgerSequence: ll,
+                networkId: network.networkId,
+              },
+              falcon_secret,
+            ).then((r) => ({ tx_blob: r.tx_blob })),
+        })
         setNotice(
           `Borrowed ${principal} F-USDC for ${formatLoanDuration(epochs)} — ${collateralFalcon} FPL locked as collateral`,
         )

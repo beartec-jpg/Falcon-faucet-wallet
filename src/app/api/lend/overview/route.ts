@@ -97,8 +97,9 @@ export async function GET(req: NextRequest) {
     const token = await resolveToken(networkKey)
     const protocol = await featureFlags(networkKey)
     const manifest = await loadLendingManifestServer()
-    const cosignReady = !!process.env.TESTNET_LENDING_BROKER_SECRET?.trim()
-    const hfMonitorReady = cosignReady
+    // Broker co-sign + broker-owner hot key retired (audit); borrow is permissionless-only.
+    const cosignReady = false
+    const hfMonitorReady = false
 
     const vaults: Array<{
       id: string

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isOriginAllowed } from '@/lib/origin'
+import { requireBrowserOrigin } from '@/lib/origin'
 import { resolveNetworkKey, serverNetworkConfig, serverRpcCall } from '@/lib/network-server'
 import { clientIp } from '@/lib/security'
 import { BodyTooLarge, readBodyCapped, tooLarge } from '@/lib/api-guard'
@@ -15,7 +15,7 @@ import {
 const MAX_BODY = 65_536
 
 export async function POST(req: NextRequest) {
-  if (!isOriginAllowed(req)) {
+  if (!requireBrowserOrigin(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
 

@@ -1983,8 +1983,12 @@ export default function WalletPage() {
                   {backupDownloaded ? 'Download again ✓' : 'Download Falcon & multi wallet backup'}
                 </button>
                 {backupDownloaded && (
-                  <p className="text-xs text-emerald-400 text-center">
-                    Backup saved — keep the file and password somewhere safe
+                  <p className="text-xs text-emerald-400 text-center space-y-1">
+                    <span className="block">Backup saved — keep the file and password somewhere safe.</span>
+                    <span className="block text-amber-200/90">
+                      Strongly recommended: download a second copy to a different device or offline location.
+                      Falcon keys are not recoverable from a BIP-39 phrase (see wallet backup docs).
+                    </span>
                   </p>
                 )}
 
@@ -2020,7 +2024,7 @@ export default function WalletPage() {
                     onChange={e => setBackupAcknowledged(e.target.checked)}
                     className="mt-1 rounded border-slate-600"
                   />
-                  <span>I saved the backup file and remember my backup password</span>
+                  <span>I saved the backup file (ideally two copies in different places) and remember my backup password</span>
                 </label>
 
                 <button

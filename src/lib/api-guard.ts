@@ -5,7 +5,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { Ratelimit } from '@upstash/ratelimit'
 import { Redis } from '@upstash/redis'
-import { isOriginAllowed } from '@/lib/origin'
+import { requireBrowserOrigin } from '@/lib/origin'
 import { clientIp } from '@/lib/security'
 
 export interface Bucket {
@@ -99,7 +99,7 @@ export async function readBodyCapped(req: Request, maxBytes: number): Promise<st
 
 /** Origin + per-IP rate limit for a proxy route. Returns a response to send, or null to proceed. */
 export async function guardProxy(req: NextRequest, b: Bucket = BUCKETS.rpcProxy): Promise<NextResponse | null> {
-  if (!isOriginAllowed(req)) {
+  if (!requireBrowserOrigin(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
   if (!(await hit(b, `ip:${clientIp(req)}`))) {

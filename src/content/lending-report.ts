@@ -118,7 +118,7 @@ Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78
 - **\`POST /api/lend/repay-preflight\`**, **\`claim-preflight\`**, **\`withdraw-preflight\`**, **\`supply-preflight\`**
 - **\`GET /api/lend/risk-monitor\`** — fleet-wide HF scan
 - **\`POST /api/lend/loan-manage\`** — broker/HF daemon submits \`LoanManage\`
-- **\`POST /api/lend/cosign\`** (legacy testnet) — broker \`CounterpartySignature\`
+- **\`POST /api/lend/cosign (REMOVED)\`** (legacy testnet) — broker \`CounterpartySignature\`
 
 ### Repay UX
 
@@ -208,7 +208,7 @@ HF monitor: \`scripts/lend-hf-monitor.py\` + \`deploy-lend-hf-monitor.sh\` on co
 | Variable | Required for |
 |----------|----------------|
 | Testnet RPC | Overview + submit |
-| \`TESTNET_LENDING_BROKER_SECRET\` | Legacy borrow co-sign + HF daemon only (remove after permissionless live) |
+| \`TESTNET_LENDING_BROKER_SECRET\` | REMOVED — delete from Vercel; co-sign + app LoanManage signing retired |
 | \`SIGNER_PROXY_URL\` / \`SIGNER_PROXY_TOKEN\` | Legacy co-sign + daemon |
 | \`LEND_HF_MONITOR_TOKEN\` | HF monitor → \`loan-manage\` |
 
@@ -217,7 +217,7 @@ HF monitor: \`scripts/lend-hf-monitor.py\` + \`deploy-lend-hf-monitor.sh\` on co
 | Asset | Model |
 |-------|--------|
 | User Falcon seed | Passkey-encrypted; browser-only signing |
-| Broker secret | Server-only; legacy co-sign + daemon — not required for permissionless borrow |
+| Broker secret | REMOVED from app — delete TESTNET_LENDING_BROKER_SECRET from Vercel |
 | Permissionless borrow | No gatekeeper signature; collateral + HF enforced on-ledger |`,
   },
   {
@@ -227,7 +227,7 @@ HF monitor: \`scripts/lend-hf-monitor.py\` + \`deploy-lend-hf-monitor.sh\` on co
 
 - Payment-default liquidation E2E (24h payment interval + grace — not quick-script friendly)
 - Portal liquidator UX for third-party \`LoanManage\` default
-- Retire \`TESTNET_LENDING_BROKER_SECRET\` if legacy co-sign unused
+- DONE: retired /api/lend/cosign and TESTNET_LENDING_BROKER_SECRET from app code (delete Vercel env)
 - Live APY from epoch \`EmissionRate\` in overview
 
 ### Mainnet considerations

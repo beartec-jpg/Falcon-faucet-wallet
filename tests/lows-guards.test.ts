@@ -35,12 +35,19 @@ describe('api-guard', () => {
 })
 
 describe('RPC proxies', () => {
-  it('bnb-rpc refuses cross-origin browser requests', async () => {
-    // Requests with no Origin/Referer (non-browser clients) pass the shared origin policy;
-    // the per-IP rate limit is what bounds those.
+  it('bnb-rpc refuses cross-origin and bare no-Origin browser requests', async () => {
+    // Audit R-3: matching Origin/Referer or Sec-Fetch-Site: same-origin required in prod.
     const { POST } = await import('@/app/api/wallet/bnb-rpc/route')
     expect((await POST(req('/api/wallet/bnb-rpc', { method: 'eth_chainId' }, { origin: 'https://evil.example' }))).status).toBe(403)
     expect((await POST(req('/api/wallet/bnb-rpc', { method: 'eth_chainId' }, { referer: 'https://evil.example/x' }))).status).toBe(403)
+    expect((await POST(req('/api/wallet/bnb-rpc', { method: 'eth_chainId' }, {}, '203.0.113.11'))).status).toBe(403)
+    expect(
+      (
+        await POST(
+          req('/api/wallet/bnb-rpc', { method: 'eth_chainId' }, { 'sec-fetch-site': 'same-origin' }, '203.0.113.12'),
+        )
+      ).status,
+    ).not.toBe(403)
   })
   it('bnb-rpc caps batch size', async () => {
     const { POST } = await import('@/app/api/wallet/bnb-rpc/route')

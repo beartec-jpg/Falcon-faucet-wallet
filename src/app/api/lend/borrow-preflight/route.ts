@@ -64,8 +64,11 @@ export async function POST(req: NextRequest) {
     /* optional */
   }
   const permissionless = lendingPermissionless && lendingCollateral
-  if (!permissionless && !process.env.TESTNET_LENDING_BROKER_SECRET?.trim()) {
-    return NextResponse.json({ error: 'Broker co-sign not configured on server' }, { status: 503 })
+  if (!permissionless) {
+    return NextResponse.json(
+      { error: 'Borrow requires LendingPermissionless + LendingCollateral (broker co-sign removed)' },
+      { status: 503 },
+    )
   }
 
   const stable = await loadStableToken()
