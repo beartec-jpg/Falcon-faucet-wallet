@@ -45,17 +45,20 @@ export default function NetworkMapClient() {
   const [modal, setModal] = useState<string | null>(null)
   const fpsRef = useRef<HTMLSpanElement | null>(null)
   const w = data?.watchers
-  const prevW = useRef<{ epoch: Set<string>; work: Record<string, number> } | null>(null)
+  const prevW = useRef<{ epoch: Set<string>; work: Record<string, number>; slots: Record<string, number> } | null>(null)
   const [wEvent, setWEvent] = useState<WatcherRingEvent | null>(null)
   const [toast, setToast] = useState<{ at: number; names: string[] } | null>(null)
-  const wKey = w ? `${w.epoch_accounts.join(',')}|${JSON.stringify(w.work)}` : ''
+  const wKey = w ? `${w.epoch_accounts.join(',')}|${JSON.stringify(w.work)}|${JSON.stringify(w.slots ?? {})}` : ''
   useEffect(() => {
     if (!w) return
     const p = prevW.current
-    prevW.current = { epoch: new Set(w.epoch_accounts), work: w.work }
+    prevW.current = { epoch: new Set(w.epoch_accounts), work: w.work, slots: w.slots ?? {} }
     if (!p) return
     const joined = w.epoch_accounts.filter((a) => !p.epoch.has(a))
-    const pulsed = w.epoch_accounts.filter((a) => p.work[a] != null && (w.work[a] ?? 0) > p.work[a])
+    const rose = (cur: Record<string, number> | undefined, old: Record<string, number>, a: string) =>
+      old[a] != null && (cur?.[a] ?? 0) > old[a]
+    // Heartbeat landed = its slot count or work counter went up.
+    const pulsed = w.epoch_accounts.filter((a) => rose(w.slots, p.slots, a) || rose(w.work, p.work, a))
     if (!joined.length && !pulsed.length) return
     const at = Date.now()
     setWEvent({ at, joined, pulsed })

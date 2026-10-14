@@ -674,7 +674,7 @@ function ChartModal({
         extra={
           <p className="text-[10px] text-slate-500 mt-3">
             Live = accounts that heartbeated in watcher slot {d.watchers?.current_slot ?? '—'} (
-            {d.watchers?.source === 'status' ? 'node watchers_active_slot' : 'per-account check, cached 30s'}).
+            {d.watchers?.source === 'status' ? 'node watchers_active_slot' : 'watcher_slots rose this slot, checked every 30s'}).
           </p>
         }
         onClose={onClose}

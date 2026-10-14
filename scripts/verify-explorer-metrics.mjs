@@ -26,7 +26,7 @@ load('net-metrics')
 load('metric-history')
 load('scan-types')
 load('netmap-layout')
-load('pl-rpc')
+load('db')
 load('scan-watchers')
 {
   const src = fs.readFileSync(path.join(root, 'src/config/network-map.ts'), 'utf8')
@@ -156,39 +156,70 @@ assert.equal(lay.bulgeCount(5000, 10), 10, 'bulges capped')
 assert.equal(lay.ringFill(500, 100), 1)
 assert.ok(lay.ringFill(50, 0) === 0.5)
 
-// Watchers: node field preferred; otherwise cached per-account check.
+// Watchers: node field preferred; otherwise "live" = watcher_slots rose in the current slot.
 {
   const wm = await import(pathToFileURL(path.join(dir, 'scan-watchers.mjs')).href)
-  const st = {
-    watcher_slots: { 'watcher-browser': 82, 'watcher-eth-lc': 64 },
-    watcher_work: { 'watcher-browser': 772, 'watcher-eth-lc': 1188 },
-    watcher_current_slot: 81,
-    watcher_slot_ms: 3600000,
+  const HOUR = 3600000
+  // Shape from falcon2 status at 2026-10-14 09:10 UTC (slot 82, abs 1426).
+  const st = (o = {}) => ({
+    watcher_slots: { 'watcher-brain': 2, 'watcher-browser': 83, 'watcher-eth-lc': 64, 'watcher-falcon2': 2 },
+    watcher_work: { 'watcher-browser': 778, 'watcher-eth-lc': 1188 },
+    watcher_current_slot: 82,
+    watcher_slot_ms: HOUR,
     watcher_slots_per_epoch: 168,
-  }
-  let calls = 0
-  const q = async (a) => { calls++; return { watcher_in_slot: a === 'watcher-eth-lc' } }
+    genesis_ms: 1000,
+    now_ms: 1000 + 1426 * HOUR + 60_000,
+    watchers_active_slot: null,
+    ...o,
+  })
+  assert.equal(wm.absoluteSlot(st()), 1426)
+  const store = wm.memoryStore()
   wm._resetWatcherCache()
-  const s1 = await wm.watcherSummary(st, q, 1_000)
-  assert.deepEqual(s1.epoch_accounts, ['watcher-browser', 'watcher-eth-lc'])
-  assert.deepEqual(s1.live, ['watcher-eth-lc'])
-  assert.equal(s1.source, 'account_query')
-  assert.equal(s1.work['watcher-eth-lc'], 1188)
-  await wm.watcherSummary(st, q, 10_000)
-  assert.equal(calls, 2, 'cached within 30s: no second fan-out')
-  await wm.watcherSummary({ ...st, watcher_current_slot: 82 }, q, 11_000)
-  assert.equal(calls, 4, 'new slot refreshes')
-  const s2 = await wm.watcherSummary({ ...st, watchers_active_slot: ['watcher-browser'] }, q, 12_000)
-  assert.deepEqual(s2.live, ['watcher-browser'])
-  assert.equal(s2.source, 'status')
-  assert.equal(calls, 4, 'status field avoids fan-out')
-  assert.deepEqual(wm.activeFromStatusField({ slot: 81, accounts: ['a'] }), ['a'])
+  // First sight: nothing proven live yet.
+  const a = await wm.watcherSummary(st(), { store, now: 1, cacheMs: 0 })
+  assert.deepEqual(a.epoch_accounts, ['watcher-brain', 'watcher-browser', 'watcher-eth-lc', 'watcher-falcon2'])
+  assert.deepEqual(a.live, [])
+  assert.equal(a.source, 'slot_counts')
+  assert.equal(a.slots['watcher-brain'], 2)
+  // Next slot: brain and falcon2 heartbeat (count +1), browser does not.
+  const next = st({
+    watcher_slots: { 'watcher-brain': 3, 'watcher-browser': 83, 'watcher-eth-lc': 64, 'watcher-falcon2': 3 },
+    watcher_current_slot: 83,
+    now_ms: 1000 + 1427 * HOUR + 120_000,
+  })
+  const b = await wm.watcherSummary(next, { store, now: 2, cacheMs: 0 })
+  assert.deepEqual(b.live, ['watcher-brain', 'watcher-falcon2'])
+  // Later in the same slot, no change: still live.
+  const c = await wm.watcherSummary({ ...next, now_ms: next.now_ms + 1_800_000 }, { store, now: 3, cacheMs: 0 })
+  assert.deepEqual(c.live, ['watcher-brain', 'watcher-falcon2'])
+  // Following slot without a new heartbeat yet: not live; browser beats now.
+  const d = await wm.watcherSummary(
+    { ...next, watcher_slots: { ...next.watcher_slots, 'watcher-browser': 84 }, watcher_current_slot: 84, now_ms: 1000 + 1428 * HOUR + 5_000 },
+    { store, now: 4, cacheMs: 0 },
+  )
+  assert.deepEqual(d.live, ['watcher-browser'])
+  // Epoch reset (counts drop) is not a heartbeat.
+  const r = wm.stepWatcherState({ x: { slots: 80, rose_in: 5 } }, { x: 0 }, 6)
+  assert.deepEqual(r.live, [])
+  // Cache: within 30s of the same slot no store reads.
+  let loads = 0
+  const counting = { load: async () => (loads++, store.load()), save: store.save }
+  wm._resetWatcherCache()
+  await wm.watcherSummary(next, { store: counting, now: 10_000 })
+  await wm.watcherSummary(next, { store: counting, now: 20_000 })
+  assert.equal(loads, 1, 'cached ~30s')
+  // Node field (Falcon-PL #97) wins when present.
+  const e = await wm.watcherSummary(st({ watchers_active_slot: ['watcher-brain'] }), { store: counting, now: 30_000 })
+  assert.deepEqual(e.live, ['watcher-brain'])
+  assert.equal(e.source, 'status')
+  assert.deepEqual(wm.activeFromStatusField({ slot: 82, accounts: ['a'] }), ['a'])
+  assert.deepEqual(wm.activeFromStatusField({ a: true, b: false }), ['a'])
   assert.deepEqual(wm.activeFromStatusField([]), [])
   assert.equal(wm.activeFromStatusField(null), null)
-  const ws = nm.sampleFromScan({ ...scan({ h: 1, tx: 1, p1: 1 }), watchers: s1 }, 5)
+  const ws = nm.sampleFromScan({ ...scan({ h: 1, tx: 1, p1: 1 }), watchers: b }, 5)
   const wv = nm.seriesValues(null, ws)
-  assert.equal(wv.watchers_live, 1)
-  assert.equal(wv.watchers_epoch, 2)
+  assert.equal(wv.watchers_live, 2)
+  assert.equal(wv.watchers_epoch, 4)
 }
 
 console.log('verify-explorer-metrics: ok')

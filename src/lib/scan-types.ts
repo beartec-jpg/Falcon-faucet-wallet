@@ -124,10 +124,12 @@ export interface WatcherSummary {
   live: string[]
   /** Cumulative watcher_work per epoch account (bumps = heartbeat landed). */
   work: Record<string, number>
+  /** watcher_slots count per epoch account. */
+  slots: Record<string, number>
   current_slot: number
   slot_ms: number
   slots_per_epoch: number
-  /** 'status' = node field watchers_active_slot; 'account_query' = cached per-account check. */
-  source: 'status' | 'account_query'
+  /** 'status' = node field watchers_active_slot; 'slot_counts' = watcher_slots rose this slot. */
+  source: 'status' | 'slot_counts'
   checked_at: number
 }
