@@ -40,7 +40,16 @@ export interface AccountSnapshot {
   lend: { asset: string; shares: string }[]
 }
 
+/** One UTC day on which an account did something we can see (tx, lp, lend, bridge). */
+export interface ActiveDay {
+  account: string
+  day: string
+  source: 'tx' | 'lp' | 'lend' | 'bridge'
+}
+
 export interface ActivityStore {
+  addActiveDays(d: ActiveDay[]): Promise<void>
+  activeDays(sinceDay: string): Promise<ActiveDay[]>
   upsertEvents(ev: StoredEvent[]): Promise<void>
   events(): Promise<StoredEvent[]>
   accounts(): Promise<AccountActivity[]>
@@ -53,7 +62,14 @@ export function memoryActivityStore(): ActivityStore {
   const ev = new Map<string, StoredEvent>()
   const acc = new Map<string, AccountActivity>()
   let samples: PoolSample[] = []
+  const days = new Map<string, ActiveDay>()
   return {
+    async addActiveDays(list) {
+      for (const d of list) days.set(`${d.account}|${d.day}|${d.source}`, d)
+    },
+    async activeDays(since) {
+      return [...days.values()].filter((d) => d.day >= since)
+    },
     async upsertEvents(list) {
       for (const e of list) if (!ev.has(e.id)) ev.set(e.id, e)
         else ev.set(e.id, { ...ev.get(e.id)!, status: e.status })
@@ -92,12 +108,25 @@ async function ensurePg() {
   await sql`CREATE TABLE IF NOT EXISTS explorer_pool_samples (
     pool_id TEXT NOT NULL, sampled_at BIGINT NOT NULL, reserve_a NUMERIC NOT NULL,
     reserve_b NUMERIC NOT NULL, lp_supply NUMERIC NOT NULL, PRIMARY KEY (pool_id, sampled_at))`
+  await sql`CREATE TABLE IF NOT EXISTS explorer_activity_days (
+    account TEXT NOT NULL, day DATE NOT NULL, source TEXT NOT NULL, PRIMARY KEY (account, day, source))`
   pgReady = true
 }
 
 export function pgActivityStore(): ActivityStore {
   const sql = getSql()
   return {
+    async addActiveDays(list) {
+      await ensurePg()
+      for (const d of list) {
+        await sql`INSERT INTO explorer_activity_days (account, day, source) VALUES (${d.account}, ${d.day}::date, ${d.source}) ON CONFLICT DO NOTHING`
+      }
+    },
+    async activeDays(since) {
+      await ensurePg()
+      const rows = (await sql`SELECT account, day::text AS day, source FROM explorer_activity_days WHERE day >= ${since}::date`) as Obj[]
+      return rows.map((r) => ({ account: s(r.account), day: s(r.day), source: s(r.source) as ActiveDay['source'] }))
+    },
     async upsertEvents(list) {
       await ensurePg()
       for (const e of list) {
@@ -233,61 +262,6 @@ export function stepAccount(prev: AccountActivity | undefined, snap: AccountSnap
   }
 }
 
-export interface BoardRow {
-  account: string
-  score: number
-  bridge: { in_fpl: number; out_fpl: number; count: number; points: number }
-  swaps: { points: number; exposed: false }
-  lp: { fpl_hours: number; points: number }
-  lending: { fpl_hours: number; points: number }
-  tx: { count: number; points: number }
-}
-
-const pts = (cap: number, v: number, scale: number) => Math.min(cap, cap * (Math.log10(1 + Math.max(0, v) / scale) / Math.log10(1 + 1000)))
-
-/** Rank accounts. Each component is log-scaled and capped per address; excluded accounts are dropped. */
-export function scoreBoard(accounts: AccountActivity[], events: StoredEvent[], price: Record<string, number>, excluded: Set<string>): { rows: BoardRow[]; excluded: number } {
-  const c = ACTIVITY_CONFIG.caps
-  const names = new Set([...accounts.map((a) => a.account), ...events.map((e) => e.account)].filter(Boolean))
-  const acc = new Map(accounts.map((a) => [a.account, a]))
-  let ex = 0
-  const rows: BoardRow[] = []
-  for (const name of names) {
-    if (isExcluded(name, excluded)) {
-      ex++
-      continue
-    }
-    const mine = events.filter((e) => e.account === name)
-    const val = (e: StoredEvent) => toFloat(e.amount, ASSET_DECIMALS[e.asset] ?? 0) * (price[e.asset] ?? 0)
-    const inF = mine.filter((e) => e.kind === 'bridge_in').reduce((t, e) => t + val(e), 0)
-    const outF = mine.filter((e) => e.kind === 'bridge_out').reduce((t, e) => t + val(e), 0)
-    const a = acc.get(name)
-    const bridgePts = Math.min(c.bridge, pts(c.bridge * 0.7, inF + outF, 1) + Math.min(c.bridge * 0.3, mine.length * 2))
-    const lpPts = pts(c.lp, a?.lp_fpl_hours ?? 0, 10)
-    const lendPts = pts(c.lending, a?.lend_fpl_hours ?? 0, 10)
-    const txPts = pts(c.tx, a?.tx_count ?? 0, 0.1)
-    rows.push({
-      account: name,
-      score: Math.round((bridgePts + lpPts + lendPts + txPts) * 10) / 10,
-      bridge: { in_fpl: inF, out_fpl: outF, count: mine.length, points: bridgePts },
-      swaps: { points: 0, exposed: false },
-      lp: { fpl_hours: a?.lp_fpl_hours ?? 0, points: lpPts },
-      lending: { fpl_hours: a?.lend_fpl_hours ?? 0, points: lendPts },
-      tx: { count: a?.tx_count ?? 0, points: txPts },
-    })
-  }
-  rows.sort((x, y) => y.score - x.score || x.account.localeCompare(y.account))
-  return { rows, excluded: ex }
-}
-
-export function boardCsv(rows: BoardRow[]): string {
-  const head = 'rank,account,score,bridge_in_fpl,bridge_out_fpl,bridge_events,lp_fpl_hours,lend_fpl_hours,tx_count,swaps'
-  const lines = rows.map((r, i) =>
-    [i + 1, r.account, r.score, r.bridge.in_fpl.toFixed(2), r.bridge.out_fpl.toFixed(2), r.bridge.count, r.lp.fpl_hours.toFixed(2), r.lending.fpl_hours.toFixed(2), r.tx.count, 'not_exposed'].join(','),
-  )
-  return [head, ...lines].join('\n') + '\n'
-}
-
 /** Candidate accounts to snapshot this run: known ones first by staleness, capped. */
 export function pickAccounts(candidates: string[], known: AccountActivity[], cap = ACTIVITY_CONFIG.maxAccountsPerRun): string[] {
   const last = new Map(known.map((a) => [a.account, a.last_at]))
@@ -299,13 +273,37 @@ export function pickAccounts(candidates: string[], known: AccountActivity[], cap
 /** One index run (pure apart from the store): events, pool samples, account steps. */
 export async function indexActivity(st: Obj, snaps: AccountSnapshot[], now: number, store: ActivityStore): Promise<{ events: number; accounts: number; pools: number }> {
   const ev = eventsFromStatus(st, now)
+  const known = new Set((await store.events()).map((e) => e.id))
   await store.upsertEvents(ev)
   const samples = poolSamplesFromStatus(st, now)
   await store.addPoolSamples(samples)
   const prev = new Map((await store.accounts()).map((a) => [a.account, a]))
-  const next = snaps.map((x) => stepAccount(prev.get(x.account), x, positionValues(st, x), now))
+  const vals = new Map(snaps.map((x) => [x.account, positionValues(st, x)]))
+  const next = snaps.map((x) => stepAccount(prev.get(x.account), x, vals.get(x.account)!, now))
   await store.putAccounts(next)
+  await store.addActiveDays(activeDaysFrom(snaps, prev, vals, ev.filter((e) => !known.has(e.id)), now))
   return { events: ev.length, accounts: next.length, pools: samples.length }
+}
+
+export const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+
+/**
+ * Days we can attribute from one index run: the sequence went up since the last
+ * snapshot (tx), a live LP or lending position, or a newly seen bridge event.
+ * The first snapshot of an account only sets a baseline: we cannot date its old txs.
+ */
+export function activeDaysFrom(snaps: AccountSnapshot[], prev: Map<string, AccountActivity>, vals: Map<string, { lp: number; lend: number }>, newEvents: StoredEvent[], now: number): ActiveDay[] {
+  const day = utcDay(now)
+  const out: ActiveDay[] = []
+  for (const x of snaps) {
+    const p = prev.get(x.account)
+    if (p && x.sequence > p.tx_count) out.push({ account: x.account, day, source: 'tx' })
+    const v = vals.get(x.account)
+    if (v && v.lp > 0) out.push({ account: x.account, day, source: 'lp' })
+    if (v && v.lend > 0) out.push({ account: x.account, day, source: 'lend' })
+  }
+  for (const e of newEvents) if (e.account) out.push({ account: e.account, day, source: 'bridge' })
+  return out
 }
 
 export function snapshotFromAccountQuery(account: string, body: Obj): AccountSnapshot {

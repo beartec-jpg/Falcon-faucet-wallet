@@ -1,0 +1,309 @@
+{
+ "type": "status_ok",
+ "body": {
+  "tip_height": 534281,
+  "now_ms": 5149065200,
+  "epoch": 9,
+  "accounts_count": 968,
+  "validators": [
+   {
+    "id": "falcon-node",
+    "bond": 50000,
+    "bond_account": "falcon-node-bond",
+    "jailed": false,
+    "jail_count": 1,
+    "slash_total": 50000,
+    "pack_count": 11410,
+    "perf": 1.0799666593854365,
+    "pong_fresh": true,
+    "lottery_ready": true,
+    "unbonding": 0
+   },
+   {
+    "id": "scottspersonalnode",
+    "bond": 50000,
+    "bond_account": "scottspersonalnode-bond",
+    "jailed": false,
+    "jail_count": 1,
+    "slash_total": 50000,
+    "pack_count": 11059,
+    "perf": 1.0586624792283004,
+    "pong_fresh": true,
+    "lottery_ready": true,
+    "unbonding": 0
+   },
+   {
+    "id": "v1",
+    "bond": 1000,
+    "bond_account": "v1",
+    "jailed": false,
+    "jail_count": 4,
+    "slash_total": 15000,
+    "pack_count": 92655,
+    "perf": 1.0219694675229436,
+    "pong_fresh": true,
+    "lottery_ready": true,
+    "unbonding": 0
+   },
+   {
+    "id": "v10",
+    "bond": 1000,
+    "bond_account": "faucet",
+    "jailed": false,
+    "jail_count": 0,
+    "slash_total": 0,
+    "pack_count": 17513,
+    "perf": 0.9967648968075099,
+    "pong_fresh": true,
+    "lottery_ready": true,
+    "unbonding": 0
+   },
+   {
+    "id": "v11",
+    "bond": 1000,
+    "bond_account": "faucet",
+    "jailed": false,
+    "jail_count": 0,
+    "slash_total": 0,
+    "pack_count": 19565,
+    "perf": 1.0620014241755473,
+    "pong_fresh": true,
+    "lottery_ready": true,
+    "unbonding": 0
+   },
+   {
+    "id": "v12",
+    "bond": 1000,
+    "bond_account": "faucet",
+    "jailed": false,
+    "jail_count": 4,
+    "slash_total": 17000,
+    "pack_count": 50371,
+    "perf": 1.0470183686881216,
+    "pong_fresh": true,
+    "lottery_ready": true,
+    "unbonding": 0
+   },
+   {
+    "id": "v13",
+    "bond": 1000,
+    "bond_account": "alice",
+    "jailed": false,
+    "jail_count": 0,
+    "slash_total": 0,
+    "pack_count": 16587,
+    "perf": 0.9886955533146938,
+    "pong_fresh": true,
+    "lottery_ready": true,
+    "unbonding": 0
+   },
+   {
+    "id": "v2",
+    "bond": 900,
+    "bond_account": "v2",
+    "jailed": true,
+    "jail_count": 0,
+    "slash_total": 100,
+    "pack_count": 62764,
+    "perf": 0.7109414831116068,
+    "pong_fresh": false,
+    "lottery_ready": false,
+    "unbonding": 0
+   },
+   {
+    "id": "v3",
+    "bond": 1000,
+    "bond_account": "v3",
+    "jailed": false,
+    "jail_count": 0,
+    "slash_total": 0,
+    "pack_count": 83109,
+    "perf": 1.0353703811919783,
+    "pong_fresh": true,
+    "lottery_ready": true,
+    "unbonding": 0
+   },
+   {
+    "id": "v4",
+    "bond": 900,
+    "bond_account": "v4",
+    "jailed": true,
+    "jail_count": 0,
+    "slash_total": 100,
+    "pack_count": 48950,
+    "perf": 0.6500051071479643,
+    "pong_fresh": false,
+    "lottery_ready": false,
+    "unbonding": 0
+   },
+   {
+    "id": "v5",
+    "bond": 900,
+    "bond_account": "v5",
+    "jailed": true,
+    "jail_count": 0,
+    "slash_total": 100,
+    "pack_count": 18907,
+    "perf": 0.710950721916649,
+    "pong_fresh": false,
+    "lottery_ready": false,
+    "unbonding": 0
+   },
+   {
+    "id": "v6",
+    "bond": 1000,
+    "bond_account": "faucet",
+    "jailed": false,
+    "jail_count": 0,
+    "slash_total": 0,
+    "pack_count": 86825,
+    "perf": 1.067822971312822,
+    "pong_fresh": true,
+    "lottery_ready": true,
+    "unbonding": 0
+   },
+   {
+    "id": "v7",
+    "bond": 0,
+    "bond_account": "alice",
+    "jailed": true,
+    "jail_count": 0,
+    "slash_total": 1000,
+    "pack_count": 27,
+    "perf": 0.6589285714285714,
+    "pong_fresh": false,
+    "lottery_ready": false,
+    "unbonding": 0
+   },
+   {
+    "id": "v8",
+    "bond": 1900,
+    "bond_account": "faucet",
+    "jailed": true,
+    "jail_count": 0,
+    "slash_total": 100,
+    "pack_count": 10645,
+    "perf": 0.7109609829983092,
+    "pong_fresh": false,
+    "lottery_ready": false,
+    "unbonding": 0
+   },
+   {
+    "id": "v9",
+    "bond": 900,
+    "bond_account": "faucet",
+    "jailed": true,
+    "jail_count": 0,
+    "slash_total": 100,
+    "pack_count": 3894,
+    "perf": 0.7110016848523748,
+    "pong_fresh": false,
+    "lottery_ready": false,
+    "unbonding": 0
+   }
+  ],
+  "online_seats": [
+   "falcon-node",
+   "scottspersonalnode",
+   "v1",
+   "v10",
+   "v11",
+   "v12",
+   "v13",
+   "v3",
+   "v6"
+  ],
+  "epoch_pack_txs": {
+   "falcon-node": 543666,
+   "scottspersonalnode": 496653,
+   "v1": 520494,
+   "v10": 440915,
+   "v11": 641776,
+   "v12": 586466,
+   "v13": 594641,
+   "v3": 581197,
+   "v6": 698890
+  },
+  "rewards_v2": {
+   "epoch_proposer_credit": {
+    "falcon-node": 1131766,
+    "scottspersonalnode": 1071470,
+    "v1": 1002573,
+    "v10": 971454,
+    "v11": 1131949,
+    "v12": 1169042,
+    "v13": 1183605,
+    "v3": 1163058,
+    "v6": 1026933
+   },
+   "epoch_vote_credit": {
+    "falcon-node": 54334,
+    "scottspersonalnode": 44951,
+    "v1": 41411,
+    "v10": 9919,
+    "v11": 25444,
+    "v12": 40272,
+    "v13": 59356,
+    "v3": 24960,
+    "v6": 49492
+   },
+   "floor_weights": {
+    "falcon-node": 65,
+    "scottspersonalnode": 55,
+    "v1": 51,
+    "v13": 71,
+    "v6": 59
+   },
+   "amm_lp_value_weights": {
+    "dave": 32216,
+    "sally": 1006,
+    "scott.reynolds.123": 33858
+   },
+   "lend_lp_value_weights": {
+    "dave": 4117,
+    "scott.reynolds.123": 37528
+   }
+  },
+  "faucet": {
+   "account": "faucet",
+   "account_type": "hot",
+   "activation_fee": 2000,
+   "allowlist": [],
+   "assets": {},
+   "balance": 973450863,
+   "claimable": 0,
+   "exists": true,
+   "lend_positions": [],
+   "lp": [],
+   "name_status": "none",
+   "recent_txs": [],
+   "reserved_until_ms": 0,
+   "sequence": 4252,
+   "vault_locked": false,
+   "watcher_current_slot": 86,
+   "watcher_in_slot": false,
+   "watcher_slot_ms": 3600000,
+   "watcher_slots": 0,
+   "watcher_work": 0
+  },
+  "watcher_slots": {
+   "watcher-brain": 6,
+   "watcher-browser": 87,
+   "watcher-eth-lc": 64,
+   "watcher-falcon2": 6
+  },
+  "watcher_work": {
+   "watcher-browser": 832,
+   "watcher-eth-lc": 1188
+  },
+  "amm_lp_weights": {
+   "dave": 29119591968,
+   "sally": 367425510,
+   "scott.reynolds.123": 3880397985
+  },
+  "lend_lp_weights": {
+   "dave": 20000000010020000,
+   "scott.reynolds.123": 175421761334143968
+  }
+ }
+}
