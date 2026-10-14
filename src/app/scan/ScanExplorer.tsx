@@ -7,6 +7,11 @@ import Logo from '@/components/Logo'
 import type { ScanData, LedgerSummary, ValidatorEntry, RailRow } from '@/lib/scan-types'
 import ClickableStatCard from '@/components/explorer/ClickableStatCard'
 import EpochEmissionsCard from '@/components/explorer/EpochEmissionsCard'
+import TxRateTab from '@/components/explorer/TxRateTab'
+import SeatBoxes from '@/components/explorer/SeatBoxes'
+import TrendModal, { networkPanels, seatPanels } from '@/components/explorer/TrendModal'
+import { useLiveSamples } from '@/hooks/useLiveSamples'
+import { seatLag } from '@/lib/net-metrics'
 
 const FETCH_TIMEOUT_MS = 10_000
 const POLL_MS = 4_000
@@ -240,7 +245,8 @@ function RailsTable({ rails }: { rails: RailRow[] }) {
   )
 }
 
-type ScanTab = 'network' | 'rails'
+type ScanTab = 'network' | 'txs' | 'rails'
+type TrendTarget = { kind: 'network' } | { kind: 'seat'; id: string }
 
 export default function ScanExplorer({
   initialData,
@@ -255,6 +261,10 @@ export default function ScanExplorer({
   const [tab, setTab] = useState<ScanTab>('network')
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const inflightRef = useRef(false)
+  const live = useLiveSamples(data)
+  const [trend, setTrend] = useState<TrendTarget | null>(null)
+  const closeTrend = useCallback(() => setTrend(null), [])
+  const openNetwork = useCallback(() => setTrend({ kind: 'network' }), [])
 
   const fetchData = useCallback(async () => {
     if (inflightRef.current) return
@@ -324,6 +334,7 @@ export default function ScanExplorer({
           {(
             [
               { id: 'network' as const, label: 'Network' },
+              { id: 'txs' as const, label: 'tx/s' },
               { id: 'rails' as const, label: 'Rails' },
             ] as const
           ).map((t) => (
@@ -340,12 +351,19 @@ export default function ScanExplorer({
               {t.label}
             </button>
           ))}
-          {lastUpdate && tab === 'network' && (
+          {lastUpdate && tab !== 'rails' && (
             <span className="ml-auto self-center text-[10px] text-slate-600 font-mono">
               live · {lastUpdate.toLocaleTimeString()}
             </span>
           )}
         </div>
+
+        {tab === 'txs' && d && (
+          <TxRateTab live={live} mempool={d.mempool} pollMs={POLL_MS} onOpen24h={openNetwork} />
+        )}
+        {tab === 'txs' && !d && (
+          <div className="text-center text-slate-600 py-20 text-sm">{error ? `Node unavailable: ${error}` : 'Loading…'}</div>
+        )}
 
         {tab === 'rails' && d && <RailsTable rails={d.rails} />}
         {tab === 'rails' && !d && !error && (
@@ -389,6 +407,16 @@ export default function ScanExplorer({
                 value={fmtNum(mesh.peers)}
                 sub={`${d.online_seats?.length ?? 0} online seats`}
                 accent={(d.online_seats?.length ?? 0) >= 4 ? 'text-emerald-400' : 'text-amber-400'}
+                chartKey="peers"
+                onChart={openNetwork}
+              />
+              <ClickableStatCard
+                label="tx/s (est.)"
+                value={live.rate60s ? live.rate60s.tps.toFixed(1) : '…'}
+                sub={live.rate60s ? `${live.rate60s.blocks_min.toFixed(1)} blocks/min · 60s` : 'measuring'}
+                accent="text-brand-400"
+                chartKey="tps"
+                onChart={openNetwork}
               />
               <ClickableStatCard
                 label="Commit"
@@ -404,6 +432,8 @@ export default function ScanExplorer({
                 label="Mempool"
                 value={d.mempool}
                 sub={`max ${fmtNum(d.max_mempool)}`}
+                chartKey="mempool"
+                onChart={openNetwork}
               />
               <ClickableStatCard label="Min fee" value={`${d.current_fee_drops} FPL`} />
               <ClickableStatCard
@@ -421,6 +451,19 @@ export default function ScanExplorer({
               />
               <ClickableStatCard label="Age" value={fmtUptime(d.uptime_seconds)} />
             </div>
+          </section>
+        )}
+
+        {tab === 'network' && d && (
+          <section>
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Seats</h2>
+            <p className="text-[10px] text-slate-600 mb-3">
+              Lag = network tip minus the seat&apos;s last advertised tip. Click a seat for its 24h trends.
+            </p>
+            <SeatBoxes
+              sample={live.samples[live.samples.length - 1] ?? null}
+              onOpen={(id) => setTrend({ kind: 'seat', id })}
+            />
           </section>
         )}
 
@@ -560,6 +603,37 @@ export default function ScanExplorer({
           </div>
         )}
       </main>
+
+      {trend && d && trend.kind === 'network' && (
+        <TrendModal
+          title="Falcon PL network"
+          subtitle="tx/s, blocks/min and txs/block are derived from sealed-counter deltas"
+          panels={networkPanels({
+            tps: live.rate60s?.tps,
+            bpm: live.rate60s?.blocks_min,
+            mempool: d.mempool,
+            peers: d.peers,
+          })}
+          onClose={closeTrend}
+        />
+      )}
+      {trend && d && trend.kind === 'seat' && (
+        <TrendModal
+          title={`Seat ${trend.id}`}
+          subtitle="Per-seat lag, packs and perf come from the validators list in the public status"
+          panels={(() => {
+            const last = live.samples[live.samples.length - 1]
+            const seat = last?.seats.find((x) => x.id === trend.id)
+            return seatPanels(trend.id, {
+              lag: last && seat ? seatLag(last.height, seat) : null,
+              perf: seat?.perf ?? null,
+              tps: live.rate60s?.tps ?? null,
+              mempool: d.mempool,
+            })
+          })()}
+          onClose={closeTrend}
+        />
+      )}
 
       <footer className="border-t border-slate-800 py-4 px-4 text-center text-xs text-slate-600">
         Falcon PL 2300 · test tokens · no cash value ·{' '}
