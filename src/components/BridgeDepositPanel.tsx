@@ -1,5 +1,6 @@
 'use client'
 
+import type { WalletKey } from '@/lib/wallet-key'
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Wallet, parseUnits } from 'ethers'
@@ -1162,7 +1163,7 @@ export default function BridgeDepositPanel({
   const attachEvmWallet = async (
     privateKey: string,
     expectedAddress?: string,
-    auth?: { keyBytes: Uint8Array; hasPrf: boolean },
+    auth?: { keyBytes: WalletKey; hasPrf: boolean },
   ) => {
     const { keyBytes, hasPrf } = auth ?? await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
     const evm = new Wallet(privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`)
