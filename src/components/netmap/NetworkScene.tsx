@@ -2,11 +2,11 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
-import { Environment, Html, Lightformer, OrbitControls, PerformanceMonitor } from '@react-three/drei'
+import { Environment, Html, Lightformer, OrbitControls, PerformanceMonitor, RoundedBox } from '@react-three/drei'
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import type { MapLayout, Vec3 } from '@/lib/netmap-layout'
-import { bulgeCount, HUB_BASE_DY, pipePoints, railRoute, ringFill } from '@/lib/netmap-layout'
+import { bulgeCount, HUB_BASE_DY, HUB_CORE_TOP_DY, pipePoints, railRoute, ringFill } from '@/lib/netmap-layout'
 import { phaseAt, type Round } from '@/lib/netmap-consensus'
 import type { PollEvent } from '@/hooks/useNetworkFeed'
 import WatcherRing, { type WatcherRingEvent } from '@/components/netmap/WatcherRing'
@@ -49,6 +49,16 @@ export interface SceneProps {
   fpsRef?: React.MutableRefObject<HTMLSpanElement | null>
   watchers?: { epoch: string[]; live: string[]; cap: number; event: WatcherRingEvent | null }
   consensus?: ConsensusView
+  /** Activated wallets (status.accounts_count via /api/scan), null if not reported. */
+  walletCount?: number | null
+  /** Live tx/s for the wallet beam. */
+  tps?: number | null
+}
+
+/** Beam bulge size from live tx/s: 0.7 at idle → 2.0 at ≥ 60 tx/s (log scale). */
+export function walletBeamSize(tps: number | null): number {
+  if (tps == null || !(tps > 0)) return 0.7
+  return Math.min(2, 0.7 + (1.3 * Math.log1p(tps)) / Math.log1p(60))
 }
 
 const FLASH_S = 1.4
@@ -113,13 +123,18 @@ function Bulges({
   event,
   cap,
   seats,
+  tps,
 }: {
   curves: Map<string, THREE.Curve<THREE.Vector3>>
   ingress: THREE.Curve<THREE.Vector3> | null
   event: PollEvent | null
   cap: number
   seats: Record<string, SeatView>
+  /** Live tx/s (60s window); sizes the wallet → hub beam. */
+  tps: number | null
 }) {
+  const tpsRef = useRef(tps)
+  tpsRef.current = tps
   const mesh = useRef<THREE.InstancedMesh>(null)
   const live = useRef<Bulge[]>([])
   const clock = useThree((st) => st.clock)
@@ -135,8 +150,9 @@ function Bulges({
     const push = (curve: THREE.Curve<THREE.Vector3>, n: number, delay: number, spread: number, size: number) => {
       for (let i = 0; i < n && list.length < cap; i++) list.push({ curve, start: now + delay + (i / Math.max(1, n)) * spread, size })
     }
-    // Txs enter at the loadgen, then the hub gossips them out to every online seat.
-    if (ingress) push(ingress, bulgeCount(event.newTxs, 8), 0, 0.6, 0.9)
+    // Txs enter at wallet services and beam into the hub (count = 1 per 10 new txs,
+    // size grows with the live tx rate), then the hub gossips them out to every online seat.
+    if (ingress) push(ingress, bulgeCount(event.newTxs, 10), 0, 0.6, walletBeamSize(tpsRef.current))
     const online = [...curves.keys()].filter((id) => seatsRef.current[id]?.online && !seatsRef.current[id]?.jailed)
     const per = online.length ? event.newTxs / online.length : 0
     for (const id of online) push(curves.get(id)!, bulgeCount(per, 4), 0.35, 0.9, 0.8)
@@ -656,50 +672,72 @@ function ValidatorUnit({ id, pos, yaw, view, host, anim, selected, onSelect }: {
   )
 }
 
-/** Loadgen / ingress: a funnel beside its seat, pulsing when new txs are sealed. */
-function LoadgenNode({ pos, label, event }: { pos: Vec3; label: string; event: PollEvent | null }) {
-  const rings = useRef<(THREE.Mesh | null)[]>([])
-  const mats = useRef<(THREE.MeshBasicMaterial | null)[]>([])
+/**
+ * Wallet services: a small 3D wallet (body, flap, clasp, card) floating above
+ * the hub. Txs enter the network here and beam down into the hub.
+ */
+function WalletServices({ pos, label, sub, activated, event }: { pos: Vec3; label: string; sub: string; activated: number | null; event: PollEvent | null }) {
+  const g = useRef<THREE.Group>(null)
+  const clasp = useRef<THREE.MeshBasicMaterial>(null)
+  const ringRef = useRef<THREE.Mesh>(null)
+  const ringMat = useRef<THREE.MeshBasicMaterial>(null)
   const clock = useThree((st) => st.clock)
   const pulseAt = useRef(-10)
+  const goldC = useMemo(() => new THREE.Color(COLORS.gold).multiplyScalar(1.4), [])
+  const hotC = useMemo(() => new THREE.Color(COLORS.goldHot).multiplyScalar(2.6), [])
   useEffect(() => {
     if (event && event.newTxs > 0) pulseAt.current = clock.elapsedTime
   }, [event, clock])
   useFrame((st) => {
-    const age = st.clock.elapsedTime - pulseAt.current
-    for (let i = 0; i < 2; i++) {
-      const u = Math.max(0, Math.min(1, (age - i * 0.15) / 0.9))
-      const r = rings.current[i]
-      const m = mats.current[i]
-      if (!r || !m) continue
-      r.scale.setScalar(1 + u * 1.4)
-      m.opacity = u < 1 ? (1 - u) * 0.8 : 0
+    const now = st.clock.elapsedTime
+    const k = Math.max(0, 1 - (now - pulseAt.current) / 0.9)
+    if (g.current) {
+      g.current.position.y = pos[1] + Math.sin(now * 0.9) * 0.06
+      g.current.rotation.y = Math.sin(now * 0.35) * 0.35
+    }
+    if (clasp.current) clasp.current.color.copy(goldC).lerp(hotC, k)
+    if (ringRef.current && ringMat.current) {
+      const u = 1 - k
+      ringRef.current.scale.setScalar(1 + u * 1.2)
+      ringMat.current.opacity = k * 0.7
     }
   })
   return (
-    <group position={pos}>
-      <mesh position={[0, -0.3, 0]}>
-        <cylinderGeometry args={[0.42, 0.48, 0.12, 32]} />
-        <meshPhysicalMaterial color={COLORS.steel} metalness={0.7} roughness={0.35} clearcoat={0.5} />
-      </mesh>
-      <mesh position={[0, 0.02, 0]}>
-        <cylinderGeometry args={[0.34, 0.1, 0.5, 32, 1, true]} />
-        <meshPhysicalMaterial color={COLORS.panel} emissive={COLORS.gold} emissiveIntensity={0.3} metalness={0.7} roughness={0.3} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh position={[0, 0.27, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.34, 0.016, 8, 48]} />
-        <meshBasicMaterial color={new THREE.Color(COLORS.gold).multiplyScalar(1.6)} toneMapped={false} />
-      </mesh>
-      {[0, 1].map((i) => (
-        <mesh key={i} ref={(m) => { rings.current[i] = m }} position={[0, 0.27, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.34, 0.01, 6, 48]} />
-          <meshBasicMaterial ref={(m) => { mats.current[i] = m }} color={new THREE.Color(COLORS.gold).multiplyScalar(2)} transparent opacity={0} depthWrite={false} toneMapped={false} />
+    <group>
+      <group ref={g} position={pos} scale={1.35}>
+        {/* body */}
+        <RoundedBox args={[1.25, 0.82, 0.26]} radius={0.09} smoothness={4} raycast={noRay}>
+          <meshPhysicalMaterial color="#7A4822" metalness={0.2} roughness={0.5} emissive="#3A1E0A" emissiveIntensity={0.35} clearcoat={0.6} clearcoatRoughness={0.35} sheen={0.4} sheenColor="#C07838" />
+        </RoundedBox>
+        {/* card peeking out of the top */}
+        <mesh position={[-0.12, 0.42, -0.02]} rotation={[0, 0, 0.06]} raycast={noRay}>
+          <boxGeometry args={[0.78, 0.22, 0.03]} />
+          <meshPhysicalMaterial color="#E0DBCA" metalness={0.3} roughness={0.3} clearcoat={1} />
         </mesh>
-      ))}
-      <Html position={[0, 0.95, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
-        <div className="netmap-plate netmap-plate-ingress">
-          <div className="netmap-plate-kicker">INGRESS · LOADGEN</div>
-          <div className="netmap-label-sub">{label}</div>
+        <mesh position={[-0.12, 0.47, -0.003]} rotation={[0, 0, 0.06]} raycast={noRay}>
+          <boxGeometry args={[0.7, 0.03, 0.005]} />
+          <meshBasicMaterial color={COLORS.copper} />
+        </mesh>
+        {/* flap */}
+        <RoundedBox args={[0.5, 0.36, 0.08]} radius={0.05} smoothness={3} position={[0.42, 0.02, 0.15]} raycast={noRay}>
+          <meshPhysicalMaterial color="#734522" metalness={0.15} roughness={0.5} clearcoat={0.7} />
+        </RoundedBox>
+        {/* clasp: glows when txs enter */}
+        <mesh position={[0.5, 0.02, 0.2]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
+          <cylinderGeometry args={[0.06, 0.06, 0.03, 24]} />
+          <meshBasicMaterial ref={clasp} toneMapped={false} />
+        </mesh>
+      </group>
+      {/* emitter ring under the wallet, pulsing on each new batch of txs */}
+      <mesh ref={ringRef} position={[pos[0], pos[1] - 0.65, pos[2]]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
+        <torusGeometry args={[0.32, 0.012, 6, 48]} />
+        <meshBasicMaterial ref={ringMat} color={hotC} transparent opacity={0} depthWrite={false} toneMapped={false} />
+      </mesh>
+      <Html position={[pos[0] + 1.25, pos[1] + 0.1, pos[2]]} zIndexRange={[20, 0]} style={{ pointerEvents: 'none', transform: 'translate(0, -50%)' }}>
+        <div className="netmap-plate netmap-plate-wallet">
+          <div className="netmap-plate-kicker">{label.toUpperCase()}</div>
+          <div className="netmap-label-name">{activated == null ? '—' : activated.toLocaleString('en-US')} activated wallets</div>
+          <div className="netmap-label-sub">{sub}</div>
         </div>
       </Html>
     </group>
@@ -727,7 +765,6 @@ function Platform({ center, width, yaw, label, confirmed }: { center: Vec3; widt
       <Html position={[0, -0.12, 1.0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
         <div className="netmap-loc">
           {label}
-          {!confirmed && <span className="netmap-todo">TODO confirm</span>}
         </div>
       </Html>
     </group>
@@ -806,7 +843,7 @@ function AnimDriver({ event, anim, layout }: { event: PollEvent | null; anim: An
 
 // ── Scene ──────────────────────────────────────────────────────────────────
 
-export default function NetworkScene({ layout, seats, event, maxBulges, selected, onSelect, fpsRef, watchers, consensus }: SceneProps) {
+export default function NetworkScene({ layout, seats, event, maxBulges, selected, onSelect, fpsRef, watchers, consensus, walletCount, tps }: SceneProps) {
   const anim = useRef<Anim>({ flash: new Map(), hubFlash: -10, voter: new Map(), packer: new Map() }).current
   const [fx, setFx] = useState(true)
   const [dpr, setDpr] = useState(1.5)
@@ -815,17 +852,12 @@ export default function NetworkScene({ layout, seats, event, maxBulges, selected
     for (const s of layout.seats) m.set(s.id, pipeCurve(layout.hub.pos, s.pos))
     return m
   }, [layout])
-  const ingressCurve = useMemo(() => {
-    if (!layout.ingress) return null
-    const seat = layout.seats.find((s) => s.id === layout.ingress!.seat)
-    if (!seat) return null
-    // Short straight feed from the funnel rim into the seat's side; nothing sits between them.
-    const a = v3(layout.ingress.pos).add(new THREE.Vector3(0, 0.27, 0))
-    const b = v3(seat.pos)
-    const dir = b.clone().sub(a).setY(0).normalize()
-    const end = b.clone().sub(dir.clone().multiplyScalar(0.4)).setY(seat.pos[1] + 0.05)
-    const start = a.clone().add(dir.clone().multiplyScalar(0.3))
-    return new THREE.CatmullRomCurve3([start, start.clone().lerp(end, 0.5).add(new THREE.Vector3(0, 0.12, 0)), end])
+  const walletCurve = useMemo(() => {
+    if (!layout.wallet) return null
+    // Straight down the hub axis: wallet underside → through the watcher ring's empty centre → top of the hub core.
+    const w = layout.wallet.pos
+    const h = layout.hub.pos
+    return new THREE.LineCurve3(new THREE.Vector3(w[0], w[1] - 0.62, w[2]), new THREE.Vector3(h[0], h[1] + HUB_CORE_TOP_DY, h[2]))
   }, [layout])
 
   const hubView = seats[layout.hub.id] ?? { online: false, jailed: false, lag: null }
@@ -865,12 +897,12 @@ export default function NetworkScene({ layout, seats, event, maxBulges, selected
         const v = seats[s.id]
         return <Pipe key={`p-${s.id}`} curve={curves.get(s.id)!} active={Boolean(v?.online && !v.jailed)} />
       })}
-      {ingressCurve && <Pipe curve={ingressCurve} active radius={0.035} />}
-      {layout.ingress && <LoadgenNode pos={layout.ingress.pos} label={layout.ingress.label} event={event} />}
+      {walletCurve && <Pipe curve={walletCurve} active radius={0.03} />}
+      {layout.wallet && <WalletServices pos={layout.wallet.pos} label={layout.wallet.label} sub={layout.wallet.sub} activated={walletCount ?? null} event={event} />}
       {watchers && (
         <WatcherRing center={layout.hub.pos} epoch={watchers.epoch} live={watchers.live} cap={watchers.cap} event={watchers.event} />
       )}
-      <Bulges curves={curves} ingress={ingressCurve} event={event} cap={maxBulges} seats={seats} />
+      <Bulges curves={curves} ingress={walletCurve} event={event} cap={maxBulges} seats={seats} tps={tps ?? null} />
       {consensus && <ConsensusCycle layout={layout} curves={curves} view={consensus} event={event} anim={anim} />}
       <HubTower id={layout.hub.id} pos={layout.hub.pos} view={hubView} host={layout.hub.host} anim={anim} selected={selected === layout.hub.id} onSelect={onSelect} />
       {layout.seats.map((s) => (

@@ -58,6 +58,7 @@ export function previousSampleFromCounters(
     fee_multiplier: 1,
     watchers_live: null,
     watchers_epoch: null,
+    wallets_activated: null,
     seats,
   }
 }

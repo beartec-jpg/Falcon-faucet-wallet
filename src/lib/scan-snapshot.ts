@@ -141,6 +141,7 @@ export async function buildScanSnapshot(): Promise<ScanData> {
     },
     lottery_winner: str(st.lottery_winner_next),
     ...consensusFromStatus(st),
+    ...walletsFromStatus(st),
     ...(watchers ? { watchers } : {}),
     rails,
     metrics: {
@@ -170,4 +171,23 @@ export function consensusFromStatus(st: Record<string, unknown>): { committee?: 
       view_round: num(st.height_view_round),
     },
   }
+}
+
+/**
+ * Activated wallets: the node's count of accounts on the ledger (an account
+ * only exists once it has been funded/activated). Comes in the same brief
+ * status_req as everything else, so it is cached with the snapshot.
+ */
+let lastWallets: { n: number; at: number } | null = null
+const WALLETS_KEEP_MS = 5 * 60_000
+
+export function walletsFromStatus(
+  st: Record<string, unknown>,
+  now = Date.now(),
+): { wallets?: { activated: number; source: 'status.accounts_count' } } {
+  const n = num(st.accounts_count, Number.NaN)
+  if (Number.isFinite(n) && n >= 0) lastWallets = { n: Math.round(n), at: now }
+  // A seat that omits the field briefly keeps the last real value (≤ 5 min), never a guess.
+  else if (lastWallets && now - lastWallets.at > WALLETS_KEEP_MS) lastWallets = null
+  return lastWallets ? { wallets: { activated: lastWallets.n, source: 'status.accounts_count' } } : {}
 }

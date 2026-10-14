@@ -31,7 +31,8 @@ export interface MapLayout {
   hub: { id: string; host: string; pos: Vec3 }
   seats: PlacedSeat[]
   groups: PlacedGroup[]
-  ingress: { seat: string; label: string; pos: Vec3 } | null
+  /** Wallet services node, straight above the hub on its axis. */
+  wallet: { label: string; sub: string; pos: Vec3 } | null
 }
 
 const HUB_Y = 5.2
@@ -41,8 +42,14 @@ const SEAT_GAP = 2.4
 /** Hub plinth rim radius: pipes leave from here, not through the tower. */
 export const HUB_RIM = 0.95
 export const HUB_BASE_DY = -1.75
-/** Gap between the loadgen and the side of its ingress seat. */
-const INGRESS_GAP = 2.2
+/**
+ * Wallet services sits on the hub's vertical axis, above the watcher ring
+ * (ring: hub + 1.45, r 3.6). Its beam drops straight down the axis through the
+ * ring's empty centre into the top of the hub core, so it crosses nothing.
+ */
+export const WALLET_DY = 3.9
+/** Beam ends at the top of the hub core (core radius 0.5). */
+export const HUB_CORE_TOP_DY = 0.6
 
 /**
  * @param statusSeats seats present in the live status (any order). Seats not in
@@ -86,14 +93,6 @@ export function layoutMap(
     const tz = -Math.sin(theta)
     const n = counts[gi]
     const flat = g.hosts.flatMap((h) => h.seats.map((s) => ({ s, h })))
-    // The ingress seat goes to the group's outer end, so the loadgen can sit
-    // beside it on open ground instead of under a neighbour's pipe.
-    const ingIdx = cfg.ingress ? flat.findIndex((f) => f.s === cfg.ingress!.seat) : -1
-    if (ingIdx >= 0) {
-      const [it] = flat.splice(ingIdx, 1)
-      if (theta <= 0) flat.unshift(it)
-      else flat.push(it)
-    }
     flat.forEach(({ s, h }, i) => {
       const off = (i - (n - 1) / 2) * SEAT_GAP
       seats.push({
@@ -117,21 +116,11 @@ export function layoutMap(
     })
   })
 
-  const ing = cfg.ingress ? seats.find((s) => s.id === cfg.ingress!.seat) : null
-  let ingPos: Vec3 | null = null
-  if (ing) {
-    // Outward along the arc tangent (away from the group), same height as the seat.
-    const g = placedGroups.find((pg) => pg.id === ing.locationId)!
-    const dir = g.yaw <= 0 ? -1 : 1
-    const tx = Math.cos(g.yaw) * dir
-    const tz = -Math.sin(g.yaw) * dir
-    ingPos = [ing.pos[0] + tx * INGRESS_GAP, GROUP_Y, ing.pos[2] + tz * INGRESS_GAP]
-  }
   return {
     hub: { id: cfg.hub.seat, host: cfg.hub.host, pos: [0, HUB_Y, -2.5] },
     seats,
     groups: placedGroups,
-    ingress: ing && cfg.ingress && ingPos ? { seat: ing.id, label: cfg.ingress.label, pos: ingPos } : null,
+    wallet: cfg.wallet ? { label: cfg.wallet.label, sub: cfg.wallet.sub, pos: [0, HUB_Y + WALLET_DY, -2.5] } : null,
   }
 }
 

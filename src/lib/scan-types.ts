@@ -109,6 +109,8 @@ export interface ScanData extends MeshHead {
   lottery_winner: string
   /** Per-height committee / lottery fields from status_req (absent on older nodes). */
   committee?: ConsensusInfo
+  /** Activated wallets = accounts that exist on the ledger (status.accounts_count). */
+  wallets?: { activated: number; source: 'status.accounts_count' }
   watchers?: WatcherSummary
   rails: RailRow[]
   metrics: {
