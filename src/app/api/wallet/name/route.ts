@@ -26,7 +26,7 @@ export const dynamic = 'force-dynamic'
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const WALLET_API = walletApiUrl()
 
-function useLocalStore() {
+function shouldUseLocalStore() {
   return existsSync(
     process.env.FALCON_PL_NAME_STORE?.trim() ||
       `${process.env.HOME || ''}/falcon-pl-public-testnet-2300/run`,
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
 
   if (cfg.networkId === 2300 && nameQ) {
     try {
-      const view = useLocalStore()
+      const view = shouldUseLocalStore()
         ? viewName(nameQ)
         : ((await remoteName('name-status', { name: nameQ })) as ReturnType<typeof viewName>)
       let onChainTaken = false
@@ -269,7 +269,7 @@ export async function POST(req: NextRequest) {
     ? String(body.credentialId).slice(0, 64)
     : undefined
   try {
-    if (useLocalStore()) {
+    if (shouldUseLocalStore()) {
       if (action === 'activate') {
         const rec = activateName(name, publicKey)
         return NextResponse.json({ ok: true, ...rec })

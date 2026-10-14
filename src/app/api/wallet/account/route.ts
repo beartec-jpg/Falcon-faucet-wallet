@@ -173,7 +173,6 @@ export async function GET(req: NextRequest) {
     const balance:  number = parseInt(infoR.account_data!.Balance, 10) / 1_000_000
     const sequence: number = infoR.account_data!.Sequence
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rawTxs: TxRecord[] = ((txR?.transactions ?? []) as any[])
       .map(t => {
         const tx = (t.tx ?? t.tx_json ?? {}) as Record<string, unknown>

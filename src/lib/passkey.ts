@@ -98,7 +98,6 @@ export async function registerPasskey(label: string): Promise<PasskeyRegistratio
       timeout:     60_000,
       attestation: 'none',
       extensions: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ...(({ prf: { eval: { first: PRF_INPUT } } }) as any),
       },
     },
@@ -110,7 +109,6 @@ export async function registerPasskey(label: string): Promise<PasskeyRegistratio
   const credentialId = toBase64Url(rawIdBytes)
 
   // Try to extract PRF output from extension results
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ext    = (cred.getClientExtensionResults() as any)
   const prfOut = ext?.prf?.results?.first as ArrayBuffer | undefined
   const hasPrf = prfOut instanceof ArrayBuffer && prfOut.byteLength >= 32
@@ -159,7 +157,6 @@ export async function authenticatePasskey(
   const rawIdBytes = new Uint8Array(cred.rawId)
 
   if (hasPrf) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ext    = (cred.getClientExtensionResults() as any)
     const prfOut = ext?.prf?.results?.first as ArrayBuffer | undefined
     if (prfOut instanceof ArrayBuffer && prfOut.byteLength >= 32) {
