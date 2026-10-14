@@ -25,8 +25,13 @@ export default function MethodologyPage() {
         <Link href="/scan" className="text-xs text-slate-500 hover:text-slate-300">← Explorer</Link>
         <h1 className="text-2xl font-semibold" style={{ color: '#E0DBCA' }}>Testnet activity: how it&apos;s counted</h1>
         <p>
-          The testnet activity leaderboard measures how accounts use Falcon PL testnet 2300. It is a measurement of testnet
-          activity only. It does not promise or imply any reward.
+          The testnet activity leaderboard measures how accounts use Falcon PL testnet 2300.
+        </p>
+        <p className="text-slate-400">
+          Under the proposed model, a frozen snapshot of these scores may be used for a pre-mainnet airdrop from the community
+          bucket, with validators in a separate operators pool. Nothing is promised and every rule is subject to change. See the{' '}
+          <Link href="/airdrop" className="hover:underline" style={{ color: '#D4922A' }}>community allocation</Link> page. The{' '}
+          <Link href="/first-35" className="hover:underline" style={{ color: '#D4922A' }}>First 35</Link> prize seats are a separate programme.
         </p>
         <section className="rounded-xl border border-slate-800 p-4" style={{ background: '#0F172A' }}>
           <h2 className="text-[11px] font-semibold uppercase tracking-widest mb-3" style={{ color: '#D4922A' }}>Categories (100 points)</h2>
