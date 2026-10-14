@@ -1,29 +1,42 @@
 'use client'
 
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
-import { Html, OrbitControls } from '@react-three/drei'
+import { Environment, Html, Lightformer, OrbitControls, PerformanceMonitor } from '@react-three/drei'
+import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import type { MapLayout, Vec3 } from '@/lib/netmap-layout'
-import { bulgeCount, ringFill } from '@/lib/netmap-layout'
+import { bulgeCount, HUB_BASE_DY, pipePoints, railRoute, ringFill } from '@/lib/netmap-layout'
+import { phaseAt, type Round } from '@/lib/netmap-consensus'
 import type { PollEvent } from '@/hooks/useNetworkFeed'
 import WatcherRing, { type WatcherRingEvent } from '@/components/netmap/WatcherRing'
 
 export const COLORS = {
   copper: '#C07838',
   gold: '#D4922A',
+  goldHot: '#FFC060',
   bg: '#020617',
   panel: '#0F172A',
+  steel: '#1E293B',
   cream: '#E0DBCA',
   green: '#22C55E',
+  greenHot: '#4ADE80',
+  idle: '#2F4A3E',
   grey: '#475569',
-  red: '#7F1D1D',
 }
 
 export interface SeatView {
   online: boolean
   jailed: boolean
   lag: number | null
+}
+
+export interface ConsensusView {
+  round: Round | null
+  /** Expected block interval, ms (EWMA of observed heights). */
+  intervalMs: number
+  /** Element the scene writes the current phase into (no React render per frame). */
+  phaseRef?: React.MutableRefObject<HTMLSpanElement | null>
 }
 
 export interface SceneProps {
@@ -35,42 +48,58 @@ export interface SceneProps {
   onSelect: (id: string) => void
   fpsRef?: React.MutableRefObject<HTMLSpanElement | null>
   watchers?: { epoch: string[]; live: string[]; cap: number; event: WatcherRingEvent | null }
+  consensus?: ConsensusView
 }
 
 const FLASH_S = 1.4
-const BULGE_S = 1.1
+const BULGE_S = 1.25
+const SEAL_S = 0.85
+const VOTE_FLY_S = 1.3
 
 /** Shared, mutable animation state read inside useFrame (no React renders per frame). */
 interface Anim {
   flash: Map<string, { t: number; fill: number }>
   hubFlash: number
+  /** 0..1 eased role intensity per seat, written by ConsensusCycle. */
+  voter: Map<string, number>
+  packer: Map<string, number>
 }
 
-function curveFor(a: Vec3, b: Vec3): THREE.QuadraticBezierCurve3 {
-  const va = new THREE.Vector3(...a)
-  const vb = new THREE.Vector3(...b)
-  const ctrl = new THREE.Vector3(vb.x * 0.55, (va.y + vb.y) * 0.5 + 0.6, (va.z + vb.z) * 0.5 + 0.8)
-  return new THREE.QuadraticBezierCurve3(va, ctrl, vb)
+const ease = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x))
+const v3 = (p: Vec3) => new THREE.Vector3(...p)
+
+function pipeCurve(hub: Vec3, seat: Vec3): THREE.QuadraticBezierCurve3 {
+  const [a, c, b] = pipePoints(hub, seat)
+  return new THREE.QuadraticBezierCurve3(v3(a), v3(c), v3(b))
 }
 
 // ── Pipes ──────────────────────────────────────────────────────────────────
 
-const Pipe = memo(function Pipe({ curve, active }: { curve: THREE.Curve<THREE.Vector3>; active: boolean }) {
-  const geo = useMemo(() => new THREE.TubeGeometry(curve, 48, 0.045, 6, false), [curve])
-  useEffect(() => () => geo.dispose(), [geo])
+const Pipe = memo(function Pipe({ curve, active, radius = 0.04 }: { curve: THREE.Curve<THREE.Vector3>; active: boolean; radius?: number }) {
+  const geo = useMemo(() => new THREE.TubeGeometry(curve, 64, radius, 8, false), [curve, radius])
+  const core = useMemo(() => new THREE.TubeGeometry(curve, 64, radius * 0.35, 6, false), [curve, radius])
+  useEffect(() => () => { geo.dispose(); core.dispose() }, [geo, core])
   return (
-    <mesh geometry={geo}>
-      <meshBasicMaterial
-        color={active ? COLORS.copper : COLORS.grey}
-        transparent
-        opacity={active ? 0.55 : 0.18}
-        depthWrite={false}
-      />
-    </mesh>
+    <group>
+      <mesh geometry={geo} raycast={noRay}>
+        <meshPhysicalMaterial
+          color={active ? COLORS.copper : COLORS.grey}
+          metalness={0.2}
+          roughness={0.15}
+          transmission={0}
+          transparent
+          opacity={active ? 0.28 : 0.1}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh geometry={core} raycast={noRay}>
+        <meshBasicMaterial color={active ? COLORS.copper : COLORS.grey} transparent opacity={active ? 0.7 : 0.2} depthWrite={false} />
+      </mesh>
+    </group>
   )
 })
 
-// ── Bulges (transactions) ──────────────────────────────────────────────────
+// ── Bulges (tx beams) ──────────────────────────────────────────────────────
 
 interface Bulge {
   curve: THREE.Curve<THREE.Vector3>
@@ -83,38 +112,34 @@ function Bulges({
   ingress,
   event,
   cap,
+  seats,
 }: {
   curves: Map<string, THREE.Curve<THREE.Vector3>>
   ingress: THREE.Curve<THREE.Vector3> | null
   event: PollEvent | null
   cap: number
+  seats: Record<string, SeatView>
 }) {
   const mesh = useRef<THREE.InstancedMesh>(null)
   const live = useRef<Bulge[]>([])
   const clock = useThree((st) => st.clock)
   const dummy = useMemo(() => new THREE.Object3D(), [])
   const tmp = useMemo(() => new THREE.Vector3(), [])
+  const seatsRef = useRef(seats)
+  seatsRef.current = seats
 
   useEffect(() => {
-    if (!event) return
+    if (!event || event.newTxs <= 0) return
     const now = clock.elapsedTime
     const list = live.current
-    const push = (curve: THREE.Curve<THREE.Vector3>, n: number, spread: number, size: number) => {
-      for (let i = 0; i < n && list.length < cap; i++) {
-        list.push({ curve, start: now + (i / Math.max(1, n)) * spread, size })
-      }
+    const push = (curve: THREE.Curve<THREE.Vector3>, n: number, delay: number, spread: number, size: number) => {
+      for (let i = 0; i < n && list.length < cap; i++) list.push({ curve, start: now + delay + (i / Math.max(1, n)) * spread, size })
     }
-    // Ingress: everything sealed since the last poll entered via the loadgen box.
-    if (ingress) push(ingress, bulgeCount(event.newTxs, 16), 0.8, 1)
-    // Down the pipe of each block's packer, sized by that block's txs.
-    const per = event.blocks.length ? event.newTxs / event.blocks.length : 0
-    event.blocks.forEach((b, i) => {
-      const c = b.packer ? curves.get(b.packer) : undefined
-      if (!c) return
-      const txs = b.txs ?? per
-      push(c, bulgeCount(txs, 10), 0.6, 1 + Math.min(1, txs / 150))
-      void i
-    })
+    // Txs enter at the loadgen, then the hub gossips them out to every online seat.
+    if (ingress) push(ingress, bulgeCount(event.newTxs, 8), 0, 0.6, 0.9)
+    const online = [...curves.keys()].filter((id) => seatsRef.current[id]?.online && !seatsRef.current[id]?.jailed)
+    const per = online.length ? event.newTxs / online.length : 0
+    for (const id of online) push(curves.get(id)!, bulgeCount(per, 4), 0.35, 0.9, 0.8)
   }, [event, curves, ingress, cap, clock])
 
   useFrame((st) => {
@@ -128,12 +153,11 @@ function Bulges({
       const u = (now - b.start) / BULGE_S
       if (u > 1) continue
       list[w++] = b
-      if (u < 0) {
-        dummy.scale.setScalar(0)
-      } else {
-        b.curve.getPointAt(u, tmp)
+      if (u < 0) dummy.scale.setScalar(0)
+      else {
+        b.curve.getPointAt(ease(u), tmp)
         dummy.position.copy(tmp)
-        dummy.scale.setScalar(0.09 * b.size * (0.7 + 0.6 * Math.sin(Math.PI * u)))
+        dummy.scale.setScalar(0.075 * b.size * (0.6 + 0.5 * Math.sin(Math.PI * u)))
       }
       dummy.updateMatrix()
       m.setMatrixAt(w - 1, dummy.matrix)
@@ -144,10 +168,230 @@ function Bulges({
   })
 
   return (
-    <instancedMesh ref={mesh} args={[undefined, undefined, cap]} frustumCulled={false}>
-      <sphereGeometry args={[1, 10, 8]} />
-      <meshBasicMaterial color={COLORS.gold} toneMapped={false} />
+    <instancedMesh ref={mesh} args={[undefined, undefined, cap]} frustumCulled={false} raycast={noRay}>
+      <sphereGeometry args={[1, 12, 10]} />
+      <meshBasicMaterial color={new THREE.Color(COLORS.gold).multiplyScalar(2.2)} toneMapped={false} />
     </instancedMesh>
+  )
+}
+
+// ── Consensus cycle ────────────────────────────────────────────────────────
+
+const TRAIL = 9
+const MAX_PULSES = 12
+
+interface Pulse {
+  curve: THREE.Curve<THREE.Vector3>
+  start: number
+  dur: number
+  kind: 'vote' | 'seal'
+}
+
+/**
+ * Drives the per-round story:
+ *  beam  – txs flow hub → seats (Bulges, on each real block)
+ *  vote  – this round's committee lights green, its packer gold
+ *  pulse – each voter fires a travelling glow along the rail to the packer
+ *  seal  – when the real next block lands, the packer sends a sealed package
+ *          up its pipe to the hub, then the next round starts.
+ * Membership comes from the node when exposed; timing is estimated from the
+ * observed block cadence (the node does not publish per-vote times).
+ */
+function ConsensusCycle({
+  layout,
+  curves,
+  view,
+  event,
+  anim,
+}: {
+  layout: MapLayout
+  curves: Map<string, THREE.Curve<THREE.Vector3>>
+  view: ConsensusView
+  event: PollEvent | null
+  anim: Anim
+}) {
+  const clock = useThree((st) => st.clock)
+  const mesh = useRef<THREE.InstancedMesh>(null)
+  const dummy = useMemo(() => new THREE.Object3D(), [])
+  const tmp = useMemo(() => new THREE.Vector3(), [])
+  const col = useMemo(() => ({ vote: new THREE.Color(COLORS.greenHot).multiplyScalar(2.4), seal: new THREE.Color(COLORS.goldHot).multiplyScalar(3) }), [])
+  const pos = useMemo(() => {
+    const m = new Map<string, Vec3>()
+    for (const s of layout.seats) m.set(s.id, s.pos)
+    return m
+  }, [layout])
+  const st = useRef({ round: null as Round | null, start: 0, fired: false, pulses: [] as Pulse[] })
+  const viewRef = useRef(view)
+  viewRef.current = view
+
+  const routeCache = useRef(new Map<string, THREE.Curve<THREE.Vector3>>())
+  useEffect(() => routeCache.current.clear(), [layout])
+  const route = (from: string, to: string): THREE.Curve<THREE.Vector3> | null => {
+    const key = `${from}>${to}`
+    const hit = routeCache.current.get(key)
+    if (hit) return hit
+    let c: THREE.Curve<THREE.Vector3> | null = null
+    if (to === layout.hub.id) {
+      // Packer is the hub itself: the vote climbs the voter's own pipe.
+      const p = curves.get(from)
+      if (p) c = new ReversedCurve(p)
+    } else if (from === layout.hub.id) {
+      const p = curves.get(to)
+      if (p) c = p
+    } else {
+      const a = pos.get(from)
+      const b = pos.get(to)
+      if (a && b) c = new THREE.CatmullRomCurve3(railRoute(a, b).map(v3), false, 'centripetal', 0.5)
+    }
+    if (c) routeCache.current.set(key, c)
+    return c
+  }
+
+  const fireVotes = (r: Round, now: number, dur: number) => {
+    r.voters.forEach((v, i) => {
+      if (v === r.packer) return
+      const c = route(v, r.packer)
+      if (c && st.current.pulses.length < MAX_PULSES) st.current.pulses.push({ curve: c, start: now + i * 0.06, dur, kind: 'vote' })
+    })
+  }
+
+  // A real new block: finish the old round's votes fast if they had not flown, then seal.
+  useEffect(() => {
+    if (!event) return
+    const s = st.current
+    const now = clock.elapsedTime
+    const prev = s.round
+    let sealAt = now
+    if (prev && !s.fired) {
+      fireVotes(prev, now, 0.45)
+      s.fired = true
+      sealAt = now + 0.45
+    }
+    const tip = event.blocks[event.blocks.length - 1]
+    const packer = tip?.packer ?? prev?.packer ?? null
+    if (packer && packer !== layout.hub.id) {
+      const p = curves.get(packer)
+      if (p) s.pulses.push({ curve: new ReversedCurve(p), start: sealAt, dur: SEAL_S, kind: 'seal' })
+    }
+    anim.hubFlash = sealAt + (packer === layout.hub.id ? 0 : SEAL_S)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event])
+
+  // New round (from the poll that produced the new height): restart the cycle after the seal.
+  const roundKey = view.round ? `${view.round.height}|${view.round.packer}|${view.round.voters.join(',')}` : ''
+  useEffect(() => {
+    const s = st.current
+    const r = viewRef.current.round
+    if (!r) return
+    const now = clock.elapsedTime
+    const changedHeight = !s.round || s.round.height !== r.height
+    s.round = r
+    if (changedHeight) {
+      s.start = now + SEAL_S
+      s.fired = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundKey])
+
+  useFrame((frame, dt) => {
+    const s = st.current
+    const now = frame.clock.elapsedTime
+    const r = s.round
+    const T = Math.max(1.2, (viewRef.current.intervalMs || 3000) / 1000 - SEAL_S)
+    const t = now - s.start
+    const ph = r && t >= 0 ? phaseAt(t, T) : { phase: 'seal' as const, u: 0 }
+    if (r && !s.fired && ph.phase === 'pulse') {
+      fireVotes(r, now, Math.min(VOTE_FLY_S, T * 0.42))
+      s.fired = true
+    }
+    // Roles: voters fade in during 'vote', stay lit through 'pulse'; dim in 'beam'/'seal'.
+    const target = ph.phase === 'vote' ? ease(ph.u * 3) : ph.phase === 'pulse' ? 1 : ph.phase === 'beam' ? ease(ph.u) * 0.35 : 0.15
+    const voters = new Set(r?.voters ?? [])
+    const k = 1 - Math.exp(-dt * 8)
+    const ids = [layout.hub.id, ...layout.seats.map((x) => x.id)]
+    for (const id of ids) {
+      const vt = voters.has(id) ? target : 0
+      const pt = r && id === r.packer ? Math.max(0.35, target) : 0
+      anim.voter.set(id, (anim.voter.get(id) ?? 0) + (vt - (anim.voter.get(id) ?? 0)) * k)
+      anim.packer.set(id, (anim.packer.get(id) ?? 0) + (pt - (anim.packer.get(id) ?? 0)) * k)
+    }
+    const el = viewRef.current.phaseRef?.current
+    if (el) {
+      const label = !r ? 'waiting' : t < 0 ? 'seal' : ph.phase
+      if (el.dataset.p !== label) {
+        el.dataset.p = label
+        el.textContent = label
+      }
+    }
+
+    const m = mesh.current
+    if (!m) return
+    let w = 0
+    let n = 0
+    const list = s.pulses
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i]
+      const u = (now - p.start) / p.dur
+      if (u > 1.15) continue
+      list[w++] = p
+      for (let j = 0; j < TRAIL; j++) {
+        const uu = u - j * 0.03
+        if (uu < 0 || uu > 1) {
+          dummy.scale.setScalar(0)
+        } else {
+          p.curve.getPointAt(ease(uu), tmp)
+          dummy.position.copy(tmp)
+          const head = p.kind === 'seal' ? 0.22 : 0.14
+          dummy.scale.setScalar(head * (1 - j / TRAIL) * (j === 0 ? 1 : 0.8))
+        }
+        dummy.updateMatrix()
+        m.setMatrixAt(n, dummy.matrix)
+        m.setColorAt(n, p.kind === 'seal' ? col.seal : col.vote)
+        n++
+      }
+      // Arrival: tag the target so the unit can flash.
+      if (u >= 1 && p.kind === 'seal') anim.hubFlash = Math.max(anim.hubFlash, p.start + p.dur)
+    }
+    list.length = w
+    m.count = n
+    m.instanceMatrix.needsUpdate = true
+    if (m.instanceColor) m.instanceColor.needsUpdate = true
+  })
+
+  return (
+    <instancedMesh ref={mesh} args={[undefined, undefined, MAX_PULSES * TRAIL]} frustumCulled={false} raycast={noRay}>
+      <sphereGeometry args={[1, 12, 10]} />
+      <meshBasicMaterial toneMapped={false} transparent opacity={0.95} depthWrite={false} blending={THREE.AdditiveBlending} />
+    </instancedMesh>
+  )
+}
+
+class ReversedCurve extends THREE.Curve<THREE.Vector3> {
+  constructor(private readonly c: THREE.Curve<THREE.Vector3>) {
+    super()
+  }
+  getPoint(t: number, target = new THREE.Vector3()) {
+    return this.c.getPoint(1 - t, target)
+  }
+  getPointAt(u: number, target = new THREE.Vector3()) {
+    return this.c.getPointAt(1 - u, target)
+  }
+}
+
+/** Faint ground rail inside the arc that vote pulses run along. */
+function ConsensusRail({ layout }: { layout: MapLayout }) {
+  const geo = useMemo(() => {
+    const sorted = [...layout.seats].sort((a, b) => Math.atan2(a.pos[0], a.pos[2] + 2.5) - Math.atan2(b.pos[0], b.pos[2] + 2.5))
+    if (sorted.length < 2) return null
+    const pts = railRoute(sorted[0].pos, sorted[sorted.length - 1].pos, 48).slice(2, -2).map(v3)
+    return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 160, 0.012, 5, false)
+  }, [layout])
+  useEffect(() => () => geo?.dispose(), [geo])
+  if (!geo) return null
+  return (
+    <mesh geometry={geo} raycast={noRay}>
+      <meshBasicMaterial color={COLORS.green} transparent opacity={0.16} depthWrite={false} />
+    </mesh>
   )
 }
 
@@ -159,7 +403,7 @@ function useFlash(anim: Anim, id: string, isHub: boolean) {
   return (now: number) => {
     const f = isHub ? { t: anim.hubFlash, fill: 0 } : anim.flash.get(id)
     const age = f ? now - f.t : Infinity
-    return { k: age >= 0 && age < FLASH_S ? 1 - age / FLASH_S : 0, f }
+    return { k: age >= 0 && age < FLASH_S ? Math.pow(1 - age / FLASH_S, 1.6) : 0, f }
   }
 }
 
@@ -169,49 +413,41 @@ const hover = {
 }
 const noRay = () => null
 
-/** Hub: a tower with a plinth, column, glowing core and two counter-rotating rings. */
-function HubTower({
-  id,
-  pos,
-  view,
-  host,
-  anim,
-  selected,
-  onSelect,
-}: {
-  id: string
-  pos: Vec3
-  view: SeatView
-  host: string
-  anim: Anim
-  selected: boolean
-  onSelect: (id: string) => void
-}) {
+/** Hub: plinth, column, glowing core and two counter-rotating rings. */
+function HubTower({ id, pos, view, host, anim, selected, onSelect }: { id: string; pos: Vec3; view: SeatView; host: string; anim: Anim; selected: boolean; onSelect: (id: string) => void }) {
   const coreMat = useRef<THREE.MeshStandardMaterial>(null)
   const halo = useRef<THREE.Mesh>(null)
   const haloMat = useRef<THREE.MeshBasicMaterial>(null)
   const ringA = useRef<THREE.Mesh>(null)
   const ringB = useRef<THREE.Mesh>(null)
   const core = useRef<THREE.Mesh>(null)
+  const roleMat = useRef<THREE.MeshBasicMaterial>(null)
   const flash = useFlash(anim, id, true)
   const base = useMemo(() => new THREE.Color(view.online && !view.jailed ? COLORS.copper : COLORS.grey), [view.online, view.jailed])
-  const gold = useMemo(() => new THREE.Color(COLORS.gold), [])
+  const gold = useMemo(() => new THREE.Color(COLORS.goldHot), [])
+  const green = useMemo(() => new THREE.Color(COLORS.greenHot), [])
   const tmp = useMemo(() => new THREE.Color(), [])
   useFrame((st, dt) => {
     const { k } = flash(st.clock.elapsedTime)
-    tmp.copy(base).lerp(gold, k)
+    const pk = anim.packer.get(id) ?? 0
+    const vk = anim.voter.get(id) ?? 0
+    tmp.copy(base).lerp(gold, Math.max(k, pk * 0.8))
     if (coreMat.current) {
       coreMat.current.emissive.copy(tmp)
-      coreMat.current.emissiveIntensity = 0.7 + k * 1.4
+      coreMat.current.emissiveIntensity = 0.9 + k * 2.6 + pk * 1.2
     }
     if (haloMat.current && halo.current) {
       haloMat.current.color.copy(tmp)
-      haloMat.current.opacity = 0.16 + k * 0.3
-      halo.current.scale.setScalar(1.25 + k * 0.4)
+      haloMat.current.opacity = 0.12 + k * 0.35
+      halo.current.scale.setScalar(1.2 + k * 0.5)
     }
-    if (core.current) core.current.rotation.y += dt * 0.5
-    if (ringA.current) ringA.current.rotation.z += dt * (0.35 + k * 2)
-    if (ringB.current) ringB.current.rotation.z -= dt * (0.5 + k * 2)
+    if (roleMat.current) {
+      roleMat.current.color.copy(pk > vk ? gold : green).multiplyScalar(1.6)
+      roleMat.current.opacity = Math.max(pk, vk) * 0.9
+    }
+    if (core.current) core.current.rotation.y += dt * 0.45
+    if (ringA.current) ringA.current.rotation.z += dt * (0.3 + k * 1.6)
+    if (ringB.current) ringB.current.rotation.z -= dt * (0.42 + k * 1.6)
   })
   const click = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
@@ -219,51 +455,54 @@ function HubTower({
   }
   return (
     <group position={pos}>
-      {/* plinth + column */}
-      <mesh position={[0, -1.85, 0]} onClick={click} {...hover}>
-        <cylinderGeometry args={[0.95, 1.1, 0.28, 6]} />
-        <meshStandardMaterial color={COLORS.panel} metalness={0.6} roughness={0.4} emissive={COLORS.copper} emissiveIntensity={0.08} />
+      <mesh position={[0, HUB_BASE_DY - 0.1, 0]} onClick={click} {...hover}>
+        <cylinderGeometry args={[1.0, 1.15, 0.26, 48]} />
+        <meshPhysicalMaterial color={COLORS.panel} metalness={0.75} roughness={0.32} clearcoat={0.6} clearcoatRoughness={0.3} />
       </mesh>
-      <mesh position={[0, -1.69, 0]} raycast={noRay}>
-        <torusGeometry args={[0.98, 0.025, 6, 6]} />
-        <meshBasicMaterial color={COLORS.copper} />
+      <mesh position={[0, HUB_BASE_DY + 0.04, 0]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
+        <torusGeometry args={[0.98, 0.018, 8, 64]} />
+        <meshBasicMaterial color={new THREE.Color(COLORS.copper).multiplyScalar(1.4)} toneMapped={false} />
       </mesh>
-      <mesh position={[0, -1.0, 0]} onClick={click} {...hover}>
-        <cylinderGeometry args={[0.16, 0.3, 1.45, 8]} />
-        <meshStandardMaterial color="#1E293B" metalness={0.7} roughness={0.35} />
+      {/* role ring: green when the hub's seat votes, gold when it packs */}
+      <mesh position={[0, HUB_BASE_DY + 0.06, 0]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
+        <torusGeometry args={[1.12, 0.03, 8, 64]} />
+        <meshBasicMaterial ref={roleMat} transparent opacity={0} depthWrite={false} toneMapped={false} />
       </mesh>
-      {[-1.35, -0.95, -0.55].map((y) => (
-        <mesh key={y} position={[0, y, 0]} raycast={noRay}>
-          <torusGeometry args={[0.24 - (y + 1.35) * 0.08, 0.018, 6, 16]} />
-          <meshBasicMaterial color={COLORS.gold} />
+      <mesh position={[0, -0.95, 0]} onClick={click} {...hover}>
+        <cylinderGeometry args={[0.14, 0.28, 1.4, 24]} />
+        <meshPhysicalMaterial color={COLORS.steel} metalness={0.85} roughness={0.25} clearcoat={0.5} />
+      </mesh>
+      {[-1.3, -0.95, -0.6].map((y) => (
+        <mesh key={y} position={[0, y, 0]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
+          <torusGeometry args={[0.24 - (y + 1.3) * 0.08, 0.012, 6, 32]} />
+          <meshBasicMaterial color={new THREE.Color(COLORS.gold).multiplyScalar(1.3)} toneMapped={false} />
         </mesh>
       ))}
-      {/* core */}
       <mesh ref={core} onClick={click} {...hover}>
         <icosahedronGeometry args={[0.5, 1]} />
-        <meshStandardMaterial ref={coreMat} color={COLORS.copper} metalness={0.5} roughness={0.25} flatShading />
+        <meshStandardMaterial ref={coreMat} color={COLORS.copper} metalness={0.55} roughness={0.22} flatShading toneMapped={false} />
       </mesh>
       <mesh ref={halo} raycast={noRay}>
-        <sphereGeometry args={[0.55, 16, 12]} />
+        <sphereGeometry args={[0.56, 24, 16]} />
         <meshBasicMaterial ref={haloMat} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
       </mesh>
       <mesh ref={ringA} rotation={[Math.PI / 2.4, 0, 0]} raycast={noRay}>
-        <torusGeometry args={[0.92, 0.035, 8, 64]} />
-        <meshStandardMaterial color={COLORS.copper} metalness={0.8} roughness={0.3} emissive={COLORS.copper} emissiveIntensity={0.35} />
+        <torusGeometry args={[0.9, 0.028, 10, 96]} />
+        <meshPhysicalMaterial color={COLORS.copper} metalness={0.9} roughness={0.2} emissive={COLORS.copper} emissiveIntensity={0.45} />
       </mesh>
       <mesh ref={ringB} rotation={[Math.PI / 1.7, 0.5, 0]} raycast={noRay}>
-        <torusGeometry args={[1.18, 0.022, 8, 64, Math.PI * 1.6]} />
-        <meshBasicMaterial color={COLORS.gold} />
+        <torusGeometry args={[1.14, 0.016, 8, 96, Math.PI * 1.6]} />
+        <meshBasicMaterial color={new THREE.Color(COLORS.gold).multiplyScalar(1.5)} toneMapped={false} />
       </mesh>
       {selected && (
-        <mesh position={[0, -1.7, 0]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
-          <torusGeometry args={[1.25, 0.025, 6, 48]} />
+        <mesh position={[0, HUB_BASE_DY, 0]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
+          <torusGeometry args={[1.3, 0.02, 6, 64]} />
           <meshBasicMaterial color={COLORS.cream} />
         </mesh>
       )}
-      <Html position={[0, -2.35, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
+      <Html position={[-1.55, -0.55, 0]} zIndexRange={[20, 0]} style={{ pointerEvents: 'none', transform: 'translate(-100%, -50%)' }}>
         <div className="netmap-plate netmap-plate-hub">
-          <div className="netmap-plate-kicker">HUB</div>
+          <div className="netmap-plate-kicker">HUB · ARCHIVE</div>
           <div className="netmap-label-name">{id}</div>
           <div className="netmap-label-sub">{host}</div>
         </div>
@@ -272,42 +511,32 @@ function HubTower({
   )
 }
 
-
-/** Validator: a small chassis with a status light, activity LEDs, lag bar and a packer ring. */
-function ValidatorUnit({
-  id,
-  pos,
-  view,
-  host,
-  location,
-  confirmed,
-  anim,
-  selected,
-  onSelect,
-}: {
-  id: string
-  pos: Vec3
-  view: SeatView
-  host: string
-  location: string
-  confirmed: boolean
-  anim: Anim
-  selected: boolean
-  onSelect: (id: string) => void
-}) {
+/** Validator: chassis with status light, activity LEDs, lag bar, role ring and packer fill ring. */
+function ValidatorUnit({ id, pos, yaw, view, host, anim, selected, onSelect }: { id: string; pos: Vec3; yaw: number; view: SeatView; host: string; anim: Anim; selected: boolean; onSelect: (id: string) => void }) {
   const light = useRef<THREE.MeshBasicMaterial>(null)
   const halo = useRef<THREE.Mesh>(null)
   const haloMat = useRef<THREE.MeshBasicMaterial>(null)
   const leds = useRef<(THREE.MeshBasicMaterial | null)[]>([])
   const ring = useRef<THREE.Mesh>(null)
   const ringMat = useRef<THREE.MeshBasicMaterial>(null)
+  const role = useRef<THREE.Mesh>(null)
+  const roleMat = useRef<THREE.MeshBasicMaterial>(null)
   const trim = useRef<THREE.MeshBasicMaterial>(null)
+  const lid = useRef<THREE.MeshPhysicalMaterial>(null)
+  const label = useRef<HTMLDivElement>(null)
   const lastFill = useRef(-1)
   const flash = useFlash(anim, id, false)
   const live = view.online && !view.jailed
-  const base = useMemo(() => new THREE.Color(live ? COLORS.green : view.jailed ? '#64748B' : COLORS.grey), [live, view.jailed])
-  const gold = useMemo(() => new THREE.Color(COLORS.gold), [])
-  const dim = useMemo(() => new THREE.Color('#1E293B'), [])
+  const c = useMemo(
+    () => ({
+      idle: new THREE.Color(live ? COLORS.idle : COLORS.grey),
+      green: new THREE.Color(COLORS.greenHot).multiplyScalar(1.8),
+      gold: new THREE.Color(COLORS.goldHot).multiplyScalar(2),
+      dim: new THREE.Color(COLORS.steel),
+      copper: new THREE.Color(COLORS.copper),
+    }),
+    [live],
+  )
   const tmp = useMemo(() => new THREE.Color(), [])
   const lagFrac = view.lag == null ? 0 : Math.min(1, view.lag / 10)
   const lagColor = view.lag == null ? COLORS.grey : view.lag <= 1 ? COLORS.green : view.lag <= 3 ? COLORS.gold : '#EF4444'
@@ -315,31 +544,46 @@ function ValidatorUnit({
   useFrame((st, dt) => {
     const now = st.clock.elapsedTime
     const { k, f } = flash(now)
-    tmp.copy(base).lerp(gold, k)
+    const vk = live ? (anim.voter.get(id) ?? 0) : 0
+    const pk = live ? (anim.packer.get(id) ?? 0) : 0
+    tmp.copy(c.idle).lerp(c.green, vk).lerp(c.gold, Math.max(pk, k))
     if (light.current) light.current.color.copy(tmp)
-    if (trim.current) trim.current.color.copy(k > 0 ? tmp : live ? base : dim)
-    if (haloMat.current && halo.current) {
-      const pulse = live ? 0.22 + 0.08 * Math.sin(now * 2.4 + pos[0]) : 0.04
-      haloMat.current.color.copy(tmp)
-      haloMat.current.opacity = pulse + k * 0.5
-      halo.current.scale.setScalar(1 + k * 1.2)
+    if (lid.current) {
+      lid.current.emissive.copy(tmp)
+      lid.current.emissiveIntensity = live ? 0.06 + 0.22 * Math.max(vk, pk, k) : 0
     }
-    // Activity LEDs: chase while this seat's block flash is active, idle glow when online.
+    if (trim.current) trim.current.color.copy(live ? (vk > 0.05 || pk > 0.05 || k > 0 ? tmp : c.copper) : c.dim)
+    if (haloMat.current && halo.current) {
+      const breathe = live ? 0.06 + 0.03 * Math.sin(now * 2 + pos[0]) : 0.02
+      haloMat.current.color.copy(tmp)
+      haloMat.current.opacity = breathe + vk * 0.3 + Math.max(pk, k) * 0.45
+      halo.current.scale.setScalar(1 + vk * 0.4 + Math.max(pk, k) * 0.9)
+    }
+    if (role.current && roleMat.current) {
+      roleMat.current.color.copy(pk > vk * 0.9 ? c.gold : c.green)
+      roleMat.current.opacity = Math.max(vk, pk) * 0.85
+      role.current.rotation.z += dt * (0.4 + pk)
+    }
     for (let i = 0; i < 3; i++) {
       const m = leds.current[i]
       if (!m) continue
-      const on = k > 0 ? Math.floor(now * 12) % 3 === i : live && i === 0
-      m.color.copy(on ? (k > 0 ? gold : base) : dim)
+      const on = k > 0 ? Math.floor(now * 12) % 3 === i : live && (i === 0 || (vk > 0.5 && Math.floor(now * 4 + i) % 3 === 0))
+      m.color.copy(on ? tmp : c.dim)
     }
     if (ring.current && ringMat.current && f) {
       if (f.fill !== lastFill.current) {
         lastFill.current = f.fill
         ring.current.geometry.dispose()
-        ring.current.geometry = new THREE.TorusGeometry(0.62, 0.04, 6, RING_SEGMENTS, Math.PI * 2 * f.fill)
+        ring.current.geometry = new THREE.TorusGeometry(0.66, 0.03, 6, RING_SEGMENTS, Math.PI * 2 * f.fill)
       }
       ringMat.current.opacity = k
       ring.current.visible = k > 0
-      ring.current.rotation.z += dt * 1.5
+      ring.current.rotation.z += dt * 1.2
+    }
+    const el = label.current
+    if (el) {
+      const r = pk > 0.5 ? 'pack' : vk > 0.5 ? 'vote' : ''
+      if (el.dataset.role !== r) el.dataset.role = r
     }
   })
 
@@ -349,57 +593,62 @@ function ValidatorUnit({
   }
 
   return (
-    <group position={pos}>
-      {/* chassis */}
+    <group position={pos} rotation={[0, yaw, 0]}>
       <mesh onClick={click} {...hover}>
-        <boxGeometry args={[0.72, 0.4, 0.5]} />
-        <meshStandardMaterial color={COLORS.panel} metalness={0.55} roughness={0.45} />
+        <boxGeometry args={[0.76, 0.4, 0.52]} />
+        <meshPhysicalMaterial color="#1A2740" metalness={0.65} roughness={0.35} clearcoat={0.7} clearcoatRoughness={0.25} />
       </mesh>
-      <mesh position={[0, 0.205, 0]} raycast={noRay}>
-        <boxGeometry args={[0.74, 0.02, 0.52]} />
-        <meshBasicMaterial ref={trim} color={COLORS.copper} />
+      {/* lit edge strip along the front of the lid (role colour) */}
+      <mesh position={[0, 0.2, 0.262]} raycast={noRay}>
+        <boxGeometry args={[0.76, 0.018, 0.012]} />
+        <meshBasicMaterial ref={trim} color={COLORS.copper} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, 0.203, 0]} raycast={noRay}>
+        <boxGeometry args={[0.7, 0.006, 0.46]} />
+        <meshPhysicalMaterial ref={lid} color="#16233A" metalness={0.6} roughness={0.4} clearcoat={0.4} />
       </mesh>
       {/* status light */}
-      <mesh position={[0.22, 0.29, 0.1]} raycast={noRay}>
-        <sphereGeometry args={[0.075, 12, 10]} />
+      <mesh position={[0.26, 0.27, 0.12]} raycast={noRay}>
+        <sphereGeometry args={[0.06, 16, 12]} />
         <meshBasicMaterial ref={light} toneMapped={false} />
       </mesh>
-      <mesh ref={halo} position={[0.22, 0.29, 0.1]} raycast={noRay}>
-        <sphereGeometry args={[0.2, 12, 10]} />
+      <mesh ref={halo} position={[0.26, 0.27, 0.12]} raycast={noRay}>
+        <sphereGeometry args={[0.18, 16, 12]} />
         <meshBasicMaterial ref={haloMat} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
       </mesh>
-      {/* activity LEDs on the front face */}
       {[0, 1, 2].map((i) => (
-        <mesh key={i} position={[-0.24 + i * 0.1, 0.06, 0.256]} raycast={noRay}>
-          <boxGeometry args={[0.06, 0.04, 0.01]} />
+        <mesh key={i} position={[-0.25 + i * 0.1, 0.07, 0.262]} raycast={noRay}>
+          <boxGeometry args={[0.06, 0.035, 0.01]} />
           <meshBasicMaterial ref={(m) => { leds.current[i] = m }} toneMapped={false} />
         </mesh>
       ))}
-      {/* lag bar: empty = in sync, full = 10+ blocks behind */}
-      <mesh position={[0, -0.08, 0.256]} raycast={noRay}>
-        <boxGeometry args={[0.56, 0.035, 0.008]} />
-        <meshBasicMaterial color="#1E293B" />
+      <mesh position={[0, -0.07, 0.262]} raycast={noRay}>
+        <boxGeometry args={[0.58, 0.03, 0.008]} />
+        <meshBasicMaterial color={COLORS.steel} />
       </mesh>
       {lagFrac > 0 && (
-        <mesh position={[-0.28 + 0.28 * lagFrac, -0.08, 0.261]} raycast={noRay}>
-          <boxGeometry args={[0.56 * lagFrac, 0.035, 0.008]} />
+        <mesh position={[-0.29 + 0.29 * lagFrac, -0.07, 0.267]} raycast={noRay}>
+          <boxGeometry args={[0.58 * lagFrac, 0.03, 0.008]} />
           <meshBasicMaterial color={lagColor} />
         </mesh>
       )}
-      <mesh ref={ring} position={[0, -0.22, 0]} rotation={[Math.PI / 2, 0, 0]} visible={false} raycast={noRay}>
-        <torusGeometry args={[0.62, 0.04, 6, RING_SEGMENTS, 0.01]} />
-        <meshBasicMaterial ref={ringMat} color={COLORS.gold} transparent depthWrite={false} toneMapped={false} />
+      <mesh ref={role} position={[0, -0.21, 0]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
+        <torusGeometry args={[0.56, 0.022, 8, 64]} />
+        <meshBasicMaterial ref={roleMat} transparent opacity={0} depthWrite={false} toneMapped={false} />
+      </mesh>
+      <mesh ref={ring} position={[0, -0.21, 0]} rotation={[Math.PI / 2, 0, 0]} visible={false} raycast={noRay}>
+        <torusGeometry args={[0.66, 0.03, 6, RING_SEGMENTS, 0.01]} />
+        <meshBasicMaterial ref={ringMat} color={new THREE.Color(COLORS.gold).multiplyScalar(2)} transparent depthWrite={false} toneMapped={false} />
       </mesh>
       {selected && (
-        <mesh position={[0, -0.22, 0]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
-          <torusGeometry args={[0.5, 0.018, 6, 48]} />
+        <mesh position={[0, -0.21, 0]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
+          <torusGeometry args={[0.46, 0.014, 6, 48]} />
           <meshBasicMaterial color={COLORS.cream} />
         </mesh>
       )}
-      <Html position={[0, -0.52, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
-        <div className="netmap-label" data-off={!live ? '1' : undefined}>
+      <Html position={[0, -0.55, 0.15]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
+        <div ref={label} className="netmap-label" data-off={!live ? '1' : undefined}>
           <div className="netmap-label-name">{id}</div>
-          <div className="netmap-tag" data-todo={confirmed ? undefined : '1'}>{location}</div>
           {host && <div className="netmap-label-sub">{host}</div>}
         </div>
       </Html>
@@ -407,7 +656,7 @@ function ValidatorUnit({
   )
 }
 
-/** Loadgen / ingress: a funnel with emitter rings that pulse when new txs are sealed. */
+/** Loadgen / ingress: a funnel beside its seat, pulsing when new txs are sealed. */
 function LoadgenNode({ pos, label, event }: { pos: Vec3; label: string; event: PollEvent | null }) {
   const rings = useRef<(THREE.Mesh | null)[]>([])
   const mats = useRef<(THREE.MeshBasicMaterial | null)[]>([])
@@ -423,31 +672,31 @@ function LoadgenNode({ pos, label, event }: { pos: Vec3; label: string; event: P
       const r = rings.current[i]
       const m = mats.current[i]
       if (!r || !m) continue
-      r.scale.setScalar(1 + u * 1.6)
+      r.scale.setScalar(1 + u * 1.4)
       m.opacity = u < 1 ? (1 - u) * 0.8 : 0
     }
   })
   return (
     <group position={pos}>
-      <mesh position={[0, 0.1, 0]}>
-        <cylinderGeometry args={[0.38, 0.12, 0.45, 12, 1, true]} />
-        <meshStandardMaterial color={COLORS.panel} emissive={COLORS.gold} emissiveIntensity={0.35} metalness={0.6} roughness={0.35} side={THREE.DoubleSide} />
+      <mesh position={[0, -0.3, 0]}>
+        <cylinderGeometry args={[0.42, 0.48, 0.12, 32]} />
+        <meshPhysicalMaterial color={COLORS.steel} metalness={0.7} roughness={0.35} clearcoat={0.5} />
       </mesh>
-      <mesh position={[0, 0.33, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.38, 0.025, 6, 32]} />
-        <meshBasicMaterial color={COLORS.gold} />
+      <mesh position={[0, 0.02, 0]}>
+        <cylinderGeometry args={[0.34, 0.1, 0.5, 32, 1, true]} />
+        <meshPhysicalMaterial color={COLORS.panel} emissive={COLORS.gold} emissiveIntensity={0.3} metalness={0.7} roughness={0.3} side={THREE.DoubleSide} />
       </mesh>
-      <mesh position={[0, -0.18, 0]}>
-        <boxGeometry args={[0.55, 0.12, 0.55]} />
-        <meshStandardMaterial color="#1E293B" metalness={0.6} roughness={0.4} />
+      <mesh position={[0, 0.27, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.34, 0.016, 8, 48]} />
+        <meshBasicMaterial color={new THREE.Color(COLORS.gold).multiplyScalar(1.6)} toneMapped={false} />
       </mesh>
       {[0, 1].map((i) => (
-        <mesh key={i} ref={(m) => { rings.current[i] = m }} position={[0, 0.33, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.38, 0.015, 6, 32]} />
-          <meshBasicMaterial ref={(m) => { mats.current[i] = m }} color={COLORS.gold} transparent opacity={0} depthWrite={false} toneMapped={false} />
+        <mesh key={i} ref={(m) => { rings.current[i] = m }} position={[0, 0.27, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.34, 0.01, 6, 48]} />
+          <meshBasicMaterial ref={(m) => { mats.current[i] = m }} color={new THREE.Color(COLORS.gold).multiplyScalar(2)} transparent opacity={0} depthWrite={false} toneMapped={false} />
         </mesh>
       ))}
-      <Html position={[0, -0.5, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
+      <Html position={[0, 0.95, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
         <div className="netmap-plate netmap-plate-ingress">
           <div className="netmap-plate-kicker">INGRESS · LOADGEN</div>
           <div className="netmap-label-sub">{label}</div>
@@ -460,17 +709,22 @@ function LoadgenNode({ pos, label, event }: { pos: Vec3; label: string; event: P
 // ── Location platforms ─────────────────────────────────────────────────────
 
 function Platform({ center, width, yaw, label, confirmed }: { center: Vec3; width: number; yaw: number; label: string; confirmed: boolean }) {
+  const edge = confirmed ? COLORS.copper : COLORS.grey
   return (
     <group position={center} rotation={[0, yaw, 0]}>
-      <mesh>
-        <boxGeometry args={[width * 2, 0.08, 1.3]} />
-        <meshStandardMaterial color={COLORS.panel} emissive={confirmed ? COLORS.copper : COLORS.grey} emissiveIntensity={0.12} roughness={0.8} />
+      <mesh raycast={noRay}>
+        <boxGeometry args={[width * 2, 0.07, 1.2]} />
+        <meshPhysicalMaterial color={COLORS.panel} metalness={0.4} roughness={0.55} clearcoat={0.3} transparent opacity={0.92} />
       </mesh>
-      <mesh position={[0, 0.045, 0.66]}>
-        <boxGeometry args={[width * 2, 0.02, 0.02]} />
-        <meshBasicMaterial color={confirmed ? COLORS.copper : COLORS.grey} />
+      <mesh position={[0, 0.04, 0.6]} raycast={noRay}>
+        <boxGeometry args={[width * 2, 0.012, 0.012]} />
+        <meshBasicMaterial color={new THREE.Color(edge).multiplyScalar(1.3)} toneMapped={false} />
       </mesh>
-      <Html position={[0, -0.3, 1.05]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
+      <mesh position={[0, 0.04, -0.6]} raycast={noRay}>
+        <boxGeometry args={[width * 2, 0.008, 0.008]} />
+        <meshBasicMaterial color={edge} transparent opacity={0.5} />
+      </mesh>
+      <Html position={[0, -0.12, 1.0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
         <div className="netmap-loc">
           {label}
           {!confirmed && <span className="netmap-todo">TODO confirm</span>}
@@ -484,12 +738,12 @@ function Platform({ center, width, yaw, label, confirmed }: { center: Vec3; widt
 
 function Stars() {
   const geo = useMemo(() => {
-    const n = 700
+    const n = 900
     const p = new Float32Array(n * 3)
     let s = 7
     const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647)
     for (let i = 0; i < n; i++) {
-      const r = 40 + rnd() * 30
+      const r = 45 + rnd() * 30
       const th = rnd() * Math.PI * 2
       const ph = Math.acos(2 * rnd() - 1)
       p[i * 3] = r * Math.sin(ph) * Math.cos(th)
@@ -502,8 +756,20 @@ function Stars() {
   }, [])
   return (
     <points geometry={geo}>
-      <pointsMaterial color={COLORS.cream} size={0.12} sizeAttenuation transparent opacity={0.5} depthWrite={false} />
+      <pointsMaterial color={COLORS.cream} size={0.1} sizeAttenuation transparent opacity={0.45} depthWrite={false} />
     </points>
+  )
+}
+
+function Floor() {
+  return (
+    <group position={[0, -2.3, -2.5]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} raycast={noRay}>
+        <circleGeometry args={[17, 96]} />
+        <meshStandardMaterial color="#030A1C" metalness={0.3} roughness={0.9} transparent opacity={0.85} />
+      </mesh>
+      <gridHelper args={[34, 34, '#0E2033', '#0A1626']} position={[0, 0.005, 0]} />
+    </group>
   )
 }
 
@@ -528,15 +794,10 @@ function AnimDriver({ event, anim, layout }: { event: PollEvent | null; anim: An
   useEffect(() => {
     if (!event) return
     const now = clock.elapsedTime
-    anim.hubFlash = now
-    for (const b of event.blocks) {
-      if (b.txs != null) recentMax.current = Math.max(recentMax.current * 0.98, b.txs)
-    }
+    for (const b of event.blocks) if (b.txs != null) recentMax.current = Math.max(recentMax.current * 0.98, b.txs)
     const tip = event.blocks[event.blocks.length - 1]
     for (const b of event.blocks) {
-      if (!b.packer) continue
-      const key = b.packer === layout.hub.id ? '__hub__' : b.packer
-      if (key === '__hub__') continue
+      if (!b.packer || b.packer === layout.hub.id) continue
       anim.flash.set(b.packer, { t: now - (b === tip ? 0 : 0.4), fill: ringFill(b.txs ?? 0, recentMax.current) })
     }
   }, [event, anim, layout.hub.id, clock])
@@ -545,70 +806,81 @@ function AnimDriver({ event, anim, layout }: { event: PollEvent | null; anim: An
 
 // ── Scene ──────────────────────────────────────────────────────────────────
 
-export default function NetworkScene({ layout, seats, event, maxBulges, selected, onSelect, fpsRef, watchers }: SceneProps) {
-  const anim = useRef<Anim>({ flash: new Map(), hubFlash: -10 }).current
+export default function NetworkScene({ layout, seats, event, maxBulges, selected, onSelect, fpsRef, watchers, consensus }: SceneProps) {
+  const anim = useRef<Anim>({ flash: new Map(), hubFlash: -10, voter: new Map(), packer: new Map() }).current
+  const [fx, setFx] = useState(true)
+  const [dpr, setDpr] = useState(1.5)
   const curves = useMemo(() => {
     const m = new Map<string, THREE.Curve<THREE.Vector3>>()
-    for (const s of layout.seats) m.set(s.id, curveFor(layout.hub.pos, s.pos))
+    for (const s of layout.seats) m.set(s.id, pipeCurve(layout.hub.pos, s.pos))
     return m
   }, [layout])
   const ingressCurve = useMemo(() => {
     if (!layout.ingress) return null
     const seat = layout.seats.find((s) => s.id === layout.ingress!.seat)
     if (!seat) return null
-    const a = new THREE.Vector3(...layout.ingress.pos)
-    const b = new THREE.Vector3(...seat.pos)
-    const c = new THREE.Vector3(...layout.hub.pos)
-    // loadgen → ingress seat → hub
-    return new THREE.CatmullRomCurve3([a, b.clone().add(new THREE.Vector3(0, 0.1, 0)), new THREE.Vector3(b.x * 0.6, (b.y + c.y) * 0.5, (b.z + c.z) * 0.5 + 1.2), c])
+    // Short straight feed from the funnel rim into the seat's side; nothing sits between them.
+    const a = v3(layout.ingress.pos).add(new THREE.Vector3(0, 0.27, 0))
+    const b = v3(seat.pos)
+    const dir = b.clone().sub(a).setY(0).normalize()
+    const end = b.clone().sub(dir.clone().multiplyScalar(0.4)).setY(seat.pos[1] + 0.05)
+    const start = a.clone().add(dir.clone().multiplyScalar(0.3))
+    return new THREE.CatmullRomCurve3([start, start.clone().lerp(end, 0.5).add(new THREE.Vector3(0, 0.12, 0)), end])
   }, [layout])
 
   const hubView = seats[layout.hub.id] ?? { online: false, jailed: false, lag: null }
   return (
     <Canvas
-      dpr={[1, 1.75]}
-      camera={{ position: [0, 8.5, 21], fov: 42, near: 0.1, far: 200 }}
+      dpr={dpr}
+      camera={{ position: [-1.4, 10.5, 27], fov: 40, near: 0.1, far: 200 }}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       onPointerMissed={() => undefined}
     >
+      <PerformanceMonitor
+        onDecline={() => {
+          setDpr(1)
+          setFx(false)
+        }}
+        onIncline={() => setDpr(1.5)}
+      />
       <color attach="background" args={[COLORS.bg]} />
-      <fog attach="fog" args={[COLORS.bg, 22, 60]} />
-      <ambientLight intensity={0.35} />
-      <pointLight position={[0, 9, 4]} intensity={60} color={COLORS.cream} />
-      <pointLight position={[-10, 2, 8]} intensity={25} color={COLORS.copper} />
+      <fog attach="fog" args={[COLORS.bg, 26, 62]} />
+      <ambientLight intensity={0.22} />
+      <hemisphereLight args={['#C9D6FF', '#140A04', 0.35]} />
+      <directionalLight position={[6, 12, 8]} intensity={1.1} color={COLORS.cream} />
+      <pointLight position={[0, 6.5, -2.5]} intensity={22} distance={18} color={COLORS.copper} />
+      <Environment resolution={64} frames={1}>
+        <Lightformer form="rect" intensity={1.4} color="#E0DBCA" position={[0, 6, 6]} scale={[10, 2, 1]} />
+        <Lightformer form="rect" intensity={0.8} color="#C07838" position={[-8, 2, -2]} scale={[2, 6, 1]} />
+        <Lightformer form="ring" intensity={0.6} color="#4ADE80" position={[8, 1, 2]} scale={2} />
+      </Environment>
       <Stars />
+      <Floor />
       <AnimDriver event={event} anim={anim} layout={layout} />
       {layout.groups.map((g) => (
         <Platform key={g.id} center={g.center} width={g.width} yaw={g.yaw} label={g.label} confirmed={g.confirmed} />
       ))}
+      <ConsensusRail layout={layout} />
       {layout.seats.map((s) => {
         const v = seats[s.id]
         return <Pipe key={`p-${s.id}`} curve={curves.get(s.id)!} active={Boolean(v?.online && !v.jailed)} />
       })}
-      {ingressCurve && <Pipe curve={ingressCurve} active />}
+      {ingressCurve && <Pipe curve={ingressCurve} active radius={0.035} />}
       {layout.ingress && <LoadgenNode pos={layout.ingress.pos} label={layout.ingress.label} event={event} />}
       {watchers && (
         <WatcherRing center={layout.hub.pos} epoch={watchers.epoch} live={watchers.live} cap={watchers.cap} event={watchers.event} />
       )}
-      <Bulges curves={curves} ingress={ingressCurve} event={event} cap={maxBulges} />
-      <HubTower
-        id={layout.hub.id}
-        pos={layout.hub.pos}
-        view={hubView}
-        host={layout.hub.host}
-        anim={anim}
-        selected={selected === layout.hub.id}
-        onSelect={onSelect}
-      />
+      <Bulges curves={curves} ingress={ingressCurve} event={event} cap={maxBulges} seats={seats} />
+      {consensus && <ConsensusCycle layout={layout} curves={curves} view={consensus} event={event} anim={anim} />}
+      <HubTower id={layout.hub.id} pos={layout.hub.pos} view={hubView} host={layout.hub.host} anim={anim} selected={selected === layout.hub.id} onSelect={onSelect} />
       {layout.seats.map((s) => (
         <ValidatorUnit
           key={s.id}
           id={s.id}
           pos={s.pos}
+          yaw={s.yaw}
           view={seats[s.id] ?? { online: false, jailed: false, lag: null }}
           host={s.host}
-          location={s.locationLabel}
-          confirmed={s.confirmed}
           anim={anim}
           selected={selected === s.id}
           onSelect={onSelect}
@@ -617,14 +889,20 @@ export default function NetworkScene({ layout, seats, event, maxBulges, selected
       <OrbitControls
         enablePan={false}
         enableDamping
-        dampingFactor={0.08}
-        minDistance={8}
-        maxDistance={34}
-        maxPolarAngle={Math.PI * 0.62}
-        target={[0, 0.9, -2.5]}
+        dampingFactor={0.06}
+        minDistance={9}
+        maxDistance={38}
+        maxPolarAngle={Math.PI * 0.6}
+        target={[-1.4, 0.9, -1.5]}
         autoRotate
-        autoRotateSpeed={0.12}
+        autoRotateSpeed={0.1}
       />
+      {fx && (
+        <EffectComposer multisampling={0}>
+          <Bloom mipmapBlur luminanceThreshold={0.85} luminanceSmoothing={0.2} intensity={0.85} radius={0.7} />
+          <Vignette eskil={false} offset={0.25} darkness={0.55} />
+        </EffectComposer>
+      )}
       <FpsMeter target={fpsRef} />
     </Canvas>
   )

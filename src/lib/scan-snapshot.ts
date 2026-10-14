@@ -3,7 +3,7 @@ import { meshHeadFromStatus, num, str } from '@/lib/pl-mesh'
 import { plStatus } from '@/lib/pl-rpc'
 import { watcherSummary } from '@/lib/scan-watchers'
 import { loadZeroPoint, offsetRail } from '@/lib/pl-zero-point'
-import type { LedgerSummary, RailRow, ScanData, ValidatorEntry } from '@/lib/scan-types'
+import type { ConsensusInfo, LedgerSummary, RailRow, ScanData, ValidatorEntry } from '@/lib/scan-types'
 
 type TipRing = LedgerSummary
 const tipRing: TipRing[] = []
@@ -140,6 +140,7 @@ export async function buildScanSnapshot(): Promise<ScanData> {
       txs,
     },
     lottery_winner: str(st.lottery_winner_next),
+    ...consensusFromStatus(st),
     ...(watchers ? { watchers } : {}),
     rails,
     metrics: {
@@ -147,6 +148,26 @@ export async function buildScanSnapshot(): Promise<ScanData> {
       txs_sealed: num(metrics.txs_sealed),
       submit_accepted: num(metrics.submit_accepted),
       fees_burned: num(metrics.fees_burned_total),
+    },
+  }
+}
+
+const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : [])
+
+/** Committee / lottery fields, passed through only when the node exposes them. */
+export function consensusFromStatus(st: Record<string, unknown>): { committee?: ConsensusInfo } {
+  const sealed = strList(st.sealed_committee)
+  const next = strList(st.next_committee)
+  if (!sealed.length && !next.length) return {}
+  const cv = num(st.tip_cert_voters, Number.NaN)
+  return {
+    committee: {
+      sealed_committee: sealed,
+      next_committee: next,
+      next_packer: str(st.lottery_winner_next),
+      standby: str(st.lottery_standby_next),
+      cert_voters: Number.isFinite(cv) ? cv : null,
+      view_round: num(st.height_view_round),
     },
   }
 }
