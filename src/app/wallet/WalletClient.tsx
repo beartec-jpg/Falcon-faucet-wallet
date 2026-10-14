@@ -392,9 +392,6 @@ export default function WalletPage() {
   const [backupPassConfirm,  setBackupPassConfirm]  = useState('')
   const [backupDownloaded,   setBackupDownloaded]   = useState(false)
   const [backupAcknowledged, setBackupAcknowledged] = useState(false)
-  // F-01: explicit, non-dismissable acknowledgment required before saving a
-  // wallet that fell back to weaker (non-PRF) at-rest encryption.
-  const [weakEncryptionAck,  setWeakEncryptionAck]  = useState(false)
   const [showRawSecret,      setShowRawSecret]      = useState(false)
   const [secretCopied,       setSecretCopied]       = useState(false)
 
@@ -752,7 +749,6 @@ export default function WalletPage() {
     setBackupPassConfirm('')
     setBackupDownloaded(false)
     setBackupAcknowledged(false)
-    setWeakEncryptionAck(false)
     setShowRawSecret(false)
     setSecretCopied(false)
     try {
@@ -813,9 +809,6 @@ export default function WalletPage() {
 
   const handleConfirmBackup = async () => {
     if (!pendingSave || !backupDownloaded || !backupAcknowledged) return
-    // F-01: a non-PRF (weaker-encryption) wallet may only be saved after the
-    // user explicitly acknowledges the reduced protection.
-    if (!pendingSave.hasPrf && !weakEncryptionAck) return
     setBusy(true)
     setError(null)
     try {
@@ -865,8 +858,7 @@ export default function WalletPage() {
       setBackupPassConfirm('')
       setBackupDownloaded(false)
       setBackupAcknowledged(false)
-      setWeakEncryptionAck(false)
-      setView('dashboard')
+        setView('dashboard')
       setWalletSection('falcon')
       refreshBalance(plAccountId(verified))
     } catch (e: unknown) {
@@ -882,7 +874,6 @@ export default function WalletPage() {
     setBackupPassConfirm('')
     setBackupDownloaded(false)
     setBackupAcknowledged(false)
-    setWeakEncryptionAck(false)
     setShowRawSecret(false)
     setSecretCopied(false)
     setView('no-wallet')
@@ -1745,13 +1736,12 @@ export default function WalletPage() {
   // ─────────────────────────────────────────────────────────────────────────
 
   // Backup gate: a wallet may only be saved once the encrypted backup is
-  // downloaded and acknowledged; non-PRF (weaker-encryption) wallets also
-  // require the explicit weak-encryption acknowledgment (F-01).
+  // downloaded and acknowledged. Non-PRF wallets are password-protected (H-1),
+  // so there is no weaker mode left to acknowledge.
   const canConfirmBackup =
     !busy &&
     backupDownloaded &&
-    backupAcknowledged &&
-    (!!pendingSave?.hasPrf || weakEncryptionAck)
+    backupAcknowledged
 
   return (
     <ProductShell intensity={0.4}>
@@ -1864,19 +1854,10 @@ export default function WalletPage() {
               </div>
 
               {!pendingSave.hasPrf && (
-                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 space-y-3">
+                <div className="rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-sm text-sky-200">
                   <p>
-                    <strong>Weaker device encryption:</strong> this device/browser does not support the passkey PRF extension, so the wallet on this device is encrypted with lower-strength key material. Keep your encrypted backup file safe and do not store significant value on this wallet.
+                    <strong>Password-protected on this device:</strong> this browser&apos;s passkey has no PRF support, so your wallet keys are encrypted with the wallet password you just set (Argon2id). You will need your passkey and that password to unlock on this device. The password cannot be recovered; keep your backup file safe.
                   </p>
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={weakEncryptionAck}
-                      onChange={e => setWeakEncryptionAck(e.target.checked)}
-                      className="mt-1 rounded border-amber-500/60"
-                    />
-                    <span>I understand this device uses weaker encryption and I will not store significant value on this wallet.</span>
-                  </label>
                 </div>
               )}
 
