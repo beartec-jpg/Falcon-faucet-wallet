@@ -16,6 +16,7 @@ export function counterValues(s: NetSample): Record<string, number> {
     'ctr.txs_sealed': s.txs_sealed,
     'ctr.ledgers_sealed': s.ledgers_sealed,
     'ctr.height': s.height,
+    'ctr.mempool': s.mempool,
   }
   for (const seat of s.seats) out[`ctr.seat.${seat.id}.packs`] = seat.packs
   return out
@@ -48,11 +49,13 @@ export function previousSampleFromCounters(
     height: last('ctr.height')?.v ?? led.v,
     txs_sealed: tx.v,
     ledgers_sealed: led.v,
-    mempool: 0,
+    mempool: last('ctr.mempool')?.v ?? 0,
     peers: 0,
     online: 0,
     last_pack_txs: 0,
     last_pack_packer: '',
+    min_fee: 0,
+    fee_multiplier: 1,
     seats,
   }
 }

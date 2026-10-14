@@ -1,6 +1,6 @@
 // GET /api/scan/history — shared 24h metric time series (Neon / Redis / memory).
-// Network keys: tps, blocks_min, txs_per_block, mempool, peers, online.
-// Seat keys: seat.<id>.lag | seat.<id>.packs_min | seat.<id>.perf.
+// Network keys: NET_KEYS in src/lib/net-metrics.ts (one per explorer tile).
+// Seat keys: seat.<id>.tip | lag | packs_min | perf.
 // Optional ?prefix=seat.v1. narrows the response.
 
 import { NextRequest, NextResponse } from 'next/server'
