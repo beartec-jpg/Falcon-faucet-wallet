@@ -1,3 +1,4 @@
+import type { WalletKey } from '@/lib/wallet-key'
 import { Wallet, hexlify } from 'ethers'
 import { authenticatePasskey } from '@/lib/passkey'
 import { encryptSeed, type EncryptedSeed } from '@/lib/wallet-crypto'
@@ -27,7 +28,7 @@ export function createRandomEvmWallet(): { address: string; privateKeyHex: strin
 /** Encrypt an existing Sepolia private key with passkey key material. */
 export async function encryptEvmKeyForPasskey(
   privateKeyHex: string,
-  keyBytes: Uint8Array,
+  keyBytes: WalletKey,
   hasPrf: boolean,
 ): Promise<CreatedEvmWallet> {
   const pk = normalizeEvmPrivateKey(privateKeyHex)
@@ -39,7 +40,7 @@ export async function encryptEvmKeyForPasskey(
 
 /** Generate a fresh Sepolia EVM wallet encrypted with the same passkey key material as Falcon. */
 export async function createEvmWalletForPasskey(
-  keyBytes: Uint8Array,
+  keyBytes: WalletKey,
   hasPrf: boolean,
 ): Promise<CreatedEvmWallet> {
   const { address, privateKeyHex } = createRandomEvmWallet()
