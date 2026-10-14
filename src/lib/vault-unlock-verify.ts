@@ -21,8 +21,38 @@ export function rawPubFromPublicKeyHex(publicKeyHex: string): Uint8Array {
   throw new Error('Invalid vault public key length')
 }
 
+const USED_KEY = 'falcon-vault-used-challenges-v1'
+const usedMem = new Set<string>()
+
+function loadUsed(): Set<string> {
+  const out = new Set(usedMem)
+  try {
+    const raw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(USED_KEY) : null
+    if (raw) for (const c of JSON.parse(raw) as string[]) out.add(c)
+  } catch {
+    /* ignore */
+  }
+  return out
+}
+
+function markUsed(challenge: string): void {
+  usedMem.add(challenge)
+  try {
+    if (typeof sessionStorage === 'undefined') return
+    const list = [...loadUsed()].slice(-200)
+    sessionStorage.setItem(USED_KEY, JSON.stringify(list))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function isChallengeUsed(challenge: string): boolean {
+  return loadUsed().has(challenge)
+}
+
 /**
  * Verify cold unlock response against the challenge we issued and the vault's public key.
+ * Each challenge is single-use: once a response verifies, the same challenge is refused.
  */
 export async function verifyUnlockResponse(
   challenge: VaultUnlockChallenge,
@@ -33,6 +63,7 @@ export async function verifyUnlockResponse(
   if (response.challenge !== challenge.challenge) return false
   if (response.expiresAt !== challenge.expiresAt) return false
   if (Date.now() > challenge.expiresAt) return false
+  if (isChallengeUsed(challenge.challenge)) return false
 
   const msg = buildUnlockMessage({
     address: response.address,
@@ -42,5 +73,9 @@ export async function verifyUnlockResponse(
   const sig = unlockResponseSigBytes(response)
   const pub = rawPubFromPublicKeyHex(publicKeyHex)
   const falcon = await getFalcon512()
-  return falcon.verify(msg, sig, pub)
+  // Re-check after the await so two concurrent verifications cannot both pass.
+  if (isChallengeUsed(challenge.challenge)) return false
+  const ok = falcon.verify(msg, sig, pub)
+  if (ok) markUsed(challenge.challenge)
+  return ok
 }
