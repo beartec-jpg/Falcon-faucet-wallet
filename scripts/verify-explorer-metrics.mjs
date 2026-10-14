@@ -92,6 +92,18 @@ assert.equal(v['seat.v1.lag'], 2)
 assert.equal(v['seat.v3.lag'], undefined)
 assert.ok(Math.abs(v['seat.v1.packs_min'] - 2 / (21.65 / 60)) < 0.01)
 assert.equal(nm.parseSeatKey('seat.scottspersonalnode.lag').id, 'scottspersonalnode')
+assert.equal(v['seat.v1.tip'], b.height - 2)
+assert.equal(v.height, b.height)
+assert.equal(v.txs_sealed, b.txs_sealed)
+assert.ok(Math.abs(v.mempool_in - v.tps) < 0.01, 'flat mempool: intake = sealed rate')
+{
+  const grow = { ...b, mempool: a.mempool + 216.5 }
+  const g = nm.seriesValues(a, grow)
+  assert.ok(Math.abs(g.mempool_in - (411 + 216.5) / 21.65) < 0.01, 'intake counts mempool growth')
+}
+// Every explorer tile key is a cron/series key.
+for (const k of ['tps', 'blocks_min', 'txs_per_block', 'mempool', 'mempool_in', 'peers', 'height', 'txs_sealed', 'min_fee', 'fee_multiplier'])
+  assert.ok(nm.NET_KEYS.includes(k) && k in nm.seriesValues(a, b), `series ${k} sampled`)
 assert.equal(nm.seriesValues(null, b).tps, undefined, 'no rate without a base')
 
 // Ring buffer: one commit per 60s bucket, rates across the bucket, 24h trim.

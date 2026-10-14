@@ -26,6 +26,8 @@ export interface NetSample {
   online: number
   last_pack_txs: number
   last_pack_packer: string
+  min_fee: number
+  fee_multiplier: number
   seats: SeatSample[]
 }
 
@@ -57,6 +59,8 @@ export function sampleFromScan(d: ScanData, t = Date.now()): NetSample {
     online: online.size,
     last_pack_txs: fin(d.last_pack?.txs),
     last_pack_packer: d.last_pack?.packer ?? '',
+    min_fee: fin(d.current_fee_drops),
+    fee_multiplier: fin(d.fee_multiplier, 1),
     seats: (d.validators ?? []).map((v) => ({
       id: v.account,
       tip: fin(v.ledger_index),
@@ -109,25 +113,43 @@ export function seatLag(height: number, seat: SeatSample): number | null {
 
 // ── 24h series keys ─────────────────────────────────────────────────────────
 
-export const NET_KEYS = ['tps', 'blocks_min', 'txs_per_block', 'mempool', 'peers', 'online'] as const
+export const NET_KEYS = [
+  'tps',
+  'blocks_min',
+  'txs_per_block',
+  'mempool',
+  'mempool_in',
+  'peers',
+  'online',
+  'height',
+  'txs_sealed',
+  'min_fee',
+  'fee_multiplier',
+] as const
 export type NetKey = (typeof NET_KEYS)[number]
-export type SeatMetric = 'lag' | 'packs_min' | 'perf'
-export const SEAT_METRICS: SeatMetric[] = ['lag', 'packs_min', 'perf']
+export type SeatMetric = 'tip' | 'lag' | 'packs_min' | 'perf'
+export const SEAT_METRICS: SeatMetric[] = ['tip', 'lag', 'packs_min', 'perf']
 
 export const seatKey = (id: string, m: SeatMetric) => `seat.${id}.${m}`
 
 export function parseSeatKey(k: string): { id: string; metric: SeatMetric } | null {
-  const m = /^seat\.(.+)\.(lag|packs_min|perf)$/.exec(k)
+  const m = /^seat\.(.+)\.(tip|lag|packs_min|perf)$/.exec(k)
   return m ? { id: m[1], metric: m[2] as SeatMetric } : null
 }
 
 export const SERIES_LABELS: Record<string, string> = {
-  tps: 'Network tx/s',
+  tps: 'Network tx/s (sealed)',
   blocks_min: 'Blocks / min',
   txs_per_block: 'Txs / block',
-  mempool: 'Mempool',
+  mempool: 'Mempool size (txs waiting)',
+  mempool_in: 'Mempool intake (tx/s, est.)',
   peers: 'Peers',
   online: 'Online seats',
+  height: 'Height',
+  txs_sealed: 'Txs sealed (total)',
+  min_fee: 'Min fee (FPL)',
+  fee_multiplier: 'Fee tier (×)',
+  tip: 'Advertised tip',
   lag: 'Tip lag (blocks)',
   packs_min: 'Packs / min',
   perf: 'Perf score',
@@ -150,10 +172,16 @@ export function seriesValues(a: NetSample | null, b: NetSample): Record<string, 
     mempool: b.mempool,
     peers: b.peers,
     online: b.online,
+    height: b.height,
+    txs_sealed: b.txs_sealed,
+    min_fee: b.min_fee,
+    fee_multiplier: b.fee_multiplier,
   }
   const r = a ? rateBetween(a, b) : null
-  if (r) {
+  if (r && a) {
     out.tps = round(r.tps, 2)
+    // Intake = what was sealed plus how much the mempool grew (evictions/rejects not counted).
+    out.mempool_in = round(Math.max(0, r.tps + (b.mempool - a.mempool) / (r.span_ms / 1000)), 2)
     out.blocks_min = round(r.blocks_min, 2)
     if (r.blocks_min > 0) out.txs_per_block = round(r.txs_per_block, 1)
   }
@@ -161,6 +189,7 @@ export function seriesValues(a: NetSample | null, b: NetSample): Record<string, 
   for (const s of b.seats) {
     const lag = seatLag(b.height, s)
     if (lag != null) out[seatKey(s.id, 'lag')] = lag
+    if (s.tip) out[seatKey(s.id, 'tip')] = s.tip
     if (s.perf != null && Number.isFinite(s.perf)) out[seatKey(s.id, 'perf')] = round(s.perf, 4)
     const p = prev.get(s.id)
     if (a && p && b.t > a.t && s.packs >= p.packs) {

@@ -112,6 +112,12 @@ export default function TrendChart({
       <path d={c.line} fill="none" stroke={COPPER} strokeWidth="1.75" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
       {!compact && (
         <>
+          {[0.25, 0.5, 0.75].map((q) => (
+            <g key={q}>
+              <line x1={pad.l + c.iw * q} x2={pad.l + c.iw * q} y1={pad.t} y2={pad.t + c.ih} stroke="#1E293B" strokeWidth="1" strokeDasharray="2 3" />
+              <text x={pad.l + c.iw * q} y={H - 6} textAnchor="middle" fill="#64748B" fontSize="10">{fmtTime(c.minT + windowMs * q, windowMs)}</text>
+            </g>
+          ))}
           <text x={pad.l} y={H - 6} fill="#64748B" fontSize="10">{fmtTime(c.minT, windowMs)}</text>
           <text x={pad.l + c.iw} y={H - 6} textAnchor="end" fill="#64748B" fontSize="10">{fmtTime(c.now, windowMs)}</text>
         </>

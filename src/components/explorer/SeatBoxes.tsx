@@ -2,15 +2,15 @@
 
 import TrendChart from '@/components/explorer/TrendChart'
 import { getClientSeries } from '@/lib/metric-history'
-import { seatKey, seatLag, type NetSample } from '@/lib/net-metrics'
+import { seatKey, seatLag, type NetSample, type SeatMetric } from '@/lib/net-metrics'
 
-/** One clickable box per bonded seat; click opens its 24h trends. */
+/** One box per bonded seat; each stat inside opens that seat metric's 24h chart. */
 export default function SeatBoxes({
   sample,
   onOpen,
 }: {
   sample: NetSample | null
-  onOpen: (id: string) => void
+  onOpen: (id: string, metric: SeatMetric) => void
 }) {
   if (!sample) return null
   const seats = [...sample.seats].sort((a, b) => Number(b.online) - Number(a.online) || a.id.localeCompare(b.id))
@@ -28,34 +28,39 @@ export default function SeatBoxes({
             : 'text-slate-500'
         const spark = getClientSeries(seatKey(s.id, 'packs_min')).slice(-60)
         return (
-          <button
+          <div
             key={s.id}
-            type="button"
-            onClick={() => onOpen(s.id)}
-            className={`card p-3 text-left flex flex-col gap-1 group hover:border-brand-500/40 transition-colors ${
-              s.online ? '' : 'opacity-60'
-            }`}
-            title={`${s.id}: open 24h trends`}
+            className={`card p-3 flex flex-col gap-1 ${s.online ? '' : 'opacity-60'}`}
           >
             <div className="flex items-center justify-between">
               <span className="font-mono text-sm text-brand-400 truncate">{s.id}</span>
               <span className={`text-[10px] ${tone}`}>{state}</span>
             </div>
             <div className="flex justify-between text-[11px] font-mono text-slate-400">
-              <span>tip {s.tip ? `#${s.tip.toLocaleString()}` : '—'}</span>
-              <span>lag {lag == null ? '—' : lag}</span>
+              <Stat onClick={() => onOpen(s.id, 'tip')} title="24h advertised tip">tip {s.tip ? `#${s.tip.toLocaleString()}` : '—'}</Stat>
+              <Stat onClick={() => onOpen(s.id, 'lag')} title="24h tip lag">lag {lag == null ? '—' : lag}</Stat>
             </div>
             <div className="flex justify-between text-[11px] font-mono text-slate-500">
-              <span>packs {s.packs.toLocaleString()}</span>
-              <span>perf {s.perf == null ? '—' : s.perf.toFixed(3)}</span>
+              <Stat onClick={() => onOpen(s.id, 'packs_min')} title="24h packs / min">packs {s.packs.toLocaleString()}</Stat>
+              <Stat onClick={() => onOpen(s.id, 'perf')} title="24h perf">perf {s.perf == null ? '—' : s.perf.toFixed(3)}</Stat>
             </div>
             <TrendChart series={spark} compact height={28} windowMs={60 * 60_000} gapMs={5 * 60_000} idSuffix={`-seat-${s.id}`} />
-            <span className="text-[10px] text-brand-400/80 opacity-0 group-hover:opacity-100 transition-opacity">
-              Click for 24h trends
-            </span>
-          </button>
+          </div>
         )
       })}
     </div>
+  )
+}
+
+function Stat({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${title} (click)`}
+      className="rounded px-1 -mx-1 hover:bg-brand-500/15 hover:text-brand-300 underline decoration-dotted decoration-slate-600 underline-offset-2 transition-colors"
+    >
+      {children}
+    </button>
   )
 }

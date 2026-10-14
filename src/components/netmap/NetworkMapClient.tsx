@@ -9,7 +9,8 @@ import { layoutMap } from '@/lib/netmap-layout'
 import { rateBetween, seatLag, type NetSample } from '@/lib/net-metrics'
 import type { MetricPoint } from '@/lib/metric-history'
 import TrendChart from '@/components/explorer/TrendChart'
-import TrendModal, { seatPanels } from '@/components/explorer/TrendModal'
+import MetricModal, { seatOptions } from '@/components/explorer/MetricModal'
+import { seatKey } from '@/lib/net-metrics'
 import type { SeatView } from '@/components/netmap/NetworkScene'
 
 const NetworkScene = dynamic(() => import('@/components/netmap/NetworkScene'), {
@@ -149,14 +150,13 @@ export default function NetworkMapClient() {
       <BlockTicker blocks={blocks} />
 
       {modal && (
-        <TrendModal
-          title={`Seat ${modal}`}
-          subtitle={[selPlace?.host, selPlace?.locationLabel].filter(Boolean).join(' · ')}
-          panels={seatPanels(modal, {
-            lag: sel && last ? seatLag(last.height, sel) : null,
-            perf: sel?.perf ?? null,
-            tps: live.rate60s?.tps ?? null,
-            mempool: data?.mempool,
+        <MetricModal
+          metric={seatKey(modal, 'lag')}
+          options={seatOptions(modal, {
+            tip: sel?.tip ? `#${sel.tip.toLocaleString()}` : 'not advertised',
+            lag: sel && last ? String(seatLag(last.height, sel) ?? 'not advertised') : undefined,
+            packs: sel ? `${sel.packs.toLocaleString()} total` : undefined,
+            perf: sel?.perf == null ? undefined : sel.perf.toFixed(3),
           })}
           onClose={() => setModal(null)}
         />
