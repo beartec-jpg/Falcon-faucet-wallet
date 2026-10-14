@@ -5,36 +5,17 @@ import { loadLendingManifestServer } from '@/lib/lending-config'
 import { resolveNetworkKey } from '@/lib/network-server'
 import { getNetwork } from '@/lib/networks'
 import { retiredOnPl } from '@/lib/pl-retired'
+import { clientIp } from '@/lib/security'
+import { consumeRateLimit, peekRateLimit } from '@/lib/rate-limit'
+import { checkLoanSet, cosignLimitsFromEnv } from '@/lib/lend-cosign-policy'
 
 /**
  * Testnet-only: broker owner co-signs LoanSet CounterpartySignature.
- * Only a fixed field allow-list is signed — client cannot inject extra keys.
+ *
+ * Audit M-2: disabled unless LEND_COSIGN_ENABLED=true. When enabled, terms must match the
+ * lending manifest, the principal is capped (LEND_COSIGN_MAX_PRINCIPAL), only the exact
+ * LoanSet fields are accepted, and calls are rate-limited per IP and per borrower account.
  */
-const LOANSET_ALLOW = new Set([
-  'TransactionType',
-  'Account',
-  'Fee',
-  'Sequence',
-  'LastLedgerSequence',
-  'NetworkID',
-  'SigningPubKey',
-  'LoanBrokerID',
-  'LoanPrincipalAmount',
-  'LoanOriginationFee',
-  'LoanInterestRate',
-  'LoanOverpaymentManagement',
-  'LoanScaleManagement',
-  'LoanLateInterestRate',
-  'LoanCloseInterestRate',
-  'LoanPeriodicPayment',
-  'LoanPaymentInterval',
-  'LoanTotalInstallments',
-  'LoanCollateralType',
-  'LoanCollateralAmount',
-  'LoanCollateralAsset',
-  'Flags',
-])
-
 export async function POST(req: NextRequest) {
   const retired = retiredOnPl(req)
   if (retired) return retired
@@ -50,6 +31,10 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  if (process.env.LEND_COSIGN_ENABLED?.toLowerCase() !== 'true') {
+    return NextResponse.json({ error: 'Broker co-sign is disabled' }, { status: 410 })
+  }
+
   const brokerSecret = process.env.TESTNET_LENDING_BROKER_SECRET?.trim()
   if (!brokerSecret) {
     return NextResponse.json(
@@ -58,30 +43,12 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  let body: { tx_json?: Record<string, unknown> }
+  let body: { tx_json?: unknown }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-
-  const raw = body.tx_json
-  if (!raw || typeof raw !== 'object') {
-    return NextResponse.json({ error: 'tx_json required' }, { status: 400 })
-  }
-  if (raw.TransactionType !== 'LoanSet') {
-    return NextResponse.json(
-      { error: 'Only LoanSet co-sign supported' },
-      { status: 400 },
-    )
-  }
-
-  // Strip unknown fields before signing
-  const tx_json: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(raw)) {
-    if (LOANSET_ALLOW.has(k)) tx_json[k] = v
-  }
-  tx_json.TransactionType = 'LoanSet'
 
   const manifest = await loadLendingManifestServer()
   if (!manifest) {
@@ -91,16 +58,25 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const brokerId = String(tx_json.LoanBrokerID ?? '').toUpperCase()
-  if (brokerId !== manifest.loan_broker_id.toUpperCase()) {
+  const network = getNetwork(networkKey)
+  const verdict = checkLoanSet(body.tx_json, manifest, network.networkId, cosignLimitsFromEnv(process.env))
+  if (!verdict.ok) {
+    return NextResponse.json({ error: verdict.error }, { status: 400 })
+  }
+  const tx_json = verdict.tx
+
+  const ipKey = `cosign:ip:${clientIp(req)}`
+  const acctKey = `cosign:acct:${String(tx_json.Account)}`
+  const [ipLimit, acctLimit] = await Promise.all([peekRateLimit(ipKey), peekRateLimit(acctKey)])
+  if (!ipLimit.success || !acctLimit.success) {
     return NextResponse.json(
-      { error: 'LoanBrokerID does not match testnet manifest' },
-      { status: 400 },
+      { error: 'Too many co-sign requests', reset: ipLimit.success ? acctLimit.reset : ipLimit.reset },
+      { status: 429 },
     )
   }
+  await Promise.all([consumeRateLimit(ipKey), consumeRateLimit(acctKey)])
 
   try {
-    const network = getNetwork(networkKey)
     const signed = await proxySign(tx_json, brokerSecret, {
       networkId: network.networkId,
       signatureTarget: 'CounterpartySignature',
