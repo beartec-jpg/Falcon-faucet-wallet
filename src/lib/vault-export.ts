@@ -9,8 +9,16 @@
  * do NOT require Sepolia bridge keys.
  */
 
+import { isSealedPayload, openBackup, sealBackup, type SealedPayload } from '@/lib/backup-crypto'
+
 export const VAULT_EXPORT_TYPE = 'falcon-vault-export'
 export const VAULT_EXPORT_VERSION = 1 as const
+/**
+ * v2 (audit M-4): Argon2id + AES-GCM with the public header bound as AAD. Vault exports keep
+ * address/publicKey/label outside the ciphertext on purpose: the hot portal imports them as a
+ * watch-only vault without the password. v1 files remain importable.
+ */
+export const VAULT_EXPORT_VERSION_SEALED = 2 as const
 
 export interface VaultInnerPayload {
   falcon_secret: string
@@ -24,7 +32,7 @@ export interface VaultInnerPayload {
 }
 
 export interface EncryptedVaultFile {
-  version: typeof VAULT_EXPORT_VERSION
+  version: typeof VAULT_EXPORT_VERSION | typeof VAULT_EXPORT_VERSION_SEALED
   type: typeof VAULT_EXPORT_TYPE
   encrypted: true
   address: string
@@ -36,20 +44,22 @@ export interface EncryptedVaultFile {
   kind?: 'cold' | 'browser'
   /** Optional short fingerprint for UI display */
   fingerprint?: string
-  payload: {
-    data: string
-    iv: string
-    salt: string
-  }
+  payload:
+    | {
+        data: string
+        iv: string
+        salt: string
+      }
+    | SealedPayload
 }
 
-function toBase64(buf: ArrayBuffer | Uint8Array): string {
-  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
-  let bin = ''
-  bytes.forEach((b) => {
-    bin += String.fromCharCode(b)
-  })
-  return btoa(bin)
+
+/** Public header fields bound into the v2 ciphertext so they cannot be swapped. */
+function publicHeader(f: Pick<EncryptedVaultFile, 'address' | 'publicKey' | 'label' | 'createdAt' | 'accountName' | 'payoutAddress' | 'kind'>) {
+  return {
+    address: f.address, publicKey: f.publicKey, label: f.label, createdAt: f.createdAt,
+    accountName: f.accountName ?? null, payoutAddress: f.payoutAddress ?? null, kind: f.kind ?? 'cold',
+  }
 }
 
 function fromBase64(b64: string): Uint8Array {
@@ -115,37 +125,23 @@ export async function createEncryptedVaultFile(
     throw new Error('Invalid vault payload')
   }
 
-  const salt = crypto.getRandomValues(new Uint8Array(32))
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const key = await derivePassphraseKey(passphrase, salt)
-  const enc = await crypto.subtle.encrypt(
-    {
-      name: 'AES-GCM',
-      iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer,
-    },
-    key,
-    new TextEncoder().encode(JSON.stringify(inner)),
-  )
-
   const fingerprint = await vaultFingerprint(inner.address, inner.publicKey)
-
-  return {
-    version: VAULT_EXPORT_VERSION,
-    type: VAULT_EXPORT_TYPE,
-    encrypted: true,
+  const header = {
     address: inner.address,
     publicKey: inner.publicKey,
     label: inner.label,
     createdAt: inner.createdAt,
     accountName: inner.accountName,
     payoutAddress: inner.payoutAddress,
-    kind: inner.kind ?? 'cold',
+    kind: inner.kind ?? ('cold' as const),
+  }
+  return {
+    version: VAULT_EXPORT_VERSION_SEALED,
+    type: VAULT_EXPORT_TYPE,
+    encrypted: true,
+    ...header,
     fingerprint,
-    payload: {
-      data: toBase64(enc),
-      iv: toBase64(iv),
-      salt: toBase64(salt),
-    },
+    payload: await sealBackup(VAULT_EXPORT_TYPE, VAULT_EXPORT_VERSION_SEALED, { inner, header: publicHeader(header) }, passphrase),
   }
 }
 
@@ -153,6 +149,20 @@ export async function decryptVaultFile(
   file: EncryptedVaultFile,
   passphrase: string,
 ): Promise<VaultInnerPayload> {
+  if (file.version === VAULT_EXPORT_VERSION_SEALED) {
+    if (!isSealedPayload(file.payload)) throw new Error('Invalid encrypted vault file')
+    let opened: { inner: VaultInnerPayload; header: ReturnType<typeof publicHeader> }
+    try {
+      opened = await openBackup(VAULT_EXPORT_TYPE, VAULT_EXPORT_VERSION_SEALED, file.payload, passphrase)
+    } catch {
+      throw new Error('Wrong vault password or corrupted vault file')
+    }
+    if (JSON.stringify(opened.header) !== JSON.stringify(publicHeader(file))) {
+      throw new Error('Vault file integrity check failed')
+    }
+    return opened.inner
+  }
+  if (isSealedPayload(file.payload)) throw new Error('Invalid encrypted vault file')
   const salt = fromBase64(file.payload.salt)
   const iv = fromBase64(file.payload.iv)
   const key = await derivePassphraseKey(passphrase, salt)
@@ -185,17 +195,19 @@ export function parseVaultFile(raw: unknown): EncryptedVaultFile {
   if (file.type !== VAULT_EXPORT_TYPE) {
     throw new Error('Not a Falcon vault export file')
   }
-  if (file.version !== VAULT_EXPORT_VERSION) {
+  if (file.version !== VAULT_EXPORT_VERSION && file.version !== VAULT_EXPORT_VERSION_SEALED) {
     throw new Error('Unsupported vault export version')
   }
   if (file.encrypted !== true) {
     throw new Error('Unencrypted vault files are not supported')
   }
-  const payload = file.payload as EncryptedVaultFile['payload'] | undefined
+  const payload = file.payload as Record<string, unknown> | undefined
+  const payloadOk =
+    file.version === VAULT_EXPORT_VERSION_SEALED
+      ? isSealedPayload(payload)
+      : !!(payload?.data && payload?.iv && payload?.salt)
   if (
-    !payload?.data ||
-    !payload?.iv ||
-    !payload?.salt ||
+    !payloadOk ||
     typeof file.address !== 'string' ||
     typeof file.publicKey !== 'string'
   ) {

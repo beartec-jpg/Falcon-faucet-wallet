@@ -4,6 +4,8 @@
 
 export const EVM_BACKUP_TYPE = 'qxrp-sepolia-wallet-backup'
 export const EVM_BACKUP_VERSION = 1
+/** v2 sealed (audit M-4): Argon2id + AES-GCM, header as AAD, no address outside the ciphertext. */
+export const EVM_BACKUP_VERSION_SEALED = 2
 
 export interface EvmBackupPayload {
   evm_private_key: string
@@ -33,14 +35,16 @@ export interface PlainEvmBackupFile extends EvmBackupPayload {
   encrypted: false
 }
 
-export type EvmWalletBackupFile = EncryptedEvmBackupFile | PlainEvmBackupFile
-
-function toBase64(buf: ArrayBuffer | Uint8Array): string {
-  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
-  let bin = ''
-  bytes.forEach((b) => (bin += String.fromCharCode(b)))
-  return btoa(bin)
+export interface SealedEvmBackupFile {
+  version: typeof EVM_BACKUP_VERSION_SEALED
+  type: typeof EVM_BACKUP_TYPE
+  encrypted: true
+  payload: SealedPayload
 }
+
+export type EvmWalletBackupFile = EncryptedEvmBackupFile | SealedEvmBackupFile | PlainEvmBackupFile
+
+import { isSealedPayload, openBackup, sealBackup, type SealedPayload } from '@/lib/backup-crypto'
 
 function fromBase64(b64: string): Uint8Array {
   const bin = atob(b64)
@@ -88,38 +92,28 @@ export function validateEvmBackupPassphrase(passphrase: string): string | null {
 export async function createEncryptedEvmBackup(
   payload: EvmBackupPayload,
   passphrase: string,
-): Promise<EncryptedEvmBackupFile> {
+): Promise<SealedEvmBackupFile> {
   const err = validateEvmBackupPassphrase(passphrase)
   if (err) throw new Error(err)
-
-  const salt = crypto.getRandomValues(new Uint8Array(32))
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const key = await derivePassphraseKey(passphrase, salt)
-  const enc = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer },
-    key,
-    new TextEncoder().encode(JSON.stringify(payload)),
-  )
-
   return {
-    version: EVM_BACKUP_VERSION,
+    version: EVM_BACKUP_VERSION_SEALED,
     type: EVM_BACKUP_TYPE,
     encrypted: true,
-    evm_address: payload.evm_address,
-    label: payload.label,
-    createdAt: payload.createdAt,
-    payload: {
-      data: toBase64(enc),
-      iv: toBase64(iv),
-      salt: toBase64(salt),
-    },
+    payload: await sealBackup(EVM_BACKUP_TYPE, EVM_BACKUP_VERSION_SEALED, payload, passphrase),
   }
 }
 
 export async function decryptEvmBackupFile(
-  file: EncryptedEvmBackupFile,
+  file: EncryptedEvmBackupFile | SealedEvmBackupFile,
   passphrase: string,
 ): Promise<EvmBackupPayload> {
+  if (file.version === EVM_BACKUP_VERSION_SEALED) {
+    const p = await openBackup<EvmBackupPayload>(EVM_BACKUP_TYPE, EVM_BACKUP_VERSION_SEALED, file.payload, passphrase)
+    if (typeof p?.evm_private_key !== 'string' || typeof p.evm_address !== 'string') {
+      throw new Error('Backup file integrity check failed')
+    }
+    return p
+  }
   const salt = fromBase64(file.payload.salt)
   const iv = fromBase64(file.payload.iv)
   const key = await derivePassphraseKey(passphrase, salt)
@@ -147,6 +141,10 @@ export function parseEvmBackupFile(raw: unknown): EvmWalletBackupFile {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid backup file')
   const file = raw as Record<string, unknown>
   if (file.type !== EVM_BACKUP_TYPE) throw new Error('Not a Sepolia wallet backup file')
+  if (file.version === EVM_BACKUP_VERSION_SEALED) {
+    if (file.encrypted !== true || !isSealedPayload(file.payload)) throw new Error('Invalid encrypted backup file')
+    return file as unknown as SealedEvmBackupFile
+  }
   if (file.version !== EVM_BACKUP_VERSION) throw new Error('Unsupported backup version')
 
   if (file.encrypted === true) {
@@ -170,7 +168,10 @@ export function downloadEvmBackup(file: EvmWalletBackupFile): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = evmBackupFilename(file.evm_address)
+  a.download =
+    'evm_address' in file && typeof file.evm_address === 'string'
+      ? evmBackupFilename(file.evm_address)
+      : `sepolia-backup-${new Date().toISOString().slice(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(url)
 }
