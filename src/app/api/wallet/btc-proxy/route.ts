@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { BodyTooLarge, guardProxy, readBodyCapped, tooLarge } from '@/lib/api-guard'
+
+/** Largest standard tx is 400k weight units; hex of 400 kB plus JSON overhead. */
+const MAX_BODY = 820_000
 
 /**
  * Same-origin Bitcoin explorer proxy (testnet/mainnet).
@@ -63,6 +67,8 @@ async function explorerPost(network: string, path: string, body: string): Promis
 }
 
 export async function GET(req: NextRequest) {
+  const denied = await guardProxy(req)
+  if (denied) return denied
   const op = (req.nextUrl.searchParams.get('op') || '').toLowerCase()
   const network = (req.nextUrl.searchParams.get('network') || 'testnet').toLowerCase()
   const net = network === 'mainnet' ? 'mainnet' : 'testnet'
@@ -99,10 +105,13 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await guardProxy(req)
+  if (denied) return denied
   let body: { op?: string; rawHex?: string; network?: string }
   try {
-    body = (await req.json()) as typeof body
-  } catch {
+    body = JSON.parse(await readBodyCapped(req, MAX_BODY)) as typeof body
+  } catch (e) {
+    if (e instanceof BodyTooLarge) return tooLarge(MAX_BODY)
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 

@@ -109,7 +109,7 @@ async function resolveBscProvider(): Promise<JsonRpcProvider> {
   let lastErr: unknown
   for (const url of BSC_TESTNET_RPCS) {
     try {
-      const p = new JsonRpcProvider(url, BSC_TESTNET_CHAIN_ID, { staticNetwork: true })
+      const p = new JsonRpcProvider(url, BSC_TESTNET_CHAIN_ID, { staticNetwork: true, batchMaxCount: 20 })
       await p.getBlockNumber()
       return p
     } catch (e) {
