@@ -7,6 +7,8 @@ import {
   BOARD_POSTS_PER_HOUR,
 } from '@/lib/board-constants'
 import { isClassicAddress } from '@/lib/classic-address'
+import { BUCKETS, hit } from '@/lib/api-guard'
+import { clientIp } from '@/lib/security'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -40,6 +42,14 @@ export async function POST(req: NextRequest) {
 
   if (!isClassicAddress(authorAddress)) {
     return err('Invalid Falcon address')
+  }
+
+  // Challenge rows are unauthenticated writes: bound them per IP and per address.
+  if (
+    !(await hit(BUCKETS.boardChallengeIp, `ip:${clientIp(req)}`)) ||
+    !(await hit(BUCKETS.boardChallengeAddr, `addr:${authorAddress}`))
+  ) {
+    return err('Too many challenge requests; try again later', 429)
   }
 
   const { buildBoardSignMessage, normalizeBoardBody } = await import('@/lib/board-auth')

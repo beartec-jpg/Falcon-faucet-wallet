@@ -76,7 +76,7 @@ export const BSC_TESTNET_RPC_FALLBACKS = [
 ] as const
 
 function provider(rpcUrl: string, chainId = 11155111): JsonRpcProvider {
-  return new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true })
+  return new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true, batchMaxCount: 20 })
 }
 
 /** Same-origin BSC proxy — works under Vercel CSP where public RPCs fail with "Failed to fetch". */

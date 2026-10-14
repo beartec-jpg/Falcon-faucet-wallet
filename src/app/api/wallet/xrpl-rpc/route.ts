@@ -3,6 +3,9 @@ import {
   XRPL_CLASSIC_HTTP,
   type XrplClassicNetwork,
 } from '@/lib/xrpl-classic-rpc'
+import { BodyTooLarge, guardProxy, readBodyCapped, tooLarge } from '@/lib/api-guard'
+
+const MAX_BODY = 128_000
 
 /**
  * Same-origin XRPL JSON-RPC proxy (classic public networks).
@@ -38,10 +41,13 @@ function parseNetwork(raw: string | null): XrplClassicNetwork {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await guardProxy(req)
+  if (denied) return denied
   let body: unknown
   try {
-    body = await req.json()
-  } catch {
+    body = JSON.parse(await readBodyCapped(req, MAX_BODY))
+  } catch (e) {
+    if (e instanceof BodyTooLarge) return tooLarge(MAX_BODY)
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 

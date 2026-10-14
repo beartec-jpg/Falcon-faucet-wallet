@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { BodyTooLarge, guardProxy, readBodyCapped, tooLarge } from '@/lib/api-guard'
+
+const MAX_BODY = 256_000
+const MAX_BATCH = 20
 
 /**
  * Same-origin JSON-RPC proxy for BSC testnet (ethers-compatible response shape).
@@ -106,10 +110,13 @@ async function forwardOne(req: RpcReq): Promise<Record<string, unknown>> {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await guardProxy(req)
+  if (denied) return denied
   let body: unknown
   try {
-    body = await req.json()
-  } catch {
+    body = JSON.parse(await readBodyCapped(req, MAX_BODY))
+  } catch (e) {
+    if (e instanceof BodyTooLarge) return tooLarge(MAX_BODY)
     return NextResponse.json(
       { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Invalid JSON body' } },
       { status: 400 },
@@ -118,6 +125,12 @@ export async function POST(req: NextRequest) {
 
   // ethers may send a batch array
   if (Array.isArray(body)) {
+    if (body.length === 0 || body.length > MAX_BATCH) {
+      return NextResponse.json(
+        { jsonrpc: '2.0', id: null, error: { code: -32600, message: `Batch must have 1-${MAX_BATCH} calls` } },
+        { status: 400 },
+      )
+    }
     const out = await Promise.all(body.map((item) => forwardOne(item as RpcReq)))
     return NextResponse.json(out)
   }

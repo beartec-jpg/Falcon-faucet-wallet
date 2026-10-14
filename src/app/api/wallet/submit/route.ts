@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isOriginAllowed } from '@/lib/origin'
 import { resolveNetworkKey, serverNetworkConfig, serverRpcCall } from '@/lib/network-server'
+import { clientIp } from '@/lib/security'
+import { BodyTooLarge, readBodyCapped, tooLarge } from '@/lib/api-guard'
 import { peekSubmitRateLimit, consumeSubmitRateLimit } from '@/lib/rate-limit'
 import { plSubmit, plSubmitRaw, type PlTx } from '@/lib/pl-rpc'
 import {
@@ -9,13 +11,8 @@ import {
   isBtcPegOutPlTx,
 } from '@/lib/btc-withdrawals'
 
-function clientIp(req: NextRequest): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    req.headers.get('x-real-ip') ??
-    'unknown'
-  )
-}
+/** Falcon-512 signed txs are a few kB; 64 kB leaves ample headroom. */
+const MAX_BODY = 65_536
 
 export async function POST(req: NextRequest) {
   if (!isOriginAllowed(req)) {
@@ -34,8 +31,9 @@ export async function POST(req: NextRequest) {
 
   let body: { tx_blob?: unknown; tx?: unknown; tx_json?: unknown; network?: string }
   try {
-    body = await req.json()
-  } catch {
+    body = JSON.parse(await readBodyCapped(req, MAX_BODY))
+  } catch (e) {
+    if (e instanceof BodyTooLarge) return tooLarge(MAX_BODY)
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
