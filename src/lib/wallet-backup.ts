@@ -1,10 +1,15 @@
 /**
  * Encrypted wallet backup files for client-side restore.
  * One file = Falcon + multi-chain deposit keys (EVM + BTC + classic XRPL).
- * v1 Falcon only · v2 + EVM · v3 + BTC · v4 + classic XRPL XRP
+ * v1 Falcon only · v2 + EVM · v3 + BTC · v4 + classic XRPL XRP (PBKDF2, addresses in clear; import only)
+ * v5 sealed (audit M-4): Argon2id + AES-GCM with the header as AAD; no addresses or labels outside
+ *    the ciphertext. All new backups are v5.
  */
 
+import { isSealedPayload, openBackup, sealBackup, type SealedPayload } from '@/lib/backup-crypto'
+
 export const BACKUP_TYPE = 'qxrp-falcon-wallet-backup'
+export const BACKUP_VERSION_SEALED = 5
 export const BACKUP_VERSION = 4
 export const BACKUP_VERSION_V3 = 3
 export const BACKUP_VERSION_V2 = 2
@@ -34,8 +39,9 @@ export interface BackupPayload {
   xrpl_classic_public_key?: string
 }
 
-export interface EncryptedBackupFile {
-  version: number
+/** v1–v4 (read-only). */
+export interface LegacyEncryptedBackupFile {
+  version: 1 | 2 | 3 | 4
   type: typeof BACKUP_TYPE
   encrypted: true
   address: string
@@ -55,13 +61,19 @@ export interface EncryptedBackupFile {
   }
 }
 
+/** v5: only type/version/KDF params are visible. */
+export interface SealedBackupFile {
+  version: typeof BACKUP_VERSION_SEALED
+  type: typeof BACKUP_TYPE
+  encrypted: true
+  payload: SealedPayload
+}
+
+export type EncryptedBackupFile = LegacyEncryptedBackupFile | SealedBackupFile
 export type WalletBackupFile = EncryptedBackupFile
 
-function toBase64(buf: ArrayBuffer | Uint8Array): string {
-  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
-  let bin = ''
-  bytes.forEach(b => (bin += String.fromCharCode(b)))
-  return btoa(bin)
+export function isSealedBackupFile(f: EncryptedBackupFile): f is SealedBackupFile {
+  return f.version === BACKUP_VERSION_SEALED
 }
 
 function fromBase64(b64: string): Uint8Array {
@@ -117,7 +129,7 @@ function backupVersionForPayload(payload: BackupPayload): number {
 export async function createEncryptedBackup(
   payload: BackupPayload,
   passphrase: string,
-): Promise<EncryptedBackupFile> {
+): Promise<SealedBackupFile> {
   const err = validateBackupPassphrase(passphrase)
   if (err) throw new Error(err)
 
@@ -126,36 +138,31 @@ export async function createEncryptedBackup(
     throw new Error('Multi-chain EVM keys are required for wallet backup')
   }
 
-  const salt = crypto.getRandomValues(new Uint8Array(32))
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const key = await derivePassphraseKey(passphrase, salt)
-  const enc = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer },
-    key,
-    new TextEncoder().encode(JSON.stringify(payload)),
-  )
-
+  if (!payload.falcon_secret || !payload.address) throw new Error('Invalid backup payload')
   return {
-    version,
+    version: BACKUP_VERSION_SEALED,
     type: BACKUP_TYPE,
     encrypted: true,
-    address: payload.address,
-    accountName: payload.accountName,
-    evm_address: payload.evm_address,
-    btc_address: payload.btc_address,
-    xrpl_classic_address: payload.xrpl_classic_address,
-    label: payload.label,
-    createdAt: payload.createdAt,
-    payload: {
-      data: toBase64(enc),
-      iv: toBase64(iv),
-      salt: toBase64(salt),
-    },
+    payload: await sealBackup(BACKUP_TYPE, BACKUP_VERSION_SEALED, payload, passphrase),
   }
 }
 
 export async function decryptBackupFile(
   file: EncryptedBackupFile,
+  passphrase: string,
+): Promise<BackupPayload> {
+  if (isSealedBackupFile(file)) {
+    const payload = await openBackup<BackupPayload>(BACKUP_TYPE, BACKUP_VERSION_SEALED, file.payload, passphrase)
+    if (typeof payload?.falcon_secret !== 'string' || typeof payload.address !== 'string') {
+      throw new Error('Backup file integrity check failed')
+    }
+    return payload
+  }
+  return decryptLegacyBackupFile(file, passphrase)
+}
+
+async function decryptLegacyBackupFile(
+  file: LegacyEncryptedBackupFile,
   passphrase: string,
 ): Promise<BackupPayload> {
   const salt = fromBase64(file.payload.salt)
@@ -191,6 +198,10 @@ export function parseBackupFile(raw: unknown): WalletBackupFile {
   const file = raw as Record<string, unknown>
   if (file.type !== BACKUP_TYPE) throw new Error('Not a Falcon Ledger wallet backup file')
   const ver = Number(file.version)
+  if (ver === BACKUP_VERSION_SEALED) {
+    if (file.encrypted !== true || !isSealedPayload(file.payload)) throw new Error('Invalid encrypted backup file')
+    return file as unknown as SealedBackupFile
+  }
   if (
     ver !== BACKUP_VERSION &&
     ver !== BACKUP_VERSION_V3 &&
@@ -204,11 +215,11 @@ export function parseBackupFile(raw: unknown): WalletBackupFile {
     throw new Error('Unencrypted backup files are not supported. Restore from a passphrase-encrypted backup.')
   }
 
-  const payload = file.payload as EncryptedBackupFile['payload'] | undefined
+  const payload = file.payload as LegacyEncryptedBackupFile['payload'] | undefined
   if (!payload?.data || !payload?.iv || !payload?.salt || typeof file.address !== 'string') {
     throw new Error('Invalid encrypted backup file')
   }
-  return file as unknown as EncryptedBackupFile
+  return file as unknown as LegacyEncryptedBackupFile
 }
 
 export function backupHasBridgeKeys(payload: BackupPayload): boolean {
@@ -227,6 +238,10 @@ export function backupFilename(file: WalletBackupFile | string): string {
   if (typeof file === 'string') {
     const slug = file.replace(/[^a-z0-9._-]+/gi, '-').slice(0, 24) || 'wallet'
     return `falcon-multi-backup-${slug}.json`
+  }
+  if (isSealedBackupFile(file)) {
+    // No account name or address in the file name either (M-4).
+    return `falcon-multi-backup-${new Date().toISOString().slice(0, 10)}.json`
   }
   const slug = (file.accountName || file.label || file.address || 'wallet')
     .replace(/[^a-z0-9._-]+/gi, '-')
@@ -256,7 +271,7 @@ export async function shareBackup(file: WalletBackupFile): Promise<boolean> {
   await navigator.share({
     files: [shareFile],
     title: 'Falcon & multi wallet backup',
-    text: `Backup for ${file.accountName || file.address}`,
+    text: isSealedBackupFile(file) ? 'Encrypted Falcon wallet backup' : `Backup for ${file.accountName || file.address}`,
   })
   return true
 }

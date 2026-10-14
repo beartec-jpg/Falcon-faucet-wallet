@@ -215,8 +215,7 @@ function LegacyRewardsPage() {
     setError(null)
     try {
       const { address, publicKey } = keysFromFalconSecret(secret)
-      const { credentialId, hasPrf } = await registerPasskey(address.slice(0, 16))
-      const { keyBytes } = await authenticatePasskey(credentialId, hasPrf)
+      const { credentialId, hasPrf, keyBytes } = await registerPasskey(address.slice(0, 16))
       const encrypted = await encryptSeed(secret, keyBytes, hasPrf)
       const entry: StoredValidatorCredentials = {
         address,

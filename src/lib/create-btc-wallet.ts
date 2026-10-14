@@ -4,6 +4,7 @@
  * Stored encrypted in the same passkey vault + falcon-backup JSON.
  */
 
+import type { WalletKey } from '@/lib/wallet-key'
 import { Wallet, hexlify } from 'ethers'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { ripemd160 } from '@noble/hashes/legacy.js'
@@ -80,7 +81,7 @@ export function hasBtcWallet(wallet: Pick<StoredWallet, 'btcAddress' | 'btcEncry
 
 export async function encryptBtcKeyForPasskey(
   privateKeyHex: string,
-  keyBytes: Uint8Array,
+  keyBytes: WalletKey,
   hasPrf: boolean,
 ): Promise<{ address: string; addressMainnet: string; btcEncrypted: EncryptedSeed }> {
   const pk = privateKeyHex.replace(/^0x/i, '').toLowerCase()
@@ -96,7 +97,7 @@ export async function encryptBtcKeyForPasskey(
 }
 
 export async function createBtcWalletForPasskey(
-  keyBytes: Uint8Array,
+  keyBytes: WalletKey,
   hasPrf: boolean,
 ): Promise<{ address: string; addressMainnet: string; privateKeyHex: string; btcEncrypted: EncryptedSeed }> {
   const { privateKeyHex, addressMainnet, addressTestnet } = createRandomBtcWallet()

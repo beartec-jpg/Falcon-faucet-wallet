@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import Script from 'next/script'
+import { headers } from 'next/headers'
 import Providers from '@/components/Providers'
 import './globals.css'
 
@@ -34,7 +35,9 @@ export const viewport: Viewport = {
   initialScale: 1,
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Reading the request makes every page dynamic, which a per-request CSP nonce needs (M-3).
+  const nonce = (await headers()).get('x-nonce') ?? undefined
   return (
     <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`}>
       <head>
@@ -45,7 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen flex flex-col">
         <Providers>{children}</Providers>
         {/* Register service worker for PWA */}
-        <Script id="sw-register" strategy="afterInteractive">
+        <Script id="sw-register" strategy="afterInteractive" nonce={nonce}>
           {process.env.NEXT_PUBLIC_DISABLE_SW === '1'
             ? `if ('serviceWorker' in navigator) { navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); }); }`
             : `if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(function(){}); }`}
