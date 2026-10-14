@@ -59,3 +59,51 @@ describe('admin token', () => {
     expect(adminTokenOk(null)).toBe(false)
   })
 })
+
+describe('admin store and helpers', () => {
+  it('maps seats to tiers', async () => {
+    const { tierForSeat } = await import('@/lib/first35-store')
+    expect([1, 5, 6, 15, 16, 35].map(tierForSeat)).toEqual([1_000_000, 1_000_000, 500_000, 500_000, 100_000, 100_000])
+    expect(tierForSeat(0)).toBeNull()
+    expect(tierForSeat(36)).toBeNull()
+    expect(tierForSeat(null)).toBeNull()
+  })
+  it('validates admin entries', async () => {
+    const { validateAdminEntry } = await import('@/lib/first35-store')
+    const base = { account: 'newbie', telegram: 't1', discord: 'd1', x_handle: 'x1', note: '' }
+    expect(validateAdminEntry({ ...base, status: 'approved', seat: '3' })).toMatchObject({ status: 'approved', seat: 3 })
+    expect(validateAdminEntry({ ...base, seat: 40 })).toMatch(/Seat/)
+    expect(validateAdminEntry({ ...base, status: 'bogus' })).toMatch(/Status/)
+    expect(validateAdminEntry({ ...base, status: 'revoked', seat: 4 })).toMatchObject({ seat: null })
+  })
+  it('adds, seats, revokes (freeing the seat), edits and deletes', async () => {
+    const { memoryFirst35Store } = await import('@/lib/first35-store')
+    const s = memoryFirst35Store()
+    const e = { account: 'a1', telegram: 't', discord: 'd', x_handle: 'x', note: '', status: 'approved' as const, seat: 1 }
+    const r1 = await s.adminInsert(e)
+    expect(r1.ok).toBe(true)
+    expect(await s.adminInsert({ ...e, account: 'a2' })).toEqual({ ok: false, reason: 'seat_taken' })
+    expect(await s.adminInsert({ ...e, seat: 2 })).toEqual({ ok: false, reason: 'duplicate' })
+    const r2 = await s.adminInsert({ ...e, account: 'a2', seat: null })
+    const id1 = (r1 as { id: number }).id, id2 = (r2 as { id: number }).id
+    expect(await s.setSeat(id2, 1)).toEqual({ ok: false, reason: 'seat_taken' })
+    expect(await s.setStatus(id1, 'revoked')).toBe(true)
+    expect((await s.list()).find((x) => x.id === id1)?.seat).toBeNull()
+    expect(await s.setSeat(id2, 1)).toEqual({ ok: true })
+    expect(await s.update(id2, { ...e, account: 'a2', note: 'edited', seat: 1 })).toEqual({ ok: true })
+    expect((await s.list()).find((x) => x.id === id2)).toMatchObject({ note: 'edited', manual: true })
+    expect(await s.approvedCount()).toBe(1)
+    expect(await s.remove(id1)).toBe(true)
+    expect(await s.remove(id1)).toBe(false)
+    expect((await s.list()).length).toBe(1)
+  })
+  it('exports CSV safely', async () => {
+    const { applicationsCsv } = await import('@/lib/first35-store')
+    const csv = applicationsCsv([{ id: 1, account: 'a', telegram: '=cmd', discord: 'd,1', x_handle: 'x', note: 'say "hi"', status: 'approved', seat: 7, manual: true, created_at: '2026-10-14', last_active: '2026-10-13' }])
+    const line = csv.trim().split('\n')[1]
+    expect(line).toContain("'=cmd")
+    expect(line).toContain('"d,1"')
+    expect(line).toContain('"say ""hi"""')
+    expect(line).toContain('500000')
+  })
+})
