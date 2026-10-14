@@ -17,8 +17,8 @@ export function borrowBlockedReason(
   if (!data?.protocol.txSigningReady) return 'Lending protocol is not active on this network.'
   const permissionless =
     data.protocol.lendingPermissionless && data.protocol.lendingCollateral
-  if (!permissionless && !data.lending.cosignReady) {
-    return 'Borrow co-sign is not configured on the server (TESTNET_LENDING_BROKER_SECRET).'
+  if (!permissionless) {
+    return 'Borrow requires LendingPermissionless + LendingCollateral on-chain (broker co-sign removed).'
   }
   const vault = data.vaults?.[0]
   if (!vault) return 'Lend vault is not configured.'

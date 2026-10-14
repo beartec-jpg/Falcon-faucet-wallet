@@ -65,9 +65,7 @@ export function LendProtocolBanner({ data }: { data: LendOverview | null }) {
           {protocol.txSigningReady
             ? protocol.lendingPermissionless && protocol.lendingCollateral
               ? 'Supply, permissionless borrow (FPL collateral, 150% HF), add collateral, claim, repay, and on-chain liquidation (LoanManage + HF monitor) are wired.'
-              : lending.cosignReady
-                ? 'Supply, borrow (LoanSet + broker co-sign), claim, repay, and on-chain risk enforcement are wired. Enable LendingPermissionless on validators for collateral-only borrow.'
-                : 'Supply and claim work from the portal. Borrow needs LendingPermissionless on-chain, or TESTNET_LENDING_BROKER_SECRET for legacy co-sign.'
+              : 'Supply and claim work from the portal. Borrow needs LendingPermissionless + LendingCollateral on-chain (broker co-sign removed).'
             : 'Run bootstrap-testnet-lending.py on the coordinator to create the F-USDC vault and loan broker.'}
         </p>
       </div>
@@ -841,7 +839,7 @@ export function LendBorrowPanel({
       : null
   const ready =
     data?.protocol.txSigningReady &&
-    (permissionless || data?.lending.cosignReady) &&
+    permissionless &&
     !!onBorrow &&
     !blocked &&
     !collateralBlocked
@@ -857,11 +855,11 @@ export function LendBorrowPanel({
       <h2 className="text-sm font-semibold text-white">Borrow F-USDC</h2>
       <p className="text-xs text-slate-500">
         Open a loan via <code className="text-slate-400">LoanSet</code>. You sign as borrower and lock FPL collateral
-        on-chain{permissionless ? ' — no operator co-sign when LendingPermissionless is enabled' : '; the broker owner co-signs CounterpartySignature'}.
+        on-chain. Broker co-sign has been removed; LendingPermissionless + LendingCollateral are required.
       </p>
-      {!permissionless && !data?.lending.cosignReady && data?.protocol.txSigningReady && (
+      {!permissionless && data?.protocol.txSigningReady && (
         <p className="text-xs text-amber-400">
-          Broker co-sign secret not on server — borrow disabled until TESTNET_LENDING_BROKER_SECRET is set.
+          Borrow disabled until LendingPermissionless and LendingCollateral are enabled on-chain (broker co-sign removed).
         </p>
       )}
       {permissionless && (

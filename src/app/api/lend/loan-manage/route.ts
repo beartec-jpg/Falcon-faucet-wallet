@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   }
   if (!brokerSecret()) {
     return NextResponse.json(
-      { error: 'Broker secret not configured' },
+      { error: 'Broker owner signing retired (co-sign removed); delete TESTNET_LENDING_BROKER_SECRET from Vercel' },
       { status: 503 },
     )
   }

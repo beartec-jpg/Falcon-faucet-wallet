@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isOriginAllowed } from '@/lib/origin'
+import { requireBrowserOrigin } from '@/lib/origin'
 import { getSql, isDbConfigured } from '@/lib/db'
 import {
   BOARD_BODY_MAX,
@@ -18,7 +18,7 @@ function err(msg: string, status = 400) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isOriginAllowed(req)) {
+  if (!requireBrowserOrigin(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
   if (!isDbConfigured()) {

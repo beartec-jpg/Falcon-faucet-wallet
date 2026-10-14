@@ -13,7 +13,7 @@ import {
 } from '@/lib/faucet-quota'
 import { runFaucetSybilGates, consumeFaucetSybilBudgets } from '@/lib/faucet-sybil'
 import { signPayment, dropsFromQxrp } from '@/lib/xrpl-sign'
-import { isOriginAllowed } from '@/lib/origin'
+import { requireBrowserOrigin } from '@/lib/origin'
 import { isClassicAddress } from '@/lib/classic-address'
 import {
   resolveFaucet,
@@ -29,6 +29,14 @@ import { walletApiHeaders, walletApiUrl } from '@/lib/walletd'
 
 const WALLET_API = walletApiUrl()
 
+class WalletApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function faucetViaHttp(to: string, amount: number) {
   const r = await fetch(WALLET_API, {
     method: 'POST',
@@ -36,7 +44,9 @@ async function faucetViaHttp(to: string, amount: number) {
     body: JSON.stringify({ action: 'faucet', account: to, amount }),
   })
   const d = (await r.json()) as { error?: string; txId?: string; raw?: string }
-  if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
+  if (!r.ok) {
+    throw new WalletApiError(d.error ?? `wallet api ${r.status}`, r.status)
+  }
   const m = String(d.raw ?? '').match(/tx_id=([0-9a-fA-F]+)/)
   return { txId: d.txId || m?.[1] || '' }
 }
@@ -60,7 +70,7 @@ function isPlAccount(name: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isOriginAllowed(req)) {
+  if (!requireBrowserOrigin(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
 
@@ -149,6 +159,15 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       const msg = String(e instanceof Error ? e.message : e)
       console.error('[faucet] PL drip failed:', msg)
+      if (e instanceof WalletApiError && e.status === 429) {
+        return err(
+          msg.includes('limit') || msg.includes('rate') || msg.includes('day')
+            ? msg
+            : 'Faucet rate limit reached for this account. Try again tomorrow.',
+          429,
+          { limitType: 'walletd' },
+        )
+      }
       return err('Cannot reach Falcon PL. Try again shortly.', 503)
     }
 
