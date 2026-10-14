@@ -30,14 +30,25 @@ import {
   signFusdcPayment,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
-import { signPlAssetPay, signPlPay } from '@/lib/pl-wallet-sign'
+import { signPlAssetPay, signPlPay, signPlPayToKey } from '@/lib/pl-wallet-sign'
+import { isOwnLinkedVault, isPayToKeyUnsupported, keyCommitHash } from '@/lib/vault-activation'
+import { loadPrimaryVault } from '@/lib/vault-store'
 import {
   normalizeAccountName,
   cacheAccountName,
   readCachedAccountName,
 } from '@/lib/account-name'
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
-import { activationFeeFpl, normalizePlName, plAccountId, plNameHint } from '@/lib/pl-names'
+import {
+  activationFeeFpl,
+  canonicalNameInput,
+  hotWalletNameError,
+  isVaultSuffixName,
+  linkedVaultName,
+  normalizePlName,
+  plAccountId,
+  plNameHint,
+} from '@/lib/pl-names'
 import { parsePlBook, type PlLendLine, type PlPoolLine } from '@/lib/pl-book'
 import {
   backupHasBridgeKeys,
@@ -707,7 +718,7 @@ export default function WalletPage() {
       setCreateNameStatus('idle')
       return
     }
-    if (!n) {
+    if (!n || isVaultSuffixName(createName)) {
       setCreateNameStatus('invalid')
       return
     }
@@ -734,9 +745,10 @@ export default function WalletPage() {
       setError('Passkeys need a secure context (HTTPS or localhost). Please use the live site.')
       return
     }
-    const picked = normalizePlName(createName)
-    if (!picked) {
-      setError(plNameHint(createName) || 'Pick a valid account name')
+    const nameErr = hotWalletNameError(createName)
+    const picked = nameErr ? null : normalizePlName(canonicalNameInput(createName))
+    if (nameErr || !picked) {
+      setError(nameErr || plNameHint(createName) || 'Pick a valid account name')
       return
     }
     if (createNameStatus === 'taken') {
@@ -760,6 +772,7 @@ export default function WalletPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'reserve',
+          purpose: 'wallet',
           name: picked,
           publicKey,
         }),
@@ -1441,6 +1454,7 @@ export default function WalletPage() {
     const extracted = parseFalconAddressFromScan(to)
     if (extracted) to = extracted
 
+    let ownVaultKeyHash: string | null = null
     // On 2300 the name is the account. Do not run it through the signup
     // block list — dave, alice, and the other test seats are real accounts.
     if (network.networkId === 2300) {
@@ -1463,8 +1477,16 @@ export default function WalletPage() {
         )
         const j = (await r.json()) as { exists?: boolean }
         if (r.ok && j.exists === false) {
-          setError(`No Falcon account named “${name}”`)
-          return
+          // This wallet's own not-yet-activated `.vault`: fund it with
+          // pay_to_key so the commit binds the vault key (2.9.65+).
+          const own = await loadPrimaryVault().catch(() => null)
+          const hotAcct = plAccountId(wallet)
+          if (own && isOwnLinkedVault(name, hotAcct, own, linkedVaultName(hotAcct))) {
+            ownVaultKeyHash = await keyCommitHash(own.publicKey)
+          } else {
+            setError(`No Falcon account named “${name}”`)
+            return
+          }
         }
       } catch {
         /* a status blip should not block a send to a real name */
@@ -1616,6 +1638,40 @@ export default function WalletPage() {
                     : sendAsset === 'fusdc'
                       ? { asset: 'USDC' as const, amount: decimalToBaseUnits(sendAmount, 6) }
                       : null
+              const submitTx = async (tx: { rawJson?: string }) => {
+                const res = await fetch('/api/wallet/submit', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(
+                    tx.rawJson
+                      ? { tx_json: tx.rawJson, network: networkKey }
+                      : { tx, network: networkKey },
+                  ),
+                })
+                const out = (await res.json().catch(() => ({}))) as SubmitResult
+                if (out.error) throw new Error(out.error)
+                return out
+              }
+              if (!rail && ownVaultKeyHash) {
+                const ptk = await signPlPayToKey({
+                  account: plAccountId(wallet),
+                  destination: to,
+                  amount: amt,
+                  keyHash: ownVaultKeyHash,
+                  sequence: seq.sequence,
+                  fee: 2,
+                  networkId: network.networkId,
+                  falconSecret: falcon_secret,
+                })
+                try {
+                  const out = await submitTx(ptk)
+                  if (out.success !== false) return out
+                  if (!isPayToKeyUnsupported(String(out.message ?? ''))) return out
+                } catch (e) {
+                  if (!isPayToKeyUnsupported(e instanceof Error ? e.message : String(e))) throw e
+                }
+                // pay_to_key not live yet: a plain Pay still enrolls first-seen.
+              }
               const tx = rail
                 ? await signPlAssetPay({
                     account: plAccountId(wallet),
