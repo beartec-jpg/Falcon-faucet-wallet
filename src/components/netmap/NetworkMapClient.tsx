@@ -138,7 +138,7 @@ export default function NetworkMapClient() {
     <div className="netmap-root fixed inset-0 bg-[#020617] text-[#E0DBCA] overflow-hidden" style={{ fontFamily: 'var(--font-inter), Inter, sans-serif' }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="absolute inset-0 right-0 md:right-[340px] bottom-[86px]">
-        {data && <NetworkScene layout={layout} seats={seats} event={event} maxBulges={CFG.maxBulges} selected={selected} onSelect={onSelect} fpsRef={fpsRef} watchers={watcherProps} consensus={consensusView} />}
+        {data && <NetworkScene layout={layout} seats={seats} event={event} maxBulges={CFG.maxBulges} selected={selected} onSelect={onSelect} fpsRef={fpsRef} watchers={watcherProps} consensus={consensusView} walletCount={data.wallets?.activated ?? null} tps={live.rate60s?.tps ?? null} />}
         {!data && (
           <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">
             {feed.error ? `Status unavailable: ${feed.error}. Retrying…` : 'Connecting to Falcon PL status…'}
@@ -177,6 +177,7 @@ export default function NetworkMapClient() {
           <Legend c="#2F4A3E" t="Online, not in this committee" />
           <Legend c="#475569" t="Jailed / offline" />
           <Legend c="#C07838" t={`Hub / archive (${CFG.hub.seat} on ${CFG.hub.host})`} />
+          <Legend c="#D4922A" t="Wallet services → hub beam, sized by live tx/s" dot />
           <Legend c="#D4922A" t="Tx beams: hub → seats, 1 per 10 sealed txs" dot />
           <Legend c="#4ADE80" t="Vote pulse: voter → packer (rail)" dot />
           <Legend c="#FFC060" t="Sealed package: packer → hub" dot />
@@ -346,12 +347,11 @@ const CSS = `
 .netmap-phase[data-p=seal]{border-color:#D4922A;color:#FFD08A}
 .netmap-phase[data-p=beam]{border-color:#C07838;color:#E0B080}
 .netmap-tag{display:inline-block;margin:2px 0 1px;font-size:9px;padding:0 5px;border-radius:999px;border:1px solid #C0783866;color:#C07838;background:#020617cc}
-.netmap-tag[data-todo]{border-style:dashed;border-color:#D4922A;color:#D4922A}
 .netmap-plate{font-family:var(--font-mono),'JetBrains Mono',monospace;text-align:center;white-space:nowrap;user-select:none;padding:3px 10px;border-radius:6px;background:linear-gradient(180deg,#0F172Aee,#020617ee);border:1px solid #C07838}
 .netmap-plate-hub{box-shadow:0 0 14px #C0783855;border-color:#D4922A}
 .netmap-plate-hub .netmap-label-name{font-size:13px}
 .netmap-plate-kicker{font-size:9px;letter-spacing:.25em;color:#D4922A}
-.netmap-plate-ingress{border-style:dashed;border-color:#D4922A}
+.netmap-plate-wallet{border-color:#D4922A;box-shadow:0 0 12px #D4922A44;text-align:left}
 .netmap-watch{font-family:var(--font-mono),'JetBrains Mono',monospace;font-size:10px;color:#E0DBCA;white-space:nowrap;padding:2px 8px;border-radius:999px;border:1px solid #D4922A88;background:#020617cc;user-select:none}
 .netmap-watch-dot{display:inline-block;width:6px;height:6px;border-radius:999px;margin-right:6px;background:#475569}
 .netmap-watch-dot[data-on]{background:#F5E7C8;box-shadow:0 0 8px #D4922A}
@@ -360,7 +360,6 @@ const CSS = `
 @keyframes netmap-toast{0%{opacity:0;transform:translate(-50%,-8px)}10%,85%{opacity:1;transform:translate(-50%,0)}100%{opacity:0}}
 .netmap-toast{animation:netmap-toast 3.5s ease-out forwards}
 .netmap-loc{font-family:var(--font-inter),Inter,sans-serif;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#C07838;white-space:nowrap;user-select:none}
-.netmap-todo{margin-left:6px;font-size:9px;letter-spacing:.05em;padding:1px 5px;border-radius:4px;border:1px dashed #D4922A;color:#D4922A}
 @keyframes netmap-drop{0%{transform:translateY(-38px) scale(.9);opacity:0;box-shadow:0 0 0 #D4922A}40%{opacity:1;box-shadow:0 0 18px #D4922A}100%{transform:none;box-shadow:0 0 0 transparent}}
 .netmap-block-new{animation:netmap-drop .7s ease-out}
 .netmap-block{background:#020617;min-width:92px}

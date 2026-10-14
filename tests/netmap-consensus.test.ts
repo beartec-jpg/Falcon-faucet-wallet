@@ -57,3 +57,13 @@ describe('consensus round', () => {
     expect(nextInterval(0, 1, 100)).toBe(800)
   })
 })
+
+import { walletsFromStatus } from '@/lib/scan-snapshot'
+describe('activated wallets', () => {
+  it('reads status.accounts_count, keeps the last real value ≤ 5 min, never invents one', () => {
+    expect(walletsFromStatus({ accounts_count: 968 }, 0)).toEqual({ wallets: { activated: 968, source: 'status.accounts_count' } })
+    expect(walletsFromStatus({}, 60_000).wallets?.activated).toBe(968)
+    expect(walletsFromStatus({}, 10 * 60_000)).toEqual({})
+    expect(walletsFromStatus({ accounts_count: 'x' }, 10 * 60_000)).toEqual({})
+  })
+})

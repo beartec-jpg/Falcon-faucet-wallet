@@ -27,8 +27,11 @@ export interface MapLocation {
 export interface NetworkMapConfig {
   /** Seat drawn at the top of the map; pipes run from it down to every validator. */
   hub: { seat: string; host: string }
-  /** Seat whose box takes in client transactions (loadgen); drawn with an ingress pipe. */
-  ingress: { seat: string; label: string } | null
+  /**
+   * Wallet services: where client transactions enter (wallet app + loadgen,
+   * falcon-pl-loadgen.service). Drawn above the hub, beaming txs into it.
+   */
+  wallet: { label: string; sub: string } | null
   /** Status poll interval, ms (the brief asks for 1–2 s). */
   pollMs: number
   /** Hard cap on live transaction bulges in the pipes (performance). */
@@ -42,7 +45,7 @@ export interface NetworkMapConfig {
 
 export const NETWORK_MAP_CONFIG: NetworkMapConfig = {
   hub: { seat: 'v11', host: 'falcon2' },
-  ingress: { seat: 'falcon-node', label: 'loadgen · falcon-pl-loadgen.service' },
+  wallet: { label: 'Wallet services', sub: 'wallet app · loadgen' },
   pollMs: 1500,
   maxBulges: 160,
   maxWatcherParticles: 48,

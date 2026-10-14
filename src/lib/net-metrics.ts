@@ -31,6 +31,8 @@ export interface NetSample {
   /** null when the status carried no watcher summary. */
   watchers_live: number | null
   watchers_epoch: number | null
+  /** Activated (funded) accounts on the ledger, status.accounts_count. */
+  wallets_activated: number | null
   seats: SeatSample[]
 }
 
@@ -66,6 +68,7 @@ export function sampleFromScan(d: ScanData, t = Date.now()): NetSample {
     fee_multiplier: fin(d.fee_multiplier, 1),
     watchers_live: d.watchers ? d.watchers.live.length : null,
     watchers_epoch: d.watchers ? d.watchers.epoch_accounts.length : null,
+    wallets_activated: d.wallets ? d.wallets.activated : null,
     seats: (d.validators ?? []).map((v) => ({
       id: v.account,
       tip: fin(v.ledger_index),
@@ -132,6 +135,7 @@ export const NET_KEYS = [
   'fee_multiplier',
   'watchers_live',
   'watchers_epoch',
+  'wallets_activated',
 ] as const
 export type NetKey = (typeof NET_KEYS)[number]
 export type SeatMetric = 'tip' | 'lag' | 'packs_min' | 'perf'
@@ -158,6 +162,7 @@ export const SERIES_LABELS: Record<string, string> = {
   fee_multiplier: 'Fee tier (×)',
   watchers_live: 'Watchers live (current slot)',
   watchers_epoch: 'Watchers this epoch',
+  wallets_activated: 'Activated wallets (ledger accounts)',
   tip: 'Advertised tip',
   lag: 'Tip lag (blocks)',
   packs_min: 'Packs / min',
@@ -188,6 +193,7 @@ export function seriesValues(a: NetSample | null, b: NetSample): Record<string, 
   }
   if (b.watchers_live != null) out.watchers_live = b.watchers_live
   if (b.watchers_epoch != null) out.watchers_epoch = b.watchers_epoch
+  if (b.wallets_activated != null) out.wallets_activated = b.wallets_activated
   const r = a ? rateBetween(a, b) : null
   if (r && a) {
     out.tps = round(r.tps, 2)
