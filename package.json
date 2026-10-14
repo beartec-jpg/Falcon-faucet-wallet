@@ -30,6 +30,8 @@
     "@noble/curves": "1.2.0",
     "@noble/hashes": "^2.2.0",
     "@openforge-sh/liboqs": "^0.14.5",
+    "@react-three/drei": "^10.7.0",
+    "@react-three/fiber": "^9.3.0",
     "@upstash/ratelimit": "^2.0.0",
     "@upstash/redis": "^1.34.0",
     "ethers": "^6.17.0",
@@ -40,6 +42,7 @@
     "react-dom": "^19.3.0",
     "ripple-address-codec": "^5.0.0",
     "ripple-binary-codec": "^2.8.0",
+    "three": "0.180.0",
     "xrpl": "^4.6.0"
   },
   "devDependencies": {
@@ -47,6 +50,7 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/three": "0.180.0",
     "autoprefixer": "^10.4.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^15.5.27",

@@ -56,6 +56,8 @@ export function previousSampleFromCounters(
     last_pack_packer: '',
     min_fee: 0,
     fee_multiplier: 1,
+    watchers_live: null,
+    watchers_epoch: null,
     seats,
   }
 }

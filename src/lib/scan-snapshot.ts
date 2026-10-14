@@ -1,6 +1,7 @@
 import { emissionPctPerEpoch, emissionPctPerYear } from '@/lib/pl-rewards-model'
 import { meshHeadFromStatus, num, str } from '@/lib/pl-mesh'
 import { plStatus } from '@/lib/pl-rpc'
+import { watcherSummary } from '@/lib/scan-watchers'
 import { loadZeroPoint, offsetRail } from '@/lib/pl-zero-point'
 import type { LedgerSummary, RailRow, ScanData, ValidatorEntry } from '@/lib/scan-types'
 
@@ -76,6 +77,8 @@ export async function buildScanSnapshot(): Promise<ScanData> {
     })
   }
 
+  const watchers = await watcherSummary(st).catch(() => undefined)
+
   const metrics = (st.metrics ?? {}) as Record<string, unknown>
   const feeMkt = (metrics.fee_market ?? {}) as Record<string, unknown>
   const epochN = num(st.epoch, 1)
@@ -137,6 +140,7 @@ export async function buildScanSnapshot(): Promise<ScanData> {
       txs,
     },
     lottery_winner: str(st.lottery_winner_next),
+    ...(watchers ? { watchers } : {}),
     rails,
     metrics: {
       ledgers_sealed: num(metrics.ledgers_sealed, tip),

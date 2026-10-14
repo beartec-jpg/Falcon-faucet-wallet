@@ -10,7 +10,7 @@ import EpochEmissionsCard from '@/components/explorer/EpochEmissionsCard'
 import SeatBoxes from '@/components/explorer/SeatBoxes'
 import MetricModal, { seatOptions } from '@/components/explorer/MetricModal'
 import { useLiveSamples, type LiveSamples } from '@/hooks/useLiveSamples'
-import { seatKey, seatLag, type SeatMetric } from '@/lib/net-metrics'
+import { seatKey, seatLag, SERIES_LABELS, type SeatMetric } from '@/lib/net-metrics'
 
 const FETCH_TIMEOUT_MS = 10_000
 const POLL_MS = 4_000
@@ -350,6 +350,12 @@ export default function ScanExplorer({
               {t.label}
             </button>
           ))}
+          <a
+            href="/scan/map"
+            className="px-4 py-2 rounded-lg text-sm font-medium border border-brand-500/30 text-brand-300 hover:bg-brand-500/10 transition-colors"
+          >
+            Live network map ↗
+          </a>
           {lastUpdate && tab === 'network' && (
             <span className="ml-auto self-center text-[10px] text-slate-600 font-mono">
               live · {lastUpdate.toLocaleTimeString()}
@@ -426,6 +432,13 @@ export default function ScanExplorer({
                 value={intake == null ? '…' : `${intake.toFixed(1)}/s`}
                 sub="sealed + Δmempool · 60s"
                 chartKey="mempool_in"
+                onChart={openNet}
+              />
+              <ClickableStatCard
+                label="Watchers"
+                value={d.watchers ? `${d.watchers.live.length} / ${d.watchers.epoch_accounts.length}` : '—'}
+                sub="live this slot / this epoch"
+                chartKey="watchers_live"
                 onChart={openNet}
               />
               <ClickableStatCard label="Commit" value={mesh.commit} sub={`next pack ${d.lottery_winner || '—'}`} />
@@ -647,6 +660,26 @@ function ChartModal({
     min_fee: `${d.current_fee_drops} FPL`,
     fee_multiplier: `${d.fee_multiplier}×`,
     txs_sealed: fmtNum(d.metrics?.txs_sealed),
+    watchers_live: d.watchers ? String(d.watchers.live.length) : undefined,
+    watchers_epoch: d.watchers ? String(d.watchers.epoch_accounts.length) : undefined,
+  }
+  if (chart.key === 'watchers_live' || chart.key === 'watchers_epoch') {
+    return (
+      <MetricModal
+        metric={chart.key}
+        options={[
+          { key: 'watchers_live', label: SERIES_LABELS.watchers_live, current: cur.watchers_live },
+          { key: 'watchers_epoch', label: SERIES_LABELS.watchers_epoch, current: cur.watchers_epoch },
+        ]}
+        extra={
+          <p className="text-[10px] text-slate-500 mt-3">
+            Live = accounts that heartbeated in watcher slot {d.watchers?.current_slot ?? '—'} (
+            {d.watchers?.source === 'status' ? 'node watchers_active_slot' : 'watcher_slots rose this slot, checked every 30s'}).
+          </p>
+        }
+        onClose={onClose}
+      />
+    )
   }
   const extra =
     chart.key === 'tps' ? (
