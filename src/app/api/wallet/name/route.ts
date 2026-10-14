@@ -16,7 +16,7 @@ import {
 import { isClassicAddress } from '@/lib/classic-address'
 import { isOriginAllowed } from '@/lib/origin'
 import { activateName, reserveName, viewName } from '@/lib/pl-name-store'
-import { activationFeeFpl, normalizePlName } from '@/lib/pl-names'
+import { activationFeeFpl, normalizePlName, reserveNameError } from '@/lib/pl-names'
 import { plAccount } from '@/lib/pl-rpc'
 import { walletApiHeaders, walletApiUrl } from '@/lib/walletd'
 
@@ -256,6 +256,8 @@ export async function POST(req: NextRequest) {
     name?: string
     publicKey?: string
     credentialId?: string
+    /** 'vault' for a vault account name; anything else is a hot-wallet name. */
+    purpose?: string
   }
   try {
     body = (await req.json()) as typeof body
@@ -268,6 +270,10 @@ export async function POST(req: NextRequest) {
   const credentialHash = body.credentialId
     ? String(body.credentialId).slice(0, 64)
     : undefined
+  if (action !== 'activate') {
+    const err = reserveNameError(name, String(body.purpose ?? 'wallet'))
+    if (err) return NextResponse.json({ error: err, code: 'name_vault_suffix' }, { status: 400 })
+  }
   try {
     if (shouldUseLocalStore()) {
       if (action === 'activate') {

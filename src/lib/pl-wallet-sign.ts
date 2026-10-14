@@ -577,3 +577,31 @@ export async function signRailWithdraw(opts: {
     rawJson,
   }
 }
+
+/**
+ * v2.9.65 `TxBody::PayToKey` — a Pay that also commits the recipient's Falcon
+ * key (`key_hash` = sha256 hex of the raw public key). Only for a recipient
+ * with no bound key; from then on only that key can bind the account.
+ */
+export async function signPlPayToKey(opts: {
+  account: string
+  destination: string
+  amount: number
+  keyHash: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  if (!/^[0-9a-f]{64}$/.test(opts.keyHash)) throw new Error('key_hash must be 64 lowercase hex')
+  return signPlBody({
+    account: opts.account,
+    destination: opts.destination,
+    amount: Math.floor(opts.amount),
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'pay_to_key', key_hash: opts.keyHash },
+    falconSecret: opts.falconSecret,
+  })
+}

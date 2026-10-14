@@ -49,9 +49,42 @@ export function normalizePlName(raw: string): string | null {
   return s
 }
 
+export const VAULT_SUFFIX = '.vault'
+export const VAULT_SUFFIX_NAME_ERROR =
+  'Wallet names cannot end in ".vault". That suffix is reserved for the vault linked to your wallet (alice gets alice.vault). Pick a name without ".vault".'
+
+/** Trim, Unicode-normalise (NFKC) and lowercase, as name checks see the name. */
+export function canonicalNameInput(raw: string): string {
+  return String(raw ?? '').normalize('NFKC').trim().toLowerCase()
+}
+
+/** True when the name (after trim/NFKC/lowercase) ends in `.vault`. */
+export function isVaultSuffixName(raw: string): boolean {
+  return canonicalNameInput(raw).endsWith(VAULT_SUFFIX)
+}
+
+/**
+ * Hot-wallet name setup check: protocol rules plus no `.vault` suffix.
+ * Returns an error message, or null when the name is fine to reserve.
+ */
+export function hotWalletNameError(raw: string): string | null {
+  if (isVaultSuffixName(raw)) return VAULT_SUFFIX_NAME_ERROR
+  if (!normalizePlName(canonicalNameInput(raw))) {
+    return plNameHint(raw) || 'Pick a valid account name'
+  }
+  return null
+}
+
+/** Vault names: `{base}.vault` where the base itself does not end in `.vault`. */
+export function isDoubleVaultName(raw: string): boolean {
+  const s = canonicalNameInput(raw)
+  return s.endsWith(VAULT_SUFFIX) && s.slice(0, -VAULT_SUFFIX.length).endsWith(VAULT_SUFFIX)
+}
+
 export function plNameHint(raw: string): string | null {
   const s = raw.trim().toLowerCase()
   if (!s) return null
+  if (isVaultSuffixName(s)) return VAULT_SUFFIX_NAME_ERROR
   if (isProtocolName(s)) {
     return `"${s}" is a system name (faucet, validators, or test seats). Pick a different account name.`
   }
@@ -75,6 +108,8 @@ export function activationFeeFpl(name: string): number {
 export function linkedVaultName(hotAccount: string): string | null {
   const base = normalizePlName(hotAccount)
   if (!base) return null
+  // A legacy hot name already ending in .vault must not become x.vault.vault.
+  if (isVaultSuffixName(base)) return null
   const suffix = '.vault'
   const maxBase = NAME_MAX_LEN - suffix.length
   const trimmed = base.length > maxBase ? base.slice(0, maxBase) : base
@@ -91,4 +126,14 @@ export function plAccountId(wallet: {
   const fromLabel = normalizePlName(wallet.label || '')
   if (fromLabel) return fromLabel
   return (wallet.address || '').trim()
+}
+
+/**
+ * Server-side reserve guard. Hot-wallet names (any purpose but 'vault') may
+ * not end in `.vault`; vault names may never be `x.vault.vault`.
+ */
+export function reserveNameError(raw: string, purpose: string): string | null {
+  if (isDoubleVaultName(raw)) return VAULT_SUFFIX_NAME_ERROR
+  if (purpose !== 'vault' && isVaultSuffixName(raw)) return VAULT_SUFFIX_NAME_ERROR
+  return null
 }

@@ -73,7 +73,15 @@ import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
 import { authenticatePasskey } from '@/lib/passkey'
 import { encryptSeed, decryptSeed } from '@/lib/wallet-crypto'
 import { activationFeeFpl, linkedVaultName, normalizePlName, plAccountId } from '@/lib/pl-names'
-import { signPlPay, signVaultLock, signVaultOpen } from '@/lib/pl-wallet-sign'
+import { signPlPay, signPlPayToKey, signVaultLock, signVaultOpen } from '@/lib/pl-wallet-sign'
+import {
+  hotWalletCostFpl,
+  isDestinationKeyBound,
+  isPayToKeyUnsupported,
+  keyCommitHash,
+  vaultActivationNeedFpl,
+  vaultFundShortfall,
+} from '@/lib/vault-activation'
 
 const MultiQrDisplay = dynamic(() => import('@/components/MultiQrDisplay'), { ssr: false })
 const MultiQrScanner = dynamic(() => import('@/components/MultiQrScanner'), { ssr: false })
@@ -234,7 +242,7 @@ export default function VaultPage() {
     const r = await fetch('/api/wallet/name', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'reserve', name, publicKey }),
+      body: JSON.stringify({ action: 'reserve', purpose: 'vault', name, publicKey }),
     })
     const d = (await r.json()) as { error?: string; reservedUntil?: number; fee?: number }
     if (!r.ok) throw new Error(d.error ?? 'Could not reserve vault name')
@@ -443,22 +451,110 @@ export default function VaultPage() {
     }
   }
 
+  /**
+   * Fund the vault name from the hot wallet (pay_to_key committing the vault
+   * key, or plain pay before the 2.9.65 key-bind height), then VaultOpen with
+   * the vault key and activate the name. One passkey/password prompt.
+   */
+  async function fundVaultFromHot(fee: number): Promise<string | null> {
+    if (!vault?.accountName || !hotWallet || !hotId) return null
+    const acctId = vault.accountName
+    const snapRes = await fetch(
+      withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(acctId)}`, network.key),
+    )
+    const snapJ = (await snapRes.json().catch(() => ({}))) as { balance?: number; accountType?: string }
+    const vaultBal = Number(snapJ.balance ?? account?.balance ?? 0)
+    const keyBound = snapJ.accountType === 'vault'
+    const shortfall = vaultFundShortfall(fee, vaultBal)
+    // Already funded and key bound (an earlier tap got past VaultOpen).
+    if (shortfall === 0 && keyBound) {
+      return vault.encrypted ? await unlockVaultSecret() : null
+    }
+    const hotRes = await fetch(
+      withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(hotId)}`, network.key),
+    )
+    const hotJ = (await hotRes.json().catch(() => ({}))) as { balance?: number }
+    // Post key-bind, an unbound account still needs the commitment even if funded: send at least 1.
+    const amount = Math.max(shortfall, keyBound ? 0 : 1)
+    const hotBal = Number(hotJ.balance ?? 0)
+    if (amount > 0 && hotBal < hotWalletCostFpl(amount)) {
+      throw new Error(
+        `Hot wallet ${hotId} has ${hotBal.toLocaleString()} FPL; activating needs ${hotWalletCostFpl(amount).toLocaleString()} FPL (${fee.toLocaleString()} name fee + tx fees). Top up the hot wallet first.`,
+      )
+    }
+    // One prompt: the browser vault is wrapped by the same passkey/password as the hot wallet.
+    const { keyBytes } = await authenticatePasskey(hotWallet.credentialId, hotWallet.hasPrf)
+    const hotSecret = await decryptSeed(hotWallet.encrypted, keyBytes)
+    let vaultSecret: string | null = null
+    if (vault.encrypted) {
+      vaultSecret = browserSecret ?? (await decryptSeed(vault.encrypted, keyBytes))
+      setBrowserSecret(vaultSecret)
+    }
+    if (amount > 0) {
+      const seq = await fetchSequenceInfo(hotId, network.key)
+      const commit = await keyCommitHash(vault.publicKey)
+      let sent = false
+      if (!keyBound) {
+        const ptk = await signPlPayToKey({
+          account: hotId,
+          destination: acctId,
+          amount,
+          keyHash: commit,
+          sequence: seq.sequence,
+          networkId: network.networkId,
+          falconSecret: hotSecret,
+        })
+        try {
+          await submitSignedTx(ptk)
+          sent = true
+        } catch (e) {
+          const m = e instanceof Error ? e.message : String(e)
+          if (!isPayToKeyUnsupported(m) && !isDestinationKeyBound(m)) throw e
+        }
+      }
+      if (!sent) {
+        const pay = await signPlPay({
+          account: hotId,
+          destination: acctId,
+          amount,
+          sequence: seq.sequence,
+          networkId: network.networkId,
+          falconSecret: hotSecret,
+        })
+        await submitSignedTx(pay)
+      }
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 250))
+        const r = await fetch(
+          withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(acctId)}`, network.key),
+        )
+        const j = (await r.json().catch(() => ({}))) as { balance?: number }
+        if (Number(j.balance ?? 0) >= vaultBal + amount) break
+      }
+      await loadBalance(acctId)
+    }
+    return vaultSecret
+  }
+
   async function activateVaultName() {
     if (!vault?.accountName) return
     const fee = vault.nameActivationFee ?? activationFeeFpl(vault.accountName)
-    if ((account?.balance ?? 0) < fee + 2) {
-      setError(`Send ${(fee + 2).toLocaleString()} FPL to ${vault.accountName} to activate and lock`)
-      return
-    }
     const dest = vault.payoutAddress || hotId
     if (!dest) {
       setError('No hot wallet linked as payout')
       return
     }
+    const canFundFromHot =
+      vault.kind === 'browser' && Boolean(hotWallet) && hotId.toLowerCase() === dest.toLowerCase()
+    if (!canFundFromHot && (account?.balance ?? 0) < vaultActivationNeedFpl(fee)) {
+      setError(`Send ${vaultActivationNeedFpl(fee).toLocaleString()} FPL to ${vault.accountName} to activate and lock`)
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      const secret = await unlockVaultSecret()
+      const funded = canFundFromHot ? await fundVaultFromHot(fee) : null
+      const secret = funded ?? (await unlockVaultSecret())
       await protocolLockVault(secret, dest)
       await fetch('/api/wallet/name', {
         method: 'POST',
@@ -1228,7 +1324,10 @@ export default function VaultPage() {
                   Activate with {(vault.nameActivationFee ?? activationFeeFpl(vault.accountName)).toLocaleString()} FPL
                 </p>
                 <p className="text-xs text-slate-500">
-                  Balance {account ? account.balance.toLocaleString() : '—'} FPL. Fund this vault name, then activate.
+                  Balance {account ? account.balance.toLocaleString() : '—'} FPL.{' '}
+                  {vault.kind === 'browser' && hotWallet
+                    ? `Activate pays ${(vault.nameActivationFee ?? activationFeeFpl(vault.accountName)).toLocaleString()} FPL plus tx fees from your hot wallet ${hotId} and locks payouts to it.`
+                    : 'Fund this vault name, then activate.'}
                 </p>
                 <div className="flex gap-2">
                   <Link
@@ -1239,11 +1338,15 @@ export default function VaultPage() {
                   </Link>
                   <button
                     type="button"
-                    disabled={busy || (account?.balance ?? 0) < (vault.nameActivationFee ?? 0)}
+                    disabled={
+                      busy ||
+                      (!(vault.kind === 'browser' && hotWallet) &&
+                        (account?.balance ?? 0) < (vault.nameActivationFee ?? 0))
+                    }
                     onClick={() => void activateVaultName()}
                     className="flex-1 py-2 rounded-lg text-sm font-semibold bg-brand-500 text-slate-950 disabled:opacity-40"
                   >
-                    Activate
+                    {vault.kind === 'browser' && hotWallet ? 'Activate from hot wallet' : 'Activate'}
                   </button>
                 </div>
               </div>
