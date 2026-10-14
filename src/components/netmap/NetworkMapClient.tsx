@@ -212,6 +212,13 @@ const CSS = `
 .netmap-label-name{font-size:11px;color:#E0DBCA;text-shadow:0 0 6px #020617}
 .netmap-label-sub{font-size:9px;color:#94A3B8;text-shadow:0 0 6px #020617}
 .netmap-label[data-off] .netmap-label-name{color:#64748B}
+.netmap-tag{display:inline-block;margin:2px 0 1px;font-size:9px;padding:0 5px;border-radius:999px;border:1px solid #C0783866;color:#C07838;background:#020617cc}
+.netmap-tag[data-todo]{border-style:dashed;border-color:#D4922A;color:#D4922A}
+.netmap-plate{font-family:var(--font-mono),'JetBrains Mono',monospace;text-align:center;white-space:nowrap;user-select:none;padding:3px 10px;border-radius:6px;background:linear-gradient(180deg,#0F172Aee,#020617ee);border:1px solid #C07838}
+.netmap-plate-hub{box-shadow:0 0 14px #C0783855;border-color:#D4922A}
+.netmap-plate-hub .netmap-label-name{font-size:13px}
+.netmap-plate-kicker{font-size:9px;letter-spacing:.25em;color:#D4922A}
+.netmap-plate-ingress{border-style:dashed;border-color:#D4922A}
 .netmap-loc{font-family:var(--font-inter),Inter,sans-serif;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#C07838;white-space:nowrap;user-select:none}
 .netmap-todo{margin-left:6px;font-size:9px;letter-spacing:.05em;padding:1px 5px;border-radius:4px;border:1px dashed #D4922A;color:#D4922A}
 @keyframes netmap-drop{0%{transform:translateY(-38px) scale(.9);opacity:0;box-shadow:0 0 0 #D4922A}40%{opacity:1;box-shadow:0 0 18px #D4922A}100%{transform:none;box-shadow:0 0 0 transparent}}

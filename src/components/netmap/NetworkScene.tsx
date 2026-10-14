@@ -153,66 +153,187 @@ function Bulges({
 
 const RING_SEGMENTS = 48
 
-function SeatNode({
+function useFlash(anim: Anim, id: string, isHub: boolean) {
+  return (now: number) => {
+    const f = isHub ? { t: anim.hubFlash, fill: 0 } : anim.flash.get(id)
+    const age = f ? now - f.t : Infinity
+    return { k: age >= 0 && age < FLASH_S ? 1 - age / FLASH_S : 0, f }
+  }
+}
+
+const hover = {
+  onPointerOver: () => (document.body.style.cursor = 'pointer'),
+  onPointerOut: () => (document.body.style.cursor = ''),
+}
+const noRay = () => null
+
+/** Hub: a tower with a plinth, column, glowing core and two counter-rotating rings. */
+function HubTower({
   id,
   pos,
   view,
-  label,
-  sub,
+  host,
   anim,
   selected,
   onSelect,
-  isHub,
 }: {
   id: string
   pos: Vec3
   view: SeatView
-  label: string
-  sub: string
+  host: string
   anim: Anim
   selected: boolean
   onSelect: (id: string) => void
-  isHub?: boolean
 }) {
-  const core = useRef<THREE.Mesh>(null)
-  const halo = useRef<THREE.Mesh>(null)
-  const ring = useRef<THREE.Mesh>(null)
   const coreMat = useRef<THREE.MeshStandardMaterial>(null)
+  const halo = useRef<THREE.Mesh>(null)
   const haloMat = useRef<THREE.MeshBasicMaterial>(null)
-  const ringMat = useRef<THREE.MeshBasicMaterial>(null)
-  const lastFill = useRef(-1)
-  const t = useRef(0)
-  const base = useMemo(
-    () => new THREE.Color(view.jailed || !view.online ? COLORS.grey : isHub ? COLORS.copper : COLORS.green),
-    [view.jailed, view.online, isHub],
-  )
+  const ringA = useRef<THREE.Mesh>(null)
+  const ringB = useRef<THREE.Mesh>(null)
+  const core = useRef<THREE.Mesh>(null)
+  const flash = useFlash(anim, id, true)
+  const base = useMemo(() => new THREE.Color(view.online && !view.jailed ? COLORS.copper : COLORS.grey), [view.online, view.jailed])
   const gold = useMemo(() => new THREE.Color(COLORS.gold), [])
   const tmp = useMemo(() => new THREE.Color(), [])
-  const r = isHub ? 0.62 : 0.36
-
   useFrame((st, dt) => {
-    t.current = st.clock.elapsedTime
-    const f = isHub ? { t: anim.hubFlash, fill: 0 } : anim.flash.get(id)
-    const age = f ? t.current - f.t : Infinity
-    const k = age >= 0 && age < FLASH_S ? 1 - age / FLASH_S : 0
+    const { k } = flash(st.clock.elapsedTime)
     tmp.copy(base).lerp(gold, k)
     if (coreMat.current) {
-      coreMat.current.color.copy(tmp)
       coreMat.current.emissive.copy(tmp)
-      coreMat.current.emissiveIntensity = (view.online ? 0.55 : 0.08) + k * 1.6
+      coreMat.current.emissiveIntensity = 0.7 + k * 1.4
     }
     if (haloMat.current && halo.current) {
-      const pulse = view.online && !view.jailed ? 0.5 + 0.12 * Math.sin(t.current * 2.4 + pos[0]) : 0.08
       haloMat.current.color.copy(tmp)
-      haloMat.current.opacity = Math.min(0.7, pulse * 0.3 + k * (isHub ? 0.25 : 0.45))
-      halo.current.scale.setScalar((isHub ? 1.35 : 1.6) + k * 0.6)
+      haloMat.current.opacity = 0.16 + k * 0.3
+      halo.current.scale.setScalar(1.25 + k * 0.4)
     }
-    if (core.current && isHub) core.current.rotation.y += dt * 0.4
-    if (ring.current && ringMat.current && f && !isHub) {
+    if (core.current) core.current.rotation.y += dt * 0.5
+    if (ringA.current) ringA.current.rotation.z += dt * (0.35 + k * 2)
+    if (ringB.current) ringB.current.rotation.z -= dt * (0.5 + k * 2)
+  })
+  const click = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation()
+    onSelect(id)
+  }
+  return (
+    <group position={pos}>
+      {/* plinth + column */}
+      <mesh position={[0, -1.85, 0]} onClick={click} {...hover}>
+        <cylinderGeometry args={[0.95, 1.1, 0.28, 6]} />
+        <meshStandardMaterial color={COLORS.panel} metalness={0.6} roughness={0.4} emissive={COLORS.copper} emissiveIntensity={0.08} />
+      </mesh>
+      <mesh position={[0, -1.69, 0]} raycast={noRay}>
+        <torusGeometry args={[0.98, 0.025, 6, 6]} />
+        <meshBasicMaterial color={COLORS.copper} />
+      </mesh>
+      <mesh position={[0, -1.0, 0]} onClick={click} {...hover}>
+        <cylinderGeometry args={[0.16, 0.3, 1.45, 8]} />
+        <meshStandardMaterial color="#1E293B" metalness={0.7} roughness={0.35} />
+      </mesh>
+      {[-1.35, -0.95, -0.55].map((y) => (
+        <mesh key={y} position={[0, y, 0]} raycast={noRay}>
+          <torusGeometry args={[0.24 - (y + 1.35) * 0.08, 0.018, 6, 16]} />
+          <meshBasicMaterial color={COLORS.gold} />
+        </mesh>
+      ))}
+      {/* core */}
+      <mesh ref={core} onClick={click} {...hover}>
+        <icosahedronGeometry args={[0.5, 1]} />
+        <meshStandardMaterial ref={coreMat} color={COLORS.copper} metalness={0.5} roughness={0.25} flatShading />
+      </mesh>
+      <mesh ref={halo} raycast={noRay}>
+        <sphereGeometry args={[0.55, 16, 12]} />
+        <meshBasicMaterial ref={haloMat} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
+      </mesh>
+      <mesh ref={ringA} rotation={[Math.PI / 2.4, 0, 0]} raycast={noRay}>
+        <torusGeometry args={[0.92, 0.035, 8, 64]} />
+        <meshStandardMaterial color={COLORS.copper} metalness={0.8} roughness={0.3} emissive={COLORS.copper} emissiveIntensity={0.35} />
+      </mesh>
+      <mesh ref={ringB} rotation={[Math.PI / 1.7, 0.5, 0]} raycast={noRay}>
+        <torusGeometry args={[1.18, 0.022, 8, 64, Math.PI * 1.6]} />
+        <meshBasicMaterial color={COLORS.gold} />
+      </mesh>
+      {selected && (
+        <mesh position={[0, -1.7, 0]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
+          <torusGeometry args={[1.25, 0.025, 6, 48]} />
+          <meshBasicMaterial color={COLORS.cream} />
+        </mesh>
+      )}
+      <Html position={[0, -2.35, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
+        <div className="netmap-plate netmap-plate-hub">
+          <div className="netmap-plate-kicker">HUB</div>
+          <div className="netmap-label-name">{id}</div>
+          <div className="netmap-label-sub">{host}</div>
+        </div>
+      </Html>
+    </group>
+  )
+}
+
+
+/** Validator: a small chassis with a status light, activity LEDs, lag bar and a packer ring. */
+function ValidatorUnit({
+  id,
+  pos,
+  view,
+  host,
+  location,
+  confirmed,
+  anim,
+  selected,
+  onSelect,
+}: {
+  id: string
+  pos: Vec3
+  view: SeatView
+  host: string
+  location: string
+  confirmed: boolean
+  anim: Anim
+  selected: boolean
+  onSelect: (id: string) => void
+}) {
+  const light = useRef<THREE.MeshBasicMaterial>(null)
+  const halo = useRef<THREE.Mesh>(null)
+  const haloMat = useRef<THREE.MeshBasicMaterial>(null)
+  const leds = useRef<(THREE.MeshBasicMaterial | null)[]>([])
+  const ring = useRef<THREE.Mesh>(null)
+  const ringMat = useRef<THREE.MeshBasicMaterial>(null)
+  const trim = useRef<THREE.MeshBasicMaterial>(null)
+  const lastFill = useRef(-1)
+  const flash = useFlash(anim, id, false)
+  const live = view.online && !view.jailed
+  const base = useMemo(() => new THREE.Color(live ? COLORS.green : view.jailed ? '#64748B' : COLORS.grey), [live, view.jailed])
+  const gold = useMemo(() => new THREE.Color(COLORS.gold), [])
+  const dim = useMemo(() => new THREE.Color('#1E293B'), [])
+  const tmp = useMemo(() => new THREE.Color(), [])
+  const lagFrac = view.lag == null ? 0 : Math.min(1, view.lag / 10)
+  const lagColor = view.lag == null ? COLORS.grey : view.lag <= 1 ? COLORS.green : view.lag <= 3 ? COLORS.gold : '#EF4444'
+
+  useFrame((st, dt) => {
+    const now = st.clock.elapsedTime
+    const { k, f } = flash(now)
+    tmp.copy(base).lerp(gold, k)
+    if (light.current) light.current.color.copy(tmp)
+    if (trim.current) trim.current.color.copy(k > 0 ? tmp : live ? base : dim)
+    if (haloMat.current && halo.current) {
+      const pulse = live ? 0.22 + 0.08 * Math.sin(now * 2.4 + pos[0]) : 0.04
+      haloMat.current.color.copy(tmp)
+      haloMat.current.opacity = pulse + k * 0.5
+      halo.current.scale.setScalar(1 + k * 1.2)
+    }
+    // Activity LEDs: chase while this seat's block flash is active, idle glow when online.
+    for (let i = 0; i < 3; i++) {
+      const m = leds.current[i]
+      if (!m) continue
+      const on = k > 0 ? Math.floor(now * 12) % 3 === i : live && i === 0
+      m.color.copy(on ? (k > 0 ? gold : base) : dim)
+    }
+    if (ring.current && ringMat.current && f) {
       if (f.fill !== lastFill.current) {
         lastFill.current = f.fill
         ring.current.geometry.dispose()
-        ring.current.geometry = new THREE.TorusGeometry(r * 1.9, 0.045, 6, RING_SEGMENTS, Math.PI * 2 * f.fill)
+        ring.current.geometry = new THREE.TorusGeometry(0.62, 0.04, 6, RING_SEGMENTS, Math.PI * 2 * f.fill)
       }
       ringMat.current.opacity = k
       ring.current.visible = k > 0
@@ -227,30 +348,107 @@ function SeatNode({
 
   return (
     <group position={pos}>
-      <mesh ref={core} onClick={click} onPointerOver={() => (document.body.style.cursor = 'pointer')} onPointerOut={() => (document.body.style.cursor = '')}>
-        {isHub ? <icosahedronGeometry args={[r, 1]} /> : <sphereGeometry args={[r, 24, 16]} />}
-        <meshStandardMaterial ref={coreMat} roughness={0.35} metalness={0.4} flatShading={isHub} />
+      {/* chassis */}
+      <mesh onClick={click} {...hover}>
+        <boxGeometry args={[0.72, 0.4, 0.5]} />
+        <meshStandardMaterial color={COLORS.panel} metalness={0.55} roughness={0.45} />
       </mesh>
-      <mesh ref={halo} raycast={() => null}>
-        <sphereGeometry args={[r, 16, 12]} />
+      <mesh position={[0, 0.205, 0]} raycast={noRay}>
+        <boxGeometry args={[0.74, 0.02, 0.52]} />
+        <meshBasicMaterial ref={trim} color={COLORS.copper} />
+      </mesh>
+      {/* status light */}
+      <mesh position={[0.22, 0.29, 0.1]} raycast={noRay}>
+        <sphereGeometry args={[0.075, 12, 10]} />
+        <meshBasicMaterial ref={light} toneMapped={false} />
+      </mesh>
+      <mesh ref={halo} position={[0.22, 0.29, 0.1]} raycast={noRay}>
+        <sphereGeometry args={[0.2, 12, 10]} />
         <meshBasicMaterial ref={haloMat} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
       </mesh>
-      {!isHub && (
-        <mesh ref={ring} rotation={[Math.PI / 2, 0, 0]} visible={false} raycast={() => null}>
-          <torusGeometry args={[r * 1.9, 0.045, 6, RING_SEGMENTS, 0.01]} />
-          <meshBasicMaterial ref={ringMat} color={COLORS.gold} transparent depthWrite={false} toneMapped={false} />
+      {/* activity LEDs on the front face */}
+      {[0, 1, 2].map((i) => (
+        <mesh key={i} position={[-0.24 + i * 0.1, 0.06, 0.256]} raycast={noRay}>
+          <boxGeometry args={[0.06, 0.04, 0.01]} />
+          <meshBasicMaterial ref={(m) => { leds.current[i] = m }} toneMapped={false} />
+        </mesh>
+      ))}
+      {/* lag bar: empty = in sync, full = 10+ blocks behind */}
+      <mesh position={[0, -0.08, 0.256]} raycast={noRay}>
+        <boxGeometry args={[0.56, 0.035, 0.008]} />
+        <meshBasicMaterial color="#1E293B" />
+      </mesh>
+      {lagFrac > 0 && (
+        <mesh position={[-0.28 + 0.28 * lagFrac, -0.08, 0.261]} raycast={noRay}>
+          <boxGeometry args={[0.56 * lagFrac, 0.035, 0.008]} />
+          <meshBasicMaterial color={lagColor} />
         </mesh>
       )}
+      <mesh ref={ring} position={[0, -0.22, 0]} rotation={[Math.PI / 2, 0, 0]} visible={false} raycast={noRay}>
+        <torusGeometry args={[0.62, 0.04, 6, RING_SEGMENTS, 0.01]} />
+        <meshBasicMaterial ref={ringMat} color={COLORS.gold} transparent depthWrite={false} toneMapped={false} />
+      </mesh>
       {selected && (
-        <mesh rotation={[Math.PI / 2, 0, 0]} raycast={() => null}>
-          <torusGeometry args={[r * 1.45, 0.02, 6, 48]} />
+        <mesh position={[0, -0.22, 0]} rotation={[Math.PI / 2, 0, 0]} raycast={noRay}>
+          <torusGeometry args={[0.5, 0.018, 6, 48]} />
           <meshBasicMaterial color={COLORS.cream} />
         </mesh>
       )}
-      <Html position={[0, -(r + 0.32), 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
-        <div className="netmap-label" data-off={!view.online || view.jailed ? '1' : undefined}>
-          <div className="netmap-label-name">{label}</div>
-          <div className="netmap-label-sub">{sub}</div>
+      <Html position={[0, -0.52, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
+        <div className="netmap-label" data-off={!live ? '1' : undefined}>
+          <div className="netmap-label-name">{id}</div>
+          <div className="netmap-tag" data-todo={confirmed ? undefined : '1'}>{location}</div>
+          {host && <div className="netmap-label-sub">{host}</div>}
+        </div>
+      </Html>
+    </group>
+  )
+}
+
+/** Loadgen / ingress: a funnel with emitter rings that pulse when new txs are sealed. */
+function LoadgenNode({ pos, label, event }: { pos: Vec3; label: string; event: PollEvent | null }) {
+  const rings = useRef<(THREE.Mesh | null)[]>([])
+  const mats = useRef<(THREE.MeshBasicMaterial | null)[]>([])
+  const clock = useThree((st) => st.clock)
+  const pulseAt = useRef(-10)
+  useEffect(() => {
+    if (event && event.newTxs > 0) pulseAt.current = clock.elapsedTime
+  }, [event, clock])
+  useFrame((st) => {
+    const age = st.clock.elapsedTime - pulseAt.current
+    for (let i = 0; i < 2; i++) {
+      const u = Math.max(0, Math.min(1, (age - i * 0.15) / 0.9))
+      const r = rings.current[i]
+      const m = mats.current[i]
+      if (!r || !m) continue
+      r.scale.setScalar(1 + u * 1.6)
+      m.opacity = u < 1 ? (1 - u) * 0.8 : 0
+    }
+  })
+  return (
+    <group position={pos}>
+      <mesh position={[0, 0.1, 0]}>
+        <cylinderGeometry args={[0.38, 0.12, 0.45, 12, 1, true]} />
+        <meshStandardMaterial color={COLORS.panel} emissive={COLORS.gold} emissiveIntensity={0.35} metalness={0.6} roughness={0.35} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh position={[0, 0.33, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.38, 0.025, 6, 32]} />
+        <meshBasicMaterial color={COLORS.gold} />
+      </mesh>
+      <mesh position={[0, -0.18, 0]}>
+        <boxGeometry args={[0.55, 0.12, 0.55]} />
+        <meshStandardMaterial color="#1E293B" metalness={0.6} roughness={0.4} />
+      </mesh>
+      {[0, 1].map((i) => (
+        <mesh key={i} ref={(m) => { rings.current[i] = m }} position={[0, 0.33, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.38, 0.015, 6, 32]} />
+          <meshBasicMaterial ref={(m) => { mats.current[i] = m }} color={COLORS.gold} transparent opacity={0} depthWrite={false} toneMapped={false} />
+        </mesh>
+      ))}
+      <Html position={[0, -0.5, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
+        <div className="netmap-plate netmap-plate-ingress">
+          <div className="netmap-plate-kicker">INGRESS · LOADGEN</div>
+          <div className="netmap-label-sub">{label}</div>
         </div>
       </Html>
     </group>
@@ -386,39 +584,26 @@ export default function NetworkScene({ layout, seats, event, maxBulges, selected
         return <Pipe key={`p-${s.id}`} curve={curves.get(s.id)!} active={Boolean(v?.online && !v.jailed)} />
       })}
       {ingressCurve && <Pipe curve={ingressCurve} active />}
-      {layout.ingress && (
-        <group position={layout.ingress.pos}>
-          <mesh>
-            <boxGeometry args={[0.5, 0.3, 0.5]} />
-            <meshStandardMaterial color={COLORS.panel} emissive={COLORS.gold} emissiveIntensity={0.4} />
-          </mesh>
-          <Html position={[0, -0.45, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
-            <div className="netmap-label">
-              <div className="netmap-label-sub">{layout.ingress.label}</div>
-            </div>
-          </Html>
-        </group>
-      )}
+      {layout.ingress && <LoadgenNode pos={layout.ingress.pos} label={layout.ingress.label} event={event} />}
       <Bulges curves={curves} ingress={ingressCurve} event={event} cap={maxBulges} />
-      <SeatNode
+      <HubTower
         id={layout.hub.id}
         pos={layout.hub.pos}
         view={hubView}
-        label={`${layout.hub.id} · hub`}
-        sub={layout.hub.host}
+        host={layout.hub.host}
         anim={anim}
         selected={selected === layout.hub.id}
         onSelect={onSelect}
-        isHub
       />
       {layout.seats.map((s) => (
-        <SeatNode
+        <ValidatorUnit
           key={s.id}
           id={s.id}
           pos={s.pos}
           view={seats[s.id] ?? { online: false, jailed: false, lag: null }}
-          label={s.id}
-          sub={[s.host, s.locationLabel].filter(Boolean).join(' · ')}
+          host={s.host}
+          location={s.locationLabel}
+          confirmed={s.confirmed}
           anim={anim}
           selected={selected === s.id}
           onSelect={onSelect}
