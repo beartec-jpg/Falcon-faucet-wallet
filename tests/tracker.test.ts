@@ -54,8 +54,9 @@ describe('scoring', () => {
     expect(r.categories.faucet.points).toBe(TRACKER_CONFIG.caps.faucet)
     expect(r.categories.consistency.points).toBe(TRACKER_CONFIG.caps.consistency)
     expect(r.categories.liquidity.points).toBe(TRACKER_CONFIG.caps.liquidity)
-    expect(r.categories.swaps).toMatchObject({ points: 0, tracked: false })
-    expect(r.categories.arcade.tracked).toBe(false)
+    expect(r.categories.swaps).toMatchObject({ points: 0, tracked: true })
+    expect(r.categories.arcade).toMatchObject({ points: 0, tracked: true })
+    expect(r.categories.infra).toMatchObject({ points: 0, tracked: true })
     expect(r.score).toBeLessThanOrEqual(100)
     expect(r.active_days).toBe(40)
   })
@@ -140,5 +141,38 @@ describe('profile', () => {
     expect(op.classification.kind).toBe('operator')
     expect(op.row).toBeNull()
     expect(op.operator?.id).toBe('v1')
+  })
+})
+
+describe('swaps, arcade and watchers', () => {
+  it('weights total 100', () => {
+    expect(Object.values(TRACKER_CONFIG.caps).reduce((t, x) => t + x, 0)).toBe(100)
+  })
+
+  it('scores logged swaps, capped, and counts swap days as active', () => {
+    const swaps = Array.from({ length: 30 }, (_, i) => ({ account: 'dave', day: day(i % 5), token_in: 'FPL', amount_in: '1000000000000000' }))
+    const r = scoreAccount('dave', input({ swaps }))
+    expect(r.categories.swaps.points).toBeGreaterThan(0)
+    expect(r.categories.swaps.points).toBeLessThanOrEqual(TRACKER_CONFIG.caps.swaps)
+    expect(r.active_days).toBe(5)
+    expect(scoreAccount('sally', input({ swaps })).categories.swaps.points).toBe(0)
+  })
+
+  it('scores arcade days and game variety', () => {
+    const arcade = Array.from({ length: 7 }, (_, i) => ({ account: 'dave', game: 'g' + (i % 2), day: day(i), score: 10 }))
+    const full = scoreAccount('dave', input({ arcade, arcadeGames: 2 }))
+    expect(full.categories.arcade.points).toBe(TRACKER_CONFIG.caps.arcade)
+    const zero = scoreAccount('dave', input({ arcade: arcade.map((a) => ({ ...a, score: 0 })), arcadeGames: 2 }))
+    expect(zero.categories.arcade.points).toBe(0)
+  })
+
+  it('scores a community watcher from node status; team watcher keys stay system', () => {
+    const st2 = { ...st, watcher_slots: { ...(st.watcher_slots as object), dave: 50 }, watcher_work: { ...(st.watcher_work as object), dave: 500 } }
+    const r = scoreAccount('dave', input({ st: st2 }))
+    expect(r.categories.infra.points).toBe(TRACKER_CONFIG.caps.infra)
+    const ctx = statusContext(st2)
+    expect(classify('dave', ctx).kind).toBe('user')
+    for (const n of ['watcher-brain', 'watcher-falcon2', 'watcher-browser', 'loadgen01', 'faucet']) expect(classify(n, ctx).kind).not.toBe('user')
+    expect(classify('v1', ctx).kind).toBe('operator')
   })
 })

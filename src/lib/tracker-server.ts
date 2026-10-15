@@ -1,6 +1,8 @@
 // Server side of the testnet activity tracker. Reads node status, the activity
 // index, and faucet claims; caches 60 s. Linked-account data stays in here.
 
+import { arcadeDaysByPlAccount, GAME_SLUGS } from '@/lib/arcade-store'
+import { swapsSince } from '@/lib/swap-log'
 import { activityStore, type ActivityStore } from '@/lib/activity-index'
 import { pgFaucetSource, type FaucetSource } from '@/lib/faucet-activity'
 import { parseExact } from '@/lib/pl-exact-json'
@@ -19,15 +21,17 @@ export async function trackerData(opts: { store?: ActivityStore; faucet?: Faucet
   const store = opts.store ?? activityStore()
   const faucet = opts.faucet ?? pgFaucetSource()
   const since = windowStart(now)
-  const [st, activity, events, days, fdays, links] = await Promise.all([
+  const [st, activity, events, days, fdays, links, swaps, arcade] = await Promise.all([
     opts.status ? Promise.resolve(opts.status) : statusExact(),
     store.accounts(),
     store.events(),
     store.activeDays(since),
     faucet.days(since),
     faucet.links(since),
+    swapsSince(since),
+    arcadeDaysByPlAccount('testnet', since),
   ])
-  const inp: TrackerInput = { st, activity, events, days, faucet: fdays, links, now }
+  const inp: TrackerInput = { st, activity, events, days, faucet: fdays, links, swaps, arcade, arcadeGames: GAME_SLUGS.length, now }
   const out = { at: now, inp, res: buildTracker(inp) }
   if (!opts.status) cache = out
   return out

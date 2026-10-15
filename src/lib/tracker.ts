@@ -10,6 +10,23 @@ import { toFloat } from '@/lib/pl-exact-json'
 import { ASSET_DECIMALS, lpCandidates } from '@/lib/rails-pools'
 import type { FaucetDay, FaucetLink } from '@/lib/faucet-activity'
 
+/** One swap submitted through the site wallet and accepted by the node. */
+export interface SwapRecord {
+  account: string
+  day: string
+  token_in: string
+  /** Integer base units of token_in, as a string. */
+  amount_in: string
+}
+
+/** Best arcade score of one Falcon PL account in one game on one UTC day. */
+export interface ArcadeDay {
+  account: string
+  game: string
+  day: string
+  score: number
+}
+
 type Obj = Record<string, unknown>
 const obj = (v: unknown): Obj => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Obj) : {})
 const arr = (v: unknown): Obj[] => (Array.isArray(v) ? (v.filter((x) => x && typeof x === 'object') as Obj[]) : [])
@@ -55,7 +72,6 @@ export function classify(name: string, ctx: StatusContext): Classification {
   if (ctx.validators.has(name)) return { kind: 'operator', reason: 'Validator seat (operators board)' }
   if (c.testAccounts.includes(name)) return { kind: 'test', reason: 'Development test account' }
   if (ctx.bondAccounts.has(name)) return { kind: 'system', reason: 'Validator bond account' }
-  if (ctx.watchers.has(name)) return { kind: 'system', reason: 'Watcher service key' }
   if (name === ctx.faucet || c.systemAccounts.includes(name)) return { kind: 'system', reason: 'Protocol or service account' }
   if (c.systemPatterns.some((re) => re.test(name))) return { kind: 'system', reason: 'Protocol or service account' }
   if (c.harnessPatterns.some((re) => re.test(name))) return { kind: 'harness', reason: 'Load-test or smoke-test wallet' }
@@ -135,6 +151,10 @@ export interface TrackerInput {
   days: ActiveDay[]
   faucet: FaucetDay[]
   links: FaucetLink[]
+  swaps?: SwapRecord[]
+  arcade?: ArcadeDay[]
+  /** Number of arcade games (for the variety part of the arcade score). */
+  arcadeGames?: number
   now: number
 }
 
@@ -163,13 +183,24 @@ export function scoreAccount(name: string, inp: TrackerInput): TrackerRow {
   const bridged = mine.reduce((t, e) => t + val(e), 0)
   const bridgePts = mine.length ? Math.min(c.bridging, logPts(c.bridging * 0.7, bridged, 1) + Math.min(c.bridging * 0.3, mine.length * 1.5)) : 0
   const faucetDays = new Set(inp.faucet.filter((f) => f.account === name && f.day >= since).map((f) => f.day))
-  const dayset = new Set([...inp.days.filter((d) => d.account === name && d.day >= since).map((d) => d.day), ...faucetDays])
+  const swaps = (inp.swaps ?? []).filter((x) => x.account === name && x.day >= since)
+  const swapVal = swaps.reduce((t, x) => t + toFloat(x.amount_in, ASSET_DECIMALS[x.token_in] ?? 0) * (price[x.token_in] ?? 0), 0)
+  const swapPts = swaps.length ? Math.min(c.swaps, logPts(c.swaps * 0.7, swapVal, 1) + Math.min(c.swaps * 0.3, swaps.length * 1.5)) : 0
+  const plays = (inp.arcade ?? []).filter((x) => x.account === name && x.day >= since && x.score > 0)
+  const playDays = new Set(plays.map((x) => x.day))
+  const games = new Set(plays.map((x) => x.game))
+  const nGames = Math.max(1, inp.arcadeGames ?? 1)
+  const arcadePts = c.arcade * (0.6 * Math.min(1, playDays.size / TRACKER_CONFIG.arcadeFullDays) + 0.4 * Math.min(1, games.size / nGames))
+  const wSlots = num(obj(inp.st.watcher_slots)[name])
+  const wWork = num(obj(inp.st.watcher_work)[name])
+  const infraPts = c.infra * (0.7 * Math.min(1, wSlots / TRACKER_CONFIG.watcherFullSlots) + 0.3 * Math.min(1, wWork / TRACKER_CONFIG.watcherFullWork))
+  const dayset = new Set([...swaps.map((x) => x.day), ...playDays, ...inp.days.filter((d) => d.account === name && d.day >= since).map((d) => d.day), ...faucetDays])
   const lp = a?.lp_fpl_hours ?? 0
   const lend = a?.lend_fpl_hours ?? 0
   const tx = a?.tx_count ?? 0
   const cat: Record<TrackerCategory, CategoryScore> = {
     bridging: { points: bridgePts, cap: c.bridging, tracked: true, detail: `${mine.length} bridge transfers · ${fmt(bridged)} FPL value` },
-    swaps: { points: 0, cap: c.swaps, tracked: false, detail: 'Not exposed by the node per account yet' },
+    swaps: { points: swapPts, cap: c.swaps, tracked: true, detail: `${swaps.length} swaps · ${fmt(swapVal)} FPL value` },
     liquidity: { points: logPts(c.liquidity, lp, 10), cap: c.liquidity, tracked: true, detail: `${fmt(lp)} FPL·hours in AMM pools` },
     lending: { points: logPts(c.lending, lend, 10), cap: c.lending, tracked: true, detail: `${fmt(lend)} FPL·hours supplied` },
     payments: { points: logPts(c.payments, tx, 0.1), cap: c.payments, tracked: true, detail: `${fmt(tx)} transactions (account sequence)` },
@@ -185,8 +216,8 @@ export function scoreAccount(name: string, inp: TrackerInput): TrackerRow {
       tracked: true,
       detail: `${faucetDays.size} days with a faucet claim`,
     },
-    arcade: { points: 0, cap: c.arcade, tracked: false, detail: 'Arcade scores are not linked to Falcon PL accounts yet' },
-    infra: { points: 0, cap: c.infra, tracked: false, detail: 'Community watcher tracking is not live yet' },
+    arcade: { points: arcadePts, cap: c.arcade, tracked: true, detail: `${playDays.size} days played · ${games.size} games` },
+    infra: { points: infraPts, cap: c.infra, tracked: true, detail: `${fmt(wSlots)} watcher slots · ${fmt(wWork)} rail work this epoch` },
   }
   for (const k of Object.keys(cat) as TrackerCategory[]) cat[k].points = r1(cat[k].points)
   const score = r1(Object.values(cat).reduce((t, x) => t + x.points, 0))
@@ -265,6 +296,8 @@ export function accountView(name: string, inp: TrackerInput, res: TrackerResult)
   const days = [...new Set([
     ...inp.days.filter((d) => d.account === name && d.day >= since).map((d) => d.day),
     ...inp.faucet.filter((f) => f.account === name && f.day >= since).map((f) => f.day),
+    ...(inp.swaps ?? []).filter((x) => x.account === name && x.day >= since).map((x) => x.day),
+    ...(inp.arcade ?? []).filter((x) => x.account === name && x.day >= since && x.score > 0).map((x) => x.day),
   ])].sort()
   return {
     account: name,

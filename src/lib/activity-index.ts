@@ -2,7 +2,7 @@
 // the same public status_req / account_query the explorer already uses.
 //
 //   bridging      – peg-ins / peg-outs seen on the rails (exact amounts, deduped by chain id)
-//   swaps         – NOT attributable: the node exposes no per-account swap history
+//   swaps         – not in the node per account; logged by /api/wallet/submit (lib/swap-log.ts)
 //   LP            – time-weighted FPL value of AMM LP positions (FPL·hours)
 //   lending       – time-weighted FPL value of lend supply positions (FPL·hours)
 //   tx count      – account sequence

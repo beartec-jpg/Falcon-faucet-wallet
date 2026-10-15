@@ -3,6 +3,7 @@
 import Link from 'next/link'
 
 import { useCallback, useEffect, useState } from 'react'
+import ArcadePrizes from '@/components/ArcadePrizes'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
@@ -119,10 +120,12 @@ export default function AirdropPage() {
             <li><span className="text-white">1B pre-mainnet airdrop</span>: from a frozen snapshot of testnet activity, credited at mainnet genesis to the same account name and key.</li>
             <li><span className="text-white">1B release-phase giveaway</span>: paid per epoch during mainnet epochs 1–7 (before protocol emission starts at epoch 8) for arcade, activity and similar, with caps. The pool below is this one.</li>
             <li>Validator operators have a separate operators pool.</li>
-            <li>Separately, the <Link href="/first-35" className="text-amber-300 hover:underline">First 35</Link> prize seats (12M FPL) come from the builder pot, and mainnet faucet drips come from the faucet bucket.</li>
+            <li>Separately, the <Link href="/first-35" className="text-amber-300 hover:underline">First 35</Link> prize seats (12M FPL) and the <a href="#arcade-top-5" className="text-amber-300 hover:underline">Arcade top 5</a> prizes (1.9M FPL) come from the builder pot, and mainnet faucet drips come from the faucet bucket.</li>
           </ul>
           <p className="text-slate-500">Testnet activity: <Link href="/scan" className="text-amber-300 hover:underline">Explorer → Activity</Link>.</p>
         </section>
+
+        <ArcadePrizes />
 
         {loading && <p className="text-sm text-slate-500">Loading…</p>}
         {error && (
