@@ -2,7 +2,7 @@ import ContentPage, { A, Code, Section } from '@/components/content/ContentPage'
 import { pageMeta } from '@/lib/seo'
 
 export const metadata = pageMeta(
-  '/validator/run-a-node',
+  '/community/validators/run-a-node',
   'Run a Falcon PL node',
   'Install a Falcon PL node with one command on Linux x86-64 (glibc 2.34+), and become a validator with a 50,000 FPL bond.',
 )

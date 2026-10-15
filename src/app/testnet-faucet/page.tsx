@@ -25,7 +25,7 @@ export default function TestnetFaucetPage() {
         <ul className="list-disc pl-5 space-y-1">
           <li><A href="/swap">Swap</A>, <A href="/pool">provide liquidity</A> or <A href="/lend">lend</A></li>
           <li>Play the <A href="/arcade">arcade</A></li>
-          <li>Read the <A href="/airdrop/faq">airdrop FAQ</A></li>
+          <li>Read the <A href="/community/faq">FAQ</A></li>
         </ul>
       </Section>
     </ContentPage>

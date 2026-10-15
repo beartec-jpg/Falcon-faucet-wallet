@@ -2,14 +2,14 @@ import ContentPage, { A, Section } from '@/components/content/ContentPage'
 import { pageMeta } from '@/lib/seo'
 
 export const metadata = pageMeta(
-  '/learn/post-quantum-blockchain',
+  '/community/learn/post-quantum-blockchain',
   'What is a post-quantum blockchain?',
   'How Falcon PL uses Falcon-512 post-quantum signatures from genesis, and why quantum-safe signing matters for a blockchain ledger.',
 )
 
 export default function PostQuantumBlockchainPage() {
   return (
-    <ContentPage current="whitepaper" title="What is a post-quantum blockchain?" back={{ href: '/whitepaper', label: 'Whitepaper' }}>
+    <ContentPage current="community" title="What is a post-quantum blockchain?" back={{ href: '/community/learn', label: 'Learn' }}>
       <p>
         A post-quantum blockchain signs transactions with cryptography designed to stay secure against
         large-scale quantum computers. Falcon PL is a quantum-safe participation ledger: every account and
@@ -33,7 +33,7 @@ export default function PostQuantumBlockchainPage() {
           <li>Create a wallet: <A href="/wallet">Wallet</A></li>
           <li>Get test FPL: <A href="/testnet-faucet">Testnet faucet</A></li>
           <li>Watch the chain: <A href="/scan">Explorer</A></li>
-          <li>Run a node: <A href="/validator/run-a-node">Run a Falcon PL node</A></li>
+          <li>Run a node: <A href="/community/validators/run-a-node">Run a Falcon PL node</A></li>
         </ul>
         <p className="text-slate-500">Testnet FPL has no cash value.</p>
       </Section>
