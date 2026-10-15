@@ -1,10 +1,15 @@
 import type { Metadata } from 'next'
+import { pageMeta } from '@/lib/seo'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import { FIRST35_LINKS, FIRST35_SEATS, FIRST35_TIERS, FIRST35_TOTAL_FPL } from '@/config/first35'
 import { Form, Seats } from './First35Client'
 
-export const metadata: Metadata = { title: 'First 35 · Falcon PL', description: '35 first-adopter prize seats paid at Falcon PL mainnet launch.' }
+export const metadata: Metadata = pageMeta(
+  '/first-35',
+  'First 35',
+  '35 first-adopter prize seats paid at Falcon PL mainnet launch.',
+)
 
 const fmt = (n: number) => n.toLocaleString('en-US')
 const C = { copper: '#C07838', gold: '#D4922A', panel: '#0F172A', cream: '#E0DBCA' }

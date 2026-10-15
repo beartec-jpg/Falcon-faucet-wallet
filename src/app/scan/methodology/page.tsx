@@ -1,9 +1,14 @@
 import Link from 'next/link'
+import { pageMeta } from '@/lib/seo'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import { TRACKER_CONFIG } from '@/config/tracker'
 
-export const metadata = { title: 'Testnet activity — how it is counted · Falcon PL' }
+export const metadata = pageMeta(
+  '/scan/methodology',
+  'Testnet activity — how it is counted',
+  'How the Falcon PL testnet activity leaderboard scores accounts: bridging, swaps, liquidity, lending, payments, consistency, faucet, arcade and infra.',
+)
 
 const ROWS: [string, number, string][] = [
   ['Bridging', TRACKER_CONFIG.caps.bridging, 'USDC, ETH and BTC deposits and withdrawals seen on the rails, valued in FPL at the on-ledger price, plus a small amount per transfer.'],

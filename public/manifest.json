@@ -1,7 +1,7 @@
 {
-  "name": "Falcon Ledger Wallet",
-  "short_name": "Falcon",
-  "description": "Falcon Ledger testnet wallet (FPL) — passkey secured, runs in browser or installs to device",
+  "name": "Falcon PL",
+  "short_name": "Falcon PL",
+  "description": "Falcon PL testnet wallet (FPL) — passkey secured, runs in browser or installs to device",
   "start_url": "/wallet",
   "id": "/wallet",
   "display": "standalone",
