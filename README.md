@@ -95,10 +95,10 @@ F-USDC and Sepolia USDC are **not** the same token — the bridge converts betwe
 |------|-------|
 | Name | Falcon PL public testnet |
 | Network ID | **`2300`** |
-| Product | Falcon PL · Falcon Consensus · Falcon-512 (`product_version` 2.9.60) |
-| Public RPC | operator hub on falcon1 port **19301** (Tailscale mesh; not the retired 1001 `:6005`) |
+| Product | Falcon PL · Falcon Consensus · Falcon-512 (live `product_version` 2.9.66) |
+| Public RPC | public seed relay `5.78.142.246:19301` (listed in the release `network-2300.env`; not the retired 1001 `:6005`) |
 | Epoch | 7 days; first claimable epoch **1** on testnet |
-| Min validator bond | 1,000 FPL |
+| Min validator bond | **50,000 FPL** for new seats (2.9.62+, `MIN_BOND_V2`, admission approval required); pre-2.9.62 seats grandfathered at 1,000 |
 | Bridges | Dest-lock ETH/USDC + BTC — [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md) |
 
 Network **1001** (Falcon Ledger / XRPL fork) is shut down. Do not use `:6005`, `r…` issuers, or `FalconCollateralLock`. Admin is a unix `--admin-sock`, not a public TCP admin port.
@@ -156,7 +156,7 @@ See [.env.example](.env.example) for the full list. Key variables:
 
 | Variable | Purpose |
 |----------|---------|
-| `XRPLD_RPC_URL` | Public node on port 6005 |
+| `XRPLD_RPC_URL` | Testnet 2300 node RPC used by server routes (legacy variable name; fallback for `TESTNET_RPC_URL`) |
 | `TESTNET_FAUCET_ACCOUNT` / `TESTNET_FAUCET_SECRET` | Falcon faucet (`falcon_secret` hex) |
 | `SIGNER_PROXY_URL` / `SIGNER_PROXY_TOKEN` | Falcon signing proxy on node1 |
 | `NEXT_PUBLIC_TESTNET_USDC_ISSUER` | F-USDC issuer (or auto from `testnet-stables.json`) |
