@@ -162,6 +162,12 @@ export default function ValidatorPage() {
             Public testnet 2300{data ? ` · ${data.product} · tip ${data.tip.toLocaleString()} · epoch ${data.epoch}` : ''}
             {data ? ` · ${active.length} bonded seats` : ''}
           </p>
+          <p className="mt-1 text-xs text-slate-500">
+            New to this?{' '}
+            <Link href="/community/validators/run-a-node" className="text-brand-400 hover:text-brand-300">
+              Step-by-step guide →
+            </Link>
+          </p>
         </div>
 
         {data && !data.onboardingOpen && (

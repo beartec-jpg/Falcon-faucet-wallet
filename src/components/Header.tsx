@@ -47,18 +47,47 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'whitepaper', label: 'Whitepaper', href: '/whitepaper' },
 ]
 
+/** Shown under Community in the mobile (burger) menu only. */
+const COMMUNITY_SUB_ITEMS: { label: string; href: string }[] = [
+  { label: 'FAQ', href: '/community/faq' },
+  { label: 'Learn', href: '/community/learn' },
+  { label: 'Validators', href: '/validator' },
+]
+
 function NavLinks({
   current,
   onNavigate,
   className = '',
+  withSubItems = false,
 }: {
   current: NavItem
   onNavigate?: () => void
   className?: string
+  withSubItems?: boolean
 }) {
   return (
     <nav className={className}>
-      {NAV_ITEMS.map((item) => {
+      {NAV_ITEMS.flatMap((item) => {
+        const el = navItem(item)
+        if (!withSubItems || item.key !== 'community') return [el]
+        return [
+          el,
+          ...COMMUNITY_SUB_ITEMS.map((sub) => (
+            <Link
+              key={sub.href}
+              href={sub.href}
+              onClick={onNavigate}
+              className="pl-6 pr-2.5 py-1.5 rounded-lg whitespace-nowrap text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors text-sm"
+            >
+              {sub.label}
+            </Link>
+          )),
+        ]
+      })}
+    </nav>
+  )
+
+  function navItem(item: (typeof NAV_ITEMS)[number]) {
         const isActive = item.key === current
         const itemClass = 'px-2.5 sm:px-3 py-1.5 rounded-lg whitespace-nowrap scroll-mx-4'
         if (isActive) {
@@ -83,9 +112,7 @@ function NavLinks({
             {item.label}
           </Link>
         )
-      })}
-    </nav>
-  )
+  }
 }
 
 export default function Header({
@@ -194,6 +221,7 @@ export default function Header({
           <NavLinks
             current={current}
             onNavigate={() => setMenuOpen(false)}
+            withSubItems
             className="flex flex-col gap-1 text-sm"
           />
         </div>
