@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
 
   let account = ''
   let game = ''
+  let plAccount = ''
   let score = 0
   let networkKey = resolveNetworkKey(undefined)
 
@@ -28,6 +29,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     account = (body.account ?? '').toString().trim()
     game = (body.game ?? '').toString().trim()
+    plAccount = (body.pl_account ?? '').toString().trim().toLowerCase()
     score = Number(body.score)
     networkKey = resolveNetworkKey(body.network)
   } catch {
@@ -51,6 +53,7 @@ export async function POST(req: NextRequest) {
     address: account,
     game,
     score,
+    plAccount: /^[a-z0-9][a-z0-9._-]{0,63}$/.test(plAccount) ? plAccount : undefined,
   })
 
   return NextResponse.json({

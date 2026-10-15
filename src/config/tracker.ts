@@ -10,6 +10,8 @@ export const TRACKER_CONFIG = {
   systemAccounts: [
     'admission', 'btc-headers', 'faucet', 'treasury', 'community', 'builder', 'genesis', 'root',
     'operator', 'admin', 'falcon', 'fpl', 'pool', 'lend', 'bridge', 'watcher',
+    // Our own watcher service keys (also caught by /^watcher-/).
+    'watcher-brain', 'watcher-falcon2',
   ] as string[],
   systemPatterns: [/^watcher-/i, /-bond$/i] as RegExp[],
   /** Load generators, node-generated load wallets, smoke tests and benchmarks. */
@@ -20,7 +22,7 @@ export const TRACKER_CONFIG = {
     /-smoke-/i,
     /^falcon-pl-loadgen$/i,
   ] as RegExp[],
-  /** Points per category (sum 100). Categories without data yet score 0 and say so. */
+  /** Points per category (sum 100). All nine categories are scored. */
   caps: {
     bridging: 20,
     swaps: 15,
@@ -38,6 +40,11 @@ export const TRACKER_CONFIG = {
   consistencyFullDays: 30,
   /** Faucet claim days for full faucet points. */
   faucetFullDays: 14,
+  /** Arcade: distinct UTC days with a score in the window for the day part (60%); distinct games for the rest (40%). */
+  arcadeFullDays: 7,
+  /** Watchers: heartbeat slots credited this epoch for full slot points (70%); rail work units for full work points (30%). */
+  watcherFullSlots: 50,
+  watcherFullWork: 500,
   /** To appear on the ranked board. Others are listed as "building up". */
   minCategories: 2,
   minActiveDays: 2,

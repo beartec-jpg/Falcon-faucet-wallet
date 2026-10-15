@@ -1,3 +1,4 @@
+import { recordSwap } from '@/lib/swap-log'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireBrowserOrigin } from '@/lib/origin'
 import { resolveNetworkKey, serverNetworkConfig, serverRpcCall } from '@/lib/network-server'
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
     try {
       await consumeSubmitRateLimit(rlKey)
       const result = await plSubmitRaw(body.tx_json)
+      if (result.ok && body.tx_json.includes('"swap_route"')) await recordSwap(body.tx_json).catch(() => false)
       let hash = ''
       try {
         const m = body.tx_json.match(/"tx_id"\s*:\s*"([0-9a-fA-F]+)"/)

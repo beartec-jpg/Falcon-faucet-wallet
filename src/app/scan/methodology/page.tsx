@@ -7,14 +7,14 @@ export const metadata = { title: 'Testnet activity — how it is counted · Falc
 
 const ROWS: [string, number, string][] = [
   ['Bridging', TRACKER_CONFIG.caps.bridging, 'USDC, ETH and BTC deposits and withdrawals seen on the rails, valued in FPL at the on-ledger price, plus a small amount per transfer.'],
-  ['Swaps', TRACKER_CONFIG.caps.swaps, 'Not counted yet: the node does not expose swaps per account. Scores 0 for everyone until it does.'],
+  ['Swaps', TRACKER_CONFIG.caps.swaps, 'Swaps made in the site wallet and accepted by the node, valued in FPL at the on-ledger price, plus a small amount per swap.'],
   ['Liquidity', TRACKER_CONFIG.caps.liquidity, 'FPL value of AMM pool positions, held over time (FPL·hours), sampled every 5 minutes.'],
   ['Lending', TRACKER_CONFIG.caps.lending, 'FPL value of lending supply, held over time (FPL·hours).'],
   ['Payments', TRACKER_CONFIG.caps.payments, 'Transactions sent (the account sequence).'],
   ['Consistency', TRACKER_CONFIG.caps.consistency, `Distinct UTC days with activity in the last ${TRACKER_CONFIG.windowDays} days; full points at ${TRACKER_CONFIG.consistencyFullDays} days.`],
   ['Faucet', TRACKER_CONFIG.caps.faucet, `Days with a faucet claim (not the amount); full points at ${TRACKER_CONFIG.faucetFullDays} days.`],
-  ['Arcade', TRACKER_CONFIG.caps.arcade, 'Not counted yet: arcade scores are not linked to Falcon PL accounts.'],
-  ['Infra', TRACKER_CONFIG.caps.infra, 'Not counted yet: community-run watchers.'],
+  ['Arcade', TRACKER_CONFIG.caps.arcade, `Days with an arcade score while signed in with your Falcon PL wallet (full at ${TRACKER_CONFIG.arcadeFullDays} days, 60%) and the number of different games played (40%).`],
+  ['Infra', TRACKER_CONFIG.caps.infra, `Running a watcher on your own account: heartbeat slots credited this epoch (full at ${TRACKER_CONFIG.watcherFullSlots}, 70%) and rail work (full at ${TRACKER_CONFIG.watcherFullWork} units, 30%), from node status.`],
 ]
 
 export default function MethodologyPage() {
@@ -52,14 +52,14 @@ export default function MethodologyPage() {
           <h2 className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: '#D4922A' }}>Who is ranked</h2>
           <ul className="list-disc pl-5 space-y-1 text-slate-400">
             <li>Ranked: participant accounts with points in at least {TRACKER_CONFIG.minCategories} categories and at least {TRACKER_CONFIG.minActiveDays} active days. Others appear under &ldquo;Building up&rdquo;.</li>
-            <li>Not ranked: development test accounts, load-test and smoke-test wallets, and protocol or service accounts (faucet, watchers, bond accounts and similar).</li>
+            <li>Not ranked: development test accounts, load-test and smoke-test wallets, and protocol or service accounts (faucet, the team&apos;s watcher-* service keys, bond accounts and similar). Validators are on the operators board.</li>
             <li>Validator seats are ranked on a separate operators board by this epoch&apos;s work share (proposer credits 50%, vote credits 40%, floor 10%).</li>
             <li>Accounts that appear to belong to the same person, based on shared use of the faucet, are scored as one. Only the highest-scoring one is listed. No identifying data is shown.</li>
           </ul>
         </section>
         <section className="space-y-2">
           <h2 className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: '#D4922A' }}>Data sources</h2>
-          <p className="text-slate-400">Node status and account queries on the public Falcon PL RPC, the explorer&apos;s 5-minute activity index, and the site&apos;s faucet claim log. Rules may change while the testnet runs; changes are announced on this page.</p>
+          <p className="text-slate-400">Node status (including watcher slots and work) and account queries on the public Falcon PL RPC, the explorer&apos;s 5-minute activity index, the site&apos;s faucet claim log, swaps submitted through the site wallet, and arcade scores linked to a Falcon PL account. Rules may change while the testnet runs; changes are announced on this page.</p>
         </section>
       </main>
     </ProductShell>

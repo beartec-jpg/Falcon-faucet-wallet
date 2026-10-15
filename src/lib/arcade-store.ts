@@ -91,6 +91,8 @@ async function ensureTables(): Promise<void> {
       UNIQUE (network, address, game, day_utc)
     )
   `
+  // Falcon PL account that played (for the testnet activity tracker).
+  await sql`ALTER TABLE arcade_scores ADD COLUMN IF NOT EXISTS pl_account TEXT`
   await sql`
     CREATE INDEX IF NOT EXISTS arcade_scores_lb
     ON arcade_scores (network, game, day_utc, score DESC)
@@ -125,6 +127,8 @@ export async function upsertArcadeScore(opts: {
   game: string
   score: number
   dayUtc?: string
+  /** Falcon PL account name of the player, when the wallet has one. */
+  plAccount?: string
 }): Promise<{ best: number; improved: boolean }> {
   const day = opts.dayUtc ?? arcadeUtcDay()
   const score = Math.floor(Math.max(0, opts.score))
@@ -135,17 +139,19 @@ export async function upsertArcadeScore(opts: {
       await ensureTables()
       const sql = getSql()
       const rows = await sql`
-        INSERT INTO arcade_scores (network, address, game, day_utc, score)
+        INSERT INTO arcade_scores (network, address, game, day_utc, score, pl_account)
         VALUES (
           ${opts.network},
           ${address},
           ${opts.game},
           ${day}::date,
-          ${score}
+          ${score},
+          ${opts.plAccount ?? null}
         )
         ON CONFLICT (network, address, game, day_utc)
         DO UPDATE SET
           score = GREATEST(arcade_scores.score, EXCLUDED.score),
+          pl_account = COALESCE(EXCLUDED.pl_account, arcade_scores.pl_account),
           updated_at = NOW()
         RETURNING score
       `
@@ -588,4 +594,20 @@ export async function countGlobalGameClaimsToday(
   let total = 0
   for (const [, n] of memClaims) total += n
   return total
+}
+
+/** Arcade days per Falcon PL account since a UTC day (testnet activity tracker). */
+export async function arcadeDaysByPlAccount(network: string, sinceDay: string): Promise<{ account: string; game: string; day: string; score: number }[]> {
+  if (!isDbConfigured()) return []
+  try {
+    await ensureTables()
+    const rows = (await getSql()`
+      SELECT pl_account, game, day_utc::text AS day, MAX(score) AS score FROM arcade_scores
+      WHERE network = ${network} AND pl_account IS NOT NULL AND day_utc >= ${sinceDay}::date
+      GROUP BY pl_account, game, day_utc`) as Record<string, unknown>[]
+    return rows.map((r) => ({ account: String(r.pl_account), game: String(r.game), day: String(r.day), score: Number(r.score) }))
+  } catch (e) {
+    console.error('[arcade-store] tracker days', e)
+    return []
+  }
 }

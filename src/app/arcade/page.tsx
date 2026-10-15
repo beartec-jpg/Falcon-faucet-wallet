@@ -6,6 +6,7 @@ import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import { useNetwork } from '@/components/NetworkProvider'
 import { loadPrimaryWallet } from '@/lib/wallet-store'
+import { plAccountId } from '@/lib/pl-names'
 
 const PROD_ARCADE_URL = 'https://falcon-arcade-lake.vercel.app'
 
@@ -67,6 +68,7 @@ function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
 export default function ArcadePage() {
   const { networkKey, setNetworkKey } = useNetwork()
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [plAccount, setPlAccount] = useState<string>('')
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [claimBusy, setClaimBusy] = useState(false)
@@ -82,7 +84,10 @@ export default function ArcadePage() {
     let cancelled = false
     loadPrimaryWallet()
       .then((w) => {
-        if (!cancelled && w?.address) setWalletAddress(w.address)
+        if (!cancelled && w?.address) {
+          setWalletAddress(w.address)
+          setPlAccount(plAccountId(w))
+        }
       })
       .catch(() => {
         /* no wallet */
@@ -121,6 +126,7 @@ export default function ArcadePage() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 account: walletAddress,
+                pl_account: plAccount || undefined,
                 game,
                 score,
                 network: ARCADE_NETWORK,
@@ -132,7 +138,7 @@ export default function ArcadePage() {
         }, 800),
       )
     },
-    [walletAddress],
+    [walletAddress, plAccount],
   )
 
   const handleClaimRequest = useCallback(
@@ -158,6 +164,7 @@ export default function ArcadePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             account: walletAddress,
+            pl_account: plAccount || undefined,
             game,
             score,
             network: ARCADE_NETWORK,
@@ -209,7 +216,7 @@ export default function ArcadePage() {
         setClaimBusy(false)
       }
     },
-    [walletAddress, claimBusy, postToArcade],
+    [walletAddress, plAccount, claimBusy, postToArcade],
   )
 
   useEffect(() => {
