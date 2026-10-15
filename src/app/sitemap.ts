@@ -21,6 +21,10 @@ const ROUTES: [string, number][] = [
   ['/community', 0.6],
   ['/rewards', 0.4],
   ['/vault', 0.4],
+  ['/learn/post-quantum-blockchain', 0.8],
+  ['/airdrop/faq', 0.8],
+  ['/validator/run-a-node', 0.8],
+  ['/testnet-faucet', 0.7],
 ]
 
 export default function sitemap(): MetadataRoute.Sitemap {
