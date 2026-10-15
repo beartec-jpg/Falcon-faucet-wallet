@@ -9,8 +9,8 @@ export const dynamic = 'force-dynamic'
 
 function buildAllowSet(): Set<string> {
   const set = new Set<string>([
-    'https://falcon-ledger.com',
-    'https://www.falcon-ledger.com',
+    'https://falcon-fpl.com',
+    'https://www.falcon-fpl.com',
     'https://falcon-arcade-lake.vercel.app',
     'http://localhost:3000',
     'http://localhost:5173',
@@ -39,7 +39,7 @@ const EXACT_ALLOW = buildAllowSet()
 
 function corsHeaders(req: NextRequest): HeadersInit {
   const origin = req.headers.get('origin')
-  let allow = 'https://falcon-ledger.com'
+  let allow = 'https://falcon-fpl.com'
   if (origin && EXACT_ALLOW.has(origin)) {
     allow = origin
   } else if (

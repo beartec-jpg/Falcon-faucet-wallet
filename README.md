@@ -2,7 +2,7 @@
 
 Official public portal for **Falcon PL** testnet (network ID **2300**) — Falcon Consensus + Falcon-512. The old Falcon Ledger / XRPL fork (network **1001**) is shut down; those balances are lost.
 
-**Live:** [falcon-ledger.com](https://falcon-ledger.com) · **Repo:** [Falcon-faucet-wallet](https://github.com/beartec-jpg/Falcon-faucet-wallet)
+**Live:** [falcon-fpl.com](https://falcon-fpl.com) · **Repo:** [Falcon-faucet-wallet](https://github.com/beartec-jpg/Falcon-faucet-wallet)
 
 ---
 

@@ -6,7 +6,7 @@ import Image from 'next/image'
 import { DISCORD_INVITE_URL } from '@/lib/community-links'
 
 /**
- * Marketing homepage for Falcon PL (falcon-ledger.com root).
+ * Marketing homepage for Falcon PL (falcon-fpl.com root).
  * Faucet lives at /faucet; wallet at /wallet.
  */
 export default function MarketingHomePage() {

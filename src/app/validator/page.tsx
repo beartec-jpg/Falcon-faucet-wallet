@@ -104,7 +104,7 @@ export default function ValidatorPage() {
   const seatOk = ID_RE.test(seat) && !/^(?:v\d+|faucet|treasury|community|builder|alice|bob|watcher-.*)$/.test(seat)
   const payoutOk = payoutName === '' || (/^[a-z][a-z0-9.]{2,31}$/.test(payoutName) && !payoutName.includes('..') && !payoutName.endsWith('.'))
   const validatorCmd = seatOk && payoutOk
-    ? `curl -fsSL https://falcon-ledger.com/install.sh | bash -s -- --validator --id ${seat}${payoutName ? ` --payout '${payoutName}'` : ''}`
+    ? `curl -fsSL https://falcon-fpl.com/install.sh | bash -s -- --validator --id ${seat}${payoutName ? ` --payout '${payoutName}'` : ''}`
     : ''
 
   const load = useCallback(async () => {
