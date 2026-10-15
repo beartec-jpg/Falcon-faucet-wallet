@@ -38,6 +38,13 @@ const VALIDATOR_LINKS = [
     primary: true,
   },
   {
+    href: '/community/validators/run-a-node',
+    title: 'Run a node',
+    description: 'Step-by-step guide: requirements, one-line install, validator mode and bond.',
+    cta: 'Guide',
+    primary: false,
+  },
+  {
     href: '/rewards',
     title: 'Claim validator rewards',
     description: 'Import validator credentials and claim epoch rewards.',
@@ -47,11 +54,100 @@ const VALIDATOR_LINKS = [
   {
     href: '/faucet',
     title: 'Fund with FPL faucet',
-    description: 'Get testnet FPL for bonding (≥1,100 needed on the validator address).',
+    description: 'Get testnet FPL to try the network. New validator seats need a 50,000 FPL bond.',
     cta: 'Faucet',
     primary: false,
   },
 ] as const
+
+const HELP_LINKS = [
+  {
+    href: '/community/faq',
+    title: 'FAQ',
+    description: 'Common questions about Falcon PL, testnet FPL, nodes and the airdrop.',
+    cta: 'Read',
+    primary: false,
+  },
+  {
+    href: '/community/learn',
+    title: 'Learn',
+    description: 'Post-quantum blockchains, Falcon-512 and how to get started.',
+    cta: 'Read',
+    primary: false,
+  },
+] as const
+
+type CardItem = { href: string; title: string; description: string; cta: string; primary: boolean }
+
+function LinkCardSection({ label, intro, items }: { label: string; intro: string; items: readonly CardItem[] }) {
+  return (
+    <div className="mt-8 pt-8 border-t border-slate-800/80">
+      <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-slate-500 mb-2 text-center">
+        {label}
+      </p>
+      <p className="text-sm text-slate-500 text-center mb-4 max-w-md mx-auto">
+        {intro}
+      </p>
+      <div className="grid gap-3">
+        {items.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={
+              item.primary
+                ? 'group flex items-center gap-4 sm:gap-5 p-5 sm:p-6 rounded-2xl border border-brand-500/30 bg-gradient-to-br from-brand-500/10 via-slate-900/70 to-slate-950/90 backdrop-blur-md hover:border-brand-400/50 transition-all shadow-[0_0_32px_rgba(192,120,56,0.08)] hover:shadow-[0_0_40px_rgba(192,120,56,0.14)]'
+                : 'group flex items-center gap-4 sm:gap-5 p-5 sm:p-6 rounded-2xl border border-slate-800/90 bg-slate-900/60 backdrop-blur-md hover:border-brand-500/40 hover:bg-slate-900/85 transition-all'
+            }
+          >
+            <span
+              className={
+                item.primary
+                  ? 'flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-brand-500/35 bg-brand-500/15 text-brand-400 group-hover:text-brand-300 transition-colors'
+                  : 'flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-slate-700/80 bg-slate-950/80 text-brand-400 group-hover:border-brand-500/40 group-hover:text-brand-300 transition-colors'
+              }
+            >
+              <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
+                {item.href === '/validator' ? (
+                  <>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 12.5V6a2 2 0 012-2h10a2 2 0 012 2v6.5" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 12.5h16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 16.5v2M15 16.5v2M8 20h8" />
+                    <circle cx="12" cy="9" r="1.5" fill="currentColor" stroke="none" />
+                  </>
+                ) : item.href === '/community/validators/run-a-node' ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 5h16v14H4zM8 10l3 2-3 2M13 15h3" />
+                ) : item.href === '/community/faq' ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                ) : item.href === '/community/learn' ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                ) : item.href === '/rewards' ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                )}
+              </svg>
+            </span>
+            <span className="min-w-0 flex-1 text-left">
+              <span className="block text-lg font-semibold text-white group-hover:text-brand-400 transition-colors">
+                {item.title}
+              </span>
+              <span className="block text-sm text-slate-500 mt-0.5 leading-relaxed">
+                {item.description}
+              </span>
+            </span>
+            <span className="shrink-0 text-sm font-semibold text-brand-500 group-hover:text-brand-400 flex items-center gap-1.5">
+              {item.cta}
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
+
+  )
+}
 
 export default function CommunityPage() {
   const socials = activeCommunitySocials()
@@ -123,64 +219,16 @@ export default function CommunityPage() {
             ))}
           </div>
 
-          <div className="mt-8 pt-8 border-t border-slate-800/80">
-            <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-slate-500 mb-2 text-center">
-              Validators
-            </p>
-            <p className="text-sm text-slate-500 text-center mb-4 max-w-md mx-auto">
-              Setup, bond, and rewards live here — not in the wallet.
-            </p>
-            <div className="grid gap-3">
-              {VALIDATOR_LINKS.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={
-                    item.primary
-                      ? 'group flex items-center gap-4 sm:gap-5 p-5 sm:p-6 rounded-2xl border border-brand-500/30 bg-gradient-to-br from-brand-500/10 via-slate-900/70 to-slate-950/90 backdrop-blur-md hover:border-brand-400/50 transition-all shadow-[0_0_32px_rgba(192,120,56,0.08)] hover:shadow-[0_0_40px_rgba(192,120,56,0.14)]'
-                      : 'group flex items-center gap-4 sm:gap-5 p-5 sm:p-6 rounded-2xl border border-slate-800/90 bg-slate-900/60 backdrop-blur-md hover:border-brand-500/40 hover:bg-slate-900/85 transition-all'
-                  }
-                >
-                  <span
-                    className={
-                      item.primary
-                        ? 'flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-brand-500/35 bg-brand-500/15 text-brand-400 group-hover:text-brand-300 transition-colors'
-                        : 'flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-slate-700/80 bg-slate-950/80 text-brand-400 group-hover:border-brand-500/40 group-hover:text-brand-300 transition-colors'
-                    }
-                  >
-                    <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-                      {item.href === '/validator' ? (
-                        <>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 12.5V6a2 2 0 012-2h10a2 2 0 012 2v6.5" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 12.5h16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 16.5v2M15 16.5v2M8 20h8" />
-                          <circle cx="12" cy="9" r="1.5" fill="currentColor" stroke="none" />
-                        </>
-                      ) : item.href === '/rewards' ? (
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      ) : (
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      )}
-                    </svg>
-                  </span>
-                  <span className="min-w-0 flex-1 text-left">
-                    <span className="block text-lg font-semibold text-white group-hover:text-brand-400 transition-colors">
-                      {item.title}
-                    </span>
-                    <span className="block text-sm text-slate-500 mt-0.5 leading-relaxed">
-                      {item.description}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-sm font-semibold text-brand-500 group-hover:text-brand-400 flex items-center gap-1.5">
-                    {item.cta}
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </span>
-                </Link>
-              ))}
-            </div>
-          </div>
+          <LinkCardSection
+            label="Validators"
+            intro="Setup, bond, and rewards live here — not in the wallet."
+            items={VALIDATOR_LINKS}
+          />
+          <LinkCardSection
+            label="Learn & help"
+            intro="Answers and guides for the Falcon PL testnet."
+            items={HELP_LINKS}
+          />
 
           <p className="text-center text-sm text-slate-600 mt-10">
             Prefer to explore the product first?{' '}
