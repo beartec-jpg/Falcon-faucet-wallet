@@ -25,7 +25,7 @@ Companion to the security hardening work. **Repos are public; secrets and open p
 | Variable | Value |
 |----------|--------|
 | `NEXT_PUBLIC_ARCADE_URL` | `https://falcon-arcade-lake.vercel.app` |
-| `ALLOWED_ORIGINS` | `https://falcon-ledger.com` (+ preview hosts if needed) |
+| `ALLOWED_ORIGINS` | `https://falcon-fpl.com` (+ preview hosts if needed) |
 | `TESTNET_FAUCET_UNLIMITED` | `false` (or unset — default is limited) |
 | `ALLOW_INSECURE_TRANSPORT` | unset or `false` |
 | `CRON_SECRET` | `openssl rand -hex 32` + Vercel Cron Bearer header |
@@ -36,8 +36,8 @@ Companion to the security hardening work. **Repos are public; secrets and open p
 
 | Variable | Value |
 |----------|--------|
-| `VITE_PARENT_ORIGINS` | `https://falcon-ledger.com` |
-| `VITE_PORTAL_API_URL` | `https://falcon-ledger.com` |
+| `VITE_PARENT_ORIGINS` | `https://falcon-fpl.com` |
+| `VITE_PORTAL_API_URL` | `https://falcon-fpl.com` |
 
 Redeploy after changing any `NEXT_PUBLIC_*` / `VITE_*`.
 

@@ -1,5 +1,5 @@
 /**
- * https://falcon-ledger.com/install.sh: serves install-falcon-node.sh from the LATEST PUBLISHED release of
+ * https://falcon-fpl.com/install.sh: serves install-falcon-node.sh from the LATEST PUBLISHED release of
  * beartec-jpg/falcon-pl-releases (the same file that is listed in that release's SHA256SUMS).
  * Before a release is published it serves a stub that explains and exits non-zero, so
  * `curl … | bash` never runs anything half-built.
@@ -11,7 +11,7 @@ export const revalidate = 300
 
 const STUB = `#!/usr/bin/env bash
 echo "Falcon PL node binaries are not published yet." >&2
-echo "Follow https://falcon-ledger.com/validator for the release (public testnet 2300)." >&2
+echo "Follow https://falcon-fpl.com/validator for the release (public testnet 2300)." >&2
 exit 1
 `
 

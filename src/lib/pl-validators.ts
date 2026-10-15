@@ -8,9 +8,9 @@
 
 export const APPLICATIONS_REPO = 'beartec-jpg/falcon-pl-validators'
 export const RELEASES_REPO = 'beartec-jpg/falcon-pl-releases'
-export const INSTALL_CMD = 'curl -fsSL https://falcon-ledger.com/install.sh | bash'
+export const INSTALL_CMD = 'curl -fsSL https://falcon-fpl.com/install.sh | bash'
 export const INSTALL_VALIDATOR_CMD =
-  'curl -fsSL https://falcon-ledger.com/install.sh | bash -s -- --validator --id <name> --contact <email-or-handle>'
+  'curl -fsSL https://falcon-fpl.com/install.sh | bash -s -- --validator --id <name> --contact <email-or-handle>'
 export const FIRST_VALIDATOR_VERSION = '2.9.62'
 export const MIN_BOND_NEW = 50_000
 export const LEGACY_MIN_BOND = 1_000
