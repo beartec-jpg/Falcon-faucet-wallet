@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
-import { useNetwork } from '@/components/NetworkProvider'
 import { loadPrimaryWallet } from '@/lib/wallet-store'
 import { plAccountId } from '@/lib/pl-names'
 
@@ -66,7 +65,6 @@ function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
 }
 
 export default function ArcadePage() {
-  const { networkKey, setNetworkKey } = useNetwork()
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [plAccount, setPlAccount] = useState<string>('')
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
@@ -74,10 +72,6 @@ export default function ArcadePage() {
   const [claimBusy, setClaimBusy] = useState(false)
   const [lastTx, setLastTx] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (networkKey !== ARCADE_NETWORK) setNetworkKey(ARCADE_NETWORK)
-  }, [networkKey, setNetworkKey])
 
   // Load passkey wallet address if present
   useEffect(() => {
