@@ -2,8 +2,13 @@
  * Single switch for FBTC → BTC withdrawals (Bridge out to Bitcoin).
  *
  * Source of truth: `btc_withdrawals_enabled` in public/config/btc-spv-bridge.json.
- * Turning withdrawals back on is a one-line change there. Anything other than
- * an explicit `true` counts as off. BTC deposits are not affected.
+ * Anything other than an explicit `true` counts as off. BTC deposits are not
+ * affected.
+ *
+ * RE-ENABLE TOGETHER, in one PR: this flag, the unconditional btc-kickoff /
+ * btc-take refusal in both api/wallet routes, and WALLET_ROUTE_ACTIONS in
+ * src/lib/wallet-actions.ts. Turning on only the flag lets users burn FBTC
+ * while the Kickoff/take steps are still refused, so the burns get stuck.
  *
  * Gated entry points (keep in sync; checked by scripts/verify-btc-withdrawals-off.mjs):
  *   - UI: BridgeDepositPanel FBTC Bridge out (button + handler)
@@ -51,8 +56,10 @@ export function btcWithdrawalsPausedResponse(): {
  * naming BTC together with a kickoff / take / peg-out / withdraw step, counts.
  */
 export function isBtcWithdrawWalletdAction(action: unknown): boolean {
-  if (action == null) return false
-  const a = String(action).trim().toLowerCase()
+  // Strings only: a non-string action is rejected with 400 by the route's
+  // action parser, never forwarded.
+  if (typeof action !== 'string') return false
+  const a = action.trim().toLowerCase()
   if (!a) return false
   if (/^btc[-_]/.test(a)) return true
   return /btc|fbtc|bitcoin/.test(a) && /kick|take|peg|withdraw|claim/.test(a)

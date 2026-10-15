@@ -1,6 +1,7 @@
 {
   "status": "live",
   "btc_withdrawals_enabled": false,
+  "btc_withdrawals_note": "Re-enable together, in one PR: this flag, the unconditional btc-kickoff/btc-take refusal in src/app/api/wallet/route.ts and src/app/api/wallet/pl/route.ts, and WALLET_ROUTE_ACTIONS in src/lib/wallet-actions.ts. Turning on only the flag lets users burn FBTC while the Kickoff/take steps are still refused, so the burns get stuck.",
   "network": "falcon-pl",
   "network_id": 2300,
   "btc_network": "testnet",
