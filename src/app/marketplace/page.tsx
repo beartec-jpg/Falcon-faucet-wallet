@@ -1,6 +1,6 @@
-import { redirect } from 'next/navigation'
+import { permanentRedirect } from 'next/navigation'
 
 /** Marketplace consolidated into /swap (USDC-only). */
 export default function MarketplaceRedirect() {
-  redirect('/swap')
+  permanentRedirect('/swap')
 }
