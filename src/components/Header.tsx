@@ -52,7 +52,6 @@ const COMMUNITY_SUB_ITEMS: { label: string; href: string }[] = [
   { label: 'FAQ', href: '/community/faq' },
   { label: 'Learn', href: '/community/learn' },
   { label: 'Validators', href: '/validator' },
-  { label: 'Run a Node', href: '/community/validators/run-a-node' },
 ]
 
 function NavLinks({
