@@ -18,6 +18,7 @@ import {
 } from '@/lib/btc-client'
 import { btcP2pkhFromCompressedPub } from '@/lib/create-btc-wallet'
 import { signTxJson } from '@/lib/falcon-tx-sign'
+import { BTC_DEPOSITS_ENABLED, BTC_DEPOSITS_OFF_ERROR } from '@/lib/btc-withdrawals'
 import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
 import type { NetworkKey } from '@/lib/networks'
 import { networkIdForTx } from '@/lib/networks'
@@ -263,6 +264,7 @@ export async function sendSpvDeposit(opts: {
   /** If set, pay this scriptPubKey instead of P2PKH watchAddress (BitVM vault P2WSH). */
   paymentScriptHex?: string
 }): Promise<SpvDepositResult> {
+  if (!BTC_DEPOSITS_ENABLED) throw new Error(BTC_DEPOSITS_OFF_ERROR)
   const network = opts.network ?? 'testnet'
   const pk = opts.privateKeyHex.replace(/^0x/i, '').toLowerCase()
   if (!/^[0-9a-f]{64}$/.test(pk)) throw new Error('Invalid Bitcoin private key')

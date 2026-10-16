@@ -1,3 +1,4 @@
+import { BTC_DEPOSITS_ENABLED, BTC_DEPOSITS_OFF_ERROR } from '@/lib/btc-withdrawals'
 import { NextRequest, NextResponse } from 'next/server'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -331,8 +332,10 @@ export async function GET(req: NextRequest) {
         mode: spv === 'bitcoin' ? 'bitcoin-spv' : 'pl-rail',
         spv,
         holdKind: 'bitvm2-instance',
-        message:
-          spv === 'bitcoin'
+        depositsEnabled: BTC_DEPOSITS_ENABLED,
+        message: !BTC_DEPOSITS_ENABLED
+          ? BTC_DEPOSITS_OFF_ERROR
+          : spv === 'bitcoin'
             ? 'Falcon PL Bitcoin SPV — send testnet BTC to the BitVM2 instance + FALC memo, then mint. Peg-out is dest-lock Kickoff + your key after CSV. No FROST.'
             : 'BitVM2 dest-lock is live. You can send testnet BTC now; mint waits until Bitcoin headers are on Falcon.',
         btcNetwork: 'testnet',

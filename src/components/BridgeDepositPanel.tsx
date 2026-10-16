@@ -45,7 +45,12 @@ import {
 } from '@/lib/dest-lock-pending'
 import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
 import { fetchBtcBalance } from '@/lib/btc-client'
-import { BTC_WITHDRAWALS_ENABLED, BTC_WITHDRAWALS_OFF_MESSAGE } from '@/lib/btc-withdrawals'
+import {
+  BTC_DEPOSITS_ENABLED,
+  BTC_DEPOSITS_OFF_ERROR,
+  BTC_WITHDRAWALS_ENABLED,
+  BTC_WITHDRAWALS_OFF_MESSAGE,
+} from '@/lib/btc-withdrawals'
 import {
   fetchSpvStatus,
   sendSpvDeposit,
@@ -3389,7 +3394,9 @@ const handleSpvCompleteClaim = async () => {
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 leading-snug">
-                      Send testnet BTC to the BitVM2 instance + FALC memo. Peg-out is dest-lock Kickoff, then your key. No FROST.
+                      {BTC_DEPOSITS_ENABLED
+                        ? 'Send testnet BTC to the BitVM2 instance + FALC memo. Peg-out is dest-lock Kickoff, then your key. No FROST.'
+                        : BTC_DEPOSITS_OFF_ERROR}
                     </p>
                   </div>
                 ) : (
@@ -3579,7 +3586,7 @@ const handleSpvCompleteClaim = async () => {
                               ? ` · ${String(spvStatus.bridge.minConfirmations)} conf`
                               : ''}
                           </div>
-                          {spvLive && btcWatchAddress ? (
+                          {spvLive && btcWatchAddress && BTC_DEPOSITS_ENABLED ? (
                             <div className="font-mono break-all text-slate-600">
                               {btcWatchAddress}
                             </div>

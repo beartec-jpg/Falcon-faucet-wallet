@@ -1,6 +1,7 @@
 {
   "status": "live",
   "btc_withdrawals_enabled": false,
+  "btc_deposits_enabled": false,
   "network": "falcon-pl",
   "network_id": 2300,
   "btc_network": "testnet",
@@ -20,7 +21,7 @@
   ],
   "notes": "STATUS SoT 2.9.60: NUMS P2TR even-Y pool is primary peg-in. BTC peg-out is paused (BitVM2 withdrawals in final testing; btc_withdrawals_enabled=false) \u2014 not custodialess. Odd-Y v1 and prior BitVM2 instance are historical.",
   "btc_exit_mode": "bitvm2",
-  "trust_note": "Live BTC exit is A1 operator-fronting (BTC_EXIT_MODE=bitvm2). Not Bitcoin Disprove. Not custodialess.",
+  "trust_note": "BTC deposits and withdrawals are paused (16 Oct 2026). The BTC pool is custodial (keys on one operator host); there is no on-chain Disprove. Not non-custodial.",
   "historical_watch_addresses": {
     "prior_bitvm2_instance": "tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5",
     "odd_y_v1": "tb1pq9mgl62e4dskkc9h4jxwfsfdt56hn9vl22u9xhqgz2l8jxfpwsascq6098"
