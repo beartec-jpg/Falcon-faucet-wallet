@@ -18,10 +18,10 @@ import btcBridgeConfig from '../../public/config/btc-spv-bridge.json'
 export const BTC_WITHDRAWALS_ENABLED =
   (btcBridgeConfig as { btc_withdrawals_enabled?: unknown }).btc_withdrawals_enabled === true
 
-export const BTC_WITHDRAWALS_OFF_MESSAGE = 'BTC withdrawals are in final testing.'
+export const BTC_WITHDRAWALS_OFF_MESSAGE = 'BTC withdrawals are paused.'
 
 export const BTC_WITHDRAWALS_OFF_ERROR =
-  'BTC withdrawals are in final testing. Bridge out to Bitcoin is switched off for now; BTC deposits still work.'
+  'BTC withdrawals are paused. Bridge out to Bitcoin is switched off while the BTC bridge is rebuilt; it is not non-custodial today.'
 
 export const BTC_WITHDRAWALS_OFF_CODE = 'btc_withdrawals_disabled'
 

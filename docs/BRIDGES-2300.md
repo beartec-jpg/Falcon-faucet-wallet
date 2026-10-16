@@ -27,7 +27,7 @@ Aligned to Falcon-PL STATUS SoT: `docs/BRIDGES_2300_STATUS.md` (read-only copy o
 **Status (9 Oct 2026):**
 - **ETH/USDC peg-in:** deposits go to V1 (`sepolia.pegin_v3=false`). Minting is **delayed** until the Sepolia light client catches up after Sepolia's Gloas upgrade (Falcon PL height 409134 + relayer deploy); `pegin_notice` in the config shows this to users. The switch to V3 deposits (`pegin_v3: true`) happens after all seats run 2.9.61 and **before** height 414000.
 - **ETH/USDC peg-out:** new claims via V3; not yet tested end to end.
-- **BTC:** deposits live; **withdrawals paused** (`btc_withdrawals_enabled=false`) while BitVM2 withdrawals are in final testing. Do not market 2300 BTC exits as custodialess BitVM2.
+- **BTC:** deposits **paused** (`btc_deposits_enabled=false`, 16 Oct 2026) and **withdrawals paused** (`btc_withdrawals_enabled=false`). The BTC pool is custodial (keys on one operator host, no on-chain Disprove). Do not market 2300 BTC exits as custodialess BitVM2.
 
 Config: `public/config/pl-2300-bridge.json` (live). BTC: `public/config/btc-spv-bridge.json`. `BTC_RAIL_LIVE = true` in `src/lib/pl-btc-rail.ts`.
 
