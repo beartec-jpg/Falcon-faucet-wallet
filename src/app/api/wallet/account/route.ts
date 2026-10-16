@@ -125,12 +125,30 @@ export async function GET(req: NextRequest) {
         plStatus(false).then((st) => num(st.tip_height)).catch(() => 0),
         new Promise<number>((resolve) => setTimeout(() => resolve(0), 400)),
       ])
+      const rippleEpoch = 946684800
+      const recent = Array.isArray(acct.recent_txs) ? acct.recent_txs as Array<Record<string, unknown>> : []
+      const transactions = recent.map((t) => {
+        const kind = String(t.kind ?? 'tx')
+        const ms = Number(t.sealed_at_ms ?? 0)
+        const type = kind === 'pay' ? 'Payment' : kind === 'claim' ? 'Claim' : kind === 'asset_pay' ? 'AssetPay' : 'Tx'
+        return {
+          hash: String(t.tx_id ?? ''),
+          type,
+          amount: t.amount != null ? String(t.amount) : undefined,
+          amountAsset: kind === 'asset_pay' ? String(t.asset ?? '') : 'FPL',
+          destination: t.destination != null ? String(t.destination) : undefined,
+          account: String(t.account ?? ''),
+          result: 'tesSUCCESS',
+          date: ms > 0 ? Math.floor(ms / 1000) - rippleEpoch : undefined,
+        }
+      }).filter((t) => t.hash)
       return NextResponse.json({
         address,
         balance: num(acct.balance),
         sequence: num(acct.sequence),
+        claimable: num(acct.claimable),
         exists,
-        transactions: [],
+        transactions,
         currentLedger: tip,
         network: networkKey,
         accountType: String(acct.account_type ?? 'hot'),

@@ -30,7 +30,7 @@ import {
   signFusdcPayment,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
-import { signPlAssetPay, signPlPay, signPlPayToKey } from '@/lib/pl-wallet-sign'
+import { signPlAssetPay, signPlClaim, signPlPay, signPlPayToKey } from '@/lib/pl-wallet-sign'
 import { isOwnLinkedVault, isPayToKeyUnsupported, keyCommitHash } from '@/lib/vault-activation'
 import { loadPrimaryVault } from '@/lib/vault-store'
 import {
@@ -195,6 +195,7 @@ interface WalletAssets {
 interface AccountData {
   balance:      number
   sequence:     number
+  claimable?:   number
   exists:       boolean
   transactions: TxRecord[]
   currentLedger: number
@@ -1222,6 +1223,40 @@ export default function WalletPage() {
   }
 
   // ── Send transaction ──────────────────────────────────────────────────────
+
+  const claimPlRewards = async () => {
+    if (!wallet || !account || network.networkId !== 2300) return
+    if (!account.claimable) {
+      setError('Nothing to claim on this account.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+      const seq = await fetchSequenceInfo(plAccountId(wallet), networkKey)
+      const tx = await signPlClaim({
+        account: plAccountId(wallet),
+        sequence: seq.sequence,
+        fee: 2,
+        networkId: network.networkId,
+        falconSecret: falcon_secret,
+      })
+      const res = await fetch('/api/wallet/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tx_json: tx.rawJson, network: networkKey }),
+      })
+      const out = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok || out.error) throw new Error(out.error || 'Claim failed')
+      await refreshBalance(plAccountId(wallet))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Claim failed')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -3043,6 +3078,20 @@ export default function WalletPage() {
 
                   {walletSection === 'falcon' && account?.exists && network.networkId === 2300 && (
                     <div className="space-y-2 pt-1">
+                      <div className="bg-slate-800/40 rounded-xl px-3 py-2.5 border border-slate-800 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] text-slate-500">Rewards</div>
+                          <div className="font-mono text-sm text-slate-100">{account.claimable ?? 0} FPL claimable</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void claimPlRewards()}
+                          disabled={busy || !(account.claimable && account.claimable > 0)}
+                          className="text-sm font-semibold text-emerald-200 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 rounded-lg px-3 py-2 disabled:opacity-40"
+                        >
+                          {busy ? 'Claiming…' : 'Claim'}
+                        </button>
+                      </div>
                       <div className="text-[11px] text-slate-500">Your pools</div>
                       {plBook == null ? (
                         <p className="text-xs text-slate-500">Loading your pools…</p>
@@ -4066,20 +4115,25 @@ export default function WalletPage() {
               })()}
 
               {/* ── Transaction history ── */}
-              {view === 'dashboard' && account && account.transactions.length > 0 && (
+              {view === 'dashboard' && account && (walletSection === 'falcon' || walletSection === 'multichain') && (
                 <div className="wallet-glass divide-y divide-slate-800/60 wallet-panel-enter">
                   <div className="px-4 py-3 flex items-center justify-between">
                     <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">
                       Activity
                     </div>
-                    <span className="text-[10px] text-slate-600">Latest {Math.min(5, account.transactions.length)}</span>
+                    <span className="text-[10px] text-slate-600">Latest {Math.min(8, account.transactions.length)}</span>
                   </div>
-                  {account.transactions.slice(0, 5).map((tx, i) => {
+                  {account.transactions.length === 0 && (
+                    <div className="px-4 py-3 text-xs text-slate-500">No transactions in the recent chain tail.</div>
+                  )}
+                  {account.transactions.slice(0, 8).map((tx, i) => {
                     const isDepositClaim = tx.type === 'BTCDepositClaim'
                     const isBridgeBurn = tx.type === 'BTCBridgeBurn' || tx.type === 'BTCWithdrawFinalize'
+                    const selfId = plAccountId(wallet)
                     const incoming =
                       isDepositClaim ||
-                      (tx.type === 'Payment' && tx.destination === wallet.address)
+                      tx.type === 'Claim' ||
+                      (tx.type === 'Payment' && (tx.destination === wallet.address || tx.destination === selfId))
                     const outgoing =
                       isBridgeBurn ||
                       (tx.type === 'Payment' && tx.account === wallet.address && !incoming)
