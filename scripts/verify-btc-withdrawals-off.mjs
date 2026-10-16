@@ -23,7 +23,7 @@ const CONFIG = path.join(root, 'public/config/btc-spv-bridge.json')
 // Placeholder only: fetch is stubbed below, nothing is ever contacted.
 process.env.FALCON_PL_WALLET_API = 'http://walletd.invalid'
 process.env.VERCEL = '1' // origin check runs in production mode
-const MSG = 'BTC withdrawals are in final testing'
+const MSG = 'BTC withdrawals are paused'
 
 let failures = 0
 async function check(name, fn) {
@@ -134,7 +134,7 @@ await check('config: btc_withdrawals_enabled is false (BTC withdrawals off)', ()
   assert.equal(
     baseConfig.btc_withdrawals_enabled,
     false,
-    'btc_withdrawals_enabled must be false while BTC withdrawals are in final testing',
+    'btc_withdrawals_enabled must be false while BTC withdrawals are paused',
   )
 })
 

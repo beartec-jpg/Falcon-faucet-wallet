@@ -19,7 +19,7 @@
     "tb1pj9d6d6eaayw7f7hc3mr2lm3xhuscuhtw6kpjqz5jvvuf4mh2lduq2pqytm",
     "tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5"
   ],
-  "notes": "STATUS SoT 2.9.60: NUMS P2TR even-Y pool is primary peg-in. BTC peg-out is paused (BitVM2 withdrawals in final testing; btc_withdrawals_enabled=false) \u2014 not custodialess. Odd-Y v1 and prior BitVM2 instance are historical.",
+  "notes": "STATUS SoT 2.9.60: NUMS P2TR even-Y pool is primary peg-in. BTC peg-out and new deposits are paused (btc_withdrawals_enabled=false, btc_deposits_enabled=false) \u2014 not custodialess. Odd-Y v1 and prior BitVM2 instance are historical.",
   "btc_exit_mode": "bitvm2",
   "trust_note": "BTC deposits and withdrawals are paused (16 Oct 2026). The BTC pool is custodial (keys on one operator host); there is no on-chain Disprove. Not non-custodial.",
   "historical_watch_addresses": {

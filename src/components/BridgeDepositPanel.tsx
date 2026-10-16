@@ -269,7 +269,7 @@ interface BridgeWithdrawResult {
   falconTxHash?: string
   amount: string
   sepoliaRecipient: string
-  /** Bitcoin vault claim spend (non-custodial SPV out) */
+  /** Bitcoin vault claim spend (SPV out) */
   btcClaimTxid?: string
   btcClaimExplorerUrl?: string
   payoutSats?: number
@@ -375,7 +375,7 @@ export default function BridgeDepositPanel({
   const btcPaymentScriptHex =
     spvStatus?.paymentScriptHex ||
     (isPl2300 && BTC_RAIL_LIVE ? BITVM2_INSTANCE_SPK : '')
-  /** BitVM2 dest-lock is live. Header lag is a warning, not “unconfigured”. */
+  /** BTC rail UI on; deposits/withdrawals gated by btc-spv-bridge.json flags. */
   const fbtcReady = isPl2300 && BTC_RAIL_LIVE
   const spvLive = fbtcReady && !!(btcWatchAddress || btcPaymentScriptHex)
   const fxrpReady = !!(fxrpIssuer && fxrpCustody)
@@ -3179,7 +3179,7 @@ const handleSpvCompleteClaim = async () => {
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 space-y-1">
                     <p className="text-xs font-semibold text-amber-300">{BTC_WITHDRAWALS_OFF_MESSAGE}</p>
                     <p className="text-[11px] text-slate-400 leading-snug">
-                      Bridge out to Bitcoin is switched off for now. BTC deposits still work. If you
+                      Bridge out to Bitcoin is switched off, and new BTC deposits are paused. If you
                       already burned FBTC for a withdrawal, that withdrawal is pending: it has not been
                       paid yet, and its record is kept.
                     </p>
