@@ -742,6 +742,8 @@ export default function WalletPage() {
 
   // ── Create wallet ─────────────────────────────────────────────────────────
 
+  const pendingKeyRef = useRef<{ name: string; key: Awaited<ReturnType<typeof generateWallet>> } | null>(null)
+
   const handleCreate = async () => {
     if (!isPasskeySupported()) {
       setError('Passkeys need a secure context (HTTPS or localhost). Please use the live site.')
@@ -768,7 +770,12 @@ export default function WalletPage() {
     try {
       const label = createLabel.trim() || 'My Falcon Wallet'
 
-      const { falcon_secret, address, publicKey } = await generateWallet()
+      // Reuse the key generated for this name earlier in the session, so a cancelled passkey
+      // prompt can be retried: the server reservation is tied to that public key (30 min TTL).
+      const prior = pendingKeyRef.current
+      const gen = prior && prior.name === picked ? prior.key : await generateWallet()
+      pendingKeyRef.current = { name: picked, key: gen }
+      const { falcon_secret, address, publicKey } = gen
       const hold = await fetch('/api/wallet/name', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
