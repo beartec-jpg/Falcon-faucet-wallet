@@ -26,6 +26,8 @@ import { clientIp } from '@/lib/security'
 import { existsSync } from 'fs'
 import { ctlFaucet, PL_CTL } from '@/lib/pl-ctl'
 import { walletApiHeaders, walletApiUrl } from '@/lib/walletd'
+import { nameKeyOnFile } from '@/lib/pl-name-store'
+import { plKeyCommitHash } from '@/lib/pl-key-commit-server'
 
 const WALLET_API = walletApiUrl()
 
@@ -37,11 +39,13 @@ class WalletApiError extends Error {
   }
 }
 
-async function faucetViaHttp(to: string, amount: number) {
+async function faucetViaHttp(to: string, amount: number, publicKey?: string) {
   const r = await fetch(WALLET_API, {
     method: 'POST',
     headers: walletApiHeaders(),
-    body: JSON.stringify({ action: 'faucet', account: to, amount }),
+    // walletd (FPL_FAUCET_PAY_TO_KEY=1) turns publicKey, or its own name
+    // reservation, into a PayToKey commitment (audit C-1).
+    body: JSON.stringify({ action: 'faucet', account: to, amount, ...(publicKey ? { publicKey } : {}) }),
   })
   const d = (await r.json()) as { error?: string; txId?: string; raw?: string }
   if (!r.ok) {
@@ -60,6 +64,10 @@ function ip(req: NextRequest): string {
 
 function err(msg: string, status = 400, extra?: Record<string, unknown>) {
   return NextResponse.json({ error: msg, ...extra }, { status })
+}
+
+function payToKeyEnabled(): boolean {
+  return (process.env.FALCON_PL_FAUCET_PAY_TO_KEY ?? '').trim().toLowerCase() === 'true'
 }
 
 const PL_DRIP = Number(process.env.FALCON_PL_DRIP ?? '2000') || 2000
@@ -151,10 +159,23 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Audit C-1: after the chain's key-bind height (2.9.65, H=571000) a name is
+    // only spendable by a key its funder committed to. With
+    // FALCON_PL_FAUCET_PAY_TO_KEY=true the drip commits the reserved key.
+    let keyHash: string | undefined
+    if (payToKeyEnabled() && !isClassicAddress(account)) {
+      const pk = existsSync(PL_CTL) ? nameKeyOnFile(account) : null
+      if (existsSync(PL_CTL)) {
+        if (!pk) {
+          return err('Reserve this name in the wallet first, then claim from the faucet.')
+        }
+        keyHash = plKeyCommitHash(pk)
+      }
+    }
     let paid: { txId: string }
     try {
       paid = existsSync(PL_CTL)
-        ? await ctlFaucet(account, PL_DRIP)
+        ? await ctlFaucet(account, PL_DRIP, keyHash)
         : await faucetViaHttp(account, PL_DRIP)
     } catch (e) {
       const msg = String(e instanceof Error ? e.message : e)

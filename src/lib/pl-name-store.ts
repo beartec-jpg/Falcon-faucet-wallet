@@ -158,3 +158,11 @@ export function activateName(nameRaw: string, publicKey: string, now = Date.now(
   save(rows.filter((r) => r.name !== name).concat(next))
   return next
 }
+
+/** Public key on file for a live (reserved or activated) name, or null. */
+export function nameKeyOnFile(raw: string, now = Date.now()): string | null {
+  const name = normalizePlName(raw)
+  if (!name) return null
+  const rec = live(load(), now).find((r) => r.name === name)
+  return rec?.publicKey?.trim() || null
+}
