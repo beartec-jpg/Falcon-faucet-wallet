@@ -62,7 +62,7 @@ export default function First35Page() {
                 </li>
               ))}
               <li>
-                Have a registered testnet account: <a href="/wallet" className="hover:underline" style={{ color: C.gold }}>create one in the wallet</a>
+                Have a Falcon PL wallet name: <a href="/wallet" className="hover:underline" style={{ color: C.gold }}>create one in the wallet</a>
               </li>
               <li>Apply with the form, then keep testing and giving feedback until mainnet</li>
             </ol>
