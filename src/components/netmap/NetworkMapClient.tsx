@@ -77,12 +77,12 @@ export default function NetworkMapClient() {
     [wKey, w?.live.join(','), wEvent],
   )
 
-  const seatIdsKey = (data?.validators ?? []).map((v) => `${v.account}:${(data?.online_seats ?? []).includes(v.account) ? 1 : 0}`).join(',')
+  const seatIdsKey = (data?.validators ?? []).filter((v) => !v.jailed).map((v) => `${v.account}:${(data?.online_seats ?? []).includes(v.account) ? 1 : 0}`).join(',')
   const layout = useMemo(() => {
     const online = new Set(data?.online_seats ?? [])
     return layoutMap(
       CFG,
-      (data?.validators ?? []).map((v) => ({ id: v.account, online: online.has(v.account) })),
+      (data?.validators ?? []).filter((v) => !v.jailed).map((v) => ({ id: v.account, online: online.has(v.account) })),
     )
     // Re-layout only when the seat set / online flags change, not every poll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,7 +92,7 @@ export default function NetworkMapClient() {
   const seats = useMemo(() => {
     const out: Record<string, SeatView> = {}
     if (!last) return out
-    for (const s of last.seats) out[s.id] = { online: s.online, jailed: s.jailed, lag: seatLag(last.height, s) }
+    for (const s of last.seats) if (!s.jailed) out[s.id] = { online: s.online, jailed: s.jailed, lag: seatLag(last.height, s) }
     // Seats in config but missing from status: offline.
     return out
   }, [last])

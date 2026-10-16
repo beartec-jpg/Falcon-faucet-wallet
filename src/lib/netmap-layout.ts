@@ -71,7 +71,7 @@ export function layoutMap(
     .map((s) => s.id)
     .sort()
   if (extra.length) {
-    locs.push({ id: 'unplaced', label: 'Unplaced (add to config)', confirmed: false, hosts: [{ host: '', seats: extra }] })
+    locs.push({ id: 'unplaced', label: 'Community validators', confirmed: false, hosts: [{ host: '', seats: extra }] })
   }
   const groups = locs.filter((l) => l.hosts.some((h) => h.seats.length))
 

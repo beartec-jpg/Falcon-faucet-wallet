@@ -4,7 +4,7 @@ import TrendChart from '@/components/explorer/TrendChart'
 import { getClientSeries } from '@/lib/metric-history'
 import { seatKey, seatLag, type NetSample, type SeatMetric } from '@/lib/net-metrics'
 
-/** One box per bonded seat; each stat inside opens that seat metric's 24h chart. */
+/** One box per bonded, non-jailed seat (jailed seats are listed under the Jailed tab); each stat inside opens that seat metric's 24h chart. */
 export default function SeatBoxes({
   sample,
   onOpen,
@@ -13,7 +13,7 @@ export default function SeatBoxes({
   onOpen: (id: string, metric: SeatMetric) => void
 }) {
   if (!sample) return null
-  const seats = [...sample.seats].sort((a, b) => Number(b.online) - Number(a.online) || a.id.localeCompare(b.id))
+  const seats = sample.seats.filter((s) => !s.jailed).sort((a, b) => Number(b.online) - Number(a.online) || a.id.localeCompare(b.id))
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
       {seats.map((s) => {

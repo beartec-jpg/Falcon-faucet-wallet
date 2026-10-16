@@ -216,6 +216,7 @@ export default function ScanExplorer({
   const [error, setError] = useState<string | null>(initialError)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [tab, setTab] = useState<ScanTab>('network')
+  const [seatTab, setSeatTab] = useState<'active' | 'jailed'>('active')
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const inflightRef = useRef(false)
   const live = useLiveSamples(data)
@@ -472,9 +473,15 @@ export default function ScanExplorer({
 
             <div>
               <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-                Bonded seats
+                <button type="button" onClick={() => setSeatTab('active')} className={seatTab === 'active' ? 'text-slate-300' : 'hover:text-slate-400'}>
+                  Bonded seats
+                </button>
+                <span className="mx-2 text-slate-700">|</span>
+                <button type="button" onClick={() => setSeatTab('jailed')} className={seatTab === 'jailed' ? 'text-slate-300' : 'hover:text-slate-400'}>
+                  Jailed ({d.validators.filter((v: ValidatorEntry) => v.jailed).length})
+                </button>
                 <span className="ml-2 font-normal normal-case tracking-normal text-slate-600">
-                  · {d.validators.length} bonded · {d.online_seats.length} online
+                  · {d.validators.filter((v: ValidatorEntry) => !v.jailed).length} bonded · {d.online_seats.length} online
                 </span>
               </h2>
               <div className="card overflow-hidden overflow-x-auto">
@@ -488,7 +495,7 @@ export default function ScanExplorer({
                     </tr>
                   </thead>
                   <tbody>
-                    {d.validators.map((v: ValidatorEntry) => {
+                    {d.validators.filter((v: ValidatorEntry) => (seatTab === 'jailed') === Boolean(v.jailed)).map((v: ValidatorEntry) => {
                       const on = d.online_seats.includes(v.account)
                       return (
                         <tr key={v.account} className="border-b border-slate-800/50">
