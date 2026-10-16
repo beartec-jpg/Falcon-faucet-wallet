@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { loadPrimaryWallet } from '@/lib/wallet-store'
 
 const C = { copper: '#C07838', gold: '#D4922A', panel: '#0F172A', cream: '#E0DBCA' }
 const mono = { fontFamily: "'JetBrains Mono', ui-monospace, monospace" }
@@ -30,7 +31,7 @@ export function Seats({ total }: { total: number }) {
 }
 
 const FIELDS = [
-  { k: 'account', label: 'Testnet account name', ph: 'e.g. yourname' },
+  { k: 'account', label: 'Falcon PL wallet name', ph: 'e.g. yourname' },
   { k: 'telegram', label: 'Telegram handle', ph: '@handle' },
   { k: 'discord', label: 'Discord handle', ph: 'handle' },
   { k: 'x_handle', label: 'X handle', ph: '@handle' },
@@ -40,6 +41,27 @@ export function Form() {
   const [v, setV] = useState<Record<string, string>>({ account: '', telegram: '', discord: '', x_handle: '', note: '' })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [acctHint, setAcctHint] = useState<{ ok: boolean; text: string } | null>(null)
+  // Prefill from the wallet on this device (on-chain account name), if any.
+  useEffect(() => {
+    loadPrimaryWallet()
+      .then((w) => {
+        const n = w?.accountName?.trim().toLowerCase()
+        if (n) setV((cur) => (cur.account ? cur : { ...cur, account: n }))
+      })
+      .catch(() => {})
+  }, [])
+  const checkAccount = async (name: string) => {
+    const n = name.trim().toLowerCase()
+    if (!n) return setAcctHint(null)
+    try {
+      const r = await fetch(`/api/wallet/account?address=${encodeURIComponent(n)}`, { cache: 'no-store' })
+      const j = await r.json().catch(() => ({}))
+      setAcctHint(j.exists === false ? { ok: false, text: 'No Falcon PL wallet with that name.' } : j.exists ? { ok: true, text: 'Wallet found.' } : null)
+    } catch {
+      setAcctHint(null)
+    }
+  }
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setBusy(true)
@@ -63,11 +85,18 @@ export function Form() {
           <input
             required
             value={v[f.k]}
-            onChange={(e) => setV({ ...v, [f.k]: e.target.value })}
+            onChange={(e) => {
+              setV({ ...v, [f.k]: e.target.value })
+              if (f.k === 'account') setAcctHint(null)
+            }}
+            onBlur={f.k === 'account' ? (e) => checkAccount(e.target.value) : undefined}
             placeholder={f.ph}
             className="mt-1 w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-[#C07838]"
             style={mono}
           />
+          {f.k === 'account' && acctHint && (
+            <span className="mt-1 block text-[11px]" style={{ color: acctHint.ok ? C.gold : '#F87171' }}>{acctHint.text}</span>
+          )}
         </label>
       ))}
       <label className="block text-xs text-slate-400">

@@ -23,10 +23,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'That account cannot apply.' }, { status: 400 })
   }
   try {
-    if (!accountExists(await plAccount(v.account))) return NextResponse.json({ error: 'No testnet account with that name. Create one in the wallet first.' }, { status: 400 })
+    if (!accountExists(await plAccount(v.account))) return NextResponse.json({ error: 'No Falcon PL wallet with that name. Create one in the wallet first.' }, { status: 400 })
   } catch {
     return NextResponse.json({ error: 'Cannot reach the testnet right now. Try again shortly.' }, { status: 503 })
   }
+  // dry_run: validate everything (incl. on-chain lookup) without saving. Used for checks.
+  if (body.dry_run === true) return NextResponse.json({ ok: true, dry_run: true })
   try {
     const r = await first35Store().insert(v, await hashIp(clientIp(req)))
     if (!r.ok) return NextResponse.json({ error: 'This account has already applied.' }, { status: 409 })

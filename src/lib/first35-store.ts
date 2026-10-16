@@ -40,7 +40,7 @@ export function validateApplication(raw: Record<string, unknown>): First35Input 
   const discord = t('discord').replace(/^@/, '')
   const x_handle = t('x_handle').replace(/^@/, '')
   const note = t('note')
-  if (!ACCOUNT_RE.test(account)) return 'Enter your testnet account name (lowercase, as shown in your wallet).'
+  if (!ACCOUNT_RE.test(account)) return 'Enter your Falcon PL wallet name (lowercase, as shown in your wallet).'
   if (!HANDLE_RE.test(telegram)) return 'Enter your Telegram handle.'
   if (!HANDLE_RE.test(discord)) return 'Enter your Discord handle.'
   if (!HANDLE_RE.test(x_handle)) return 'Enter your X handle.'

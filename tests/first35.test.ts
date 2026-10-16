@@ -18,7 +18,7 @@ describe('applications', () => {
   const ok = { account: 'Dave', telegram: '@dave_t', discord: 'dave#1', x_handle: '@dave', note: 'testing swaps' }
   it('validates and normalises', () => {
     expect(validateApplication(ok)).toEqual({ account: 'dave', telegram: 'dave_t', discord: 'dave#1', x_handle: 'dave', note: 'testing swaps' })
-    expect(validateApplication({ ...ok, account: 'BAD NAME' })).toMatch(/account/)
+    expect(validateApplication({ ...ok, account: 'BAD NAME' })).toMatch(/wallet name/)
     expect(validateApplication({ ...ok, telegram: '' })).toMatch(/Telegram/)
     expect(validateApplication({ ...ok, note: 'x'.repeat(501) })).toMatch(/500/)
   })
