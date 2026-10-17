@@ -43,6 +43,16 @@ type Me = {
   claimsByDay: Record<string, number>
 }
 
+type Activity = {
+  account: string
+  rank: number | null
+  active_days: string[]
+  row: { score: number; categories: Record<string, { points: number; cap: number; tracked: boolean; detail: string }> } | null
+  classification?: { kind: string; reason: string }
+}
+
+const isRAddress = (s: string) => /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(s)
+
 function fmt(n: number, d = 2) {
   return n.toLocaleString(undefined, { maximumFractionDigits: d })
 }
@@ -51,6 +61,7 @@ export default function AirdropPage() {
   const { networkKey } = useNetwork()
   const [overview, setOverview] = useState<Overview | null>(null)
   const [me, setMe] = useState<Me | null>(null)
+  const [act, setAct] = useState<Activity | null>(null)
   const [address, setAddress] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -66,8 +77,19 @@ export default function AirdropPage() {
     async (addr: string) => {
       if (!addr) {
         setMe(null)
+        setAct(null)
         return
       }
+      if (!isRAddress(addr)) {
+        // Falcon PL account name: live testnet activity counters (same source as the activity board).
+        setMe(null)
+        const r = await fetch(`/api/scan/account/${encodeURIComponent(addr.toLowerCase())}`, { cache: 'no-store' })
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(j.error ?? 'Account not found')
+        setAct(j as Activity)
+        return
+      }
+      setAct(null)
       const r = await fetch(
         withNetworkQuery(`/api/airdrop/me?address=${encodeURIComponent(addr)}`, networkKey),
       )
@@ -86,9 +108,10 @@ export default function AirdropPage() {
     loadPrimaryWallet()
       .then(async (w) => {
         if (cancelled) return
-        if (w?.address) setAddress(w.address)
+        const id = w?.accountName?.trim().toLowerCase() || ''
+        if (id) setAddress(id)
         await loadOverview()
-        if (w?.address) await loadMe(w.address)
+        if (id) await loadMe(id).catch(() => {})
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Load failed')
@@ -195,7 +218,7 @@ export default function AirdropPage() {
               className="flex-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 font-mono text-xs"
               value={address}
               onChange={(e) => setAddress(e.target.value.trim())}
-              placeholder="r…"
+              placeholder="Falcon PL account name"
             />
             <button
               type="button"
@@ -205,6 +228,37 @@ export default function AirdropPage() {
               Lookup
             </button>
           </div>
+          {act && (
+            <div className="space-y-2 text-xs">
+              {act.row ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.entries(act.row.categories).map(([k, c]) => (
+                      <div key={k} className="bg-slate-950/60 rounded-lg px-3 py-2">
+                        <div className="text-slate-500 capitalize">{k}</div>
+                        <div className="font-mono text-slate-200 mt-0.5">{c.tracked ? c.detail : 'not tracked yet'}</div>
+                      </div>
+                    ))}
+                    <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+                      <div className="text-slate-500">Activity score</div>
+                      <div className="font-mono text-emerald-300 mt-0.5">
+                        {fmt(act.row.score, 1)}{act.rank ? ` · rank #${act.rank}` : ''} · {act.active_days.length} days
+                      </div>
+                    </div>
+                    <div className="bg-slate-950/60 rounded-lg px-3 py-2">
+                      <div className="text-slate-500">Est. FPL (if finalized)</div>
+                      <div className="font-mono text-amber-300 mt-0.5">— (after freeze)</div>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Live testnet activity (same counters as the <a href="/scan" className="underline">activity board</a>). FPL amounts are set at the freeze.
+                  </p>
+                </>
+              ) : (
+                <p className="text-slate-400">{act.classification?.kind && act.classification.kind !== 'user' ? `This is a ${act.classification.kind} account; it is not scored.` : 'No tracked activity for this account yet.'}</p>
+              )}
+            </div>
+          )}
           {me && (
             <div className="space-y-2 text-xs">
               <div className="grid grid-cols-2 gap-2">

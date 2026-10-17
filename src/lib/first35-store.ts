@@ -98,6 +98,16 @@ export function validateAdminEntry(raw: Record<string, unknown>): First35AdminIn
   return { ...base, status, seat: status === 'revoked' ? null : s }
 }
 
+export interface PublicHolder { seat: number | null; account: string; tier_fpl: number | null }
+
+/** Approved entries only, by seat; exposes nothing but seat, tier and account name. */
+export function publicHolders(rows: First35Application[]): PublicHolder[] {
+  return rows
+    .filter((r) => r.status === 'approved')
+    .map((r) => ({ seat: r.seat, account: r.account, tier_fpl: tierForSeat(r.seat) }))
+    .sort((a, b) => (a.seat ?? 999) - (b.seat ?? 999) || a.account.localeCompare(b.account))
+}
+
 export function csvCell(v: unknown): string {
   let s = String(v ?? '')
   if (/^[=+\-@\t\r]/.test(s)) s = `'${s}` // no spreadsheet formulas

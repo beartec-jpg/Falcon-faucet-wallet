@@ -112,3 +112,18 @@ describe('admin store and helpers', () => {
     expect(line).toContain('500000')
   })
 })
+
+describe('public seat holders', () => {
+  it('lists approved only, by seat, with no handles or notes', async () => {
+    const { publicHolders } = await import('@/lib/first35-store')
+    const base = { telegram: 't1', discord: 'd1', x_handle: 'x1', note: 'secret', manual: false, created_at: '' }
+    const out = publicHolders([
+      { ...base, id: 1, account: 'b', status: 'approved', seat: 7 },
+      { ...base, id: 2, account: 'a', status: 'approved', seat: 2 },
+      { ...base, id: 3, account: 'c', status: 'pending', seat: null },
+      { ...base, id: 4, account: 'd', status: 'revoked', seat: null },
+    ])
+    expect(out).toEqual([{ seat: 2, account: 'a', tier_fpl: 1_000_000 }, { seat: 7, account: 'b', tier_fpl: 500_000 }])
+    expect(JSON.stringify(out)).not.toMatch(/t1|d1|x1|secret/)
+  })
+})

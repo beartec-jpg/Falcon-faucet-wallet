@@ -7,7 +7,7 @@ const C = { copper: '#C07838', gold: '#D4922A', panel: '#0F172A', cream: '#E0DBC
 const mono = { fontFamily: "'JetBrains Mono', ui-monospace, monospace" }
 
 export function Seats({ total }: { total: number }) {
-  const [s, setS] = useState<{ filled: number; remaining: number } | null>(null)
+  const [s, setS] = useState<{ filled: number; remaining: number; holders?: { seat: number | null; account: string; tier_fpl: number | null }[] } | null>(null)
   useEffect(() => {
     fetch('/api/first35/status', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
@@ -26,6 +26,19 @@ export function Seats({ total }: { total: number }) {
           <div key={i} className="h-3 rounded-sm" style={{ background: i < filled ? C.gold : '#1E293B' }} />
         ))}
       </div>
+      {!!s?.holders?.length && (
+        <div className="mt-3 rounded-lg border p-3" style={{ background: C.panel, borderColor: '#1E293B' }}>
+          <div className="text-[11px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: C.gold }}>Seat holders</div>
+          <ul className="space-y-0.5 text-xs" style={mono}>
+            {s.holders.map((h) => (
+              <li key={h.account} className="flex justify-between gap-3 text-slate-300">
+                <span><span className="text-slate-500">#{h.seat ?? '—'}</span> <a href={`/scan/account/${encodeURIComponent(h.account)}`} className="hover:underline">{h.account}</a></span>
+                <span className="text-slate-500">{h.tier_fpl ? `${h.tier_fpl.toLocaleString()} FPL` : ''}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }
