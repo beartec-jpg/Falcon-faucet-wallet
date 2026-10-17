@@ -260,7 +260,22 @@ export function downloadBackup(file: WalletBackupFile): void {
   document.body.appendChild(a)
   a.click()
   a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 4_000)
+  // Some mobile/privacy browsers fetch the blob lazily: keep the URL alive for a minute.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+/** Backup JSON text (same encrypted content as the file). */
+export function backupText(file: WalletBackupFile): string {
+  return JSON.stringify(file, null, 2)
+}
+
+export function canShareBackupFiles(): boolean {
+  if (typeof navigator === 'undefined' || !navigator.share || !navigator.canShare) return false
+  try {
+    return navigator.canShare({ files: [new File(['{}'], 'x.json', { type: 'application/json' })] })
+  } catch {
+    return false
+  }
 }
 
 export async function shareBackup(file: WalletBackupFile): Promise<boolean> {
