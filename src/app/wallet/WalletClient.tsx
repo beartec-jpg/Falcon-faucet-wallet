@@ -60,6 +60,8 @@ import {
   shareBackup,
   validateBackupPassphrase,
   type BackupPayload,
+  backupText,
+  canShareBackupFiles,
 } from '@/lib/wallet-backup'
 import {
   isValidFalconAddress,
@@ -404,6 +406,15 @@ export default function WalletPage() {
   const [backupPassphrase,   setBackupPassphrase]   = useState('')
   const [backupPassConfirm,  setBackupPassConfirm]  = useState('')
   const [backupDownloaded,   setBackupDownloaded]   = useState(false)
+  /** Encrypted backup built from the current password; each save option below is its own tap (keeps user activation for share/download). */
+  const [backupFile, setBackupFile] = useState<Awaited<ReturnType<typeof createEncryptedBackup>> | null>(null)
+  const [backupShowText, setBackupShowText] = useState(false)
+  const [backupNote, setBackupNote] = useState<string | null>(null)
+  useEffect(() => {
+    setBackupFile(null)
+    setBackupShowText(false)
+    setBackupNote(null)
+  }, [backupPassphrase, backupPassConfirm, pendingSave])
   const [backupAcknowledged, setBackupAcknowledged] = useState(false)
   const [showRawSecret,      setShowRawSecret]      = useState(false)
   const [secretCopied,       setSecretCopied]       = useState(false)
@@ -928,14 +939,16 @@ export default function WalletPage() {
         xrpl_classic_address: pendingSave.xrplClassicAddress,
         xrpl_classic_public_key: pendingSave.xrplClassicPublicKey,
       }, backupPassphrase)
+      setBackupFile(file)
+      setBackupNote(null)
       const mobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-      if (mobile) {
-        const shared = await shareBackup(file).catch(() => false)
-        if (!shared) downloadBackup(file)
-      } else {
+      if (!mobile) {
         downloadBackup(file)
+        setBackupDownloaded(true)
+      } else {
+        // Encryption is async, so the tap's user activation may be gone; mobile users pick Save/Share/Copy below.
+        setBackupNote('Backup ready. Save it with one of the options below.')
       }
-      setBackupDownloaded(true)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to create backup file')
     }
@@ -2023,8 +2036,31 @@ export default function WalletPage() {
                   disabled={!backupPassphrase || !backupPassConfirm}
                   className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm transition disabled:opacity-50"
                 >
-                  {backupDownloaded ? 'Download again ✓' : 'Download Falcon & multi wallet backup'}
+                  {backupFile ? 'Rebuild backup' : 'Download Falcon & multi wallet backup'}
                 </button>
+                {backupFile && (
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button type="button" onClick={() => { downloadBackup(backupFile); setBackupDownloaded(true); setBackupNote('If no file appeared (some mobile browsers such as DuckDuckGo block downloads), use Share or Copy.') }}
+                        className="py-2 text-xs rounded-lg border border-slate-700 text-slate-300 hover:text-white">Save file</button>
+                      <button type="button" disabled={!canShareBackupFiles()} onClick={() => { void shareBackup(backupFile).then((ok) => { if (ok) { setBackupDownloaded(true); setBackupNote('Shared. Make sure you saved it to Files or a safe place.') } }).catch(() => setBackupNote('Share cancelled or blocked. Try Save file or Copy.')) }}
+                        className="py-2 text-xs rounded-lg border border-slate-700 text-slate-300 hover:text-white disabled:opacity-40">Share…</button>
+                      <button type="button" onClick={() => { void navigator.clipboard.writeText(backupText(backupFile)).then(() => { setBackupDownloaded(true); setBackupNote('Encrypted backup copied. Paste it into a note or file you keep safe, then clear your clipboard.') }).catch(() => { setBackupShowText(true); setBackupNote('Copy blocked: select the text below and copy it manually.') }) }}
+                        className="py-2 text-xs rounded-lg border border-slate-700 text-slate-300 hover:text-white">Copy</button>
+                    </div>
+                    <button type="button" onClick={() => setBackupShowText((v) => !v)} className="text-[11px] text-slate-500 hover:text-slate-300 w-full text-center">
+                      {backupShowText ? 'Hide backup text' : 'Show backup text (encrypted)'}
+                    </button>
+                    {backupShowText && (
+                      <textarea readOnly value={backupText(backupFile)} rows={5} onFocus={(e) => e.currentTarget.select()}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[10px] text-slate-300 font-mono leading-snug resize-none" />
+                    )}
+                    {backupShowText && !backupDownloaded && (
+                      <button type="button" onClick={() => setBackupDownloaded(true)} className="text-[11px] text-slate-500 hover:text-slate-300 w-full text-center">I saved the text above</button>
+                    )}
+                    {backupNote && <p className="text-[11px] text-slate-400 text-center">{backupNote}</p>}
+                  </div>
+                )}
                 {backupDownloaded && (
                   <p className="text-xs text-emerald-400 text-center space-y-1">
                     <span className="block">Backup saved — keep the file and password somewhere safe.</span>
