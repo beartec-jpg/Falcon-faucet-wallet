@@ -41,9 +41,11 @@ export function validateApplication(raw: Record<string, unknown>): First35Input 
   const x_handle = t('x_handle').replace(/^@/, '')
   const note = t('note')
   if (!ACCOUNT_RE.test(account)) return 'Enter your Falcon PL wallet name (lowercase, as shown in your wallet).'
-  if (!HANDLE_RE.test(telegram)) return 'Enter your Telegram handle.'
-  if (!HANDLE_RE.test(discord)) return 'Enter your Discord handle.'
-  if (!HANDLE_RE.test(x_handle)) return 'Enter your X handle.'
+  // At least one of Telegram / Discord / X; any that is given must be valid. Missing ones are stored as ''.
+  if (!telegram && !discord && !x_handle) return 'Enter at least one of your Telegram, Discord or X handles.'
+  if (telegram && !HANDLE_RE.test(telegram)) return 'That Telegram handle does not look right.'
+  if (discord && !HANDLE_RE.test(discord)) return 'That Discord handle does not look right.'
+  if (x_handle && !HANDLE_RE.test(x_handle)) return 'That X handle does not look right.'
   if (note.length > 500) return 'Keep the note under 500 characters.'
   return { account, telegram, discord, x_handle, note }
 }

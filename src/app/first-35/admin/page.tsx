@@ -52,9 +52,9 @@ function EntryForm({ initial, title, submit, onCancel }: { initial: Draft; title
       <h2 className="text-sm font-semibold text-slate-200">{title}</h2>
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="text-xs text-slate-400 space-y-1">Account name<input className={input} value={d.account} onChange={f('account')} required placeholder="testnet name" /></label>
-        <label className="text-xs text-slate-400 space-y-1">Telegram<input className={input} value={d.telegram} onChange={f('telegram')} required placeholder="@handle" /></label>
-        <label className="text-xs text-slate-400 space-y-1">Discord<input className={input} value={d.discord} onChange={f('discord')} required placeholder="handle" /></label>
-        <label className="text-xs text-slate-400 space-y-1">X<input className={input} value={d.x_handle} onChange={f('x_handle')} required placeholder="@handle" /></label>
+        <label className="text-xs text-slate-400 space-y-1">Telegram<input className={input} value={d.telegram} onChange={f('telegram')} placeholder="@handle" /></label>
+        <label className="text-xs text-slate-400 space-y-1">Discord<input className={input} value={d.discord} onChange={f('discord')} placeholder="handle" /></label>
+        <label className="text-xs text-slate-400 space-y-1">X<input className={input} value={d.x_handle} onChange={f('x_handle')} placeholder="@handle" /></label>
         <label className="text-xs text-slate-400 space-y-1">Status
           <select className={input} value={d.status} onChange={f('status')}>
             <option value="pending">pending</option><option value="approved">approved</option><option value="revoked">revoked</option>

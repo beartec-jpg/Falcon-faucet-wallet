@@ -19,7 +19,12 @@ describe('applications', () => {
   it('validates and normalises', () => {
     expect(validateApplication(ok)).toEqual({ account: 'dave', telegram: 'dave_t', discord: 'dave#1', x_handle: 'dave', note: 'testing swaps' })
     expect(validateApplication({ ...ok, account: 'BAD NAME' })).toMatch(/wallet name/)
-    expect(validateApplication({ ...ok, telegram: '' })).toMatch(/Telegram/)
+    // At least one handle; the rest optional (stored as '').
+    expect(validateApplication({ ...ok, telegram: '' })).toEqual({ account: 'dave', telegram: '', discord: 'dave#1', x_handle: 'dave', note: 'testing swaps' })
+    expect(validateApplication({ ...ok, telegram: '', discord: '' })).toEqual({ account: 'dave', telegram: '', discord: '', x_handle: 'dave', note: 'testing swaps' })
+    expect(validateApplication({ ...ok, telegram: '', discord: '', x_handle: '' })).toMatch(/at least one/)
+    expect(validateApplication({ ...ok, telegram: '@', discord: '', x_handle: '' })).toMatch(/at least one/)
+    expect(validateApplication({ ...ok, telegram: 'a b c' })).toMatch(/Telegram/)
     expect(validateApplication({ ...ok, note: 'x'.repeat(501) })).toMatch(/500/)
   })
   it('refuses test, load-test and protocol accounts', () => {
