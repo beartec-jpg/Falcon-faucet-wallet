@@ -93,3 +93,19 @@ describe('vault export v2', () => {
     expect((await decryptVaultFile(parseVaultFile(JSON.parse(JSON.stringify(old))), PW)).falcon_secret).toBe(inner.falcon_secret)
   })
 })
+
+describe('restore from saved outputs (file / shared file / copied text)', () => {
+  it('file JSON and pasted text both restore every key; wrong password rejected', async () => {
+    const { backupText } = await import('@/lib/wallet-backup')
+    const file = await createEncryptedBackup(payload, PW)
+    // Download/Share write exactly backupText(file); Copy/Show text hand out the same string.
+    const text = backupText(file)
+    for (const t of [text, `  \n${text}\n `]) {
+      const out = await decryptBackupFile(parseBackupFile(JSON.parse(t.trim())), PW)
+      for (const k of ['falcon_secret', 'accountName', 'evm_private_key', 'evm_address', 'btc_private_key', 'btc_address', 'btc_address_mainnet', 'xrpl_classic_seed', 'xrpl_classic_address'] as const) {
+        expect(out[k]).toBe(payload[k])
+      }
+    }
+    await expect(decryptBackupFile(parseBackupFile(JSON.parse(text)), 'Wrong-Pass-2026!')).rejects.toThrow()
+  })
+})

@@ -1088,14 +1088,18 @@ export default function WalletPage() {
   const handleRestore = async () => {
     const falconSecret = restoreSeed.trim()
     if (!falconSecret) { setError('Upload a backup file or paste your Falcon secret'); return }
+    // Pasted encrypted backup text (Copy / Show backup text): same path as the file.
+    if (falconSecret.startsWith('{')) { await handleRestoreText(falconSecret); return }
     await finishRestore(falconSecret, restoreLabel)
   }
 
-  const handleRestoreFile = async (file: File) => {
+  const handleRestoreFile = async (file: File) => handleRestoreText(await file.text())
+
+  const handleRestoreText = async (text: string) => {
     setBusy(true)
     setError(null)
     try {
-      const parsed = parseBackupFile(JSON.parse(await file.text()))
+      const parsed = parseBackupFile(JSON.parse(text))
       // Only passphrase-encrypted backups are accepted (see wallet-backup.ts, F-04).
       if (!restorePassphrase) {
         setError('Enter the backup password for this file')
@@ -2197,7 +2201,7 @@ export default function WalletPage() {
                   onClick={() => setShowManualRestore(v => !v)}
                   className="text-xs text-slate-600 hover:text-slate-400 transition-colors w-full text-center"
                 >
-                  {showManualRestore ? 'Hide manual hex entry' : 'Advanced: paste raw hex instead'}
+                  {showManualRestore ? 'Hide paste box' : 'Paste backup text or raw hex instead'}
                 </button>
 
                 {showManualRestore && (
@@ -2205,7 +2209,7 @@ export default function WalletPage() {
                     <textarea
                       value={restoreSeed}
                       onChange={e => setRestoreSeed(e.target.value)}
-                      placeholder="fb… (4,000+ characters)"
+                      placeholder="Paste backup text ({…}, uses the backup password above) or raw hex fb…"
                       rows={3}
                       className="input-field font-mono text-xs resize-none"
                       disabled={busy}
