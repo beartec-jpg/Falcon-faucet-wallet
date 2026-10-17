@@ -32,9 +32,9 @@ export function Seats({ total }: { total: number }) {
 
 const FIELDS = [
   { k: 'account', label: 'Falcon PL wallet name', ph: 'e.g. yourname' },
-  { k: 'telegram', label: 'Telegram handle', ph: '@handle' },
-  { k: 'discord', label: 'Discord handle', ph: 'handle' },
-  { k: 'x_handle', label: 'X handle', ph: '@handle' },
+  { k: 'telegram', label: 'Telegram handle', ph: '@handle', optional: true },
+  { k: 'discord', label: 'Discord handle', ph: 'handle', optional: true },
+  { k: 'x_handle', label: 'X handle', ph: '@handle', optional: true },
 ] as const
 
 export function Form() {
@@ -64,6 +64,10 @@ export function Form() {
   }
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (![v.telegram, v.discord, v.x_handle].some((x) => x.trim())) {
+      setMsg({ ok: false, text: 'Enter at least one of your Telegram, Discord or X handles.' })
+      return
+    }
     setBusy(true)
     setMsg(null)
     try {
@@ -82,8 +86,9 @@ export function Form() {
       {FIELDS.map((f) => (
         <label key={f.k} className="block text-xs text-slate-400">
           {f.label}
+          {'optional' in f && <span className="text-slate-600"> (at least one of Telegram, Discord, X)</span>}
           <input
-            required
+            required={!('optional' in f)}
             value={v[f.k]}
             onChange={(e) => {
               setV({ ...v, [f.k]: e.target.value })
