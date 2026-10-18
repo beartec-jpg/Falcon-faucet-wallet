@@ -1270,10 +1270,11 @@ export default function WalletPage() {
       const res = await fetch('/api/wallet/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tx_json: tx.rawJson, network: networkKey }),
+        // signPlClaim returns a signed tx object (no rawJson): send it as `tx`, like the /rewards page does.
+        body: JSON.stringify(tx.rawJson ? { tx_json: tx.rawJson, network: networkKey } : { tx, network: networkKey }),
       })
-      const out = (await res.json().catch(() => ({}))) as { error?: string }
-      if (!res.ok || out.error) throw new Error(out.error || 'Claim failed')
+      const out = (await res.json().catch(() => ({}))) as { error?: string; message?: string }
+      if (!res.ok || out.error) throw new Error(out.error || out.message || 'Claim failed')
       await refreshBalance(plAccountId(wallet))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Claim failed')
@@ -3128,7 +3129,7 @@ export default function WalletPage() {
                       <div className="bg-slate-800/40 rounded-xl px-3 py-2.5 border border-slate-800 flex items-center justify-between gap-3">
                         <div>
                           <div className="text-[11px] text-slate-500">Rewards</div>
-                          <div className="font-mono text-sm text-slate-100">{account.claimable ?? 0} FPL claimable</div>
+                          <div className="font-mono text-sm text-slate-100">{(account.claimable ?? 0).toLocaleString('en-US')} FPL claimable</div>
                         </div>
                         <button
                           type="button"
