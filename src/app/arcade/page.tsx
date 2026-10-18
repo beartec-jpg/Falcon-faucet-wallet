@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import { useNetwork } from '@/components/NetworkProvider'
@@ -49,11 +50,12 @@ type ArcadeOutbound =
   | { type: 'GAME_READY' }
   | { type: 'SCORE_UPDATE'; game: string; score: number }
   | { type: 'CLAIM_REQUEST'; game: string; score: number }
+  | { type: 'CONNECT_WALLET_REQUEST' }
 
 function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
   if (!data || typeof data !== 'object') return false
   const r = data as Record<string, unknown>
-  if (r.type === 'GAME_READY') return true
+  if (r.type === 'GAME_READY' || r.type === 'CONNECT_WALLET_REQUEST') return true
   if (r.type === 'SCORE_UPDATE' || r.type === 'CLAIM_REQUEST') {
     return (
       typeof r.game === 'string' &&
@@ -68,6 +70,7 @@ function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
 export default function ArcadePage() {
   const { networkKey, setNetworkKey } = useNetwork()
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const router = useRouter()
   const [plAccount, setPlAccount] = useState<string>('')
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -107,6 +110,37 @@ export default function ArcadePage() {
     if (!walletAddress) return
     postToArcade({ type: 'WALLET_CONNECTED', address: walletAddress })
   }, [walletAddress, postToArcade])
+
+  /** Arcade "Connect wallet": re-read the stored wallet and send it, or open the wallet page to create/unlock one. */
+  const connectWallet = useCallback(async () => {
+    const w = await loadPrimaryWallet().catch(() => null)
+    if (w?.address) {
+      setWalletAddress(w.address)
+      setPlAccount(plAccountId(w))
+      postToArcade({ type: 'WALLET_CONNECTED', address: w.address })
+      return
+    }
+    setError(null)
+    setStatus('No wallet on this device yet. Opening Wallet: create or restore one, then come back to the Arcade.')
+    window.setTimeout(() => router.push('/wallet'), 1200)
+  }, [postToArcade, router])
+
+  // Pick up a wallet created or restored in another tab when the user comes back.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || walletAddress) return
+      loadPrimaryWallet()
+        .then((w) => {
+          if (w?.address) {
+            setWalletAddress(w.address)
+            setPlAccount(plAccountId(w))
+          }
+        })
+        .catch(() => {})
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [walletAddress])
 
   // Debounced score POST
   const scoreTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
@@ -235,6 +269,10 @@ export default function ArcadePage() {
         pushWallet()
         return
       }
+      if (event.data.type === 'CONNECT_WALLET_REQUEST') {
+        void connectWallet()
+        return
+      }
       if (event.data.type === 'SCORE_UPDATE') {
         handleScoreUpdate(event.data.game, event.data.score)
         return
@@ -245,7 +283,7 @@ export default function ArcadePage() {
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [pushWallet, handleScoreUpdate, handleClaimRequest])
+  }, [pushWallet, connectWallet, handleScoreUpdate, handleClaimRequest])
 
   // Re-push wallet when it loads
   useEffect(() => {
