@@ -22,9 +22,9 @@ import PlFplMarkets from '@/components/PlFplMarkets'
 /** Canonical pool tab order (must stay client-safe — no node:fs). */
 const POOL_PAIR_ORDER = ['F-USDC', 'FETH', 'FBTC'] as const
 const POOL_TAB_LABEL: Record<(typeof POOL_PAIR_ORDER)[number], string> = {
-  'F-USDC': 'F-USDC / FPL',
-  FETH: 'FETH / FPL',
-  FBTC: 'FBTC / FPL',
+  'F-USDC': 'fUSDC / FPL',
+  FETH: 'fETH / FPL',
+  FBTC: 'fBTC / FPL',
 }
 
 interface PairToken {
