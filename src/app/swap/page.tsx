@@ -30,9 +30,9 @@ const DROPS_PER_XRP = 1_000_000
 /** Canonical pair tab order (must stay client-safe — no node:fs). */
 const SWAP_PAIR_ORDER = ['F-USDC', 'FETH', 'FBTC'] as const
 const SWAP_TAB_LABEL: Record<(typeof SWAP_PAIR_ORDER)[number], string> = {
-  'F-USDC': 'F-USDC / FPL',
-  FETH: 'FETH / FPL',
-  FBTC: 'FBTC / FPL',
+  'F-USDC': 'fUSDC / FPL',
+  FETH: 'fETH / FPL',
+  FBTC: 'fBTC / FPL',
 }
 
 interface PairToken {
