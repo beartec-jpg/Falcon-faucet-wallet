@@ -80,6 +80,16 @@ describe('POST /api/arcade/score + /api/arcade/claim (server authoritative)', ()
     pay.mockReset()
     vi.doMock('@/lib/origin', () => ({ isOriginAllowed: () => true }))
     vi.doMock('@/lib/faucet-pay', () => ({ sendFaucetDrip: pay }))
+    // Testnet is Falcon PL 2300: claims pay via the PL drip (same mock, adapted shape)
+    vi.doMock('@/lib/pl-faucet-drip', () => ({
+      PL_DRIP: 2000,
+      plFaucetDrip: async () => {
+        const r = await pay()
+        return r.ok
+          ? { ok: true, amount: r.amount, txId: r.txHash }
+          : { ok: false, status: r.status, error: r.error, reason: 'x' }
+      },
+    }))
     vi.doMock('@/lib/faucet-quota', () => ({
       faucetUtcDay: () => '2026-10-18',
       hashIp: async () => 'h',

@@ -28,6 +28,8 @@ import {
   reserveGameClaim,
 } from '@/lib/arcade-store'
 import { sendFaucetDrip } from '@/lib/faucet-pay'
+import { plFaucetDrip, PL_DRIP } from '@/lib/pl-faucet-drip'
+import { serverNetworkConfig } from '@/lib/network-server'
 import {
   faucetUtcDay,
   hashIp,
@@ -143,24 +145,39 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const faucet = resolveFaucet(networkKey)
-  const gameDrip = envNumberFirst(
-    ['GAME_DRIP_AMOUNT_FPL', 'GAME_DRIP_AMOUNT_QXRP'],
-    faucet?.dripAmountFpl ?? faucet?.dripAmountQxrp ?? NaN,
-  )
-  const amountFpl = Number.isFinite(gameDrip) ? gameDrip : undefined
-
-  const paid = await sendFaucetDrip({
-    networkKey,
-    toAccount: account,
-    amountQxrp: amountFpl,
-  })
+  // Falcon PL 2300 has no xrpld JSON-RPC: pay through the same PL drip as
+  // /api/faucet (pl-ctl / walletd). The legacy xrpld path is only for others.
+  let paid:
+    | { ok: true; amount: number; txHash: string }
+    | { ok: false; status: number; error: string; reason?: string; extra?: unknown }
+  if (serverNetworkConfig(networkKey).networkId === 2300) {
+    const plAmount = envNumberFirst(['GAME_DRIP_AMOUNT_FPL', 'GAME_DRIP_AMOUNT_QXRP'], PL_DRIP)
+    const r = await plFaucetDrip(account, Number.isFinite(plAmount) && plAmount > 0 ? plAmount : PL_DRIP)
+    paid = r.ok
+      ? { ok: true, amount: r.amount, txHash: r.txId || 'pl' }
+      : { ok: false, status: r.status, error: r.error, reason: r.reason }
+  } else {
+    const faucet = resolveFaucet(networkKey)
+    const gameDrip = envNumberFirst(
+      ['GAME_DRIP_AMOUNT_FPL', 'GAME_DRIP_AMOUNT_QXRP'],
+      faucet?.dripAmountFpl ?? faucet?.dripAmountQxrp ?? NaN,
+    )
+    const amountFpl = Number.isFinite(gameDrip) ? gameDrip : undefined
+    const r = await sendFaucetDrip({ networkKey, toAccount: account, amountQxrp: amountFpl })
+    paid = r.ok
+      ? { ok: true, amount: r.amount, txHash: r.txHash }
+      : { ok: false, status: r.status, error: r.error, extra: r.extra }
+  }
 
   if (!paid.ok) {
     await refundClaimProgress({ ...who, amount: GAME_FAUCET_MIN_SCORE })
     await releaseGameClaim(reserved.reservationId)
-    console.error('[arcade/claim] pay failed:', paid.error, paid.extra)
-    return err('Claim failed. Try again shortly.', paid.status >= 400 ? paid.status : 502)
+    console.error('[arcade/claim] pay failed:', paid.error, paid.reason ?? paid.extra ?? '')
+    // Points were refunded; tell the player the specific reason.
+    return err(paid.error || 'Claim failed. Try again shortly.', paid.status >= 400 ? paid.status : 502, {
+      reason: paid.reason ?? 'payout_failed',
+      refunded: true,
+    })
   }
 
   await finalizeGameClaim({
