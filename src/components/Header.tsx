@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNetwork } from '@/components/NetworkProvider'
 import NetworkSwitcher from '@/components/NetworkSwitcher'
@@ -47,7 +47,7 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'whitepaper', label: 'Whitepaper', href: '/whitepaper' },
 ]
 
-/** Shown under Community in the mobile (burger) menu only. */
+/** Shown under Community in the mobile (burger) menu and the desktop/tablet Community dropdown. */
 const COMMUNITY_SUB_ITEMS: { label: string; href: string }[] = [
   { label: 'FAQ', href: '/community/faq' },
   { label: 'Feedback', href: '/feedback' },
@@ -60,16 +60,40 @@ function NavLinks({
   onNavigate,
   className = '',
   withSubItems = false,
+  communityOpen = false,
+  onToggleCommunity,
 }: {
   current: NavItem
   onNavigate?: () => void
   className?: string
   withSubItems?: boolean
+  communityOpen?: boolean
+  onToggleCommunity?: (anchor: HTMLElement) => void
 }) {
   return (
     <nav className={className}>
       {NAV_ITEMS.flatMap((item) => {
         const el = navItem(item)
+        if (item.key === 'community' && onToggleCommunity) {
+          return [
+            <span key="community-group" className="inline-flex items-center">
+              {el}
+              <button
+                type="button"
+                data-testid="community-menu-toggle"
+                aria-label="Community menu"
+                aria-haspopup="menu"
+                aria-expanded={communityOpen}
+                onClick={(e) => onToggleCommunity(e.currentTarget)}
+                className="-ml-1 px-1.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                  <path d={communityOpen ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </span>,
+          ]
+        }
         if (!withSubItems || item.key !== 'community') return [el]
         return [
           el,
@@ -124,6 +148,34 @@ export default function Header({
 }: HeaderProps) {
   const { network } = useNetwork()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [communityLeft, setCommunityLeft] = useState<number | null>(null)
+  const headerRef = useRef<HTMLElement>(null)
+  const communityOpen = communityLeft !== null
+  useEffect(() => {
+    if (!communityOpen) return
+    const close = (e: Event) => {
+      const t = e.target as HTMLElement | null
+      if (t?.closest?.('[data-community-menu],[data-testid="community-menu-toggle"]')) return
+      setCommunityLeft(null)
+    }
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setCommunityLeft(null)
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', esc)
+    window.addEventListener('resize', () => setCommunityLeft(null), { once: true })
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', esc)
+    }
+  }, [communityOpen])
+  const toggleCommunity = (anchor: HTMLElement) => {
+    if (communityOpen) return setCommunityLeft(null)
+    const group = anchor.parentElement ?? anchor
+    const h = headerRef.current?.getBoundingClientRect()
+    const r = group.getBoundingClientRect()
+    const width = 200
+    const maxLeft = (h?.width ?? window.innerWidth) - width - 8
+    setCommunityLeft(Math.max(8, Math.min(r.left - (h?.left ?? 0), maxLeft)))
+  }
   useEffect(() => {
     const el = document.getElementById(`nav-item-${current}`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
@@ -155,6 +207,7 @@ export default function Header({
 
   return (
     <header
+      ref={headerRef}
       className={`relative border-b border-slate-800/60 px-4 py-3 bg-slate-950/95 backdrop-blur-md z-20 shrink-0 ${
         sticky ? 'sticky top-0' : ''
       }`}
@@ -213,8 +266,36 @@ export default function Header({
         <NavLinks
           current={current}
           className="flex items-center gap-1 flex-nowrap justify-start min-w-max text-sm pb-0.5"
+          communityOpen={communityOpen}
+          onToggleCommunity={toggleCommunity}
         />
       </div>
+
+      {/* Community dropdown — rendered outside the scroll strip so it isn't clipped */}
+      {communityOpen && (
+        <div
+          data-community-menu
+          role="menu"
+          className="hidden sm:flex absolute top-full mt-1 w-[200px] flex-col gap-0.5 p-1.5 rounded-xl border border-slate-800 bg-slate-950 shadow-xl z-30"
+          style={{ left: communityLeft ?? 0 }}
+        >
+          {[{ label: 'Community home', href: '/community' }, ...COMMUNITY_SUB_ITEMS].map((sub) => (
+            <Link
+              key={sub.href}
+              href={sub.href}
+              role="menuitem"
+              onClick={() => setCommunityLeft(null)}
+              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                sub.href === '/feedback'
+                  ? 'text-brand-400 hover:text-brand-300 hover:bg-slate-800 font-medium'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              {sub.label}
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* Mobile — full vertical menu (all tabs always visible) */}
       {menuOpen && (
