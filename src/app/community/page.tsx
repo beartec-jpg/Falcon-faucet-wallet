@@ -55,6 +55,13 @@ const VALIDATOR_LINKS = [
 
 const HELP_LINKS = [
   {
+    href: '/feedback',
+    title: 'Send testnet feedback',
+    description: 'Report bugs, UX problems and ideas. Approved feedback adds bonus points to your testnet activity score.',
+    cta: 'Feedback',
+    primary: true,
+  },
+  {
     href: '/community/faq',
     title: 'FAQ',
     description: 'Common questions about Falcon PL, testnet FPL, nodes and the airdrop.',

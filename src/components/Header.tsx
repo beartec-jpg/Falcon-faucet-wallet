@@ -50,6 +50,7 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
 /** Shown under Community in the mobile (burger) menu only. */
 const COMMUNITY_SUB_ITEMS: { label: string; href: string }[] = [
   { label: 'FAQ', href: '/community/faq' },
+  { label: 'Feedback', href: '/feedback' },
   { label: 'Learn', href: '/community/learn' },
   { label: 'Validators', href: '/validator' },
 ]

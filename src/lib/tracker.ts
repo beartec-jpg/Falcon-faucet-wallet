@@ -9,6 +9,7 @@ import type { AccountActivity, ActiveDay, StoredEvent } from '@/lib/activity-ind
 import { toFloat } from '@/lib/pl-exact-json'
 import { ASSET_DECIMALS, lpCandidates } from '@/lib/rails-pools'
 import type { FaucetDay, FaucetLink } from '@/lib/faucet-activity'
+import type { ApprovedFeedback } from '@/lib/feedback-store'
 
 /** One swap submitted through the site wallet and accepted by the node. */
 export interface SwapRecord {
@@ -155,6 +156,8 @@ export interface TrackerInput {
   arcade?: ArcadeDay[]
   /** Number of arcade games (for the variety part of the arcade score). */
   arcadeGames?: number
+  /** Approved testnet feedback (bonus points, reviewed in the First 35 admin). */
+  feedback?: ApprovedFeedback[]
   now: number
 }
 
@@ -174,7 +177,7 @@ function pricesFpl(st: Obj): Record<string, number> {
 
 /** Score one account. Pure. */
 export function scoreAccount(name: string, inp: TrackerInput): TrackerRow {
-  const c = TRACKER_CONFIG.caps
+  const c = { ...TRACKER_CONFIG.caps, ...TRACKER_CONFIG.bonusCaps }
   const since = windowStart(inp.now)
   const price = pricesFpl(inp.st)
   const a = inp.activity.find((x) => x.account === name)
@@ -198,6 +201,8 @@ export function scoreAccount(name: string, inp: TrackerInput): TrackerRow {
   const lp = a?.lp_fpl_hours ?? 0
   const lend = a?.lend_fpl_hours ?? 0
   const tx = a?.tx_count ?? 0
+  const fbMine = (inp.feedback ?? []).filter((f) => f.account === name)
+  const fb = { points: fbMine.reduce((t, f) => t + Math.max(0, f.bonus), 0), count: fbMine.length }
   const cat: Record<TrackerCategory, CategoryScore> = {
     bridging: { points: bridgePts, cap: c.bridging, tracked: true, detail: `${mine.length} bridge transfers · ${fmt(bridged)} FPL value` },
     swaps: { points: swapPts, cap: c.swaps, tracked: true, detail: `${swaps.length} swaps · ${fmt(swapVal)} FPL value` },
@@ -218,6 +223,7 @@ export function scoreAccount(name: string, inp: TrackerInput): TrackerRow {
     },
     arcade: { points: arcadePts, cap: c.arcade, tracked: true, detail: `${playDays.size} days played · ${games.size} games` },
     infra: { points: infraPts, cap: c.infra, tracked: true, detail: `${fmt(wSlots)} watcher slots · ${fmt(wWork)} rail work this epoch` },
+    feedback: { points: Math.min(c.feedback, fb.points), cap: c.feedback, tracked: true, detail: `${fb.count} approved feedback item${fb.count === 1 ? '' : 's'} (bonus)` },
   }
   for (const k of Object.keys(cat) as TrackerCategory[]) cat[k].points = r1(cat[k].points)
   const score = r1(Object.values(cat).reduce((t, x) => t + x.points, 0))
@@ -309,6 +315,8 @@ export function accountView(name: string, inp: TrackerInput, res: TrackerResult)
     active_days: days,
     events: inp.events.filter((e) => e.account === name).sort((a, b) => b.first_seen - a.first_seen).slice(0, 50),
     operator: res.operators.find((o) => o.id === name) ?? null,
+    /** Approved feedback for this account (category, area, bonus, day; no description or contact). */
+    feedback: (inp.feedback ?? []).filter((f) => f.account === name),
   }
 }
 
@@ -366,7 +374,7 @@ export function operatorsBoard(st: Obj): OperatorRow[] {
 
 // ── Export ─────────────────────────────────────────────────────────────────
 
-const CATS: TrackerCategory[] = ['bridging', 'swaps', 'liquidity', 'lending', 'payments', 'consistency', 'faucet', 'arcade', 'infra']
+const CATS: TrackerCategory[] = ['bridging', 'swaps', 'liquidity', 'lending', 'payments', 'consistency', 'faucet', 'arcade', 'infra', 'feedback']
 
 export function trackerCsv(rows: TrackerRow[]): string {
   const head = ['rank', 'account', 'score', 'active_days', ...CATS].join(',')

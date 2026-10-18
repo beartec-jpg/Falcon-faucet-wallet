@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FIRST35_SEATS, FIRST35_TIERS } from '@/config/first35'
 import type { First35Application, First35Status } from '@/lib/first35-store'
+import FeedbackAdmin from './FeedbackAdmin'
 
 type Row = First35Application & { tier_fpl: number | null; last_active: string | null }
 type Filter = 'all' | First35Status
@@ -109,6 +110,8 @@ export default function First35Admin() {
     }
   }, [load])
 
+  const onUnauthorized = useCallback(() => setAuthed(false), [])
+
   const post = async (body: Record<string, unknown>) => {
     const r = await fetch('/api/first35/admin', { method: 'POST', headers: hdr(), body: JSON.stringify(body) })
     const j = await r.json().catch(() => ({}))
@@ -153,6 +156,7 @@ export default function First35Admin() {
     <main className="min-h-screen bg-slate-950 text-slate-100 p-6 space-y-4" style={{ fontFamily: 'Inter, sans-serif' }}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">First 35 — admin</h1>
+        {authed && <a href="#feedback" className="text-xs text-[#D4922A] hover:underline">Testnet feedback ↓</a>}
         {authed && (
           <button onClick={() => { sessionStorage.removeItem(KEY); setToken(''); setAuthed(false); setRows([]) }} className={btn}>Sign out</button>
         )}
@@ -251,6 +255,7 @@ export default function First35Admin() {
               <p className="mt-2 text-[11px] text-slate-500">Last active = latest day seen by the testnet activity tracker (transactions, LP, lending, bridge, faucet). Green ≤7d · amber ≤21d · red older.</p>
             </div>
           )}
+          <FeedbackAdmin token={token} onUnauthorized={onUnauthorized} />
         </>
       )}
     </main>

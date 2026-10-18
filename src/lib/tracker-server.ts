@@ -2,6 +2,7 @@
 // index, and faucet claims; caches 60 s. Linked-account data stays in here.
 
 import { arcadeDaysByPlAccount, GAME_SLUGS } from '@/lib/arcade-store'
+import { feedbackStore, type ApprovedFeedback } from '@/lib/feedback-store'
 import { swapsSince } from '@/lib/swap-log'
 import { activityStore, type ActivityStore } from '@/lib/activity-index'
 import { pgFaucetSource, type FaucetSource } from '@/lib/faucet-activity'
@@ -31,7 +32,13 @@ export async function trackerData(opts: { store?: ActivityStore; faucet?: Faucet
     swapsSince(since),
     arcadeDaysByPlAccount('testnet', since),
   ])
-  const inp: TrackerInput = { st, activity, events, days, faucet: fdays, links, swaps, arcade, arcadeGames: GAME_SLUGS.length, now }
+  let feedback: ApprovedFeedback[] = []
+  try {
+    feedback = await feedbackStore().approved()
+  } catch (e) {
+    console.error('[tracker] feedback', e)
+  }
+  const inp: TrackerInput = { st, activity, events, days, faucet: fdays, links, swaps, arcade, arcadeGames: GAME_SLUGS.length, feedback, now }
   const out = { at: now, inp, res: buildTracker(inp) }
   if (!opts.status) cache = out
   return out

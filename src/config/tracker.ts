@@ -34,6 +34,13 @@ export const TRACKER_CONFIG = {
     arcade: 5,
     infra: 5,
   },
+  /**
+   * Bonus categories on top of the 100 activity points. Feedback: sum of bonuses on
+   * feedback approved in the admin (default 1 per item, see config/feedback.ts), capped here.
+   */
+  bonusCaps: {
+    feedback: 5,
+  },
   /** Window for day-based categories. */
   windowDays: 60,
   /** Active days for full consistency points. */
@@ -52,4 +59,8 @@ export const TRACKER_CONFIG = {
   linkedMinAccounts: 3,
 }
 
-export type TrackerCategory = keyof typeof TRACKER_CONFIG.caps
+export type ActivityCategory = keyof typeof TRACKER_CONFIG.caps
+export type BonusCategory = keyof typeof TRACKER_CONFIG.bonusCaps
+export type TrackerCategory = ActivityCategory | BonusCategory
+/** Highest possible score: 100 activity points plus bonus caps. */
+export const TRACKER_MAX_SCORE = [...Object.values(TRACKER_CONFIG.caps), ...Object.values(TRACKER_CONFIG.bonusCaps)].reduce((t, x) => t + x, 0)

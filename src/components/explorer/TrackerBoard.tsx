@@ -22,6 +22,7 @@ export const CATEGORY_LABEL: Record<TrackerCategory, string> = {
   faucet: 'Faucet',
   arcade: 'Arcade',
   infra: 'Infra',
+  feedback: 'Feedback',
 }
 
 const fmt = (n: number, d = 1) => n.toLocaleString('en-US', { maximumFractionDigits: d })
