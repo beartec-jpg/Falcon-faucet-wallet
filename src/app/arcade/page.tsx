@@ -82,13 +82,14 @@ export default function ArcadePage() {
     if (networkKey !== ARCADE_NETWORK) setNetworkKey(ARCADE_NETWORK)
   }, [networkKey, setNetworkKey])
 
-  // Load passkey wallet address if present
+  // Load passkey wallet; use the FPL account id (on-chain name) shown on /wallet,
+  // not the key-derived r… backup id (StoredWallet.address), which is not an on-chain account.
   useEffect(() => {
     let cancelled = false
     loadPrimaryWallet()
       .then((w) => {
         if (!cancelled && w?.address) {
-          setWalletAddress(w.address)
+          setWalletAddress(plAccountId(w))
           setPlAccount(plAccountId(w))
         }
       })
@@ -115,9 +116,9 @@ export default function ArcadePage() {
   const connectWallet = useCallback(async () => {
     const w = await loadPrimaryWallet().catch(() => null)
     if (w?.address) {
-      setWalletAddress(w.address)
+      setWalletAddress(plAccountId(w))
       setPlAccount(plAccountId(w))
-      postToArcade({ type: 'WALLET_CONNECTED', address: w.address })
+      postToArcade({ type: 'WALLET_CONNECTED', address: plAccountId(w) })
       return
     }
     setError(null)
@@ -132,7 +133,7 @@ export default function ArcadePage() {
       loadPrimaryWallet()
         .then((w) => {
           if (w?.address) {
-            setWalletAddress(w.address)
+            setWalletAddress(plAccountId(w))
             setPlAccount(plAccountId(w))
           }
         })

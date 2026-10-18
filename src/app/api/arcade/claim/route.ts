@@ -5,6 +5,12 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { isClassicAddress } from '@/lib/classic-address'
+
+/** FPL account id: r… or an on-chain name (same rule as /api/faucet). */
+function isPlAccount(name: string): boolean {
+  if (isClassicAddress(name)) return true
+  return /^[A-Za-z0-9._-]{2,64}$/.test(name)
+}
 import {
   GAME_FAUCET_MIN_SCORE,
   GAME_GLOBAL_CLAIMS_PER_DAY,
@@ -55,7 +61,7 @@ export async function POST(req: NextRequest) {
     return err('Invalid JSON body')
   }
 
-  if (!account || !isClassicAddress(account)) {
+  if (!account || !isPlAccount(account)) {
     return err('Invalid Falcon address')
   }
   if (!isGameSlug(game)) {
