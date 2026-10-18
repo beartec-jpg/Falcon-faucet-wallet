@@ -1,7 +1,7 @@
 // Falcon Ledger Wallet — Service Worker
 // Network-first for GET API + WASM; never intercept POST (Claim / submit).
 
-const CACHE = 'falcon-wallet-v16'
+const CACHE = 'falcon-wallet-v17'
 const API_TIMEOUT_MS = 30_000
 
 const PRECACHE_URLS = [
@@ -57,6 +57,24 @@ self.addEventListener('fetch', event => {
           { status: 503, headers: { 'Content-Type': 'application/json' } }
         )
       )
+    )
+    return
+  }
+
+  // HTML navigations: network-first so new pages/cards (e.g. /community
+  // Feedback card) are never hidden behind a stale cached shell. Cache is
+  // only an offline fallback.
+  if (request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html')) {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(CACHE).then(cache => cache.put(request, clone))
+          }
+          return response
+        })
+        .catch(() => caches.match(request).then(c => c || caches.match('/')))
     )
     return
   }

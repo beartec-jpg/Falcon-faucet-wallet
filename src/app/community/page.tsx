@@ -175,6 +175,15 @@ export default function CommunityPage() {
             <p className="text-base sm:text-lg text-slate-400 max-w-lg mx-auto leading-relaxed">
               Connect on socials, or run a validator and claim rewards — all in one place.
             </p>
+            <Link
+              href="/feedback"
+              data-testid="community-feedback-cta"
+              className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-400 text-slate-950 font-semibold text-sm shadow-[0_0_24px_rgba(192,120,56,0.25)] transition-colors"
+            >
+              Send testnet feedback
+              <span aria-hidden>→</span>
+            </Link>
+            <p className="mt-2 text-xs text-slate-500">Bugs, UX issues, ideas — approved feedback earns bonus points.</p>
           </div>
         </section>
 
