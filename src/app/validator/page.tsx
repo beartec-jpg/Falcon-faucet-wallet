@@ -286,6 +286,43 @@ export default function ValidatorPage() {
           </p>
         </section>
 
+        <section id="bridge-operator" className="card space-y-3 p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Run a bridge operator</h2>
+            <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">Testnet · coming soon</span>
+          </div>
+          <p className="text-xs text-slate-300">
+            Bridge operators keep FBTC withdrawals moving. This is a testnet4 preview: the operator installer is not published yet and the
+            on-chain operator registry is not active, so you cannot join yet. The steps below show what setup will look like.
+          </p>
+          <h3 className="text-xs font-semibold text-white">What an operator does</h3>
+          <ul className="list-disc space-y-1 pl-5 text-xs text-slate-300">
+            <li>Fronts BTC withdrawals: when a user burns FBTC, the operator pays them BTC from its own wallet.</li>
+            <li>Is repaid from the locked deposits through the presigned peg-out graph.</li>
+            <li>Watches the other operators&apos; claims against the Falcon ledger and challenges bad ones.</li>
+            <li>Earns FPL for liveness, watching and payouts.</li>
+          </ul>
+          <h3 className="text-xs font-semibold text-white">Requirements</h3>
+          <ul className="list-disc space-y-1 pl-5 text-xs text-slate-300">
+            <li>Linux x86_64, glibc 2.34+ (Ubuntu 22.04+, Debian 12+, RHEL 9+).</li>
+            <li>A Bitcoin node (Bitcoin Core, synced, <code>txindex=1</code>) or Bitcoin RPC access.</li>
+            <li>A BTC wallet you control with liquidity to front withdrawals (testnet4 coins for now) plus fees.</li>
+            <li>A 5,000 FPL bond. Cheating is slashed 100%.</li>
+            <li>Rewards: 5% of emissions, taken off the top, split across liveness, watching and payouts.</li>
+          </ul>
+          <h3 className="text-xs font-semibold text-white">Setup (preview)</h3>
+          <ol className="list-decimal space-y-1 pl-5 text-xs text-slate-300">
+            <li>Run the operator installer <code>install-operator.sh</code> (not published yet; it will verify a signed release and install to <code>~/.falcon-operator</code>).</li>
+            <li>Create and fund a BTC wallet in your own bitcoind, e.g. <code>bitcoin-cli -testnet4 createwallet fpl-operator</code>.</li>
+            <li>Edit <code>~/.falcon-operator/operator.env</code>: your Falcon account for FPL rewards, Falcon RPC, bitcoind args, wallet name, payout/reserve limits.</li>
+            <li>Run <code>falcon-operator check</code> and confirm every item shows <code>ok</code>.</li>
+            <li>Get your public key with <code>fpl-operatord pubkey</code> and list the other operators in <code>~/.falcon-operator/peers.json</code> as <code>{'[{"name", "xonly", "url"}]'}</code> (until the on-chain registry is live).</li>
+            <li>Start the daemon <code>fpl-operatord</code> (it starts in dry-run mode).</li>
+            <li>Check it is healthy: <code>curl 127.0.0.1:19480/health</code> returns 200 when both the Falcon node and your bitcoind wallet are reachable; <code>/status</code> shows what it would front.</li>
+          </ol>
+          <p className="text-[11px] text-slate-500">Testnet preview only. Mainnet operation is possible only once the bridge activates.</p>
+        </section>
+
         <section className="card space-y-2 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Requirements</h2>
           <div className="overflow-x-auto">
