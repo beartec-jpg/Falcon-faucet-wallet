@@ -182,6 +182,7 @@ export default function NetworkMapClient() {
           <Legend c="#4ADE80" t="Vote pulse: voter → packer (rail)" dot />
           <Legend c="#FFC060" t="Sealed package: packer → hub" dot />
           <Legend c="#F5E7C8" t="Outer ring = watchers (bright = live this slot)" dot />
+          <Legend c="#38BDF8" t="Lower, wider ring = BTC bridge operators (coming soon)" dot />
         </div>
 
         <div className="rounded-xl border border-slate-800 p-3 text-xs min-h-[120px]">

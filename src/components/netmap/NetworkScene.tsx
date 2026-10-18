@@ -10,6 +10,8 @@ import { bulgeCount, HUB_BASE_DY, HUB_CORE_TOP_DY, pipePoints, railRoute, ringFi
 import { phaseAt, type Round } from '@/lib/netmap-consensus'
 import type { PollEvent } from '@/hooks/useNetworkFeed'
 import WatcherRing, { type WatcherRingEvent } from '@/components/netmap/WatcherRing'
+import OperatorRing from '@/components/netmap/OperatorRing'
+import { BRIDGE_OPERATORS } from '@/lib/bridge-operators'
 
 export const COLORS = {
   copper: '#C07838',
@@ -902,6 +904,7 @@ export default function NetworkScene({ layout, seats, event, maxBulges, selected
       {watchers && (
         <WatcherRing center={layout.hub.pos} epoch={watchers.epoch} live={watchers.live} cap={watchers.cap} event={watchers.event} />
       )}
+      {watchers && <OperatorRing center={layout.hub.pos} operators={BRIDGE_OPERATORS} />}
       <Bulges curves={curves} ingress={walletCurve} event={event} cap={maxBulges} seats={seats} tps={tps ?? null} />
       {consensus && <ConsensusCycle layout={layout} curves={curves} view={consensus} event={event} anim={anim} />}
       <HubTower id={layout.hub.id} pos={layout.hub.pos} view={hubView} host={layout.hub.host} anim={anim} selected={selected === layout.hub.id} onSelect={onSelect} />
