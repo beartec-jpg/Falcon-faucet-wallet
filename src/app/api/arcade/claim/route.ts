@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // IP budget shared with main faucet pattern (harder multi-wallet farming)
+  // Game-only IP bucket (`game:` prefix → GAME_IP_* limits, not the main faucet's 1h cooldown)
   const ip = clientIp(req)
   const ratePrefix = `game:${networkKey}:`
   const ipLimit = await peekFaucetQuota(`${ratePrefix}ip:${ip}`)
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
         ? 'Game faucet IP cooldown active. Try again later.'
         : 'Daily game faucet limit reached for your network. Try again tomorrow (UTC).',
       429,
-      { reason: ipLimit.reason, limitType: 'ip' },
+      { reason: ipLimit.reason, limitType: 'ip', retryAt: ipLimit.reset },
     )
   }
 

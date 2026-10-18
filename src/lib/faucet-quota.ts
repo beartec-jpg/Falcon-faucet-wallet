@@ -57,9 +57,20 @@ type MemEntry = {
 
 const mem = new Map<string, MemEntry>()
 
-function limitsFromKey(key: string): { dayCap: number; cooldown: number } {
+/**
+ * Arcade game-claim IP bucket (`game:<network>:ip:<ip>`). Separate from the main
+ * faucet so one game claim does not start the main faucet's 1h cooldown for the
+ * next game; per-game/per-account caps live in arcade-store.
+ */
+export const GAME_IP_CLAIMS_PER_DAY = envInt('GAME_IP_CLAIMS_PER_DAY', 16)
+export const GAME_IP_COOLDOWN_SECONDS = envInt('GAME_IP_COOLDOWN_SECONDS', 15)
+
+export function limitsFromKey(key: string): { dayCap: number; cooldown: number } {
+  if (key.startsWith('game:')) {
+    return { dayCap: GAME_IP_CLAIMS_PER_DAY, cooldown: GAME_IP_COOLDOWN_SECONDS }
+  }
   // keys look like `mainnet:ip:…` or `testnet:acct:…`
-  const network = key.startsWith('mainnet:') ? 'mainnet' : key.startsWith('testnet:') ? 'testnet' : 'testnet'
+  const network = key.startsWith('mainnet:') ? 'mainnet' : 'testnet'
   return {
     dayCap: claimsPerDayForNetwork(network),
     cooldown: cooldownSecondsForNetwork(network),
