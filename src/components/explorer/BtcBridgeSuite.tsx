@@ -1,6 +1,5 @@
 'use client'
 
-import BridgeOperatorsPanel from '@/components/explorer/BridgeOperatorsPanel'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 type WithdrawRow = {
@@ -272,8 +271,6 @@ export default function BtcBridgeSuite() {
           />
         </div>
       </section>
-
-      <BridgeOperatorsPanel lockedSats={data.tvl.valueLockedSats} />
 
       {/* Headers */}
       <section>

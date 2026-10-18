@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 import type { RailsPoolsPayload } from '@/lib/rails-pools-server'
 import type { PoolView, RailView, Transfer } from '@/lib/rails-pools'
 import { formatUnits } from '@/lib/pl-exact-json'
+import BridgeOperatorsPanel from '@/components/explorer/BridgeOperatorsPanel'
 
 export const C = { copper: '#C07838', gold: '#D4922A', bg: '#020617', panel: '#0F172A', cream: '#E0DBCA' }
 export const mono = { fontFamily: "'JetBrains Mono', ui-monospace, monospace" }
@@ -170,6 +171,11 @@ function RailPanel({ r }: { r: RailView }) {
           </div>
         )}
       </Panel>
+      {u === 'BTC' && (
+        <div className="lg:col-span-2">
+          <BridgeOperatorsPanel lockedSats={Number(r.vault?.sats ?? 0)} />
+        </div>
+      )}
       <div className="lg:col-span-2">
         <Panel title="Recent transfers">
           <TransferTable rows={all} dec={r.decimals} unit={u} empty="No transfers in the node's current window." />
