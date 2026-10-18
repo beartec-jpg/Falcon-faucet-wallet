@@ -2,12 +2,13 @@ import Link from 'next/link'
 import { pageMeta } from '@/lib/seo'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
-import { TRACKER_CONFIG } from '@/config/tracker'
+import { TRACKER_CONFIG, TRACKER_MAX_SCORE } from '@/config/tracker'
+import { FEEDBACK_CONFIG } from '@/config/feedback'
 
 export const metadata = pageMeta(
   '/scan/methodology',
   'Testnet activity — how it is counted',
-  'How the Falcon PL testnet activity leaderboard scores accounts: bridging, swaps, liquidity, lending, payments, consistency, faucet, arcade and infra.',
+  'How the Falcon PL testnet activity leaderboard scores accounts: bridging, swaps, liquidity, lending, payments, consistency, faucet, arcade and infra, plus a bonus for approved testnet feedback.',
 )
 
 const ROWS: [string, number, string][] = [
@@ -53,6 +54,16 @@ export default function MethodologyPage() {
           </table>
           <p className="text-xs text-slate-500 mt-3">Volume-based categories are log-scaled and capped per account, so more of the same activity counts for less and no single account can dominate.</p>
         </section>
+        <section className="rounded-xl border border-slate-800 p-4" style={{ background: '#0F172A' }}>
+          <h2 className="text-[11px] font-semibold uppercase tracking-widest mb-3" style={{ color: '#D4922A' }}>Bonus: feedback (up to {TRACKER_CONFIG.bonusCaps.feedback} points)</h2>
+          <p className="text-xs text-slate-400">
+            Send bugs, UX problems and ideas from the <Link href="/feedback" className="hover:underline" style={{ color: '#D4922A' }}>feedback page</Link>.
+            Each submission is reviewed by the team. Valid, useful feedback is approved with a bonus, normally {FEEDBACK_CONFIG.defaultBonus} point
+            (more, up to {FEEDBACK_CONFIG.maxBonus}, for exceptional reports such as a reproducible security or funds bug). An account&apos;s approved bonuses add up
+            to at most {TRACKER_CONFIG.bonusCaps.feedback} points, the same as one of the smaller categories, so the maximum score is {TRACKER_MAX_SCORE}.
+            Duplicates, spam and test accounts score nothing. Approved feedback is listed on your account page.
+          </p>
+        </section>
         <section className="space-y-2">
           <h2 className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: '#D4922A' }}>Who is ranked</h2>
           <ul className="list-disc pl-5 space-y-1 text-slate-400">
@@ -64,7 +75,7 @@ export default function MethodologyPage() {
         </section>
         <section className="space-y-2">
           <h2 className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: '#D4922A' }}>Data sources</h2>
-          <p className="text-slate-400">Node status (including watcher slots and work) and account queries on the public Falcon PL RPC, the explorer&apos;s 5-minute activity index, the site&apos;s faucet claim log, swaps submitted through the site wallet, and arcade scores linked to a Falcon PL account. Rules may change while the testnet runs; changes are announced on this page.</p>
+          <p className="text-slate-400">Node status (including watcher slots and work) and account queries on the public Falcon PL RPC, the explorer&apos;s 5-minute activity index, the site&apos;s faucet claim log, swaps submitted through the site wallet, arcade scores linked to a Falcon PL account, and feedback approved by the team. Rules may change while the testnet runs; changes are announced on this page.</p>
         </section>
       </main>
     </ProductShell>

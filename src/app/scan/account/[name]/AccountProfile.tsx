@@ -10,7 +10,9 @@ import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import { C, Empty, Panel, Stat, Status, mono } from '@/components/explorer/RailsPoolsTabs'
 import { CATEGORY_LABEL } from '@/components/explorer/TrackerBoard'
-import type { TrackerCategory } from '@/config/tracker'
+import { TRACKER_MAX_SCORE, type TrackerCategory } from '@/config/tracker'
+import { FEEDBACK_CATEGORY_LABEL } from '@/config/feedback'
+import type { ApprovedFeedback } from '@/lib/feedback-store'
 import type { StoredEvent } from '@/lib/activity-index'
 import type { Classification, OperatorRow, TrackerRow } from '@/lib/tracker'
 import { formatUnits } from '@/lib/pl-exact-json'
@@ -27,6 +29,7 @@ interface Profile {
   active_days: string[]
   events: StoredEvent[]
   operator: OperatorRow | null
+  feedback?: ApprovedFeedback[]
   error?: string
 }
 
@@ -105,7 +108,7 @@ export default function AccountProfile({ name }: { name: string }) {
               <Panel title="Testnet activity">
                 {p.row ? (
                   <div className="flex flex-wrap gap-6">
-                    <Stat k="Score" v={`${fmt(p.row.score)} / 100`} />
+                    <Stat k="Score" v={`${fmt(p.row.score)} / ${TRACKER_MAX_SCORE}`} sub="100 activity + feedback bonus" />
                     <Stat k="Rank" v={p.rank ? `#${p.rank}` : '—'} sub={p.rank ? undefined : 'not ranked yet'} />
                     <Stat k="Active days" v={String(p.active_days.length)} sub="last 60 days" />
                   </div>
@@ -138,6 +141,25 @@ export default function AccountProfile({ name }: { name: string }) {
                     )
                   })}
                 </div>
+              </Panel>
+            )}
+            {p.row && (
+              <Panel title="Approved feedback" note="Bonus points from testnet feedback approved by the team (Feedback category, capped).">
+                {!p.feedback?.length ? (
+                  <Empty text="No approved feedback yet. Send some from the feedback page." />
+                ) : (
+                  <table className="w-full text-xs"><tbody>
+                    {p.feedback.map((f) => (
+                      <tr key={f.id} className="border-b border-slate-800/50">
+                        <td className="py-1.5 pr-3" style={{ color: C.gold }}>{FEEDBACK_CATEGORY_LABEL[f.category] ?? f.category}</td>
+                        <td className="pr-3 text-slate-300">{f.area}</td>
+                        <td className="pr-3 text-right" style={{ ...mono, color: C.cream }}>+{f.bonus}</td>
+                        <td className="text-slate-500" style={mono}>{f.day}</td>
+                      </tr>
+                    ))}
+                  </tbody></table>
+                )}
+                <p className="mt-2 text-[11px]"><Link href="/feedback" className="hover:underline" style={{ color: C.gold }}>Send feedback →</Link></p>
               </Panel>
             )}
             <Panel title="Active days (last 60)" note="A day counts when the account sent a transaction, held liquidity or a lending position, bridged, or claimed from the faucet. Tracking of on-chain days started with the tracker.">
