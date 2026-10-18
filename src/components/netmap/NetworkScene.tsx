@@ -845,6 +845,33 @@ function AnimDriver({ event, anim, layout }: { event: PollEvent | null; anim: An
 
 // ── Scene ──────────────────────────────────────────────────────────────────
 
+const CAM_TARGET = new THREE.Vector3(-1.4, 0.9, -1.5)
+const MAX_DIST = 90
+
+/** On narrow/portrait viewports, widen FOV and pull the camera back so every ring (incl. operators) fits. */
+function FitCamera() {
+  const camera = useThree((st) => st.camera) as THREE.PerspectiveCamera
+  const size = useThree((st) => st.size)
+  const scene = useThree((st) => st.scene)
+  const done = useRef(false)
+  useEffect(() => {
+    if (done.current || !size.width || !size.height) return
+    done.current = true
+    const aspect = size.width / size.height
+    if (aspect >= 1.1) return
+    camera.fov = 50
+    const dir = camera.position.clone().sub(CAM_TARGET)
+    const dist = dir.length() * Math.min(2.4, Math.max(1.15, 0.95 / aspect))
+    camera.position.copy(CAM_TARGET).add(dir.setLength(dist))
+    camera.updateProjectionMatrix()
+    if (scene.fog instanceof THREE.Fog) {
+      scene.fog.near = dist - 4
+      scene.fog.far = dist + 36
+    }
+  }, [camera, size, scene])
+  return null
+}
+
 export default function NetworkScene({ layout, seats, event, maxBulges, selected, onSelect, fpsRef, watchers, consensus, walletCount, tps }: SceneProps) {
   const anim = useRef<Anim>({ flash: new Map(), hubFlash: -10, voter: new Map(), packer: new Map() }).current
   const [fx, setFx] = useState(true)
@@ -888,6 +915,7 @@ export default function NetworkScene({ layout, seats, event, maxBulges, selected
         <Lightformer form="rect" intensity={0.8} color="#C07838" position={[-8, 2, -2]} scale={[2, 6, 1]} />
         <Lightformer form="ring" intensity={0.6} color="#4ADE80" position={[8, 1, 2]} scale={2} />
       </Environment>
+      <FitCamera />
       <Stars />
       <Floor />
       <AnimDriver event={event} anim={anim} layout={layout} />
@@ -926,7 +954,7 @@ export default function NetworkScene({ layout, seats, event, maxBulges, selected
         enableDamping
         dampingFactor={0.06}
         minDistance={9}
-        maxDistance={38}
+        maxDistance={MAX_DIST}
         maxPolarAngle={Math.PI * 0.6}
         target={[-1.4, 0.9, -1.5]}
         autoRotate

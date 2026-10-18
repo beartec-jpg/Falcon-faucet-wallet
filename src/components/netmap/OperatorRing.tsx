@@ -9,8 +9,8 @@ import type { BridgeOperator } from '@/lib/bridge-operators'
 
 /** Wider than the watcher ring (r 3.6). */
 const RADIUS = 4.6
-/** Sits below the watcher ring (lift 1.45). */
-const LIFT = 0.75
+/** Vertically centred on the hub core (hub origin); watcher ring sits above (lift 1.45). */
+const LIFT = 0
 const TILT = new THREE.Euler(Math.PI / 2, 0, 0)
 export const OPERATOR_COLOR = '#38BDF8'
 
