@@ -4,6 +4,12 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { isClassicAddress } from '@/lib/classic-address'
+
+/** FPL account id: r… or an on-chain name (same rule as /api/faucet). */
+function isPlAccount(name: string): boolean {
+  if (isClassicAddress(name)) return true
+  return /^[A-Za-z0-9._-]{2,64}$/.test(name)
+}
 import {
   isGameSlug,
   upsertArcadeScore,
@@ -36,7 +42,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  if (!account || !isClassicAddress(account)) {
+  if (!account || !isPlAccount(account)) {
     return NextResponse.json({ error: 'Invalid account' }, { status: 400 })
   }
   if (!isGameSlug(game)) {
