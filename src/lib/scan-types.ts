@@ -113,6 +113,10 @@ export interface ScanData extends MeshHead {
   wallets?: { activated: number; source: 'status.accounts_count' }
   watchers?: WatcherSummary
   rails: RailRow[]
+  /** Node clock (status.now_ms) at snapshot time, when the node reports it. */
+  node_time_ms?: number
+  /** False when status carried no cumulative counters (metrics are fallbacks, not data). */
+  metrics_ok?: boolean
   metrics: {
     ledgers_sealed: number
     txs_sealed: number
