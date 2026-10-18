@@ -5,6 +5,7 @@ import { parseExact } from '@/lib/pl-exact-json'
 import { FEEDBACK_CONFIG } from '@/config/feedback'
 import { TRACKER_CONFIG, TRACKER_MAX_SCORE } from '@/config/tracker'
 import { isFeedbackIneligible, memoryFeedbackStore, parseBonus, toApproved, validateFeedback, type ApprovedFeedback } from '@/lib/feedback-store'
+import { cleanImage, sniffImage } from '@/lib/feedback-image'
 import { accountView, buildTracker, scoreAccount, trackerCsv, type TrackerInput } from '@/lib/tracker'
 
 vi.mock('@/lib/pl-rpc', () => ({
@@ -12,12 +13,12 @@ vi.mock('@/lib/pl-rpc', () => ({
 }))
 vi.mock('@/lib/origin', () => ({ isOriginAllowed: () => true }))
 
-const ok = { account: 'Dave', category: 'bug', area: '/swap', description: 'Swap button stays disabled after approving.', screenshot_url: 'https://i.imgur.com/x.png', contact: '@dave' }
+const ok = { account: 'Dave', category: 'bug', area: '/swap', description: 'Swap button stays disabled after approving.', contact: '@dave' }
 
 describe('feedback validation', () => {
   it('normalises a good submission', () => {
     expect(validateFeedback(ok)).toEqual({ ...ok, account: 'dave' })
-    expect(validateFeedback({ ...ok, screenshot_url: '', contact: '' })).toMatchObject({ screenshot_url: '', contact: '' })
+    expect(validateFeedback({ ...ok, contact: '' })).toMatchObject({ contact: '' })
   })
   it('rejects bad fields and caps lengths', () => {
     expect(validateFeedback({ ...ok, account: 'BAD NAME' })).toMatch(/account name/)
@@ -26,8 +27,6 @@ describe('feedback validation', () => {
     expect(validateFeedback({ ...ok, area: 'x'.repeat(FEEDBACK_CONFIG.areaMax + 1) })).toMatch(/under/)
     expect(validateFeedback({ ...ok, description: 'too short' })).toMatch(/at least/)
     expect(validateFeedback({ ...ok, description: 'x'.repeat(FEEDBACK_CONFIG.descriptionMax + 1) })).toMatch(/under/)
-    expect(validateFeedback({ ...ok, screenshot_url: 'javascript:alert(1)' })).toMatch(/https/)
-    expect(validateFeedback({ ...ok, screenshot_url: 'http://x.com/a.png' })).toMatch(/https/)
     expect(validateFeedback({ ...ok, contact: 'a b' })).toMatch(/contact/)
   })
   it('refuses test, protocol and load-test accounts', () => {
@@ -148,5 +147,89 @@ describe('feedback routes', () => {
     const after = await (await adm.GET(new NextRequest('http://x/api/feedback/admin?status=approved', { headers: auth }))).json()
     expect(after.feedback.find((f: { id: number }) => f.id === id)).toMatchObject({ status: 'approved', bonus: FEEDBACK_CONFIG.defaultBonus, admin_notes: 'dup of #3?' })
     expect((await adm.POST(post('http://x/api/feedback/admin', { action: 'nope', id }, auth))).status).toBe(400)
+  })
+
+  it('multipart upload: images are verified, stripped, private, and deleted with the feedback', async () => {
+    const pub = await import('@/app/api/feedback/route')
+    const adm = await import('@/app/api/feedback/admin/route')
+    const img = await import('@/app/api/feedback/admin/image/route')
+    const form = (files: [Uint8Array, string, string][]) => {
+      const fd = new FormData()
+      for (const [k, v] of Object.entries({ ...ok, account: 'erin' })) fd.append(k, v)
+      for (const [b, name, type] of files) fd.append('images', new Blob([Buffer.from(b)], { type }), name)
+      return new NextRequest('http://x/api/feedback', { method: 'POST', body: fd, headers: { 'x-forwarded-for': '198.51.100.7' } })
+    }
+    // Declared image/png but really HTML: refused by magic bytes.
+    const fake = await pub.POST(form([[new TextEncoder().encode('<script>alert(1)</script>'), 'x.png', 'image/png']]))
+    expect(fake.status).toBe(400)
+    const four = Array.from({ length: FEEDBACK_CONFIG.maxImages + 1 }, () => [fx('feedback-exif.jpg'), 'a.jpg', 'image/jpeg'] as [Uint8Array, string, string])
+    expect((await pub.POST(form(four))).status).toBe(400)
+    const r = await pub.POST(form([[fx('feedback-exif.jpg'), 'a.jpg', 'image/jpeg'], [fx('feedback-text.png'), 'b.png', 'image/png']]))
+    expect(r.status).toBe(200)
+    const { id } = await r.json()
+    const auth = { authorization: `Bearer ${TOKEN}` }
+    const list = await (await adm.GET(new NextRequest('http://x/api/feedback/admin', { headers: auth }))).json()
+    const row = list.feedback.find((f: { id: number }) => f.id === id)
+    expect(row.image_ids).toHaveLength(2)
+    const iid = row.image_ids[0]
+    expect((await img.GET(new NextRequest(`http://x/api/feedback/admin/image?id=${iid}`))).status).toBe(401)
+    const got = await img.GET(new NextRequest(`http://x/api/feedback/admin/image?id=${iid}`, { headers: auth }))
+    expect(got.status).toBe(200)
+    expect(got.headers.get('content-type')).toBe('image/jpeg')
+    expect(got.headers.get('cache-control')).toMatch(/no-store/)
+    expect(got.headers.get('x-content-type-options')).toBe('nosniff')
+    const bytes = new Uint8Array(await got.arrayBuffer())
+    expect(sniffImage(bytes)).toBe('jpeg')
+    expect(has(bytes, 'SECRET')).toBe(false)
+    expect((await adm.POST(post('http://x/api/feedback/admin', { action: 'delete', id }, auth))).status).toBe(200)
+    expect((await img.GET(new NextRequest(`http://x/api/feedback/admin/image?id=${iid}`, { headers: auth }))).status).toBe(404)
+  })
+})
+
+// ── Screenshots ────────────────────────────────────────────────────────────
+const fx = (f: string) => new Uint8Array(readFileSync(`tests/fixtures/${f}`))
+const has = (b: Uint8Array, s: string) => Buffer.from(b).includes(Buffer.from(s))
+const MB5 = FEEDBACK_CONFIG.imageMaxBytes
+
+describe('feedback images', () => {
+  it('sniffs magic bytes, not names or declared types', () => {
+    expect(sniffImage(fx('feedback-exif.jpg'))).toBe('jpeg')
+    expect(sniffImage(fx('feedback-text.png'))).toBe('png')
+    expect(sniffImage(fx('feedback-exif.webp'))).toBe('webp')
+    expect(sniffImage(new TextEncoder().encode('GIF89a......'))).toBeNull()
+    expect(sniffImage(new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>'))).toBeNull()
+    expect(cleanImage(new TextEncoder().encode('<html>not an image</html>'), MB5)).toMatch(/PNG, JPEG or WebP/)
+  })
+  it('strips EXIF, comments and text metadata', () => {
+    for (const f of ['feedback-exif.jpg', 'feedback-text.png', 'feedback-exif.webp']) {
+      const raw = fx(f)
+      expect(has(raw, 'SECRET')).toBe(true)
+      const c = cleanImage(raw, MB5)
+      if (typeof c === 'string') throw new Error(c)
+      expect(has(c.bytes, 'SECRET')).toBe(false)
+      expect(sniffImage(c.bytes)).toBe(c.kind)
+      expect(c.bytes.length).toBeLessThan(raw.length)
+    }
+    const w = cleanImage(fx('feedback-exif.webp'), MB5) as { bytes: Uint8Array }
+    const riff = Buffer.from(w.bytes)
+    expect(riff.readUInt32LE(4)).toBe(riff.length - 8)
+  })
+  it('rejects oversize, empty and truncated files', () => {
+    expect(cleanImage(fx('feedback-exif.jpg'), 100)).toMatch(/under/)
+    expect(cleanImage(new Uint8Array(), MB5)).toMatch(/Empty/)
+    const png = fx('feedback-text.png')
+    expect(cleanImage(png.subarray(0, 40), MB5)).toMatch(/damaged/)
+  })
+  it('stores images with the feedback and deletes them with it', async () => {
+    const s = memoryFeedbackStore()
+    const v = validateFeedback(ok) as Exclude<ReturnType<typeof validateFeedback>, string>
+    const r = await s.insert(v, null, [{ mime: 'image/jpeg', bytes: fx('feedback-exif.jpg') }, { mime: 'image/png', bytes: fx('feedback-text.png') }])
+    if (!r.ok) throw new Error('insert')
+    const [row] = await s.list()
+    expect(row.image_ids).toHaveLength(2)
+    expect((await s.image(row.image_ids[0]))?.feedback_id).toBe(r.id)
+    expect((await s.approved())[0]).toBeUndefined()
+    await s.remove(r.id)
+    for (const iid of row.image_ids) expect(await s.image(iid)).toBeNull()
   })
 })

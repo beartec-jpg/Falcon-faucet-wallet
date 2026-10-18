@@ -20,7 +20,14 @@ export const FEEDBACK_CONFIG = {
   descriptionMax: 2000,
   areaMax: 80,
   contactMax: 64,
-  screenshotMax: 300,
+  /** Screenshot uploads: per-image cap (after the client downscales to ~1600px JPEG) and count. */
+  imageMaxBytes: 5_000_000,
+  maxImages: 3,
+  /**
+   * Whole multipart request cap. Vercel functions reject bodies over 4.5 MB, so the
+   * client compresses each image to ~1.4 MB at most and the server refuses anything bigger.
+   */
+  requestMaxBytes: 4_400_000,
   adminNotesMax: 1000,
   /** Submissions per hashed IP per 24 h, and per account per 24 h. */
   perIpPerDay: 5,

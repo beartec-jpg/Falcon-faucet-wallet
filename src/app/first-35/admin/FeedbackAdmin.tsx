@@ -11,7 +11,37 @@ type Filter = 'all' | FeedbackStatus
 const btn = 'rounded px-2 py-1 text-xs border border-slate-700 hover:border-slate-500'
 const TONE: Record<FeedbackStatus, string> = { pending: 'text-slate-300', approved: 'text-amber-400', rejected: 'text-red-400' }
 
-function Row({ r, def, max, act }: { r: Feedback; def: number; max: number; act: (b: Record<string, unknown>, done: string) => Promise<void> }) {
+/** Screenshot fetched with the admin Bearer token and shown from an object URL (images have no public URL). */
+function Thumb({ id, token, onOpen }: { id: number; token: string; onOpen: (url: string) => void }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let u: string | null = null
+    let live = true
+    fetch(`/api/feedback/admin/image?id=${id}`, { headers: { authorization: `Bearer ${token}` }, cache: 'no-store' })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
+      .then((b) => {
+        if (!live) return
+        u = URL.createObjectURL(b)
+        setUrl(u)
+      })
+      .catch(() => live && setFailed(true))
+    return () => {
+      live = false
+      if (u) URL.revokeObjectURL(u)
+    }
+  }, [id, token])
+  if (failed) return <span className="inline-block h-14 w-14 rounded border border-slate-800 text-[10px] text-slate-600 p-1">image unavailable</span>
+  if (!url) return <span className="inline-block h-14 w-14 rounded bg-slate-800 animate-pulse" />
+  return (
+    <button type="button" onClick={() => onOpen(url)} className="h-14 w-14 rounded overflow-hidden border border-slate-700 hover:border-[#C07838]" aria-label={`Enlarge screenshot ${id}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt={`Screenshot ${id}`} className="h-full w-full object-cover" />
+    </button>
+  )
+}
+
+function Row({ r, def, max, act, token, onOpen }: { r: Feedback; def: number; max: number; act: (b: Record<string, unknown>, done: string) => Promise<void>; token: string; onOpen: (url: string) => void }) {
   const [bonus, setBonus] = useState(String(r.status === 'approved' ? r.bonus : def))
   const [notes, setNotes] = useState(r.admin_notes)
   useEffect(() => {
@@ -26,7 +56,11 @@ function Row({ r, def, max, act }: { r: Feedback; def: number; max: number; act:
       <td className="pr-2 max-w-[10rem] break-words">{r.area}</td>
       <td className="pr-2 max-w-[24rem] whitespace-pre-wrap break-words text-slate-300">
         {r.description}
-        {r.screenshot_url && <div><a href={r.screenshot_url} target="_blank" rel="noopener noreferrer nofollow" className="text-[#D4922A] hover:underline">screenshot ↗</a></div>}
+        {r.image_ids.length > 0 && (
+          <div className="flex gap-1.5 mt-1.5">
+            {r.image_ids.map((iid) => <Thumb key={iid} id={iid} token={token} onOpen={onOpen} />)}
+          </div>
+        )}
       </td>
       <td className="pr-2">{r.contact || '—'}</td>
       <td className={`pr-2 ${TONE[r.status]}`}>{r.status}{r.status === 'approved' && <div className="font-mono">+{r.bonus}</div>}</td>
@@ -47,7 +81,7 @@ function Row({ r, def, max, act }: { r: Feedback; def: number; max: number; act:
         <div className="space-x-1">
           {r.status !== 'rejected' && <button className={btn} onClick={() => act({ action: 'reject', id: r.id }, `Rejected #${r.id}.`)}>Reject</button>}
           {r.status !== 'pending' && <button className={btn} onClick={() => act({ action: 'pending', id: r.id }, `#${r.id} back to pending.`)}>Reopen</button>}
-          <button className={`${btn} text-red-400`} onClick={() => confirm(`Delete feedback #${r.id} permanently?`) && act({ action: 'delete', id: r.id }, `Deleted #${r.id}.`)}>Delete</button>
+          <button className={`${btn} text-red-400`} onClick={() => confirm(`Delete feedback #${r.id}${r.image_ids.length ? ` and its ${r.image_ids.length} screenshot(s)` : ''} permanently?`) && act({ action: 'delete', id: r.id }, `Deleted #${r.id}.`)}>Delete</button>
         </div>
       </td>
     </tr>
@@ -61,6 +95,13 @@ export default function FeedbackAdmin({ token, onUnauthorized }: { token: string
   const [max, setMax] = useState(5)
   const [filter, setFilter] = useState<Filter>('pending')
   const [flash, setFlash] = useState<string | null>(null)
+  const [big, setBig] = useState<string | null>(null)
+  useEffect(() => {
+    if (!big) return
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && setBig(null)
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [big])
   const hdr = { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
 
   const load = useCallback(async () => {
@@ -112,9 +153,16 @@ export default function FeedbackAdmin({ token, onUnauthorized }: { token: string
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => <Row key={r.id} r={r} def={def} max={max} act={act} />)}
+              {rows.map((r) => <Row key={r.id} r={r} def={def} max={max} act={act} token={token} onOpen={setBig} />)}
             </tbody>
           </table>
+        </div>
+      )}
+      {big && (
+        <div role="dialog" aria-label="Screenshot" className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4 cursor-zoom-out" onClick={() => setBig(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={big} alt="Screenshot (enlarged)" className="max-h-full max-w-full rounded shadow-2xl" />
+          <button type="button" className="absolute top-4 right-4 rounded bg-slate-900/80 px-3 py-1 text-sm text-slate-200" onClick={() => setBig(null)}>Close ✕</button>
         </div>
       )}
     </section>

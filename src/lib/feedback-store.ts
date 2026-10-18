@@ -14,7 +14,6 @@ export interface FeedbackInput {
   category: FeedbackCategory
   area: string
   description: string
-  screenshot_url: string
   contact: string
 }
 
@@ -25,7 +24,12 @@ export interface Feedback extends FeedbackInput {
   admin_notes: string
   created_at: string
   reviewed_at: string | null
+  /** Ids of attached screenshots (served only via the admin image route). */
+  image_ids: number[]
 }
+
+export interface FeedbackImageInput { mime: string; bytes: Uint8Array }
+export interface FeedbackImage extends FeedbackImageInput { id: number; feedback_id: number }
 
 /** Public, approved-only view used by the tracker and the scorecard (no description or contact). */
 export interface ApprovedFeedback {
@@ -52,7 +56,6 @@ export function validateFeedback(raw: Record<string, unknown>): FeedbackInput | 
   const category = t('category').toLowerCase() as FeedbackCategory
   const area = t('area').replace(/\s+/g, ' ')
   const description = t('description').replace(/\r\n/g, '\n')
-  const screenshot_url = t('screenshot_url')
   const contact = t('contact')
   if (!ACCOUNT_RE.test(account)) return 'Enter your Falcon PL testnet account name (lowercase, as shown in your wallet).'
   if (!F.categories.includes(category)) return `Category must be one of: ${F.categories.join(', ')}.`
@@ -60,18 +63,8 @@ export function validateFeedback(raw: Record<string, unknown>): FeedbackInput | 
   if (area.length > F.areaMax) return `Keep the page/area under ${F.areaMax} characters.`
   if (description.length < F.descriptionMin) return `Describe it in at least ${F.descriptionMin} characters.`
   if (description.length > F.descriptionMax) return `Keep the description under ${F.descriptionMax} characters.`
-  if (screenshot_url) {
-    if (screenshot_url.length > F.screenshotMax) return 'That screenshot link is too long.'
-    let u: URL
-    try {
-      u = new URL(screenshot_url)
-    } catch {
-      return 'The screenshot link must be a full https:// URL.'
-    }
-    if (u.protocol !== 'https:') return 'The screenshot link must be a full https:// URL.'
-  }
   if (contact && (contact.length > F.contactMax || !CONTACT_RE.test(contact))) return 'That contact handle does not look right (letters, numbers, _ . # -).'
-  return { account, category, area, description, screenshot_url, contact }
+  return { account, category, area, description, contact }
 }
 
 /** Bonus for approval: default when blank, else 0–maxBonus rounded to 0.5. */
@@ -93,8 +86,11 @@ export type ReviewPatch = { status?: FeedbackStatus; bonus?: number; admin_notes
 
 export interface FeedbackStore {
   /** Inserts unless the IP hash or account is over the 24 h limit. */
-  insert(x: FeedbackInput, ipHash: string | null): Promise<InsertResult>
+  insert(x: FeedbackInput, ipHash: string | null, images?: FeedbackImageInput[]): Promise<InsertResult>
+  /** One stored screenshot (admin route only). */
+  image(id: number): Promise<FeedbackImage | null>
   review(id: number, patch: ReviewPatch): Promise<boolean>
+  /** Deletes the feedback and its images. */
   remove(id: number): Promise<boolean>
   list(status?: FeedbackStatus): Promise<Feedback[]>
   approved(): Promise<ApprovedFeedback[]>
@@ -102,16 +98,26 @@ export interface FeedbackStore {
 
 export function memoryFeedbackStore(now = () => Date.now()): FeedbackStore {
   const rows: (Feedback & { ip_hash: string | null; at: number })[] = []
+  const imgs: FeedbackImage[] = []
   let next = 1
+  let nextImg = 1
   const strip = ({ ip_hash: _i, at: _a, ...r }: Feedback & { ip_hash: string | null; at: number }): Feedback => r
   return {
-    async insert(x, ipHash) {
+    async insert(x, ipHash, images = []) {
       const since = now() - 86_400_000
       if (ipHash && rows.filter((r) => r.ip_hash === ipHash && r.at > since).length >= F.perIpPerDay) return { ok: false, reason: 'rate_ip' }
       if (rows.filter((r) => r.account === x.account && r.at > since).length >= F.perAccountPerDay) return { ok: false, reason: 'rate_account' }
       const id = next++
-      rows.push({ ...x, id, status: 'pending', bonus: 0, admin_notes: '', created_at: new Date(now()).toISOString(), reviewed_at: null, ip_hash: ipHash, at: now() })
+      const image_ids = images.map((im) => {
+        const iid = nextImg++
+        imgs.push({ ...im, id: iid, feedback_id: id })
+        return iid
+      })
+      rows.push({ ...x, id, status: 'pending', bonus: 0, admin_notes: '', created_at: new Date(now()).toISOString(), reviewed_at: null, image_ids, ip_hash: ipHash, at: now() })
       return { ok: true, id }
+    },
+    async image(id) {
+      return imgs.find((im) => im.id === id) ?? null
     },
     async review(id, p) {
       const r = rows.find((x) => x.id === id)
@@ -129,6 +135,7 @@ export function memoryFeedbackStore(now = () => Date.now()): FeedbackStore {
       const i = rows.findIndex((x) => x.id === id)
       if (i < 0) return false
       rows.splice(i, 1)
+      for (let k = imgs.length - 1; k >= 0; k--) if (imgs[k].feedback_id === id) imgs.splice(k, 1)
       return true
     },
     async list(status) {
@@ -146,9 +153,15 @@ async function ensure() {
   const sql = getSql()
   await sql`CREATE TABLE IF NOT EXISTS testnet_feedback (
     id BIGSERIAL PRIMARY KEY, account TEXT NOT NULL, category TEXT NOT NULL, area TEXT NOT NULL,
-    description TEXT NOT NULL, screenshot_url TEXT NOT NULL DEFAULT '', contact TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL, contact TEXT NOT NULL DEFAULT '',
     ip_hash TEXT, status TEXT NOT NULL DEFAULT 'pending', bonus NUMERIC(6,1) NOT NULL DEFAULT 0,
     admin_notes TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), reviewed_at TIMESTAMPTZ)`
+  // Screenshots: private, separate table so listing feedback never loads image bytes.
+  await sql`CREATE TABLE IF NOT EXISTS testnet_feedback_images (
+    id BIGSERIAL PRIMARY KEY, feedback_id BIGINT NOT NULL REFERENCES testnet_feedback(id) ON DELETE CASCADE,
+    mime TEXT NOT NULL, bytes BYTEA NOT NULL, size INT NOT NULL CHECK (size <= ${F.imageMaxBytes}),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
+  await sql`CREATE INDEX IF NOT EXISTS testnet_feedback_images_fb_idx ON testnet_feedback_images (feedback_id)`
   await sql`CREATE INDEX IF NOT EXISTS testnet_feedback_status_idx ON testnet_feedback (status, created_at DESC)`
   await sql`CREATE INDEX IF NOT EXISTS testnet_feedback_ip_idx ON testnet_feedback (ip_hash, created_at)`
   await sql`CREATE INDEX IF NOT EXISTS testnet_feedback_account_idx ON testnet_feedback (account, created_at)`
@@ -159,25 +172,42 @@ const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : String(v))
 function rowOf(r: Record<string, unknown>): Feedback {
   return {
     id: Number(r.id), account: String(r.account), category: String(r.category) as FeedbackCategory, area: String(r.area),
-    description: String(r.description), screenshot_url: String(r.screenshot_url ?? ''), contact: String(r.contact ?? ''),
+    description: String(r.description), contact: String(r.contact ?? ''),
     status: String(r.status) as FeedbackStatus, bonus: Number(r.bonus) || 0, admin_notes: String(r.admin_notes ?? ''),
     created_at: iso(r.created_at), reviewed_at: r.reviewed_at == null ? null : iso(r.reviewed_at),
+    image_ids: Array.isArray(r.image_ids) ? (r.image_ids as unknown[]).map(Number).filter(Boolean) : [],
   }
 }
 
 export function pgFeedbackStore(): FeedbackStore {
   const sql = getSql()
   return {
-    async insert(x, ipHash) {
+    async insert(x, ipHash, images = []) {
       await ensure()
       const [c] = (await sql`SELECT
           (SELECT count(*)::int FROM testnet_feedback WHERE ip_hash = ${ipHash} AND created_at > NOW() - INTERVAL '24 hours') AS ip,
           (SELECT count(*)::int FROM testnet_feedback WHERE account = ${x.account} AND created_at > NOW() - INTERVAL '24 hours') AS acct`) as { ip: number; acct: number }[]
       if (ipHash && Number(c?.ip) >= F.perIpPerDay) return { ok: false, reason: 'rate_ip' }
       if (Number(c?.acct) >= F.perAccountPerDay) return { ok: false, reason: 'rate_account' }
-      const r = (await sql`INSERT INTO testnet_feedback (account, category, area, description, screenshot_url, contact, ip_hash)
-        VALUES (${x.account}, ${x.category}, ${x.area}, ${x.description}, ${x.screenshot_url}, ${x.contact}, ${ipHash}) RETURNING id`) as { id: number }[]
-      return { ok: true, id: Number(r[0].id) }
+      const r = (await sql`INSERT INTO testnet_feedback (account, category, area, description, contact, ip_hash)
+        VALUES (${x.account}, ${x.category}, ${x.area}, ${x.description}, ${x.contact}, ${ipHash}) RETURNING id`) as { id: number }[]
+      const id = Number(r[0].id)
+      try {
+        for (const im of images) {
+          await sql`INSERT INTO testnet_feedback_images (feedback_id, mime, bytes, size)
+            VALUES (${id}, ${im.mime}, ${'\\x' + Buffer.from(im.bytes).toString('hex')}::bytea, ${im.bytes.length})`
+        }
+      } catch (e) {
+        await sql`DELETE FROM testnet_feedback WHERE id = ${id}`
+        throw e
+      }
+      return { ok: true, id }
+    },
+    async image(id) {
+      await ensure()
+      const r = (await sql`SELECT id, feedback_id, mime, encode(bytes, 'base64') AS b64 FROM testnet_feedback_images WHERE id = ${id}`) as Record<string, unknown>[]
+      if (!r.length) return null
+      return { id: Number(r[0].id), feedback_id: Number(r[0].feedback_id), mime: String(r[0].mime), bytes: new Uint8Array(Buffer.from(String(r[0].b64), 'base64')) }
     },
     async review(id, p) {
       await ensure()
@@ -193,14 +223,17 @@ export function pgFeedbackStore(): FeedbackStore {
     },
     async remove(id) {
       await ensure()
+      await sql`DELETE FROM testnet_feedback_images WHERE feedback_id = ${id}`
       const r = (await sql`DELETE FROM testnet_feedback WHERE id = ${id} RETURNING id`) as unknown[]
       return r.length > 0
     },
     async list(status) {
       await ensure()
       const rows = (status
-        ? await sql`SELECT * FROM testnet_feedback WHERE status = ${status} ORDER BY created_at DESC LIMIT 1000`
-        : await sql`SELECT * FROM testnet_feedback ORDER BY created_at DESC LIMIT 1000`) as Record<string, unknown>[]
+        ? await sql`SELECT f.*, ARRAY(SELECT i.id FROM testnet_feedback_images i WHERE i.feedback_id = f.id ORDER BY i.id) AS image_ids
+            FROM testnet_feedback f WHERE f.status = ${status} ORDER BY f.created_at DESC LIMIT 1000`
+        : await sql`SELECT f.*, ARRAY(SELECT i.id FROM testnet_feedback_images i WHERE i.feedback_id = f.id ORDER BY i.id) AS image_ids
+            FROM testnet_feedback f ORDER BY f.created_at DESC LIMIT 1000`) as Record<string, unknown>[]
       return rows.map(rowOf)
     },
     async approved() {
