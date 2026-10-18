@@ -17,11 +17,99 @@ export const GAME_SLUGS = [
 
 export type GameSlug = (typeof GAME_SLUGS)[number]
 
-/** Best single-run score required to claim (not sum of runs). */
+/**
+ * Claim threshold. Run scores ACCUMULATE: the sum of the day's runs for a game
+ * (since the last claim) must reach this; each claim consumes this many points.
+ * The leaderboard still ranks the best single run.
+ */
 export const GAME_FAUCET_MIN_SCORE = parseInt(
   process.env.GAME_FAUCET_MIN_SCORE ?? '500',
   10,
 )
+
+/**
+ * Most a single run can add to claim progress (sanity cap; the leaderboard best
+ * is not capped by this). Default = the claim threshold, so one run can unlock
+ * at most one claim.
+ */
+export const GAME_MAX_RUN_CREDIT = parseInt(
+  process.env.GAME_MAX_RUN_CREDIT ?? String(GAME_FAUCET_MIN_SCORE),
+  10,
+)
+
+/** Max runs per address/game/UTC day that may add to claim progress. */
+export const GAME_MAX_RUNS_PER_DAY = parseInt(
+  process.env.GAME_MAX_RUNS_PER_DAY ?? '300',
+  10,
+)
+
+/** Optional client run id (one per run). Absent → a score drop starts a new run. */
+export function normalizeRunId(v: unknown): string {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return /^[A-Za-z0-9_-]{1,64}$/.test(s) ? s : ''
+}
+
+/** Per (network, address, game, day) claim-progress state. */
+export interface RunProgressState {
+  /** Points banked toward claims since the last claim (sum of run credits − consumed). */
+  progress: number
+  /** Current run id ('' = legacy client without run ids). */
+  runId: string
+  /** Latest score reported for the current run. */
+  runScore: number
+  /** Points the current run has already added to progress (≤ GAME_MAX_RUN_CREDIT). */
+  runCredit: number
+  /** Runs counted today. */
+  runs: number
+}
+
+export const EMPTY_RUN_STATE: RunProgressState = {
+  progress: 0,
+  runId: '',
+  runScore: 0,
+  runCredit: 0,
+  runs: 0,
+}
+
+/**
+ * Pure accumulation step (mirrors the SQL upsert). Scores are reported
+ * repeatedly during a run, so only the increase within a run is credited.
+ * A new run is a different run id, or (legacy, no id) a score below the last.
+ */
+export function applyRunScore(
+  prev: RunProgressState,
+  scoreIn: number,
+  runIdIn: string,
+  caps: { maxRunCredit?: number; maxRuns?: number } = {},
+): RunProgressState {
+  const maxCredit = caps.maxRunCredit ?? GAME_MAX_RUN_CREDIT
+  const maxRuns = caps.maxRuns ?? GAME_MAX_RUNS_PER_DAY
+  const score = Math.floor(Math.max(0, scoreIn))
+  const runId = runIdIn
+  const first = prev.runs === 0 && prev.runScore === 0 && prev.runId === ''
+  const newRun =
+    first ||
+    (runId !== '' ? runId !== prev.runId : prev.runId !== '' || score < prev.runScore)
+  const credit = Math.min(score, maxCredit)
+  if (newRun) {
+    const counted = prev.runs < maxRuns
+    return {
+      progress: prev.progress + (counted ? credit : 0),
+      runId,
+      runScore: score,
+      // Uncounted runs are marked as fully credited so they never add later.
+      runCredit: counted ? credit : maxCredit,
+      runs: prev.runs + 1,
+    }
+  }
+  const delta = Math.max(0, credit - prev.runCredit)
+  return {
+    ...prev,
+    progress: prev.progress + delta,
+    runScore: Math.max(prev.runScore, score),
+    runCredit: prev.runCredit + delta,
+  }
+}
 
 /**
  * Max successful game claims per address per game per UTC day.
@@ -57,6 +145,7 @@ type ClaimKey = string // network|address|game|day
 
 const memScores = new Map<string, number>()
 const memClaims = new Map<string, number>() // count
+const memProgress = new Map<string, RunProgressState>()
 
 function scoreKey(
   network: string,
@@ -93,6 +182,12 @@ async function ensureTables(): Promise<void> {
   `
   // Falcon PL account that played (for the testnet activity tracker).
   await sql`ALTER TABLE arcade_scores ADD COLUMN IF NOT EXISTS pl_account TEXT`
+  // Accumulated claim progress (sum of runs since last claim) — see applyRunScore.
+  await sql`ALTER TABLE arcade_scores ADD COLUMN IF NOT EXISTS progress DOUBLE PRECISION NOT NULL DEFAULT 0`
+  await sql`ALTER TABLE arcade_scores ADD COLUMN IF NOT EXISTS run_id TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE arcade_scores ADD COLUMN IF NOT EXISTS run_score DOUBLE PRECISION NOT NULL DEFAULT 0`
+  await sql`ALTER TABLE arcade_scores ADD COLUMN IF NOT EXISTS run_credit DOUBLE PRECISION NOT NULL DEFAULT 0`
+  await sql`ALTER TABLE arcade_scores ADD COLUMN IF NOT EXISTS runs INTEGER NOT NULL DEFAULT 0`
   await sql`
     CREATE INDEX IF NOT EXISTS arcade_scores_lb
     ON arcade_scores (network, game, day_utc, score DESC)
@@ -120,43 +215,80 @@ async function ensureTables(): Promise<void> {
   `
 }
 
-/** Upsert best score for the day (only increases). */
+/**
+ * Record a reported run score: best single run (leaderboard, only increases)
+ * and accumulated claim progress (applyRunScore semantics, done atomically in SQL).
+ */
 export async function upsertArcadeScore(opts: {
   network: string
   address: string
   game: string
   score: number
+  /** Client run id (normalizeRunId); '' for legacy clients. */
+  runId?: string
   dayUtc?: string
   /** Falcon PL account name of the player, when the wallet has one. */
   plAccount?: string
-}): Promise<{ best: number; improved: boolean }> {
+}): Promise<{ best: number; improved: boolean; progress: number; runs: number }> {
   const day = opts.dayUtc ?? arcadeUtcDay()
   const score = Math.floor(Math.max(0, opts.score))
   const address = opts.address.trim()
+  const runId = normalizeRunId(opts.runId)
+  const credit = Math.min(score, GAME_MAX_RUN_CREDIT)
 
   if (isDbConfigured()) {
     try {
       await ensureTables()
       const sql = getSql()
+      // All right-hand sides read the OLD row, so this is one atomic applyRunScore.
       const rows = await sql`
-        INSERT INTO arcade_scores (network, address, game, day_utc, score, pl_account)
+        INSERT INTO arcade_scores (
+          network, address, game, day_utc, score, pl_account,
+          progress, run_id, run_score, run_credit, runs
+        )
         VALUES (
-          ${opts.network},
-          ${address},
-          ${opts.game},
-          ${day}::date,
-          ${score},
-          ${opts.plAccount ?? null}
+          ${opts.network}, ${address}, ${opts.game}, ${day}::date, ${score},
+          ${opts.plAccount ?? null},
+          ${credit}, ${runId}, ${score}, ${credit}, 1
         )
         ON CONFLICT (network, address, game, day_utc)
         DO UPDATE SET
           score = GREATEST(arcade_scores.score, EXCLUDED.score),
           pl_account = COALESCE(EXCLUDED.pl_account, arcade_scores.pl_account),
+          progress = arcade_scores.progress + CASE
+            WHEN (CASE WHEN EXCLUDED.run_id <> '' THEN EXCLUDED.run_id <> arcade_scores.run_id
+                       ELSE arcade_scores.run_id <> '' OR EXCLUDED.run_score < arcade_scores.run_score END)
+            THEN CASE WHEN arcade_scores.runs < ${GAME_MAX_RUNS_PER_DAY} THEN EXCLUDED.run_credit ELSE 0 END
+            ELSE GREATEST(0, EXCLUDED.run_credit - arcade_scores.run_credit)
+          END,
+          run_credit = CASE
+            WHEN (CASE WHEN EXCLUDED.run_id <> '' THEN EXCLUDED.run_id <> arcade_scores.run_id
+                       ELSE arcade_scores.run_id <> '' OR EXCLUDED.run_score < arcade_scores.run_score END)
+            THEN CASE WHEN arcade_scores.runs < ${GAME_MAX_RUNS_PER_DAY} THEN EXCLUDED.run_credit ELSE ${GAME_MAX_RUN_CREDIT} END
+            ELSE GREATEST(arcade_scores.run_credit, EXCLUDED.run_credit)
+          END,
+          run_score = CASE
+            WHEN (CASE WHEN EXCLUDED.run_id <> '' THEN EXCLUDED.run_id <> arcade_scores.run_id
+                       ELSE arcade_scores.run_id <> '' OR EXCLUDED.run_score < arcade_scores.run_score END)
+            THEN EXCLUDED.run_score
+            ELSE GREATEST(arcade_scores.run_score, EXCLUDED.run_score)
+          END,
+          runs = arcade_scores.runs + CASE
+            WHEN (CASE WHEN EXCLUDED.run_id <> '' THEN EXCLUDED.run_id <> arcade_scores.run_id
+                       ELSE arcade_scores.run_id <> '' OR EXCLUDED.run_score < arcade_scores.run_score END)
+            THEN 1 ELSE 0
+          END,
+          run_id = EXCLUDED.run_id,
           updated_at = NOW()
-        RETURNING score
+        RETURNING score, progress, runs
       `
       const best = Number(rows[0]?.score ?? score)
-      return { best, improved: best === score && score > 0 }
+      return {
+        best,
+        improved: best === score && score > 0,
+        progress: Number(rows[0]?.progress ?? 0),
+        runs: Number(rows[0]?.runs ?? 0),
+      }
     } catch (e) {
       console.warn('[arcade-store] upsert db failed, using memory:', e)
     }
@@ -166,7 +298,104 @@ export async function upsertArcadeScore(opts: {
   const prev = memScores.get(k) ?? 0
   const best = Math.max(prev, score)
   memScores.set(k, best)
-  return { best, improved: best > prev }
+  const st = applyRunScore(memProgress.get(k) ?? EMPTY_RUN_STATE, score, runId)
+  memProgress.set(k, st)
+  return { best, improved: best > prev, progress: st.progress, runs: st.runs }
+}
+
+/** Accumulated claim progress for the day (since the last claim). */
+export async function getClaimProgress(opts: {
+  network: string
+  address: string
+  game: string
+  dayUtc?: string
+}): Promise<{ progress: number; runs: number }> {
+  const day = opts.dayUtc ?? arcadeUtcDay()
+  const address = opts.address.trim()
+  if (isDbConfigured()) {
+    try {
+      await ensureTables()
+      const rows = await getSql()`
+        SELECT progress, runs FROM arcade_scores
+        WHERE network = ${opts.network} AND address = ${address}
+          AND game = ${opts.game} AND day_utc = ${day}::date
+        LIMIT 1
+      `
+      return { progress: Number(rows[0]?.progress ?? 0), runs: Number(rows[0]?.runs ?? 0) }
+    } catch (e) {
+      console.warn('[arcade-store] getClaimProgress db failed:', e)
+    }
+  }
+  const st = memProgress.get(scoreKey(opts.network, address, opts.game, day))
+  return { progress: st?.progress ?? 0, runs: st?.runs ?? 0 }
+}
+
+/**
+ * Atomically take `amount` points of progress for a claim. Returns false (and
+ * takes nothing) if progress is below `amount` — prevents concurrent double spend.
+ */
+export async function consumeClaimProgress(opts: {
+  network: string
+  address: string
+  game: string
+  amount?: number
+  dayUtc?: string
+}): Promise<{ ok: boolean; progress: number }> {
+  const day = opts.dayUtc ?? arcadeUtcDay()
+  const address = opts.address.trim()
+  const amount = opts.amount ?? GAME_FAUCET_MIN_SCORE
+  if (isDbConfigured()) {
+    try {
+      await ensureTables()
+      const rows = await getSql()`
+        UPDATE arcade_scores SET progress = progress - ${amount}, updated_at = NOW()
+        WHERE network = ${opts.network} AND address = ${address}
+          AND game = ${opts.game} AND day_utc = ${day}::date
+          AND progress >= ${amount}
+        RETURNING progress
+      `
+      if (rows[0]) return { ok: true, progress: Number(rows[0].progress) }
+      const cur = await getClaimProgress({ ...opts, dayUtc: day })
+      return { ok: false, progress: cur.progress }
+    } catch (e) {
+      console.warn('[arcade-store] consumeClaimProgress db failed:', e)
+    }
+  }
+  const k = scoreKey(opts.network, address, opts.game, day)
+  const st = memProgress.get(k) ?? EMPTY_RUN_STATE
+  if (st.progress < amount) return { ok: false, progress: st.progress }
+  const next = { ...st, progress: st.progress - amount }
+  memProgress.set(k, next)
+  return { ok: true, progress: next.progress }
+}
+
+/** Give back consumed progress (payment failed after consumeClaimProgress). */
+export async function refundClaimProgress(opts: {
+  network: string
+  address: string
+  game: string
+  amount?: number
+  dayUtc?: string
+}): Promise<void> {
+  const day = opts.dayUtc ?? arcadeUtcDay()
+  const address = opts.address.trim()
+  const amount = opts.amount ?? GAME_FAUCET_MIN_SCORE
+  if (isDbConfigured()) {
+    try {
+      await ensureTables()
+      await getSql()`
+        UPDATE arcade_scores SET progress = progress + ${amount}, updated_at = NOW()
+        WHERE network = ${opts.network} AND address = ${address}
+          AND game = ${opts.game} AND day_utc = ${day}::date
+      `
+      return
+    } catch (e) {
+      console.warn('[arcade-store] refundClaimProgress db failed:', e)
+    }
+  }
+  const k = scoreKey(opts.network, address, opts.game, day)
+  const st = memProgress.get(k)
+  if (st) memProgress.set(k, { ...st, progress: st.progress + amount })
 }
 
 export async function getBestScore(opts: {

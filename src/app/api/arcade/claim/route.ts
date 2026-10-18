@@ -1,6 +1,8 @@
 // POST /api/arcade/claim
 // Body: { account, game, network? }  — score in body is IGNORED for eligibility
-// Eligibility uses server-stored best score only (from prior SCORE_UPDATE posts).
+// Eligibility uses server-stored accumulated progress only (sum of today's run
+// scores since the last claim, built from prior /api/arcade/score posts).
+// Each successful claim consumes GAME_FAUCET_MIN_SCORE points of progress.
 // Same faucet pool as /api/faucet — separate game rate limits + score threshold.
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -17,8 +19,11 @@ import {
   arcadeUtcDay,
   countGlobalGameClaimsToday,
   finalizeGameClaim,
+  consumeClaimProgress,
   getBestScore,
+  getClaimProgress,
   isGameSlug,
+  refundClaimProgress,
   releaseGameClaim,
   reserveGameClaim,
 } from '@/lib/arcade-store'
@@ -68,18 +73,18 @@ export async function POST(req: NextRequest) {
     return err('Invalid game slug')
   }
 
-  // Server-stored best only — never trust claim-body score
-  const best = await getBestScore({
-    network: networkKey,
-    address: account,
-    game,
-  })
+  // Server-stored progress only — never trust claim-body score or client totals
+  const who = { network: networkKey, address: account, game }
+  const [{ progress }, best] = await Promise.all([
+    getClaimProgress(who),
+    getBestScore(who),
+  ])
 
-  if (best < GAME_FAUCET_MIN_SCORE) {
+  if (progress < GAME_FAUCET_MIN_SCORE) {
     return err(
-      `Score too low. Reach ${GAME_FAUCET_MIN_SCORE} points in a real run first (best on record today: ${best}). Keep playing — scores sync as you play.`,
+      `Not enough points yet: ${Math.floor(progress)} / ${GAME_FAUCET_MIN_SCORE} today. Your run scores add up — keep playing, scores sync as you play.`,
       403,
-      { best, minScore: GAME_FAUCET_MIN_SCORE, game },
+      { progress, best, minScore: GAME_FAUCET_MIN_SCORE, game },
     )
   }
 
@@ -112,19 +117,30 @@ export async function POST(req: NextRequest) {
     network: networkKey,
     address: account,
     game,
-    scoreAtClaim: best,
+    scoreAtClaim: progress,
   })
 
   if (!reserved.ok) {
     const why =
       reserved.reason === 'game_claimed'
-        ? `Already claimed the Game Faucet for ${game} today (UTC). Come back tomorrow.`
+        ? `Game Faucet claim limit for ${game} reached today (UTC). Come back tomorrow.`
         : `Daily game claim limit reached (${reserved.quota.claimsTotalToday} claims). Try again tomorrow (UTC).`
     return err(why, 429, {
       reason: reserved.reason,
       claimsThisGameToday: reserved.quota.claimsThisGameToday,
       claimsTotalToday: reserved.quota.claimsTotalToday,
     })
+  }
+
+  // Atomically spend the threshold (guards concurrent claims on the same progress).
+  const spent = await consumeClaimProgress({ ...who, amount: GAME_FAUCET_MIN_SCORE })
+  if (!spent.ok) {
+    await releaseGameClaim(reserved.reservationId)
+    return err(
+      `Not enough points yet: ${Math.floor(spent.progress)} / ${GAME_FAUCET_MIN_SCORE} today.`,
+      403,
+      { progress: spent.progress, minScore: GAME_FAUCET_MIN_SCORE, game },
+    )
   }
 
   const faucet = resolveFaucet(networkKey)
@@ -141,6 +157,7 @@ export async function POST(req: NextRequest) {
   })
 
   if (!paid.ok) {
+    await refundClaimProgress({ ...who, amount: GAME_FAUCET_MIN_SCORE })
     await releaseGameClaim(reserved.reservationId)
     console.error('[arcade/claim] pay failed:', paid.error, paid.extra)
     return err('Claim failed. Try again shortly.', paid.status >= 400 ? paid.status : 502)
@@ -150,7 +167,7 @@ export async function POST(req: NextRequest) {
     reservationId: reserved.reservationId,
     amountQxrp: paid.amount,
     txHash: paid.txHash,
-    scoreAtClaim: best,
+    scoreAtClaim: progress,
   })
 
   await consumeFaucetQuota(`${ratePrefix}ip:${ip}`)
@@ -190,7 +207,9 @@ export async function POST(req: NextRequest) {
     amountFpl: paid.amount,
     account,
     network: networkKey,
-    scoreAtClaim: best,
+    scoreAtClaim: progress,
+    progress: spent.progress,
+    best,
     minScore: GAME_FAUCET_MIN_SCORE,
     remainingGameClaimsToday: Math.max(0, reserved.quota.remainingGame - 1),
     remainingTotalGameClaimsToday: Math.max(0, reserved.quota.remainingTotal - 1),

@@ -1,5 +1,6 @@
 // GET /api/arcade/status?account=&network=
-// Per-game best scores + claim remaining for the connected wallet.
+// Per-game best single run (leaderboard), accumulated claim progress
+// (sum of today's runs since the last claim) + claims remaining.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { isClassicAddress } from '@/lib/classic-address'
@@ -13,6 +14,7 @@ import {
   GAME_FAUCET_MIN_SCORE,
   GAME_SLUGS,
   getBestScore,
+  getClaimProgress,
   peekGameClaimQuota,
 } from '@/lib/arcade-store'
 import { resolveNetworkKey } from '@/lib/network-server'
@@ -36,6 +38,11 @@ export async function GET(req: NextRequest) {
         address: account,
         game,
       })
+      const { progress, runs } = await getClaimProgress({
+        network: networkKey,
+        address: account,
+        game,
+      })
       const quota = await peekGameClaimQuota({
         network: networkKey,
         address: account,
@@ -44,8 +51,10 @@ export async function GET(req: NextRequest) {
       return {
         game,
         bestScore: best,
-        eligible: best >= GAME_FAUCET_MIN_SCORE,
-        canClaim: best >= GAME_FAUCET_MIN_SCORE && quota.ok,
+        progress,
+        runsToday: runs,
+        eligible: progress >= GAME_FAUCET_MIN_SCORE,
+        canClaim: progress >= GAME_FAUCET_MIN_SCORE && quota.ok,
         claimsThisGameToday: quota.claimsThisGameToday,
         remainingGame: quota.remainingGame,
       }

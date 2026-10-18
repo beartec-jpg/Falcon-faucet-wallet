@@ -48,8 +48,9 @@ const ARCADE_ORIGIN = (() => {
 
 type ArcadeOutbound =
   | { type: 'GAME_READY' }
-  | { type: 'SCORE_UPDATE'; game: string; score: number }
-  | { type: 'CLAIM_REQUEST'; game: string; score: number }
+  /** runId (newer arcade builds): one id per run, so the server can add runs up. */
+  | { type: 'SCORE_UPDATE'; game: string; score: number; runId?: string }
+  | { type: 'CLAIM_REQUEST'; game: string; score: number; runId?: string }
   | { type: 'CONNECT_WALLET_REQUEST' }
 
 function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
@@ -61,7 +62,8 @@ function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
       typeof r.game === 'string' &&
       r.game.length > 0 &&
       typeof r.score === 'number' &&
-      Number.isFinite(r.score)
+      Number.isFinite(r.score) &&
+      (r.runId === undefined || typeof r.runId === 'string')
     )
   }
   return false
@@ -107,10 +109,32 @@ export default function ArcadePage() {
     win.postMessage(msg, ARCADE_ORIGIN)
   }, [])
 
+  /** Tell the arcade the server-side claim progress (sum of today's runs since last claim). */
+  const postProgress = useCallback(
+    (game: string, progress: unknown, minScore: unknown) => {
+      if (typeof progress !== 'number' || !Number.isFinite(progress)) return
+      postToArcade({
+        type: 'PROGRESS_UPDATE',
+        game,
+        progress: Math.max(0, Math.floor(progress)),
+        minScore: typeof minScore === 'number' ? minScore : undefined,
+      })
+    },
+    [postToArcade],
+  )
+
   const pushWallet = useCallback(() => {
     if (!walletAddress) return
     postToArcade({ type: 'WALLET_CONNECTED', address: walletAddress })
-  }, [walletAddress, postToArcade])
+    fetch(
+      `/api/arcade/status?account=${encodeURIComponent(walletAddress)}&network=${ARCADE_NETWORK}`,
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { minScore?: number; games?: { game: string; progress?: number }[] } | null) => {
+        for (const g of d?.games ?? []) postProgress(g.game, g.progress, d?.minScore)
+      })
+      .catch(() => {})
+  }, [walletAddress, postToArcade, postProgress])
 
   /** Arcade "Connect wallet": re-read the stored wallet and send it, or open the wallet page to create/unlock one. */
   const connectWallet = useCallback(async () => {
@@ -143,41 +167,66 @@ export default function ArcadePage() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [walletAddress])
 
-  // Debounced score POST
+  // Debounced score POST, keyed per run so a new run never swallows the
+  // previous run's final score (the server adds runs up for claim progress).
   const scoreTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const pendingScores = useRef<Map<string, () => Promise<void>>>(new Map())
 
-  const handleScoreUpdate = useCallback(
-    (game: string, score: number) => {
+  const postScore = useCallback(
+    async (game: string, score: number, runId?: string) => {
       if (!walletAddress) return
-      const key = `${ARCADE_NETWORK}:${game}`
-      const prev = scoreTimers.current.get(key)
-      if (prev) clearTimeout(prev)
-      scoreTimers.current.set(
-        key,
-        setTimeout(async () => {
-          try {
-            await fetch('/api/arcade/score', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                account: walletAddress,
-                pl_account: plAccount || undefined,
-                game,
-                score,
-                network: ARCADE_NETWORK,
-              }),
-            })
-          } catch {
-            /* best-effort */
-          }
-        }, 800),
-      )
+      try {
+        const res = await fetch('/api/arcade/score', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            account: walletAddress,
+            pl_account: plAccount || undefined,
+            game,
+            score,
+            run_id: runId || undefined,
+            network: ARCADE_NETWORK,
+          }),
+        })
+        const data = await res.json().catch(() => null)
+        if (res.ok && data) postProgress(game, data.progress, data.minScore)
+      } catch {
+        /* best-effort */
+      }
     },
-    [walletAddress, plAccount],
+    [walletAddress, plAccount, postProgress],
   )
 
+  const handleScoreUpdate = useCallback(
+    (game: string, score: number, runId?: string) => {
+      if (!walletAddress) return
+      const key = `${ARCADE_NETWORK}:${game}:${runId ?? ''}`
+      const prev = scoreTimers.current.get(key)
+      if (prev) clearTimeout(prev)
+      const send = () => {
+        scoreTimers.current.delete(key)
+        pendingScores.current.delete(key)
+        return postScore(game, score, runId)
+      }
+      pendingScores.current.set(key, send)
+      scoreTimers.current.set(key, setTimeout(() => void send(), 800))
+    },
+    [walletAddress, postScore],
+  )
+
+  /** Send any debounced score posts now (before a claim). */
+  const flushScores = useCallback(async () => {
+    const sends = [...pendingScores.current.entries()]
+    for (const [key] of sends) {
+      const t = scoreTimers.current.get(key)
+      if (t) clearTimeout(t)
+    }
+    // Sequential: keeps run order on the server.
+    for (const [, send] of sends) await send()
+  }, [])
+
   const handleClaimRequest = useCallback(
-    async (game: string, score: number) => {
+    async (game: string) => {
       if (!walletAddress) {
         setError('Open Wallet and create/unlock a wallet first, then return here.')
         postToArcade({
@@ -193,18 +242,9 @@ export default function ArcadePage() {
       setError(null)
       setStatus(`Claiming Game Faucet for ${game}…`)
       try {
-        // Ensure latest score is stored
-        await fetch('/api/arcade/score', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            account: walletAddress,
-            pl_account: plAccount || undefined,
-            game,
-            score,
-            network: ARCADE_NETWORK,
-          }),
-        })
+        // Ensure the latest run scores are stored. The claim-request score is
+        // not re-posted: eligibility is the server's accumulated progress.
+        await flushScores()
 
         const res = await fetch('/api/arcade/claim', {
           method: 'POST',
@@ -212,11 +252,11 @@ export default function ArcadePage() {
           body: JSON.stringify({
             account: walletAddress,
             game,
-            score,
             network: ARCADE_NETWORK,
           }),
         })
         const data = await res.json()
+        postProgress(game, data.progress, data.minScore)
         if (!res.ok) {
           setError(data.error ?? 'Claim failed')
           setStatus(null)
@@ -251,7 +291,7 @@ export default function ArcadePage() {
         setClaimBusy(false)
       }
     },
-    [walletAddress, plAccount, claimBusy, postToArcade],
+    [walletAddress, claimBusy, postToArcade, flushScores, postProgress],
   )
 
   useEffect(() => {
@@ -275,11 +315,11 @@ export default function ArcadePage() {
         return
       }
       if (event.data.type === 'SCORE_UPDATE') {
-        handleScoreUpdate(event.data.game, event.data.score)
+        handleScoreUpdate(event.data.game, event.data.score, event.data.runId)
         return
       }
       if (event.data.type === 'CLAIM_REQUEST') {
-        void handleClaimRequest(event.data.game, event.data.score)
+        void handleClaimRequest(event.data.game)
       }
     }
     window.addEventListener('message', onMessage)
@@ -338,6 +378,7 @@ export default function ArcadePage() {
           <span className="font-medium">Falcon PL</span>
           {' · '}Network ID 2300
           {' · '}FPL testnet — no real value
+          {' · '}Game Faucet: your run scores add up — 500 pts today unlocks a claim
         </div>
       </div>
 
