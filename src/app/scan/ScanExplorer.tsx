@@ -13,7 +13,7 @@ import EpochEmissionsCard from '@/components/explorer/EpochEmissionsCard'
 import SeatBoxes from '@/components/explorer/SeatBoxes'
 import MetricModal, { seatOptions } from '@/components/explorer/MetricModal'
 import { useLiveSamples, type LiveSamples } from '@/hooks/useLiveSamples'
-import { seatKey, seatLag, SERIES_LABELS, type SeatMetric } from '@/lib/net-metrics'
+import { seatKey, seatLag, SERIES_LABELS, windowIntake, type SeatMetric } from '@/lib/net-metrics'
 
 const FETCH_TIMEOUT_MS = 10_000
 const POLL_MS = 4_000
@@ -361,7 +361,7 @@ export default function ScanExplorer({
               <ClickableStatCard label="Height" value={`#${fmtNum(mesh.height)}`} accent="text-brand-500" chartKey="height" onChart={openNet} />
               <ClickableStatCard
                 label="tx/s (est.)"
-                value={live.rate60s ? live.rate60s.tps.toFixed(1) : '…'}
+                value={live.rate60s ? live.rate60s.tps.toFixed(1) : '—'}
                 sub={live.rate60s ? 'sealed · 60s avg' : 'measuring'}
                 accent="text-brand-400"
                 chartKey="tps"
@@ -369,14 +369,14 @@ export default function ScanExplorer({
               />
               <ClickableStatCard
                 label="Blocks / min"
-                value={live.rate60s ? live.rate60s.blocks_min.toFixed(1) : '…'}
-                sub="60s avg"
+                value={live.rate60s ? live.rate60s.blocks_min.toFixed(1) : '—'}
+                sub={live.rate60s ? '60s avg' : 'measuring'}
                 chartKey="blocks_min"
                 onChart={openNet}
               />
               <ClickableStatCard
                 label="Txs / block"
-                value={live.rate60s && live.rate60s.blocks_min > 0 ? live.rate60s.txs_per_block.toFixed(1) : '…'}
+                value={live.rate60s && live.rate60s.blocks_min > 0 ? live.rate60s.txs_per_block.toFixed(1) : '—'}
                 sub={`last ${d.last_pack.txs} tx`}
                 chartKey="txs_per_block"
                 onChart={openNet}
@@ -392,7 +392,7 @@ export default function ScanExplorer({
               <ClickableStatCard label="Mempool" value={d.mempool} sub={`max ${fmtNum(d.max_mempool)}`} chartKey="mempool" onChart={openNet} />
               <ClickableStatCard
                 label="Mempool intake"
-                value={intake == null ? '…' : `${intake.toFixed(1)}/s`}
+                value={intake == null ? '—' : `${intake.toFixed(1)}/s`}
                 sub="sealed + Δmempool · 60s"
                 chartKey="mempool_in"
                 onChart={openNet}
@@ -581,12 +581,7 @@ export default function ScanExplorer({
 }
 
 function mempoolIntake(live: LiveSamples): number | null {
-  const r = live.rate60s
-  const a = live.samples
-  if (!r || a.length < 2) return null
-  const last = a[a.length - 1]
-  const base = a.find((x) => x.t >= last.t - r.span_ms) ?? a[0]
-  return Math.max(0, r.tps + (last.mempool - base.mempool) / (r.span_ms / 1000))
+  return windowIntake(live.samples, live.rate60s)
 }
 
 function ChartModal({

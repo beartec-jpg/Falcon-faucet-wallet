@@ -34,6 +34,8 @@ export interface NetSample {
   /** Activated (funded) accounts on the ledger, status.accounts_count. */
   wallets_activated: number | null
   seats: SeatSample[]
+  /** False when the counters were absent from status (never use as a rate base). */
+  metrics_ok?: boolean
 }
 
 export interface NetRates {
@@ -69,6 +71,10 @@ export function sampleFromScan(d: ScanData, t = Date.now()): NetSample {
     watchers_live: d.watchers ? d.watchers.live.length : null,
     watchers_epoch: d.watchers ? d.watchers.epoch_accounts.length : null,
     wallets_activated: d.wallets ? d.wallets.activated : null,
+    metrics_ok:
+      d.metrics_ok !== false &&
+      Number.isFinite(Number(d.metrics?.txs_sealed)) &&
+      Number(d.metrics?.txs_sealed) > 0,
     seats: (d.validators ?? []).map((v) => ({
       id: v.account,
       tip: fin(v.ledger_index),
@@ -80,17 +86,41 @@ export function sampleFromScan(d: ScanData, t = Date.now()): NetSample {
   }
 }
 
-/** Rate between two samples, or null if they do not form a valid forward interval. */
+/** Sanity bounds: anything outside these is a bad baseline, not traffic. */
+export const RATE_LIMITS = {
+  /** Shortest interval we trust (poll jitter dominates below this). */
+  minSpanMs: 3_000,
+  maxBlocksPerMin: 600,
+  maxTps: 5_000,
+  maxTxsPerBlock: 10_000,
+} as const
+
+/**
+ * Rate between two samples, or null if they do not form a valid, plausible forward
+ * interval. Rejects missing-counter samples (counter read as 0), counter resets,
+ * ledger counters that disagree with the height delta (different seat / stale
+ * baseline) and anything beyond RATE_LIMITS, so the UI shows '—' instead of junk.
+ */
 export function rateBetween(a: NetSample, b: NetSample): NetRates | null {
   const dt = b.t - a.t
-  if (!(dt > 0)) return null
+  if (!(dt >= RATE_LIMITS.minSpanMs)) return null
+  if (a.metrics_ok === false || b.metrics_ok === false) return null
+  if (!(a.txs_sealed > 0) || !(b.txs_sealed > 0)) return null
   const dTx = b.txs_sealed - a.txs_sealed
   const dL = b.ledgers_sealed - a.ledgers_sealed
   // Counter reset (node restart / failover to a seat with a different counter): skip.
   if (dTx < 0 || dL < 0) return null
+  // Sealed-ledger counter must move with the chain height.
+  const dH = b.height - a.height
+  if (a.height > 0 && b.height > 0 && Math.abs(dL - dH) > 2) return null
+  const tps = dTx / (dt / 1000)
+  const blocksMin = dL / (dt / 60_000)
+  if (tps > RATE_LIMITS.maxTps || blocksMin > RATE_LIMITS.maxBlocksPerMin) return null
+  if (dL > 0 && dTx / dL > RATE_LIMITS.maxTxsPerBlock) return null
+  if (dL === 0 && dTx > 0) return null
   return {
-    tps: dTx / (dt / 1000),
-    blocks_min: dL / (dt / 60_000),
+    tps,
+    blocks_min: blocksMin,
     txs_per_block: dL > 0 ? dTx / dL : 0,
     span_ms: dt,
   }
@@ -102,7 +132,9 @@ export function rateBetween(a: NetSample, b: NetSample): NetRates | null {
  * ~15 intervals. Falls back to the last two samples when the list is short.
  */
 export function windowRate(samples: NetSample[], windowMs: number): NetRates | null {
-  if (samples.length < 2) return null
+  const good = samples.filter((s) => s.metrics_ok !== false && s.txs_sealed > 0)
+  if (good.length < 2) return null
+  samples = good
   const last = samples[samples.length - 1]
   const cutoff = last.t - windowMs
   let base = samples[samples.length - 2]
@@ -111,6 +143,19 @@ export function windowRate(samples: NetSample[], windowMs: number): NetRates | n
     base = samples[i]
   }
   return rateBetween(base, last)
+}
+
+/** Mempool intake over the same window: sealed rate + mempool growth, clamped ≥ 0. */
+export function windowIntake(samples: NetSample[], r: NetRates | null): number | null {
+  if (!r) return null
+  const good = samples.filter((s) => s.metrics_ok !== false && s.txs_sealed > 0)
+  if (good.length < 2) return null
+  const last = good[good.length - 1]
+  const base = good.find((x) => x.t === last.t - r.span_ms)
+  if (!base) return null
+  const v = r.tps + (last.mempool - base.mempool) / (r.span_ms / 1000)
+  if (!Number.isFinite(v) || v > RATE_LIMITS.maxTps * 2) return null
+  return Math.max(0, v)
 }
 
 /** Per-seat lag behind the network tip, null when the seat does not advertise a tip. */

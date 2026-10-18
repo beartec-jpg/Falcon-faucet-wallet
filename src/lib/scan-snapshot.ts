@@ -144,6 +144,10 @@ export async function buildScanSnapshot(): Promise<ScanData> {
     ...walletsFromStatus(st),
     ...(watchers ? { watchers } : {}),
     rails,
+    // Node clock + whether the cumulative counters were really present, so rate
+    // windows never treat a missing counter (num() → 0) as a baseline.
+    node_time_ms: num(st.now_ms) || undefined,
+    metrics_ok: Number.isFinite(num(metrics.txs_sealed, Number.NaN)) && Number.isFinite(num(metrics.ledgers_sealed, Number.NaN)),
     metrics: {
       ledgers_sealed: num(metrics.ledgers_sealed, tip),
       txs_sealed: num(metrics.txs_sealed),
