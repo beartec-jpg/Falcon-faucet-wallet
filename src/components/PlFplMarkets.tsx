@@ -10,6 +10,7 @@ import {
   decimalToBaseUnits,
   signPlAddLiquidity,
   signPlLend,
+  signPlPay,
   signPlRemoveLiquidity,
   signPlSwapRoute,
 } from '@/lib/pl-wallet-sign'
@@ -66,9 +67,9 @@ function toRaw(asset: Asset, human: string): string {
 }
 
 function assetLabel(asset: Asset): string {
-  if (asset === 'USDC') return 'F-USDC'
-  if (asset === 'ETH') return 'FETH'
-  if (asset === 'BTC') return 'FBTC'
+  if (asset === 'USDC') return 'fUSDC'
+  if (asset === 'ETH') return 'fETH'
+  if (asset === 'BTC') return 'fBTC'
   return 'FPL'
 }
 
@@ -650,7 +651,7 @@ function PoolAdd({
         <section className="space-y-3">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Add</h3>
           <AmountField
-            label={fAsset ? assetLabel(fAsset) : 'F-asset'}
+            label={fAsset ? assetLabel(fAsset) : 'f-asset'}
             aside={fAsset ? `Available ${fromRaw(fAsset, balances[fAsset] || '0')}` : 'Choose a pool'}
             placeholder={fAsset ? `Amount of ${assetLabel(fAsset)}` : 'Choose a pool'}
             value={amount}
@@ -1064,22 +1065,44 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       const falconSecret = await decryptSeed(wallet.encrypted, keyBytes)
       const account = plAccountId(wallet)
       const seq = await fetchSequenceInfo(account, network.key)
+      // Seats keep user keys in memory and only re-learn them from enroll txs (Pay, claim, vault…).
+      // After a seat restart a DeFi tx alone is refused with 'unknown key'; re-enroll with a
+      // zero self-Pay (fee only, same passkey session), then submit the action at the next sequence.
+      const send = async (build: (sequence: number) => Promise<{ rawJson?: string }>) => {
+        try {
+          return await submitSigned(await build(seq.sequence), network.key)
+        } catch (e) {
+          if (!/unknown key/i.test(e instanceof Error ? e.message : String(e))) throw e
+          const enroll = await signPlPay({
+            account,
+            destination: account,
+            amount: 0,
+            sequence: seq.sequence,
+            fee: 2,
+            networkId: network.networkId,
+            falconSecret,
+          })
+          await submitSigned(enroll, network.key)
+          return await submitSigned(await build(seq.sequence + 1), network.key)
+        }
+      }
       if (kind === 'swap') {
         if (sell === buy) throw new Error('Pick two different assets')
         const amountIn = toRaw(sell, amount)
         const minOut = quoted > 1n ? quoted - quoted / 50n : 1n
-        const tx = await signPlSwapRoute({
-          account,
-          tokenIn: sell,
-          tokenOut: buy,
-          amountIn,
-          minOut: minOut.toString(),
-          sequence: seq.sequence,
-          networkId: network.networkId,
-          falconSecret,
-        })
-        await submitSigned(tx, network.key)
-        setMsg(`Swap submitted. You receive about ${fromRaw(buy, quoted.toString())} ${buy} if the pool price holds.`)
+        await send((sequence) =>
+          signPlSwapRoute({
+            account,
+            tokenIn: sell,
+            tokenOut: buy,
+            amountIn,
+            minOut: minOut.toString(),
+            sequence,
+            networkId: network.networkId,
+            falconSecret,
+          }),
+        )
+        setMsg(`Swap submitted. You receive about ${fromRaw(buy, quoted.toString())} ${assetLabel(buy)} if the pool price holds.`)
       } else if (kind === 'add') {
         const pool = pools.find((p) => p.id === poolId)
         if (!pool) throw new Error('Pool not found')
@@ -1087,30 +1110,32 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
         if (!pair) throw new Error('Pool has no FPL side')
         const fRaw = toRaw(pair.fAsset, amount)
         const fplRaw = toRaw('FPL', amountB)
-        const tx = await signPlAddLiquidity({
-          account,
-          poolId,
-          amtA: pool.asset_a === 'FPL' ? fplRaw : fRaw,
-          amtB: pool.asset_a === 'FPL' ? fRaw : fplRaw,
-          sequence: seq.sequence,
-          networkId: network.networkId,
-          falconSecret,
-        })
-        await submitSigned(tx, network.key)
+        await send((sequence) =>
+          signPlAddLiquidity({
+            account,
+            poolId,
+            amtA: pool.asset_a === 'FPL' ? fplRaw : fRaw,
+            amtB: pool.asset_a === 'FPL' ? fRaw : fplRaw,
+            sequence,
+            networkId: network.networkId,
+            falconSecret,
+          }),
+        )
         setMsg('Liquidity add submitted.')
       } else if (kind === 'remove') {
         const have = lpRows.find((r) => r.pool_id === poolId)?.lp ?? '0'
         const lpBurn = decimalToBaseUnits(lpAmount, 0)
         if (BigInt(lpBurn) > BigInt(have)) throw new Error('That is more LP than you have in this pool')
-        const tx = await signPlRemoveLiquidity({
-          account,
-          poolId,
-          lpBurn,
-          sequence: seq.sequence,
-          networkId: network.networkId,
-          falconSecret,
-        })
-        await submitSigned(tx, network.key)
+        await send((sequence) =>
+          signPlRemoveLiquidity({
+            account,
+            poolId,
+            lpBurn,
+            sequence,
+            networkId: network.networkId,
+            falconSecret,
+          }),
+        )
         setMsg('Liquidity remove submitted.')
       } else {
         const lendKind =
@@ -1132,17 +1157,18 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
         const colIn = lendCollateral ?? collateral
         if (kind === 'borrow' && !colIn.trim()) throw new Error('Enter FPL collateral')
         const col = kind === 'borrow' ? decimalToBaseUnits(colIn, 0) : '0'
-        const tx = await signPlLend({
-          account,
-          kind: lendKind,
-          marketId,
-          amount: raw,
-          collateralFpl: col,
-          sequence: seq.sequence,
-          networkId: network.networkId,
-          falconSecret,
-        })
-        await submitSigned(tx, network.key)
+        await send((sequence) =>
+          signPlLend({
+            account,
+            kind: lendKind,
+            marketId,
+            amount: raw,
+            collateralFpl: col,
+            sequence,
+            networkId: network.networkId,
+            falconSecret,
+          }),
+        )
         setMsg(`${kind[0].toUpperCase()}${kind.slice(1)} submitted on ${assetLabel(asset)}.`)
       }
       setAmount('')
@@ -1159,7 +1185,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
   return (
     <div className="space-y-4">
       <p className="text-xs text-slate-500">
-        Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. FBNB is not a market.
+        Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. fBNB is not a market.
       </p>
       {mode === 'swap' && (
         <div className="card p-5 space-y-3">
@@ -1167,25 +1193,25 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
             <label className="text-xs text-slate-400">
               Sell
               <select className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" value={sell} onChange={(e) => setSell(e.target.value as Asset)}>
-                {ASSETS.map((a) => <option key={a}>{a}</option>)}
+                {ASSETS.map((a) => <option key={a} value={a}>{assetLabel(a)}</option>)}
               </select>
             </label>
             <label className="text-xs text-slate-400">
               Receive
               <select className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" value={buy} onChange={(e) => setBuy(e.target.value as Asset)}>
-                {ASSETS.map((a) => <option key={a}>{a}</option>)}
+                {ASSETS.map((a) => <option key={a} value={a}>{assetLabel(a)}</option>)}
               </select>
             </label>
           </div>
-          <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder={`Amount of ${sell}`} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder={`Amount of ${assetLabel(sell)}`} value={amount} onChange={(e) => setAmount(e.target.value)} />
           <p className="text-xs text-slate-400">
-            Quote: {quoted > 0n ? fromRaw(buy, quoted.toString()) : '—'} {buy}
+            Quote: {quoted > 0n ? fromRaw(buy, quoted.toString()) : '—'} {assetLabel(buy)}
             {sell !== 'FPL' && buy !== 'FPL' ? ' via FPL' : ''}
             {sell !== 'FPL' && priceFor(markets, pools, sell) !== '0'
-              ? ` · ${fromRaw('FPL', priceFor(markets, pools, sell))} FPL per ${sell}`
+              ? ` · ${fromRaw('FPL', priceFor(markets, pools, sell))} FPL per ${assetLabel(sell)}`
               : ''}
             {buy !== 'FPL' && priceFor(markets, pools, buy) !== '0'
-              ? ` · ${fromRaw('FPL', priceFor(markets, pools, buy))} FPL per ${buy}`
+              ? ` · ${fromRaw('FPL', priceFor(markets, pools, buy))} FPL per ${assetLabel(buy)}`
               : ''}
           </p>
           <button type="button" className="btn-primary w-full" disabled={busy} onClick={() => act('swap')}>
@@ -1241,8 +1267,8 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
             const px = poolPrice(p)
             return (
               <div key={p.id} className="rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-400">
-                {p.id}: {fromRaw(p.asset_a as Asset, p.reserve_a)} {p.asset_a} / {fromRaw(p.asset_b as Asset, p.reserve_b)} {p.asset_b}
-                {px ? ` · ${fromRaw('FPL', px.price)} FPL per ${px.asset}` : ''}
+                {assetLabel(p.asset_a as Asset)}/{assetLabel(p.asset_b as Asset)}: {fromRaw(p.asset_a as Asset, p.reserve_a)} {assetLabel(p.asset_a as Asset)} / {fromRaw(p.asset_b as Asset, p.reserve_b)} {assetLabel(p.asset_b as Asset)}
+                {px ? ` · ${fromRaw('FPL', px.price)} FPL per ${assetLabel(px.asset as Asset)}` : ''}
               </div>
             )
           })}
