@@ -7,6 +7,7 @@ import { Contract, Wallet, sha256, toUtf8Bytes, parseUnits, parseEther } from 'e
 import { signRailWithdraw } from '@/lib/pl-wallet-sign'
 import { SEPOLIA_RPC_FALLBACKS } from '@/lib/evm-bridge-client'
 import { JsonRpcProvider } from 'ethers'
+import { destLockLcWaitText } from '@/lib/dest-lock-pending'
 import {
   assertClaimDest,
   assertRefundSigner,
@@ -210,6 +211,9 @@ export type DestLockMintJob = {
   deposit_block?: number
   lc_execution?: number
   lc_finalized_slot?: number
+  /** Blocks until the deposit is below the light client's safe tip. */
+  waiting_blocks?: number
+  sepolia_safe?: number
 }
 
 export async function queueDestLockMint(opts: {
@@ -254,14 +258,13 @@ export async function mintAfterDestLockDeposit(opts: {
       throw new Error(st.error || 'Dest-lock mint failed')
     }
     const elapsed = Math.round((Date.now() - t0) / 1000)
-    if (
-      st.deposit_block &&
-      st.lc_execution != null &&
-      st.lc_execution < st.deposit_block
-    ) {
-      opts.onStep?.(
-        `Waiting for Ethereum finality (light client ${st.lc_execution} / deposit ${st.deposit_block})… ${elapsed}s. Do not send again.`,
-      )
+    const wait = destLockLcWaitText({
+      depositBlock: st.deposit_block,
+      lcExecution: st.lc_execution,
+      waitingBlocks: st.waiting_blocks,
+    })
+    if (wait) {
+      opts.onStep?.(`${wait} ${elapsed}s. Do not send again.`)
     } else {
       opts.onStep?.(`Minting on Falcon PL… ${st.status ?? 'queued'} (${elapsed}s)`)
     }

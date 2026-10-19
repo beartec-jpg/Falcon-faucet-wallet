@@ -79,6 +79,7 @@ import BridgeDepositPanel from '@/components/BridgeDepositPanel'
 import { fetchDestLockMintStatus } from '@/lib/pl-dest-lock'
 import {
   clearDestLockPending,
+  destLockLcWaitText,
   listDestLockPending,
   type DestLockPending,
 } from '@/lib/dest-lock-pending'
@@ -2553,10 +2554,8 @@ export default function WalletPage() {
                                   <p className="text-xs text-slate-400 leading-relaxed">
                                     {job.status === 'error'
                                       ? job.lastError || 'Mint failed'
-                                      : job.depositBlock &&
-                                          job.lcExecution != null &&
-                                          job.lcExecution < job.depositBlock
-                                        ? `Locked on Sepolia. Waiting for Ethereum finality (light client ${job.lcExecution} / deposit ${job.depositBlock}). Not lost — you can still bridge another asset.`
+                                      : destLockLcWaitText(job)
+                                        ? `Locked on Sepolia. ${destLockLcWaitText(job)} Not lost — you can still bridge another asset.`
                                         : 'Locked on Sepolia — minting on Falcon PL. BTC, ETH, and USDC can run at the same time.'}
                                   </p>
                                   <div className="flex items-center gap-3">

@@ -16,6 +16,12 @@ export interface DestLockPending {
   lastError?: string
   depositBlock?: number
   lcExecution?: number
+  /** Blocks until the deposit is inside the light client's safe range (from mint-status). */
+  waitingBlocks?: number
+  /** Last successful mint-status poll (ms since epoch). */
+  statusCheckedAt?: number
+  /** Set when the latest mint-status poll failed; cleared on the next success. */
+  statusError?: string
   /** FalconQcBridgeV3 deposit id (V3 peg-in only): needed to claim a refund after 3 days. */
   v3DepositId?: string
   createdAt: number
@@ -147,4 +153,30 @@ export function upsertDestLockPending(
     ...prev,
     ...patch,
   })
+}
+
+/**
+ * Human text for a deposit waiting on the Sepolia light client.
+ * lcExecution 0 / missing means the light client has no resolved execution
+ * head yet, so it reads "syncing" rather than "at block 0".
+ * Returns null when the deposit is not waiting on the light client.
+ */
+export function destLockLcWaitText(job: {
+  depositBlock?: number
+  lcExecution?: number
+  waitingBlocks?: number
+}): string | null {
+  const dep = Number(job.depositBlock ?? 0)
+  if (!(dep > 0)) return null
+  const lc = Number(job.lcExecution ?? 0)
+  const waiting = Number(job.waitingBlocks ?? 0)
+  const remaining = waiting > 0 ? waiting : lc > 0 && lc < dep ? dep - lc : 0
+  const rem = remaining > 0 ? ` ${remaining.toLocaleString()} blocks remaining.` : ''
+  if (!(lc > 0)) {
+    return `Waiting for Ethereum finality. Light client syncing; deposit is in block ${dep.toLocaleString()}.${rem}`
+  }
+  if (lc < dep || waiting > 0) {
+    return `Waiting for Ethereum finality. Light client is at block ${lc.toLocaleString()}, deposit is in ${dep.toLocaleString()}.${rem}`
+  }
+  return null
 }
