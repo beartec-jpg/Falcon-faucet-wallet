@@ -69,6 +69,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, id: r.id })
   } catch (e) {
     console.error('[feedback]', e)
-    return NextResponse.json({ error: 'Could not save your feedback. Try again shortly.' }, { status: 503 })
+    // Surface the Postgres SQLSTATE (no message/SQL) so users can quote it in a bug report.
+    const code = typeof (e as { code?: unknown })?.code === 'string' ? String((e as { code: string }).code).slice(0, 8) : 'unknown'
+    return NextResponse.json({ error: `Could not save your feedback (server error ${code}). Try again shortly.`, code }, { status: 503 })
   }
 }
