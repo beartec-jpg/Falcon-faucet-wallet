@@ -39,6 +39,7 @@ import {
 } from '@/lib/pl-dest-lock'
 import {
   clearDestLockPending,
+  destLockLcWaitText,
   listDestLockPending,
   upsertDestLockPending,
   type DestLockPending,
@@ -692,6 +693,11 @@ export default function BridgeDepositPanel({
             asset: job.asset,
           })
           if (cancelled) return
+          const fresh = {
+            waitingBlocks: st.waiting_blocks,
+            statusCheckedAt: Date.now(),
+            statusError: '',
+          }
           if (st.status === 'done') {
             clearDestLockPending(job.falconAccount, job.txHash)
             refreshFusdcBalance()
@@ -707,6 +713,7 @@ export default function BridgeDepositPanel({
               lastError: st.error || 'Mint failed',
               depositBlock: st.deposit_block ?? job.depositBlock,
               lcExecution: st.lc_execution ?? job.lcExecution,
+              ...fresh,
             })
             continue
           }
@@ -719,6 +726,7 @@ export default function BridgeDepositPanel({
               lastError: '',
               depositBlock: st.deposit_block ?? job.depositBlock,
               lcExecution: st.lc_execution ?? job.lcExecution,
+              ...fresh,
             })
             continue
           }
@@ -729,9 +737,17 @@ export default function BridgeDepositPanel({
             status: job.status,
             depositBlock: st.deposit_block ?? job.depositBlock,
             lcExecution: st.lc_execution ?? job.lcExecution,
+            ...fresh,
           })
-        } catch {
-          /* keep last known status */
+        } catch (e) {
+          // Keep the last known values, but say they are stale instead of hiding the failure.
+          if (cancelled) return
+          upsertDestLockPending(job.falconAccount, {
+            txHash: job.txHash,
+            asset: job.asset,
+            explorerUrl: job.explorerUrl,
+            statusError: `Status update failed, retrying… (${e instanceof Error ? e.message : String(e)})`,
+          })
         }
       }
       if (!cancelled && falconId) setDestLockJobs(listDestLockPending(falconId))
@@ -2478,14 +2494,19 @@ const handleSpvCompleteClaim = async () => {
                         <p className="text-xs text-slate-500 mt-0.5">
                           {job.status === 'error'
                             ? job.lastError || 'Mint failed'
-                            : job.depositBlock &&
-                                job.lcExecution != null &&
-                                job.lcExecution < job.depositBlock
-                              ? `Waiting for Ethereum finality. Light client is at block ${job.lcExecution.toLocaleString()}, deposit is in ${job.depositBlock.toLocaleString()}.`
-                              : job.status === 'minting'
+                            : destLockLcWaitText(job) ??
+                              (job.status === 'minting'
                                 ? `Minting ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} on Falcon.`
-                                : 'Deposit in progress'}
+                                : 'Deposit in progress')}
                         </p>
+                        {job.statusError ? (
+                          <p className="text-xs text-amber-400 mt-0.5">{job.statusError}</p>
+                        ) : null}
+                        {job.statusCheckedAt ? (
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Last updated {new Date(job.statusCheckedAt).toLocaleTimeString()}
+                          </p>
+                        ) : null}
                       </div>
                       <button
                         type="button"
