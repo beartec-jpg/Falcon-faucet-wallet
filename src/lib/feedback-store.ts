@@ -147,6 +147,16 @@ export function memoryFeedbackStore(now = () => Date.now()): FeedbackStore {
   }
 }
 
+/**
+ * DDL cannot take bind parameters: interpolating ${...} into a tagged `sql` template sends it as $1,
+ * which Postgres rejects with 08P01 "bind message supplies 1 parameters, but prepared statement requires 0".
+ * Build the statement as a plain string with the (trusted, numeric) limit inlined.
+ */
+export const FEEDBACK_IMAGES_DDL = `CREATE TABLE IF NOT EXISTS testnet_feedback_images (
+    id BIGSERIAL PRIMARY KEY, feedback_id BIGINT NOT NULL REFERENCES testnet_feedback(id) ON DELETE CASCADE,
+    mime TEXT NOT NULL, bytes BYTEA NOT NULL, size INT NOT NULL CHECK (size <= ${Math.trunc(Number(F.imageMaxBytes))}),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
+
 let ready = false
 async function ensure() {
   if (ready) return
@@ -157,10 +167,7 @@ async function ensure() {
     ip_hash TEXT, status TEXT NOT NULL DEFAULT 'pending', bonus NUMERIC(6,1) NOT NULL DEFAULT 0,
     admin_notes TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), reviewed_at TIMESTAMPTZ)`
   // Screenshots: private, separate table so listing feedback never loads image bytes.
-  await sql`CREATE TABLE IF NOT EXISTS testnet_feedback_images (
-    id BIGSERIAL PRIMARY KEY, feedback_id BIGINT NOT NULL REFERENCES testnet_feedback(id) ON DELETE CASCADE,
-    mime TEXT NOT NULL, bytes BYTEA NOT NULL, size INT NOT NULL CHECK (size <= ${F.imageMaxBytes}),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
+  await sql.query(FEEDBACK_IMAGES_DDL)
   await sql`CREATE INDEX IF NOT EXISTS testnet_feedback_images_fb_idx ON testnet_feedback_images (feedback_id)`
   await sql`CREATE INDEX IF NOT EXISTS testnet_feedback_status_idx ON testnet_feedback (status, created_at DESC)`
   await sql`CREATE INDEX IF NOT EXISTS testnet_feedback_ip_idx ON testnet_feedback (ip_hash, created_at)`
