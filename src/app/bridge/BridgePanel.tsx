@@ -194,7 +194,7 @@ export default function BridgePanel() {
                 {d.ceremony?.seats && (
                   <div className="text-slate-400">
                     Presigned by {d.ceremony.seats.map((s) => s.id).join(', ')}
-                    {d.ceremony.attestations_ok ? ' — key-deletion attestations verify' : ''}
+                    {d.ceremony.attestations ? ` — ${d.ceremony.attestations} signed key-deletion attestations` : ''}
                   </div>
                 )}
                 {localStorageHas(d.id) && (

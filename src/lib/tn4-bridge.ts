@@ -39,7 +39,7 @@ export type Tn4Deposit = {
   send_sats_min?: number
   send_sats_max?: number
   depositor_request?: DepositorRequest
-  ceremony?: { seats?: { id: string }[]; nonced_sha256?: string; attestations_ok?: boolean }
+  ceremony?: { seats?: { id: string }[]; nonced_sha256?: string; attestations?: number }
 }
 
 export const STATE_LABEL: Record<string, string> = {
