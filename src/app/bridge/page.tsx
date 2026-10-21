@@ -1,4 +1,6 @@
+import { notFound } from 'next/navigation'
 import ContentPage, { A, Section } from '@/components/content/ContentPage'
+import { FPL_SIGNET_EXPLORER } from '@/lib/tn4-bridge'
 import { pageMeta } from '@/lib/seo'
 import BridgePanel from './BridgePanel'
 
@@ -18,12 +20,14 @@ const STEPS: Array<[string, string]> = [
 ]
 
 export default function BridgePage() {
+  // Whole route stays off until the bridge activates (NEXT_PUBLIC_FPL_BRIDGE_LIVE=1).
+  if (process.env.NEXT_PUBLIC_FPL_BRIDGE_LIVE !== '1') notFound()
   return (
-    <ContentPage current="vault" title="BTC bridge — TESTNET4" back={{ href: '/', label: 'Home' }}>
+    <ContentPage current="wallet" title="BTC bridge — TESTNET4" back={{ href: '/', label: 'Home' }}>
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
         <strong>TESTNET4 ONLY — test coins only.</strong> This is a test of a BitVM2 bridge design on Bitcoin testnet4. Testnet
-        coins have no value. Do not send real (mainnet) BTC. The design is intended to be non-custodial, but it is unreviewed
-        test software and is not presented as production non-custody until an outside review is complete.
+        coins have no value. Do not send real (mainnet) BTC. Never use testnet3. The bridge activates at ledger height 730,000 (~27–28 Oct 2026).
+        Not yet shown to be non-custodial: outside review and on-chain acceptance test pending.
       </div>
 
       <BridgePanel />
@@ -55,9 +59,8 @@ export default function BridgePage() {
         </ul>
         <p className="text-sm text-slate-400">
           Tested so far: deposit, refund and Take 1 on testnet4; on-chain Disprove on the Falcon PL test signet (
-          <A href="https://5-78-142-246.sslip.io/tx/cd693dc09dc3ed6b24ceeeb110f41a591cb414f1b2892709c209474d41e8fd53">Disprove tx</A>,{' '}
-          <A href="https://github.com/beartec-jpg/Falcon-PL/pull/127">bridge PR</A>). Full list:{' '}
-          <A href="https://github.com/beartec-jpg/Falcon-PL/blob/feat/bridge-integration/docs/bridge/MAINNET_MIGRATION.md">MAINNET_MIGRATION.md</A>.
+          <A href={`${FPL_SIGNET_EXPLORER}/tx/cd693dc09dc3ed6b24ceeeb110f41a591cb414f1b2892709c209474d41e8fd53`}>Disprove tx</A>). Status and open items:{' '}
+          <A href="https://github.com/beartec-jpg/falcon-pl-releases/blob/main/transparency-report-2026-10-21.md">transparency report (21 Oct 2026)</A>.
         </p>
       </Section>
     </ContentPage>

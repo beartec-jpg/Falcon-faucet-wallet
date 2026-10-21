@@ -151,7 +151,7 @@ export default function BridgePanel() {
     <div className="space-y-4">
       {!LIVE && (
         <div className="rounded-lg border border-slate-700 p-4 text-sm text-slate-300">
-          Deposits and withdrawals open when the bridge activates on the Falcon PL ledger. Until then this page shows the
+          Deposits and withdrawals open when the bridge activates at Falcon PL ledger height 730,000 (~27–28 Oct 2026). Until then this page shows the
           operator network and lets you track testnet4 transactions.
         </div>
       )}

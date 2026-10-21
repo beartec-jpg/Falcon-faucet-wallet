@@ -12,7 +12,7 @@ const hex = {
 }
 
 export const TN4_MEMPOOL = 'https://mempool.space/testnet4'
-export const FPL_SIGNET_EXPLORER = process.env.NEXT_PUBLIC_FPL_SIGNET_EXPLORER || 'https://5-78-142-246.sslip.io'
+export const FPL_SIGNET_EXPLORER = process.env.NEXT_PUBLIC_FPL_SIGNET_EXPLORER || 'https://signet.falcon-fpl.com'
 export const INTAKE = '/api/bridge/tn4/v1'
 
 export type DepositorRequest = {
