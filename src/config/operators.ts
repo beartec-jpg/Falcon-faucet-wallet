@@ -35,6 +35,13 @@ export const OPERATORS_CONFIG = {
     'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10', 'v11', 'v12', 'v13',
     'falcon-node', 'scottspersonalnode',
   ] as string[],
+  /**
+   * Disclosed founder-run seats that ARE scored and paid like any operator (not in
+   * internalSeats). Shown on the leaderboard with this note so it is visible to everyone.
+   */
+  disclosedSeats: {
+    scottdog: "Founder's personal node (Scott Reynolds). Scored like any operator from 2026-10-21.",
+  } as Record<string, string>,
 } as const
 
 export const OPERATORS_POOL_FPL = OPERATORS_CONFIG.airdropFpl * OPERATORS_CONFIG.poolShare
