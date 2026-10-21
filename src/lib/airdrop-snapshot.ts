@@ -212,7 +212,8 @@ export async function recomputeAllocations(network: string): Promise<{
       .map((v) => v.address),
   )
 
-  const allAddresses = new Set<string>([...Object.keys(byAddr), ...bonded])
+  void bonded
+  const allAddresses = new Set<string>(Object.keys(byAddr))
 
   type Row = {
     address: string
@@ -231,8 +232,9 @@ export async function recomputeAllocations(network: string): Promise<{
       windowDays: AIRDROP_WINDOW_DAYS,
       claimsByDay: byAddr[address] ?? {},
     })
-    const score_validator = bonded.has(address) ? 1 : 0
-    const score_setup = score_validator // setup implied by bond for v1
+    // Validators are scored in the operators pool, not here.
+    const score_validator = 0
+    const score_setup = 0
     const score_dex_lp = 0
     const score_faucet = eng.score
     const score_total =

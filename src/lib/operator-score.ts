@@ -69,10 +69,15 @@ export function epochWorkFromStatus(st: Obj): EpochWork[] {
 
 const effective = (w: EpochWork) => (w.jailed || w.locked ? 0 : Math.max(0, w.workShare))
 
-/** Window averages. windowEpochs = distinct epochs recorded in the window (all validators). */
-export function scoreOperators(rows: EpochWork[]): { windowEpochs: number; scores: Omit<OperatorScore, 'projectedFpl' | 'projectedShare'>[] } {
-  const epochs = new Set(rows.map((r) => r.epoch))
-  const windowEpochs = epochs.size
+/**
+ * Window averages. Window = chain epochs from the start epoch to the latest; an epoch with no
+ * samples for any validator (our outage) is left out of the denominator. A seat missing from an
+ * epoch that was sampled scores 0 for it.
+ */
+export function scoreOperators(all: EpochWork[], startEpoch: number | null = OPERATORS_CONFIG.windowStartEpoch): { windowEpochs: number; scores: Omit<OperatorScore, 'projectedFpl' | 'projectedShare'>[] } {
+  const start = startEpoch ?? (all.length ? Math.min(...all.map((r) => r.epoch)) : 0)
+  const rows = all.filter((r) => r.epoch >= start)
+  const windowEpochs = new Set(rows.map((r) => r.epoch)).size
   const by = new Map<string, EpochWork[]>()
   for (const r of rows) by.set(r.validator, [...(by.get(r.validator) ?? []), r])
   const scores = [...by.entries()].map(([validator, list]) => {
@@ -113,7 +118,7 @@ export function proRataCapped(weights: number[], pool: number, cap: number): num
 
 /**
  * Split for eligible scores.
- * N <= smallSetMax: top score gets maxFpl; others floor + (max - floor) x score / top score.
+ * N <= smallSetMax: linear between lowest (floor) and highest (max) eligible score; one operator or equal scores get max.
  * N >  smallSetMax: pool pro-rata by score, max per operator, excess redistributed.
  */
 export function splitOperators(scores: number[]): number[] {
@@ -121,13 +126,14 @@ export function splitOperators(scores: number[]): number[] {
   if (!n) return []
   if (n <= OPERATORS_CONFIG.smallSetMax) {
     const top = Math.max(...scores)
-    return scores.map((s) => OPERATOR_FLOOR_FPL + (OPERATOR_MAX_FPL - OPERATOR_FLOOR_FPL) * (top > 0 ? s / top : 1))
+    const low = Math.min(...scores)
+    return scores.map((s) => (top > low ? OPERATOR_FLOOR_FPL + ((OPERATOR_MAX_FPL - OPERATOR_FLOOR_FPL) * (s - low)) / (top - low) : OPERATOR_MAX_FPL))
   }
   return proRataCapped(scores, OPERATORS_POOL_FPL, OPERATOR_MAX_FPL)
 }
 
-export function allocateOperators(rows: EpochWork[]): OperatorsAllocation {
-  const { windowEpochs, scores } = scoreOperators(rows)
+export function allocateOperators(rows: EpochWork[], startEpoch: number | null = OPERATORS_CONFIG.windowStartEpoch): OperatorsAllocation {
+  const { windowEpochs, scores } = scoreOperators(rows, startEpoch)
   const elig = scores.filter((s) => s.eligible)
   const amounts = splitOperators(elig.map((s) => s.score))
   const amt = new Map(elig.map((s, i) => [s.validator, amounts[i]]))
@@ -141,7 +147,7 @@ export function allocateOperators(rows: EpochWork[]): OperatorsAllocation {
     poolFpl: OPERATORS_POOL_FPL,
     allocatedFpl,
     returnedFpl,
-    // User side: 1B less the 5% buffer less the 100M operators carve-out, plus any returned remainder.
+    // 1B = 100M operators + 50M buffer (fixed) + 850M users; operator leftover goes to users.
     userPoolFpl: A * (1 - OPERATORS_CONFIG.userBuffer) - OPERATORS_POOL_FPL + returnedFpl,
     windowStart: OPERATORS_CONFIG.windowStart,
     windowEpochs,

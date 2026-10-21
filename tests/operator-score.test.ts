@@ -11,10 +11,11 @@ function rows(shares: Record<string, number>, epochs = 4, over: Partial<Record<s
 }
 
 describe('operators split', () => {
-  it('5 operators: top gets 1%, others between 0.7% and 1% linearly', () => {
-    const a = splitOperators([40, 30, 20, 10, 0.0001])
+  it('5 operators: top 1%, lowest exactly 0.7%, linear between', () => {
+    const a = splitOperators([40, 30, 20, 10, 0])
     expect(a[0]).toBeCloseTo(OPERATOR_MAX_FPL)
-    expect(a[1]).toBeCloseTo(OPERATOR_FLOOR_FPL + (OPERATOR_MAX_FPL - OPERATOR_FLOOR_FPL) * 0.75)
+    expect(a[4]).toBeCloseTo(OPERATOR_FLOOR_FPL)
+    expect(a[1]).toBeCloseTo(9_250_000)
     expect(a[2]).toBeCloseTo(8_500_000)
     for (const x of a) expect(x).toBeGreaterThanOrEqual(OPERATOR_FLOOR_FPL)
     expect(sum(a)).toBeLessThan(OPERATORS_POOL_FPL)
@@ -42,6 +43,22 @@ describe('operators split', () => {
 })
 
 describe('allocateOperators', () => {
+  it('single operator gets 1%', () => {
+    expect(splitOperators([3])).toEqual([OPERATOR_MAX_FPL])
+  })
+  it('epochs with no samples (our outage) leave the denominator; missing seat in a sampled epoch scores 0', () => {
+    // epochs 1,2,4 sampled (3 = outage). nodesafe missing from epoch 4.
+    const r: EpochWork[] = [1, 2, 4].flatMap((e) => [
+      { epoch: e, validator: 'other', workShare: 50, jailed: false, locked: false },
+      ...(e === 4 ? [] : [{ epoch: e, validator: 'nodesafe', workShare: 30, jailed: false, locked: false }]),
+    ])
+    const a = allocateOperators(r, 1)
+    const n = a.operators.find((o) => o.validator === 'nodesafe')!
+    expect(a.windowEpochs).toBe(3)
+    expect(n.score).toBeCloseTo(20)
+    expect(n.epochsActive).toBe(2)
+    expect(allocateOperators(r, 2).windowEpochs).toBe(2)
+  })
   it('excludes internal seats and operators under the activity threshold; remainder returns to users', () => {
     const r = allocateOperators(rows({ v1: 50, 'falcon-node': 10, nodesafe: 25, 'crypto-dashboard': 15 }, 4, {
       // crypto-dashboard: jailed 2 epochs, locked 1 => active 1/4 < 50%
@@ -56,7 +73,7 @@ describe('allocateOperators', () => {
     expect(by.nodesafe.eligible).toBe(true)
     expect(by.nodesafe.projectedFpl).toBe(OPERATOR_MAX_FPL)
     expect(r.returnedFpl).toBe(OPERATORS_POOL_FPL - OPERATOR_MAX_FPL)
-    expect(r.userPoolFpl).toBe(950_000_000 - OPERATORS_POOL_FPL + r.returnedFpl)
+    expect(r.userPoolFpl).toBe(850_000_000 + r.returnedFpl)
   })
   it('exactly 50% active is eligible', () => {
     const r = allocateOperators(rows({ nodesafe: 20 }, 4, { nodesafe: [{ jailed: true }, { locked: true }] }))
@@ -67,5 +84,6 @@ describe('allocateOperators', () => {
     const r = allocateOperators(rows({ v2: 100 }))
     expect(r.allocatedFpl).toBe(0)
     expect(r.userPoolFpl).toBe(950_000_000)
+    expect(r.returnedFpl).toBe(OPERATORS_POOL_FPL)
   })
 })

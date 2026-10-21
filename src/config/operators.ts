@@ -19,7 +19,13 @@ export const OPERATORS_CONFIG = {
   minActiveFraction: 0.5,
   /** Scoring window start (UTC). The window ends at the mainnet snapshot. */
   windowStart: '2026-10-21',
-  /** Buffer held back from the user side of the pre-mainnet airdrop (same 5% as the release-phase scorer). */
+  /**
+   * Chain epoch the window starts at (the epoch current on windowStart). null = first epoch
+   * recorded on or after windowStart. Window epochs are chain epoch numbers from here to now;
+   * an epoch with no samples at all (our cron / node outage) is left out of the denominator.
+   */
+  windowStartEpoch: null as number | null,
+  /** Fixed buffer: 5% of the pre-mainnet airdrop (50M FPL). Users get 1B - 100M - 50M = 850M plus operator leftover. */
   userBuffer: 0.05,
   /**
    * Falcon-operated seats: shown on the board, never paid. Test, system, bond and
