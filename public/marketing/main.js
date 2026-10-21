@@ -1,5 +1,5 @@
 /**
- * Falcon Ledger — homepage interactions
+ * Falcon PL — homepage interactions
  * Hero canvas network · load / scroll reveals · nav
  */
 

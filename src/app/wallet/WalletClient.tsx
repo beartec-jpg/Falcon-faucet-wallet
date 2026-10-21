@@ -4010,7 +4010,7 @@ export default function WalletPage() {
                       <p className="text-xs text-slate-500">
                         {network.networkId === 2300
                           ? 'Peer-to-peer on Falcon PL — not a bridge.'
-                          : 'Peer-to-peer transfer on Falcon Ledger — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.'}
+                          : 'Peer-to-peer transfer on Falcon PL — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.'}
                       </p>
                       <button
                         type="submit"
@@ -4369,12 +4369,12 @@ export default function WalletPage() {
             {network.badge === 'testnet' ? 'Testnet tokens · No real value' : `${network.name} · Network ID ${network.networkId}`}
             {' · '}
             <a
-              href="https://github.com/beartec-jpg/qXRP"
+              href="https://github.com/beartec-jpg/falcon-pl-releases"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-slate-500 underline underline-offset-2 transition-colors"
             >
-              Falcon Ledger on GitHub
+              Falcon PL on GitHub
             </a>
           </p>
         </div>

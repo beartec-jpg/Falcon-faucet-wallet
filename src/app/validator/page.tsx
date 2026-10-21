@@ -91,6 +91,8 @@ const PAY_ROWS: { who: string; share: string; how: string }[] = [
   },
 ]
 
+const UPGRADE_CMD = 'curl -fsSL https://falcon-fpl.com/install.sh | bash -s -- upgrade'
+
 export default function ValidatorPage() {
   const [data, setData] = useState<ValidatorsResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -160,7 +162,7 @@ export default function ValidatorPage() {
           </h1>
           <p className="mt-1 text-sm text-slate-400">
             Public testnet 2300{data ? ` · ${data.product} · tip ${data.tip.toLocaleString()} · epoch ${data.epoch}` : ''}
-            {data ? ` · ${active.length} bonded seats` : ''}
+            {data ? ` · ${active.filter((x) => x.online).length} online · ${active.length} bonded seats` : ''}
           </p>
           <p className="mt-1 text-xs text-slate-500">
             New to this?{' '}
@@ -192,6 +194,8 @@ export default function ValidatorPage() {
             <li>No seat id and no bond. Re-run any time. Manage it with <code className="text-slate-300">falcon-node status</code>, <code className="text-slate-300">logs</code>, <code className="text-slate-300">upgrade</code>, or <code className="text-slate-300">uninstall</code>.</li>
           </ul>
           <Cmd cmd={INSTALL_CMD} />
+          <p className="text-xs text-slate-400">Upgrade an existing node to the latest release:</p>
+          <Cmd cmd={UPGRADE_CMD} />
         </section>
 
         <section className="card space-y-3 p-5">
@@ -389,7 +393,7 @@ export default function ValidatorPage() {
           )}
           {data && (
             <p className="mt-2 text-[11px] text-slate-500">
-              Committee {data.committeeSize} per height, quorum 4. Reward formula: {data.rewardFormula}. Lottery odds are equal for every eligible seat from {FIRST_VALIDATOR_VERSION}; the bond buys eligibility, not odds.
+              Committee {data.committeeSize} per height, quorum 4. Reward formula: {data.rewardFormula}. Lottery odds have been equal for every eligible seat since {FIRST_VALIDATOR_VERSION} (current: {data.product}); the bond buys eligibility, not odds.
             </p>
           )}
         </section>
@@ -426,7 +430,7 @@ export default function ValidatorPage() {
             </table>
           )}
           <p className="mt-2 text-[11px] text-slate-500">
-            Approval is an on-chain <code>ApproveValidator</code> signed by Scott&apos;s admission key ({FIRST_VALIDATOR_VERSION}+). This page never signs anything.
+            Approval is an on-chain <code>ApproveValidator</code> signed by Scott&apos;s admission key (introduced in {FIRST_VALIDATOR_VERSION}). This page never signs anything.
           </p>
         </section>
 
