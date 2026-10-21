@@ -5,6 +5,7 @@ const ROUTES: [string, number][] = [
   ['/', 1],
   ['/whitepaper', 0.9],
   ['/validator', 0.9],
+  ['/network/health', 0.6],
   ['/airdrop', 0.9],
   ['/faucet', 0.8],
   ['/wallet', 0.8],

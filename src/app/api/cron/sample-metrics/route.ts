@@ -11,6 +11,7 @@ import {
 import { runActivityIndex, statusExact } from '@/lib/rails-pools-server'
 import { epochWorkFromStatus } from '@/lib/operator-score'
 import { operatorStore } from '@/lib/operator-store'
+import { runHealthAlerts } from '@/lib/network-health-server'
 import { bearerToken, isProductionRuntime, timingSafeEqualString } from '@/lib/security'
 
 export const runtime = 'nodejs'
@@ -48,17 +49,32 @@ export async function GET(req: NextRequest) {
     }
     // Operators pool: this epoch's work share per validator. Never fails the metrics run.
     let operators: unknown = null
+    let health: unknown = null
     try {
-      const rows = epochWorkFromStatus(await statusExact())
-      await operatorStore().record(rows, at)
-      operators = { rows: rows.length }
+      const st = await statusExact()
+      try {
+        const rows = epochWorkFromStatus(st)
+        await operatorStore().record(rows, at)
+        operators = { rows: rows.length }
+      } catch (e) {
+        console.error('[cron/sample-metrics] operators', e)
+        operators = { error: 'operators sample failed' }
+      }
+      // Network health alerts (/network/health + Discord). Never fails the metrics run.
+      try {
+        health = await runHealthAlerts(st, at)
+      } catch (e) {
+        console.error('[cron/sample-metrics] health', e)
+        health = { error: 'health alerts failed' }
+      }
     } catch (e) {
-      console.error('[cron/sample-metrics] operators', e)
+      console.error('[cron/sample-metrics] status', e)
       operators = { error: 'operators sample failed' }
     }
     return NextResponse.json({
       ok: true,
       operators,
+      health,
       at,
       height: sample.height,
       rate_base_ms: prev ? at - prev.t : null,
