@@ -26,3 +26,12 @@
 - If the env var is unset, nothing is posted. Alerts still show on the page, and turning the webhook on later does not replay them.
 - Mentions are disabled.
 - Detection runs on the 5-min cron, so a stall is reported 3–8 min after the last block.
+
+**Retired seats**:
+- `src/config/retired-seats.ts` (v2, v4, v5, v7, v8, v9) plus an optional comma-separated env `RETIRED_SEATS`. These seats can't be deregistered on chain.
+- They are hidden from the table, KPIs and seat alerts.
+- Their stored alerts are dropped silently, with no recovery post.
+
+**Missed turns**: shown only for v2 seats (`v2.v2_seat`) or when the count is non-zero. Legacy seats report 0, meaning the count isn't tracked.
+
+**Height blank**: a seat whose own `last_advertised_tip` is 0 (for example scottdog on 2026-10-21) has no height. That value comes from the node's pong tip, so it is not a site issue.

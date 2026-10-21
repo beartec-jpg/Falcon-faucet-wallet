@@ -10,6 +10,7 @@
 // Pure functions; storage in network-health-store.ts.
 
 import { operatorsBoard, validatorList } from '@/lib/tracker'
+import { retiredSeats } from '@/config/retired-seats'
 
 type Obj = Record<string, unknown>
 const obj = (v: unknown): Obj => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Obj) : {})
@@ -72,7 +73,7 @@ export const emptyState = (): HealthState => ({
   updatedAt: null,
 })
 
-export function seatRows(st: Obj, state: HealthState): SeatRow[] {
+export function seatRows(st: Obj, state: HealthState, retired: Set<string> = retiredSeats()): SeatRow[] {
   const tip = num(st.tip_height)
   const online = new Set(Array.isArray(st.online_seats) ? (st.online_seats as unknown[]).map(String) : [])
   const share = new Map(operatorsBoard(st).map((r) => [r.id, r.work_share]))
@@ -105,11 +106,12 @@ export function seatRows(st: Obj, state: HealthState): SeatRow[] {
         lastProposalAt: state.packs[id]?.at ?? null,
         version: str(v.product_version) || null,
         workShare: share.has(id) ? (share.get(id) as number) : null,
-        missedTurns: num(v2.missed_turns),
+        // Only v2 seats track missed turns; elsewhere the 0 means "not tracked".
+        missedTurns: v2.v2_seat === true || num(v2.missed_turns) ? num(v2.missed_turns) : null,
         bond: num(v.bond),
       }
     })
-    .filter((r) => r.id)
+    .filter((r) => r.id && !retired.has(r.id))
     .sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
 }
 
@@ -168,14 +170,26 @@ export function detect(st: Obj, state: HealthState, rows: SeatRow[], at: number)
 }
 
 /** Merge detections into state: new alerts keep `since`, cleared ones become pending recoveries. */
-export function reconcile(state: HealthState, now: Omit<Alert, 'since' | 'notified'>[], at: number): HealthState {
+/** Seat alert keys of a retired seat (dropped silently, never a recovery). A stuck
+ * proposer stays a real chain problem, so proposer keys are kept. */
+export function isRetiredKey(key: string, retired: Set<string>): boolean {
+  const m = /^seat:([^:]+):/.exec(key)
+  return !!m && retired.has(m[1])
+}
+
+export function reconcile(
+  state: HealthState,
+  now: Omit<Alert, 'since' | 'notified'>[],
+  at: number,
+  retired: Set<string> = retiredSeats(),
+): HealthState {
   const alerts: Record<string, Alert> = {}
   for (const a of now) {
     const p = state.alerts[a.key]
     alerts[a.key] = { ...a, since: p?.since ?? at, notified: p?.notified ?? false }
   }
-  const pendingRecoveries = [...state.pendingRecoveries]
-  for (const [k, p] of Object.entries(state.alerts)) if (!alerts[k] && p.notified) pendingRecoveries.push(p)
+  const pendingRecoveries = state.pendingRecoveries.filter((p) => !isRetiredKey(p.key, retired))
+  for (const [k, p] of Object.entries(state.alerts)) if (!alerts[k] && p.notified && !isRetiredKey(k, retired)) pendingRecoveries.push(p)
   return { ...state, alerts, pendingRecoveries }
 }
 
@@ -260,7 +274,7 @@ export function buildHealth(st: Obj, state: HealthState, blocksMin: { t: number;
     behind: seats.filter((r) => r.status === 'syncing').map((r) => r.id),
     jailed: seats.filter((r) => r.status === 'jailed').map((r) => r.id),
     seats,
-    alerts: Object.values(state.alerts).sort((a, b) => (a.severity === b.severity ? a.since - b.since : a.severity === 'critical' ? -1 : 1)),
+    alerts: Object.values(state.alerts).filter((a) => !isRetiredKey(a.key, retiredSeats())).sort((a, b) => (a.severity === b.severity ? a.since - b.since : a.severity === 'critical' ? -1 : 1)),
     sampledAt: state.updatedAt,
   }
 }
