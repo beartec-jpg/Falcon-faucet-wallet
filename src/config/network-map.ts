@@ -4,7 +4,7 @@
  *
  * Only layout lives here. Live state (online, packer, tips, txs) always comes
  * from /api/scan. Seats that show up in status but are not listed here go to
- * an "Unplaced" group, so a new validator never disappears from the map.
+ * one group with no location label, so a new validator never disappears from the map.
  */
 
 export interface MapHost {
@@ -16,9 +16,8 @@ export interface MapHost {
 
 export interface MapLocation {
   id: string
+  /** Location name; empty for seats whose location is not known. */
   label: string
-  /** false = location still to be confirmed by Scott (shown with a TODO badge). */
-  confirmed: boolean
   hosts: MapHost[]
   /** Optional accent for the location platform. */
   color?: string
@@ -44,7 +43,7 @@ export interface NetworkMapConfig {
 }
 
 export const NETWORK_MAP_CONFIG: NetworkMapConfig = {
-  hub: { seat: 'v11', host: 'falcon2' },
+  hub: { seat: 'v3', host: 'falcon2' },
   wallet: { label: 'Wallet services', sub: 'wallet app · loadgen' },
   pollMs: 1500,
   maxBulges: 160,
@@ -54,29 +53,23 @@ export const NETWORK_MAP_CONFIG: NetworkMapConfig = {
     {
       id: 'england',
       label: 'England',
-      confirmed: true,
       hosts: [
         { host: 'falcon1', seats: ['v1'] },
-        // v11 (hub) also runs on falcon2; it is drawn as the hub, not here.
-        { host: 'falcon2', seats: ['v3'] },
+        // v3 (hub) runs on falcon2; it is drawn as the hub, not here.
+        { host: 'falcon2', seats: ['v11', 'scottdog'] },
         { host: 'beartec-brain', seats: ['falcon-node'], note: 'loadgen: transactions enter here' },
       ],
     },
     {
       id: 'helsinki',
       label: 'Helsinki, Finland',
-      confirmed: true,
       hosts: [
-        // TODO(scott): host name for v10.
-        { host: '', seats: ['v10'] },
+        { host: 'ubuntu-4gb-hel1-6', seats: ['v10'] },
         { host: 'ubuntu-4gb-hel1-4', seats: ['scottspersonalnode'] },
       ],
     },
-    // TODO(scott): confirm. Germany (city unknown).
-    { id: 'germany', label: 'Germany', confirmed: false, hosts: [{ host: '', seats: ['v6'] }] },
-    // TODO(scott): confirm.
-    { id: 'falkenstein', label: 'Falkenstein, Germany', confirmed: false, hosts: [{ host: '', seats: ['v13'] }] },
-    // TODO(scott): confirm.
-    { id: 'hillsboro', label: 'Hillsboro, US', confirmed: false, hosts: [{ host: '', seats: ['v12'] }] },
+    { id: 'germany', label: 'Germany', hosts: [{ host: 'ubuntu-4gb-mhr', seats: ['v6'] }] },
+    { id: 'falkenstein', label: 'Falkenstein, Germany', hosts: [{ host: 'ubuntu-8gb-fsn1-1', seats: ['v13'] }] },
+    { id: 'hillsboro', label: 'Hillsboro, US', hosts: [{ host: 'ubuntu-8gb-hil-2-1', seats: ['v12'] }] },
   ],
 }

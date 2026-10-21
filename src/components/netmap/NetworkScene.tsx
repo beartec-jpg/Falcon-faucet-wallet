@@ -748,8 +748,8 @@ function WalletServices({ pos, label, sub, activated, event }: { pos: Vec3; labe
 
 // ── Location platforms ─────────────────────────────────────────────────────
 
-function Platform({ center, width, yaw, label, confirmed }: { center: Vec3; width: number; yaw: number; label: string; confirmed: boolean }) {
-  const edge = confirmed ? COLORS.copper : COLORS.grey
+function Platform({ center, width, yaw, label }: { center: Vec3; width: number; yaw: number; label: string }) {
+  const edge = COLORS.copper
   return (
     <group position={center} rotation={[0, yaw, 0]}>
       <mesh raycast={noRay}>
@@ -764,11 +764,13 @@ function Platform({ center, width, yaw, label, confirmed }: { center: Vec3; widt
         <boxGeometry args={[width * 2, 0.008, 0.008]} />
         <meshBasicMaterial color={edge} transparent opacity={0.5} />
       </mesh>
-      <Html position={[0, -0.12, 1.0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
-        <div className="netmap-loc">
-          {label}
-        </div>
-      </Html>
+      {label && (
+        <Html position={[0, -0.12, 1.0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
+          <div className="netmap-loc">
+            {label}
+          </div>
+        </Html>
+      )}
     </group>
   )
 }
@@ -920,7 +922,7 @@ export default function NetworkScene({ layout, seats, event, maxBulges, selected
       <Floor />
       <AnimDriver event={event} anim={anim} layout={layout} />
       {layout.groups.map((g) => (
-        <Platform key={g.id} center={g.center} width={g.width} yaw={g.yaw} label={g.label} confirmed={g.confirmed} />
+        <Platform key={g.id} center={g.center} width={g.width} yaw={g.yaw} label={g.label} />
       ))}
       <ConsensusRail layout={layout} />
       {layout.seats.map((s) => {

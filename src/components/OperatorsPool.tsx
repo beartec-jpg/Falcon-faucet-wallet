@@ -30,7 +30,7 @@ export default function OperatorsPool() {
         <li><span className="text-white">Eligibility</span>: your seat must be active in at least {pct(c.minActiveFraction)} of the epochs in the window.</li>
         <li><span className="text-white">Split</span>: with {c.smallSetMax} or fewer eligible operators, the top score gets {(c.maxShare * 100).toFixed(0)}% of the airdrop ({fmt(A * c.maxShare)} FPL) and the lowest gets {(c.floorShare * 100).toFixed(1)}% ({fmt(A * c.floorShare)} FPL), and everyone in between is scaled linearly by score. A single eligible operator gets {(c.maxShare * 100).toFixed(0)}%. With more than {c.smallSetMax}, the {fmt(A * c.poolShare)} FPL is split by score, still capped at {fmt(A * c.maxShare)} FPL each.</li>
         <li><span className="text-white">How the 1B splits</span>: {fmt(A * c.poolShare)} FPL operators pool, {fmt(A * c.userBuffer)} FPL buffer ({pct(c.userBuffer)}, fixed) and {fmt(A * (1 - c.poolShare - c.userBuffer))} FPL for users. Anything the operators pool does not pay out goes to users.</li>
-        <li><span className="text-white">Excluded</span>: Falcon&apos;s own validator seats, and test, system, bond and watcher accounts.</li>
+        <li><span className="text-white">Excluded</span>: Falcon&apos;s own validator seats, and test, system, bond and watcher accounts. Exception, disclosed: {Object.keys(c.disclosedSeats).join(', ')} is the founder&apos;s personal node and is scored and paid like any other operator.</li>
       </ul>
       {err && <p className="text-slate-500">Leaderboard unavailable right now.</p>}
       {d && (
@@ -45,7 +45,7 @@ export default function OperatorsPool() {
               <tbody>
                 {d.operators.map((o) => (
                   <tr key={o.validator} className={o.eligible ? 'text-slate-200' : 'text-slate-500'}>
-                    <td className="py-1 pr-2">{o.validator}</td>
+                    <td className="py-1 pr-2">{o.validator}{c.disclosedSeats[o.validator] && <div className="text-[10px] text-amber-400/80 font-sans">{c.disclosedSeats[o.validator]}</div>}</td>
                     <td className="pr-2">{o.score.toFixed(2)}%</td>
                     <td className="pr-2">{o.epochsActive}/{o.windowEpochs}</td>
                     <td className="pr-2">{o.eligible ? `${fmt(o.projectedFpl)} FPL (${(o.projectedShare * 100).toFixed(2)}%)` : o.reason}</td>
