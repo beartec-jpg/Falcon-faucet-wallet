@@ -161,7 +161,7 @@ export async function GET(req: NextRequest) {
         checked_at: new Date().toISOString(),
         btcNetwork: 'testnet',
         ready: String(btc.spv) === 'bitcoin',
-        message: 'Falcon PL 2300 BTC rail',
+        message: 'Legacy test rail (testnet3, retiring); not the BTC bridge (testnet4 BTC4 activates at ledger height 730,000)',
         amendment: { name: 'FalconPL', supported: true, enabled: true },
         falcon: {
           ledger: Number(st.tip_height ?? st.height ?? 0),

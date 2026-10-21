@@ -260,7 +260,7 @@ export default function MarketingHomePage() {
               {
                 n: '01',
                 title: 'Testnet wallet',
-                p1: 'Hold FPL on Falcon PL 2300. ETH/USDC: Groth16 FalconQcBridge (STATUS). BTC deposits and withdrawals are paused: the BTC bridge is custodial today (no on-chain Disprove) and is being rebuilt as presigned BitVM2. Testnet 2300 (test tokens, no cash value).',
+                p1: 'Hold FPL on Falcon PL 2300. ETH/USDC: Groth16 FalconQcBridge (STATUS). BTC: the old testnet3 rail is a legacy test rail (retiring); deposits and withdrawals there are paused. The BTC bridge is the testnet4 BTC4 BitVM2 bridge, activating at ledger height 730,000 (~27–28 Oct 2026). Testnet 2300 (test tokens, no cash value).',
                 p2: 'Passkey wallet on this testnet. Test tokens have no cash value.',
                 img: '/assets/images/features/feature-wallet.jpg',
                 reverse: false,

@@ -131,7 +131,12 @@ function RailPanel({ r }: { r: RailView }) {
   const all = [...r.deposits.recent, ...r.withdrawals.list]
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Panel title={`${u} bridge — totals`}>
+      {u === 'BTC' && (
+        <div className="lg:col-span-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          Legacy test rail (testnet3, retiring). This is not the BTC bridge: the testnet4 BTC4 bridge activates at ledger height 730,000 (~27–28 Oct 2026).
+        </div>
+      )}
+      <Panel title={u === 'BTC' ? 'BTC legacy test rail (testnet3) — totals' : `${u} bridge — totals`}>
         <div className="grid grid-cols-2 gap-4">
           <Stat k="Total minted" v={`${formatUnits(r.minted, r.decimals)} ${u}`} />
           <Stat k="Total burned" v={`${formatUnits(r.burned, r.decimals)} ${u}`} />
@@ -199,7 +204,7 @@ export function RailsView() {
   const r = d.rails.find((x) => x.asset === cur)
   return (
     <div>
-      <SubTabs items={d.rails.map((x) => ({ id: x.asset, label: x.asset }))} cur={cur} set={setCur} />
+      <SubTabs items={d.rails.map((x) => ({ id: x.asset, label: x.asset === 'BTC' ? 'BTC (legacy testnet3)' : x.asset }))} cur={cur} set={setCur} />
       {r && <RailPanel r={r} />}
       <Footer d={d} />
     </div>
