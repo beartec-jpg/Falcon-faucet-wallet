@@ -1247,22 +1247,25 @@ export default function WalletPage() {
     }
   }
 
-  // ── Send transaction ──────────────────────────────────────────────────────
+  const [claimMsg, setClaimMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
 
   const claimPlRewards = async () => {
     if (!wallet || !account || network.networkId !== 2300) return
     if (!account.claimable) {
-      setError('Nothing to claim on this account.')
+      setClaimMsg({ kind: 'err', text: 'Nothing to claim on this account.' })
       return
     }
     setBusy(true)
     setError(null)
+    setClaimMsg(null)
+    const id = plAccountId(wallet)
+    const before = account.claimable
     try {
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
-      const seq = await fetchSequenceInfo(plAccountId(wallet), networkKey)
+      const seq = await fetchSequenceInfo(id, networkKey)
       const tx = await signPlClaim({
-        account: plAccountId(wallet),
+        account: id,
         sequence: seq.sequence,
         fee: 2,
         networkId: network.networkId,
@@ -1274,15 +1277,34 @@ export default function WalletPage() {
         // signPlClaim returns a signed tx object (no rawJson): send it as `tx`, like the /rewards page does.
         body: JSON.stringify(tx.rawJson ? { tx_json: tx.rawJson, network: networkKey } : { tx, network: networkKey }),
       })
-      const out = (await res.json().catch(() => ({}))) as { error?: string; message?: string }
-      if (!res.ok || out.error) throw new Error(out.error || out.message || 'Claim failed')
-      await refreshBalance(plAccountId(wallet))
+      const out = (await res.json().catch(() => ({}))) as { error?: string; message?: string; success?: boolean }
+      if (!res.ok || out.error || out.success === false) {
+        const msg = out.error || out.message || `Claim failed (HTTP ${res.status})`
+        throw new Error(isKeyBindRefusal(msg) ? KEY_BIND_HELP : msg)
+      }
+      // Submit only means "accepted into the mempool". Wait for the claim to be packed
+      // (sequence advances) before refreshing, otherwise the old claimable is shown again.
+      setClaimMsg({ kind: 'info', text: 'Claim accepted, waiting for it to be included…' })
+      let packed = false
+      for (let i = 0; i < 30 && !packed; i++) {
+        await new Promise((r) => setTimeout(r, 1000))
+        const s = await fetchSequenceInfo(id, networkKey).catch(() => null)
+        if (s && s.sequence > seq.sequence) packed = true
+      }
+      await refreshBalance(id)
+      setClaimMsg(
+        packed
+          ? { kind: 'ok', text: `Claimed ${before.toLocaleString('en-US')} FPL into your balance.` }
+          : { kind: 'info', text: 'Claim submitted but not included yet. Refresh in a minute; if the amount is still claimable, try again.' },
+      )
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Claim failed')
+      setClaimMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Claim failed' })
     } finally {
       setBusy(false)
     }
   }
+
+  // ── Send transaction ──────────────────────────────────────────────────────
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -3139,6 +3161,19 @@ export default function WalletPage() {
                           {busy ? 'Claiming…' : 'Claim'}
                         </button>
                       </div>
+                      {claimMsg && (
+                        <div
+                          className={`text-xs rounded-lg px-3 py-2 border ${
+                            claimMsg.kind === 'err'
+                              ? 'text-red-300 bg-red-500/10 border-red-500/30'
+                              : claimMsg.kind === 'ok'
+                                ? 'text-emerald-200 bg-emerald-500/10 border-emerald-500/30'
+                                : 'text-slate-300 bg-slate-800/60 border-slate-700'
+                          }`}
+                        >
+                          {claimMsg.text}
+                        </div>
+                      )}
                       <div className="text-[11px] text-slate-500">Your pools</div>
                       {plBook == null ? (
                         <p className="text-xs text-slate-500">Loading your pools…</p>
@@ -4010,7 +4045,7 @@ export default function WalletPage() {
                       <p className="text-xs text-slate-500">
                         {network.networkId === 2300
                           ? 'Peer-to-peer on Falcon PL — not a bridge.'
-                          : 'Peer-to-peer transfer on Falcon Ledger — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.'}
+                          : 'Peer-to-peer transfer on Falcon PL — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.'}
                       </p>
                       <button
                         type="submit"
@@ -4369,12 +4404,12 @@ export default function WalletPage() {
             {network.badge === 'testnet' ? 'Testnet tokens · No real value' : `${network.name} · Network ID ${network.networkId}`}
             {' · '}
             <a
-              href="https://github.com/beartec-jpg/qXRP"
+              href="https://github.com/beartec-jpg/falcon-pl-releases"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-slate-500 underline underline-offset-2 transition-colors"
             >
-              Falcon Ledger on GitHub
+              Falcon PL on GitHub
             </a>
           </p>
         </div>
