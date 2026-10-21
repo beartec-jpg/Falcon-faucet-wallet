@@ -366,7 +366,8 @@ export function operatorsBoard(st: Obj): OperatorRow[] {
       proposer_credit: p,
       vote_credit: vc,
       floor_weight: f,
-      work_share: r1(100 * (0.5 * (p / P) + 0.4 * (vc / V) + 0.1 * (f / F))),
+      // Unrounded: scoring counts any non-zero share; display via fmtWorkShare.
+      work_share: 100 * (0.5 * (p / P) + 0.4 * (vc / V) + 0.1 * (f / F)),
     }
   })
   return rows.sort((a, b) => b.work_share - a.work_share || b.pack_count - a.pack_count || a.id.localeCompare(b.id))
@@ -384,5 +385,5 @@ export function trackerCsv(rows: TrackerRow[]): string {
 
 export function operatorsCsv(rows: OperatorRow[]): string {
   const head = 'rank,validator,work_share_pct,online,jailed,bond,pack_count,epoch_pack_txs,proposer_credit,vote_credit,floor_weight'
-  return [head, ...rows.map((o, i) => [i + 1, o.id, o.work_share, o.online, o.jailed, o.bond, o.pack_count, o.epoch_pack_txs, o.proposer_credit, o.vote_credit, o.floor_weight].join(','))].join('\n') + '\n'
+  return [head, ...rows.map((o, i) => [i + 1, o.id, Math.round(o.work_share * 100) / 100, o.online, o.jailed, o.bond, o.pack_count, o.epoch_pack_txs, o.proposer_credit, o.vote_credit, o.floor_weight].join(','))].join('\n') + '\n'
 }

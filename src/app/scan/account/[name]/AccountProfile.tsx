@@ -15,6 +15,7 @@ import { FEEDBACK_CATEGORY_LABEL } from '@/config/feedback'
 import type { ApprovedFeedback } from '@/lib/feedback-store'
 import type { StoredEvent } from '@/lib/activity-index'
 import type { Classification, OperatorRow, TrackerRow } from '@/lib/tracker'
+import { fmtWorkShare } from '@/lib/work-share-format'
 import { formatUnits } from '@/lib/pl-exact-json'
 import { ASSET_DECIMALS } from '@/lib/rails-pools'
 
@@ -114,7 +115,7 @@ export default function AccountProfile({ name }: { name: string }) {
                   </div>
                 ) : p.operator ? (
                   <div className="flex flex-wrap gap-6">
-                    <Stat k="Epoch work share" v={`${fmt(p.operator.work_share)}%`} />
+                    <Stat k="Epoch work share" v={`${fmtWorkShare(p.operator.work_share)}%`} />
                     <Stat k="Status" v={p.operator.jailed ? 'jailed' : p.operator.online ? 'online' : 'offline'} />
                     <Stat k="Blocks sealed" v={fmt(p.operator.pack_count, 0)} />
                     <Stat k="Bond" v={fmt(p.operator.bond, 0)} />

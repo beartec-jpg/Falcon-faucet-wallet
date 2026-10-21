@@ -3,6 +3,7 @@
 // Operators pool section on /airdrop: rules (from config/operators.ts) and the live leaderboard.
 import { useEffect, useState } from 'react'
 import { OPERATORS_CONFIG } from '@/config/operators'
+import { fmtWorkShare } from '@/lib/work-share-format'
 
 type Op = { validator: string; internal: boolean; epochsActive: number; windowEpochs: number; score: number; eligible: boolean; reason: string; projectedFpl: number; projectedShare: number }
 type Data = { poolFpl: number; allocatedFpl: number; returnedFpl: number; windowStart: string; windowEpochs: number; operators: Op[] }
@@ -46,7 +47,7 @@ export default function OperatorsPool() {
                 {d.operators.map((o) => (
                   <tr key={o.validator} className={o.eligible ? 'text-slate-200' : 'text-slate-500'}>
                     <td className="py-1 pr-2">{o.validator}{c.disclosedSeats[o.validator] && <div className="text-[10px] text-amber-400/80 font-sans">{c.disclosedSeats[o.validator]}</div>}</td>
-                    <td className="pr-2">{o.score.toFixed(2)}%</td>
+                    <td className="pr-2">{fmtWorkShare(o.score)}%</td>
                     <td className="pr-2">{o.epochsActive}/{o.windowEpochs}</td>
                     <td className="pr-2">{o.eligible ? `${fmt(o.projectedFpl)} FPL (${(o.projectedShare * 100).toFixed(2)}%)` : o.reason}</td>
                   </tr>
