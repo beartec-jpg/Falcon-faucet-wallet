@@ -4,6 +4,7 @@ import Link from 'next/link'
 
 import { useCallback, useEffect, useState } from 'react'
 import ArcadePrizes from '@/components/ArcadePrizes'
+import OperatorsPool from '@/components/OperatorsPool'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
@@ -142,13 +143,15 @@ export default function AirdropPage() {
           <ul className="list-disc pl-5 space-y-1">
             <li><span className="text-white">1B pre-mainnet airdrop</span>: from a frozen snapshot of testnet activity, credited at mainnet genesis to the same account name and key.</li>
             <li><span className="text-white">1B release-phase giveaway</span>: paid per epoch during mainnet epochs 1–7 (before protocol emission starts at epoch 8) for arcade, activity and similar, with caps. The pool below is this one.</li>
-            <li>Validator operators have a separate operators pool.</li>
+            <li>Validator operators are paid from a separate <a href="#operators-pool" className="text-amber-300 hover:underline">operators pool</a> of up to 100M FPL, carved out of the 1B pre-mainnet airdrop.</li>
             <li>Separately, the <Link href="/first-35" className="text-amber-300 hover:underline">First 35</Link> prize seats (12M FPL) and the <a href="#arcade-top-5" className="text-amber-300 hover:underline">Arcade top 5</a> prizes (1.9M FPL) come from the builder pot, and mainnet faucet drips come from the faucet bucket.</li>
           </ul>
           <p className="text-slate-500">Testnet activity: <Link href="/scan" className="text-amber-300 hover:underline">Explorer → Activity</Link>.</p>
         </section>
 
         <ArcadePrizes />
+
+        <OperatorsPool />
 
         {loading && <p className="text-sm text-slate-500">Loading…</p>}
         {error && (
@@ -206,7 +209,7 @@ export default function AirdropPage() {
             <li><span className="text-slate-200">Activity</span>: DeFi (liquidity, lending, swaps), bridging and payments, log-scaled.</li>
             <li><span className="text-slate-200">Arcade</span>: verified arcade runs linked to your account.</li>
             <li><span className="text-slate-200">Caps</span>: per-epoch and per-account caps; linked accounts are scored as one.</li>
-            <li><span className="text-slate-200">Operators</span>: validators are paid from a separate operators pool, not this one.</li>
+            <li><span className="text-slate-200">Operators</span>: validators are paid from the operators pool (below), not this one.</li>
           </ul>
           <p className="text-[11px] text-slate-500">Draft rules. Nothing promised; subject to change.</p>
         </section>
@@ -275,11 +278,8 @@ export default function AirdropPage() {
                   </div>
                 </div>
                 <div className="bg-slate-950/60 rounded-lg px-3 py-2">
-                  <div className="text-slate-500">Validator / setup / DEX LP</div>
-                  <div className="font-mono text-slate-200 mt-0.5">
-                    {(me.scoreValidator * 100).toFixed(1)}% / {(me.scoreSetup * 100).toFixed(1)}% /{' '}
-                    {(me.scoreDexLp * 100).toFixed(1)}%
-                  </div>
+                  <div className="text-slate-500">DEX LP</div>
+                  <div className="font-mono text-slate-200 mt-0.5">{(me.scoreDexLp * 100).toFixed(1)}%</div>
                 </div>
                 <div className="bg-slate-950/60 rounded-lg px-3 py-2">
                   <div className="text-slate-500">Est. FPL (if finalized)</div>
@@ -289,8 +289,8 @@ export default function AirdropPage() {
                 </div>
               </div>
               <p className="text-[10px] text-slate-500">
-                Validator / DEX LP scores populate when snapshot jobs run. Faucet days update as you
-                claim (with DB logging enabled).
+                Validators are scored in the operators pool, not here. Faucet days update as you claim
+                (with DB logging enabled).
               </p>
             </div>
           )}
