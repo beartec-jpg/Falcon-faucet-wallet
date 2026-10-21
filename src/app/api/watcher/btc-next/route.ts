@@ -67,7 +67,7 @@ export async function GET() {
     const height = railTip + 1
     const base = { ok: true, railTip, railHash, chainTip: Number.isFinite(chainTip) ? chainTip : null }
     if (Number.isFinite(chainTip) && chainTip < height) {
-      return NextResponse.json({ ...base, next: null, reason: 'rail is at the Bitcoin testnet tip' })
+      return NextResponse.json({ ...base, next: null, reason: 'legacy test rail (testnet3, retiring) is at the testnet3 tip' })
     }
     const hash = (await esplora(`/block-height/${height}`)).toLowerCase()
     if (!/^[0-9a-f]{64}$/.test(hash)) {

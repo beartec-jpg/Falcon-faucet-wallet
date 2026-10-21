@@ -259,7 +259,7 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
       if (!r.ok || !data.ok) throw new Error(data.error || 'Could not read the Bitcoin tip')
       if (!data.next) {
         setInfo(
-          `Nothing to submit: ${data.reason ?? 'rail is current'} (rail ${data.railTip ?? '—'}, Bitcoin testnet ${data.chainTip ?? '—'}). ` +
+          `Nothing to submit: ${data.reason ?? 'rail is current'} (rail ${data.railTip ?? '—'}, Bitcoin testnet3 ${data.chainTip ?? '—'}). ` +
             'New testnet blocks arrive about every 10 minutes and the header daemon is usually first.',
         )
         return
@@ -419,7 +419,7 @@ export default function WatcherPanel({ initial = null }: { initial?: WatcherSnap
           { label: 'Weight', value: String(snap?.weight ?? 0) },
           { label: 'Epoch', value: snap ? `${snap.epoch} / settled ${snap.lastSettledEpoch ?? '—'}` : '—' },
           {
-            label: 'BTC rail / testnet',
+            label: 'Legacy test rail (testnet3, retiring) / tip',
             value: `${snap?.railTip ?? btc?.railTip ?? '—'} / ${btc?.chainTip ?? '—'}`,
           },
         ].map(({ label, value }) => (

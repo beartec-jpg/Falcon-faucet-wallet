@@ -162,7 +162,7 @@ export function buildRails(st: Obj, opts: RailOptions = {}): RailView[] {
 
     const addresses: AddressRow[] = []
     if (asset === 'BTC') {
-      if (s(r.vault_address)) addresses.push({ label: 'Vault (taproot)', value: s(r.vault_address), href: `https://mempool.space/testnet/address/${s(r.vault_address)}`, source: 'status.rails[BTC].vault_address' })
+      if (s(r.vault_address)) addresses.push({ label: 'Legacy rail vault (taproot, testnet3)', value: s(r.vault_address), href: `https://mempool.space/testnet/address/${s(r.vault_address)}`, source: 'status.rails[BTC].vault_address' })
       gaps.push('Per-depositor BTC peg-ins are not exposed (the rail lists spent deposit txids only), so the BTC leaderboard is empty.')
     } else {
       if (qcBridge) addresses.push({ label: 'FalconQcBridge V3 (peg-in / claims)', value: qcBridge, href: `${sep}/address/${qcBridge}`, source: 'status.eth_v3_bridge' })

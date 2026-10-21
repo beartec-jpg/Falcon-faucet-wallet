@@ -3431,7 +3431,7 @@ export default function WalletPage() {
                       : receiveAssetId === 'bnb'
                         ? 'Same 0x as ETH. On BSC testnet this receives BNB. There is no public Falcon dest-lock for BNB.'
                       : receiveAssetId === 'btc'
-                        ? 'Native Bitcoin testnet P2PKH address. Only send testnet BTC. Bridge → FBTC.'
+                        ? 'Native Bitcoin testnet3 P2PKH address (legacy test rail, retiring). Only send testnet BTC. Not the testnet4 BTC4 bridge.'
                       : receiveAssetId === 'xrp'
                         ? 'Classic XRP Ledger (today’s XRPL). Separate r… from Falcon. Fund via XRPL testnet faucet.'
                         : 'Native multi-chain deposit address.'}
