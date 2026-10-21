@@ -321,7 +321,7 @@ export async function POST(req: NextRequest) {
     if (msg.includes('actNotFound') || msg.includes('Account not found')) {
       return err('Faucet account is not funded on this network. Contact operator.', 503)
     }
-    return err('Cannot reach Falcon Ledger node. Try again shortly.', 503)
+    return err('Cannot reach Falcon PL node. Try again shortly.', 503)
   }
 
   const amountDrops = dropsFromQxrp(faucet.dripAmountFpl)

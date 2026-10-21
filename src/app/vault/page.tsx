@@ -1634,7 +1634,7 @@ export default function VaultPage() {
             )}
             {sendAsset === 'fusdc' && (
               <p className="text-[11px] text-slate-500">
-                Recipient needs a F-USDC trust line. Peer-to-peer on Falcon Ledger — not a bridge.
+                Recipient needs a F-USDC trust line. Peer-to-peer on Falcon PL — not a bridge.
               </p>
             )}
             <button

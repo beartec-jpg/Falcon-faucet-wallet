@@ -1,4 +1,4 @@
-/** Lending implementation report — rendered on /whitepaper (July 2026). */
+/** Lending implementation report — rendered on /whitepaper (July 2026). HISTORICAL: legacy network 1001, retired. */
 
 export const LENDING_REPORT_DATE = '2026-07-14'
 
@@ -6,7 +6,7 @@ export const LENDING_REPORT_SECTIONS: { id: string; title: string; body: string 
   {
     id: 'lending-report',
     title: '12. Lending — Implementation Report',
-    body: `**Date:** ${LENDING_REPORT_DATE} · **Network:** Falcon Ledger Testnet (ID \`1001\`, RPC \`http://46.224.0.140:6005\`) · **Status:** Permissionless borrow, repay, and liquidation verified on-ledger via coordinator E2E scripts; HF monitor deployed on coordinator. **Full report (PDF):** see **Lending Implementation Report** in Downloads above.
+    body: `**Date:** ${LENDING_REPORT_DATE} · **Historical (July 2026, legacy network 1001, now retired; not Falcon PL 2300).** **Network:** legacy testnet (ID \`1001\`) · **Status:** Permissionless borrow, repay, and liquidation verified on-ledger via coordinator E2E scripts; HF monitor deployed on coordinator. **Full report (PDF):** see **Lending Implementation Report** in Downloads above.
 
 **Borrowers do not need a broker.** On testnet today (\`LendingPermissionless\` live), you post FALCON collateral (≥150% HF), sign \`LoanSet\` yourself — no co-sign, no broker first-loss cover. Legacy broker paths below are historical only.
 

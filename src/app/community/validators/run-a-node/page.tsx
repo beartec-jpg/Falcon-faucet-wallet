@@ -19,6 +19,9 @@ export default function RunANodePage() {
       <Section title="Install a node">
         <Code>{'curl -fsSL https://falcon-fpl.com/install.sh | bash'}</Code>
       </Section>
+      <Section title="Upgrade an existing node">
+        <Code>{'curl -fsSL https://falcon-fpl.com/install.sh | bash -s -- upgrade'}</Code>
+      </Section>
       <Section title="Install as a validator">
         <Code>{'curl -fsSL https://falcon-fpl.com/install.sh | bash -s -- --validator --id NAME --no-wait'}</Code>
         <p>Replace NAME with your validator id. Contact details are optional.</p>
