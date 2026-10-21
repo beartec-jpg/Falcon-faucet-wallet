@@ -8,7 +8,9 @@ import {
   previousSampleFromCounters,
   seriesValues,
 } from '@/lib/scan-metrics'
-import { runActivityIndex } from '@/lib/rails-pools-server'
+import { runActivityIndex, statusExact } from '@/lib/rails-pools-server'
+import { epochWorkFromStatus } from '@/lib/operator-score'
+import { operatorStore } from '@/lib/operator-store'
 import { bearerToken, isProductionRuntime, timingSafeEqualString } from '@/lib/security'
 
 export const runtime = 'nodejs'
@@ -44,8 +46,19 @@ export async function GET(req: NextRequest) {
       console.error('[cron/sample-metrics] activity index', e)
       activity = { error: 'activity index failed' }
     }
+    // Operators pool: this epoch's work share per validator. Never fails the metrics run.
+    let operators: unknown = null
+    try {
+      const rows = epochWorkFromStatus(await statusExact())
+      await operatorStore().record(rows, at)
+      operators = { rows: rows.length }
+    } catch (e) {
+      console.error('[cron/sample-metrics] operators', e)
+      operators = { error: 'operators sample failed' }
+    }
     return NextResponse.json({
       ok: true,
+      operators,
       at,
       height: sample.height,
       rate_base_ms: prev ? at - prev.t : null,
