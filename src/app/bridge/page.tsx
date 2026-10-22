@@ -1,8 +1,8 @@
-import { notFound } from 'next/navigation'
 import ContentPage, { A, Section } from '@/components/content/ContentPage'
 import { FPL_SIGNET_EXPLORER } from '@/lib/tn4-bridge'
 import { pageMeta } from '@/lib/seo'
 import BridgePanel from './BridgePanel'
+import { ActivationNote } from '@/lib/bridge-activation'
 
 export const metadata = pageMeta(
   '/bridge',
@@ -20,15 +20,15 @@ const STEPS: Array<[string, string]> = [
 ]
 
 export default function BridgePage() {
-  // Whole route stays off until the bridge activates (NEXT_PUBLIC_FPL_BRIDGE_LIVE=1).
-  if (process.env.NEXT_PUBLIC_FPL_BRIDGE_LIVE !== '1') notFound()
   return (
     <ContentPage current="wallet" title="BTC bridge — TESTNET4" back={{ href: '/', label: 'Home' }}>
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-200">
         <strong>TESTNET4 ONLY — test coins only.</strong> This is a test of a BitVM2 bridge design on Bitcoin testnet4. Testnet
-        coins have no value. Do not send real (mainnet) BTC. Never use testnet3. The bridge activates at ledger height 730,000 (~27–28 Oct 2026).
-        Not yet shown to be non-custodial: outside review and on-chain acceptance test pending.
+        coins have no value. Do not send real (mainnet) BTC. Never use testnet3. Testnet single-party setup (verifying key from a
+        single-party testnet ceremony); on-chain acceptance test pending.
       </div>
+
+      <ActivationNote />
 
       <BridgePanel />
 

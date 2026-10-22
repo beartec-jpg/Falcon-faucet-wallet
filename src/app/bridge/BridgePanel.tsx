@@ -19,13 +19,14 @@ import {
   signDepositorRequest,
   type Tn4Deposit,
 } from '@/lib/tn4-bridge'
+import { useBridgeActivation } from '@/lib/bridge-activation'
 
 type Op = { name: string; xonly: string; availableSats: number; lastSeen: number }
 const MEMPOOL = 'https://mempool.space/testnet4'
-// Set NEXT_PUBLIC_FPL_BRIDGE_LIVE=1 once the bridge is active on the Falcon ledger.
-const LIVE = process.env.NEXT_PUBLIC_FPL_BRIDGE_LIVE === '1'
 
 export default function BridgePanel() {
+  // Gated by ledger height (BTC_BRIDGE_FROM_HEIGHT), not an env flag.
+  const { live: LIVE } = useBridgeActivation()
   const [ops, setOps] = useState<Op[] | null>(null)
   const [txid, setTxid] = useState('')
   const [status, setStatus] = useState<string>('')
@@ -41,7 +42,7 @@ export default function BridgePanel() {
   useEffect(() => {
     if (!LIVE) return
     loadPrimaryWallet().then((w) => w && setAccount(plAccountId(w))).catch(() => {})
-  }, [])
+  }, [LIVE])
 
   const refresh = useCallback(async () => {
     if (!LIVE || !account) return
@@ -50,7 +51,7 @@ export default function BridgePanel() {
     } catch {
       /* intake unreachable: keep last view */
     }
-  }, [account])
+  }, [account, LIVE])
 
   useEffect(() => {
     refresh()
