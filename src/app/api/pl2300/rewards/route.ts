@@ -113,6 +113,7 @@ export async function GET(req: Request) {
       const lend = Array.isArray(a?.lend_positions) ? (a!.lend_positions as unknown[]) : []
       me = {
         account: who,
+        isSeat: ids.includes(who),
         exists: Boolean(a?.exists),
         balance: a ? big(a.balance) : 0n,
         sequence: a ? Number(a.sequence ?? 0) : 0,
@@ -122,8 +123,7 @@ export async function GET(req: Request) {
         lpPositions: lp.length,
         lendPositions: lend.length,
         projected: {
-          total: proj.pays[who] ?? 0n,
-          validator: proj.validatorPays[who] ?? 0n,
+          total: (proj.watcherPays[who] ?? 0n) + (proj.ammPays[who] ?? 0n) + (proj.lendPays[who] ?? 0n),
           watcher: proj.watcherPays[who] ?? 0n,
           amm: proj.ammPays[who] ?? 0n,
           lend: proj.lendPays[who] ?? 0n,

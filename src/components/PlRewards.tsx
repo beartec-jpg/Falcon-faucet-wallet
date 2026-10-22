@@ -34,7 +34,8 @@ type Me = {
   watcherSlots: string
   lpPositions: number
   lendPositions: number
-  projected: { total: string; validator: string; watcher: string; amm: string; lend: string }
+  isSeat?: boolean
+  projected: { total: string; watcher: string; amm: string; lend: string }
   ammWeight: string
   lendWeight: string
   watcherWeight: string
@@ -185,7 +186,7 @@ export default function PlRewards() {
   }
 
   const me = data?.me
-  const canClaim = Boolean(me && BigInt(me.claimable || '0') > 0n)
+  const canClaim = Boolean(me && !me.isSeat && BigInt(me.claimable || '0') > 0n)
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
@@ -234,7 +235,6 @@ export default function PlRewards() {
               label="Earning from"
               value={
                 [
-                  BigInt(me.projected.validator) > 0n && 'validator',
                   BigInt(me.projected.amm) > 0n && 'AMM LP',
                   BigInt(me.projected.lend) > 0n && 'lending',
                   BigInt(me.projected.watcher) > 0n && 'watcher',
@@ -253,8 +253,12 @@ export default function PlRewards() {
               Watcher: work {me.watcherWork} × slots {me.watcherSlots}/168 → {fpl(me.projected.watcher)} FPL (cap{' '}
               {fpl(data?.watcherCap)}) · <Link href="/faucet" className="text-brand-300 underline">watch</Link>
             </div>
-            <div>Validator: {fpl(me.projected.validator)} FPL</div>
           </div>
+        )}
+        {me?.isSeat && (
+          <p className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-300">
+            This name is also a validator seat. Validator rewards are claimed on the node, not here.
+          </p>
         )}
         <p className="text-[11px] text-slate-500">
           Claim signs a <span className="font-mono">claim</span> tx with your passkey in this browser (fee {FEE} FPL).
