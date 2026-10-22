@@ -381,7 +381,7 @@ export default function WalletPage() {
   const [createLabel, setCreateLabel] = useState('')
   const [createName, setCreateName] = useState('')
   const [createNameStatus, setCreateNameStatus] = useState<
-    'idle' | 'checking' | 'available' | 'taken' | 'invalid'
+    'idle' | 'checking' | 'available' | 'taken' | 'invalid' | 'seat'
   >('idle')
 
   // Send form (Falcon IOUs + native multi-chain)
@@ -741,6 +741,10 @@ export default function WalletPage() {
       void fetch(`/api/wallet/name?name=${encodeURIComponent(n)}`, { cache: 'no-store' })
         .then(async (r) => {
           const d = (await r.json()) as { available?: boolean; status?: string }
+          if (d.status === 'seat') {
+            setCreateNameStatus('seat')
+            return
+          }
           if (d.status === 'blocked' || d.status === 'invalid') {
             setCreateNameStatus('invalid')
             return
@@ -765,6 +769,10 @@ export default function WalletPage() {
     const picked = nameErr ? null : normalizePlName(canonicalNameInput(createName))
     if (nameErr || !picked) {
       setError(nameErr || plNameHint(createName) || 'Pick a valid account name')
+      return
+    }
+    if (createNameStatus === 'seat') {
+      setError(`“${picked}” is a validator seat name — pick a different account name`)
       return
     }
     if (createNameStatus === 'taken') {
@@ -4423,7 +4431,7 @@ function NameCostMeter({
   status,
 }: {
   raw: string
-  status: 'idle' | 'checking' | 'available' | 'taken' | 'invalid'
+  status: 'idle' | 'checking' | 'available' | 'taken' | 'invalid' | 'seat'
 }) {
   const typed = raw.trim().toLowerCase()
   const letters = typed.replace(/[^a-z0-9]/g, '').length
@@ -4436,7 +4444,9 @@ function NameCostMeter({
       ? 'Type a name to see the activation cost. Shorter names cost more.'
       : status === 'checking'
         ? 'Checking availability…'
-        : status === 'taken'
+        : status === 'seat'
+          ? 'Validator seat name — pick a different account name'
+          : status === 'taken'
           ? 'Taken — try another name'
           : status === 'invalid'
             ? hint || 'Invalid name'
@@ -4472,7 +4482,7 @@ function NameCostMeter({
       </div>
       <p
         className={`text-[11px] ${
-          status === 'taken' || status === 'invalid'
+          status === 'taken' || status === 'invalid' || status === 'seat'
             ? 'text-red-400'
             : status === 'available'
               ? 'text-emerald-400'

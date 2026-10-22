@@ -19,6 +19,7 @@ import { activateName, reserveName, viewName } from '@/lib/pl-name-store'
 import { activationFeeFpl, normalizePlName, reserveNameError } from '@/lib/pl-names'
 import { plAccount } from '@/lib/pl-rpc'
 import { walletApiHeaders, walletApiUrl } from '@/lib/walletd'
+import { isSeatName, SEAT_NAME_ERROR } from '@/lib/seat-names'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -49,6 +50,16 @@ export async function GET(req: NextRequest) {
   const cfg = serverNetworkConfig(networkKey)
   const nameQ = (req.nextUrl.searchParams.get('name') ?? '').trim()
   const addressQ = (req.nextUrl.searchParams.get('address') ?? '').trim()
+
+  if (cfg.networkId === 2300 && nameQ && (await isSeatName(normalizePlName(nameQ) ?? nameQ))) {
+    return NextResponse.json({
+      name: normalizePlName(nameQ) ?? nameQ,
+      available: false,
+      status: 'seat',
+      error: SEAT_NAME_ERROR,
+      network: networkKey,
+    })
+  }
 
   if (cfg.networkId === 2300 && nameQ) {
     try {
@@ -273,6 +284,9 @@ export async function POST(req: NextRequest) {
   if (action !== 'activate') {
     const err = reserveNameError(name, String(body.purpose ?? 'wallet'))
     if (err) return NextResponse.json({ error: err, code: 'name_vault_suffix' }, { status: 400 })
+    if (await isSeatName(normalizePlName(name) ?? name)) {
+      return NextResponse.json({ error: SEAT_NAME_ERROR, code: 'name_is_seat' }, { status: 400 })
+    }
   }
   try {
     if (shouldUseLocalStore()) {

@@ -119,6 +119,7 @@ import {
   lockContractReady,
   type UsdcBridgeManifest,
 } from '@/lib/bridge-config'
+import { ActivationNote } from '@/lib/bridge-activation'
 import {
   createEncryptedEvmBackup,
   decryptEvmBackupFile,
@@ -2391,6 +2392,12 @@ const handleSpvCompleteClaim = async () => {
             {isFbtcRoute && spvLive ? 'SPV · Testnet' : 'Testnet'}
           </span>
         </div>
+
+        {isFbtcRoute && (
+          <a href="/bridge" className="block">
+            <ActivationNote />
+          </a>
+        )}
 
         {/* W1.5 — SPV header lag / config mismatch (BTC only) */}
         {isFbtcRoute && spvStatus?.headers && (
