@@ -39,8 +39,8 @@ const VALIDATOR_LINKS = [
   },
   {
     href: '/rewards',
-    title: 'Claim validator rewards',
-    description: 'Import validator credentials and claim epoch rewards.',
+    title: 'Claim participation rewards',
+    description: 'Claim your liquidity, lending, and watcher rewards with your wallet passkey.',
     cta: 'Rewards',
     primary: false,
   },
