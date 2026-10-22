@@ -52,7 +52,7 @@ export function ActivationNote() {
       {live ? (
         <>BTC bridge (testnet4) active since block {BTC_BRIDGE_FROM_HEIGHT.toLocaleString('en-GB')}.</>
       ) : (
-        <>BTC bridge (testnet4) activates at block {BTC_BRIDGE_FROM_HEIGHT.toLocaleString('en-GB')}.</>
+        <>BTC bridge activates at block {BTC_BRIDGE_FROM_HEIGHT.toLocaleString('en-GB')}.</>
       )}{' '}
       <span className="text-slate-400">
         Current block {height === null ? '…' : height.toLocaleString('en-GB')}
