@@ -15,6 +15,7 @@ import {
   signPlSwapRoute,
 } from '@/lib/pl-wallet-sign'
 import { fetchSequenceInfo } from '@/lib/wallet-submit'
+import { explainTxError } from '@/lib/pl-key-commit'
 
 type Asset = 'FPL' | 'BTC' | 'ETH' | 'USDC'
 const ASSETS: Asset[] = ['FPL', 'USDC', 'ETH', 'BTC']
@@ -365,15 +366,37 @@ function quoteRoute(pools: Pool[], tokenIn: Asset, tokenOut: Asset, amountIn: bi
   return 0n
 }
 
+const SUBMIT_TIMEOUT_MS = 45_000
+
 async function submitSigned(tx: { rawJson?: string }, networkKey: string) {
-  const res = await fetch('/api/wallet/submit', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(tx.rawJson ? { tx_json: tx.rawJson, network: networkKey } : { tx, network: networkKey }),
-  })
+  let res: Response
+  try {
+    res = await fetch('/api/wallet/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tx.rawJson ? { tx_json: tx.rawJson, network: networkKey } : { tx, network: networkKey }),
+      signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS),
+    })
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      throw new Error('The network did not answer within 45 s. Check your balance before retrying: the transaction may still land.')
+    }
+    throw e
+  }
   const out = (await res.json().catch(() => ({}))) as { error?: string; success?: boolean; message?: string }
-  if (!res.ok || out.error) throw new Error(out.error || out.message || 'Submit failed')
+  if (!res.ok || out.error || out.success === false) {
+    const msg = out.error || out.message || `Submit failed (HTTP ${res.status})`
+    throw new Error(msg)
+  }
   return out
+}
+
+/** Rejects if `p` does not settle in `ms` (passkey prompt or account fetch stuck). */
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${what} timed out. Try again.`)), ms)
+    p.then((v) => { clearTimeout(t); resolve(v) }, (e) => { clearTimeout(t); reject(e) })
+  })
 }
 
 function ChoiceBar({
@@ -1064,7 +1087,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falconSecret = await decryptSeed(wallet.encrypted, keyBytes)
       const account = plAccountId(wallet)
-      const seq = await fetchSequenceInfo(account, network.key)
+      const seq = await withTimeout(fetchSequenceInfo(account, network.key), 20_000, 'Loading your account')
       // Seats keep user keys in memory and only re-learn them from enroll txs (Pay, claim, vault…).
       // After a seat restart a DeFi tx alone is refused with 'unknown key'; re-enroll with a
       // zero self-Pay (fee only, same passkey session), then submit the action at the next sequence.
@@ -1176,7 +1199,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       setLpAmount('')
       load()
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Failed')
+      setErr(e instanceof Error ? explainTxError(e.message) : 'Failed')
     } finally {
       setBusy(false)
     }

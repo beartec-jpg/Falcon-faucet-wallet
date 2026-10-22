@@ -7,6 +7,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import type { OperatorRow, TrackerResult, TrackerRow } from '@/lib/tracker'
+import { fmtWorkShare } from '@/lib/work-share-format'
 import type { TrackerCategory } from '@/config/tracker'
 import { C, Empty, Panel, Stat, Status, SubTabs, mono } from '@/components/explorer/RailsPoolsTabs'
 
@@ -123,7 +124,7 @@ function OperatorsTable({ rows }: { rows: OperatorRow[] }) {
             <tr key={o.id} className="border-b border-slate-800/50" style={mono}>
               <td className="py-1.5 pr-2 text-slate-600">{i + 1}</td>
               <td className="pr-3"><AccountLink name={o.id} /></td>
-              <td className="pr-3 text-right" style={{ color: C.gold }}>{fmt(o.work_share)}%</td>
+              <td className="pr-3 text-right" style={{ color: C.gold }}>{fmtWorkShare(o.work_share)}%</td>
               <td className="pr-3" style={{ color: o.jailed ? '#F87171' : o.online ? C.gold : '#64748B' }}>{o.jailed ? 'jailed' : o.online ? 'online' : 'offline'}</td>
               <td className="pr-3 text-right text-slate-300">{fmt(o.bond, 0)}</td>
               <td className="pr-3 text-right text-slate-300">{fmt(o.pack_count, 0)}</td>

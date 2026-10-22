@@ -1,4 +1,4 @@
-// Falcon Ledger Wallet — Service Worker
+// Falcon PL Wallet — Service Worker
 // Network-first for GET API + WASM; never intercept POST (Claim / submit).
 
 const CACHE = 'falcon-wallet-v17'

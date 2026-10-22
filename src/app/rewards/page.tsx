@@ -7,6 +7,7 @@ import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
+import { explainTxError } from '@/lib/pl-key-commit'
 import {
   isPasskeySupported,
   authenticatePasskey,
@@ -283,7 +284,7 @@ function LegacyRewardsPage() {
         setTimeout(() => refreshBond(valCreds.address), 4000)
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Claim failed')
+      setError(e instanceof Error ? explainTxError(e.message) : 'Claim failed')
     } finally {
       setBusy(false)
     }

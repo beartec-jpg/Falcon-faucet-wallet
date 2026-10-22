@@ -9,7 +9,6 @@ export interface PlacedSeat {
   host: string
   locationId: string
   locationLabel: string
-  confirmed: boolean
   note?: string
   pos: Vec3
   /** Rotation about Y: the unit's front faces away from the hub. */
@@ -19,7 +18,6 @@ export interface PlacedSeat {
 export interface PlacedGroup {
   id: string
   label: string
-  confirmed: boolean
   center: Vec3
   /** Platform half-width along the group's tangent. */
   width: number
@@ -71,7 +69,7 @@ export function layoutMap(
     .map((s) => s.id)
     .sort()
   if (extra.length) {
-    locs.push({ id: 'unplaced', label: 'Community validators', confirmed: false, hosts: [{ host: '', seats: extra }] })
+    locs.push({ id: 'unplaced', label: '', hosts: [{ host: '', seats: extra }] })
   }
   const groups = locs.filter((l) => l.hosts.some((h) => h.seats.length))
 
@@ -101,7 +99,6 @@ export function layoutMap(
         note: h.note,
         locationId: g.id,
         locationLabel: g.label,
-        confirmed: g.confirmed,
         pos: [cx + tx * off, GROUP_Y, cz + tz * off],
         yaw: theta,
       })
@@ -109,7 +106,6 @@ export function layoutMap(
     placedGroups.push({
       id: g.id,
       label: g.label,
-      confirmed: g.confirmed,
       center: [cx, GROUP_Y - 0.55, cz],
       width: Math.max(1.2, (n * SEAT_GAP) / 2 + 0.2),
       yaw: theta,

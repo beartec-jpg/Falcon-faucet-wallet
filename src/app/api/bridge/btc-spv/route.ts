@@ -27,7 +27,7 @@ import { walletApiAuthHeaders, walletApiUrl } from '@/lib/walletd'
  */
 
 const FEATURE = 'BitcoinSPVBridge'
-const DEFAULT_RPC = process.env.XRPLD_RPC_URL?.trim() || 'http://46.224.0.140:6005'
+const DEFAULT_RPC = process.env.XRPLD_RPC_URL?.trim() || '' // legacy network 1001 RPC retired; env override only
 
 function errorMessage(e: unknown, fallback: string): string {
   if (e instanceof Error) return e.message
@@ -382,7 +382,7 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json(
       {
-        error: 'Falcon Ledger (network 1001) is shut down. Use Falcon PL 2300.',
+        error: 'Legacy network 1001 is shut down. Use Falcon PL 2300.',
         retired: true,
       },
       { status: 410 },
@@ -565,7 +565,7 @@ export async function POST(req: NextRequest) {
 
   if (action === 'find_redeem') {
     return NextResponse.json(
-      { error: 'Falcon Ledger redeem is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Legacy network 1001 redeem is retired. Use Falcon PL 2300.', retired: true },
       { status: 410 },
     )
   }
@@ -726,7 +726,7 @@ export async function POST(req: NextRequest) {
       }
     }
     return NextResponse.json(
-      { error: 'Falcon Ledger withdraw list is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Legacy network 1001 withdraw list is retired. Use Falcon PL 2300.', retired: true },
       { status: 410 },
     )
     if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account)) {
@@ -775,7 +775,7 @@ export async function POST(req: NextRequest) {
   // SPV peg-out: poll BtcWithdrawal challenge window
   if (action === 'withdraw_status') {
     return NextResponse.json(
-      { error: 'Falcon Ledger withdraw status is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Legacy network 1001 withdraw status is retired. Use Falcon PL 2300.', retired: true },
       { status: 410 },
     )
     const account = (body.account || '').trim()

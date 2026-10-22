@@ -48,10 +48,14 @@ export const PRE_MAINNET_AIRDROP_FPL = 1_000_000_000
 export const RELEASE_PHASE_GIVEAWAY_FPL = 1_000_000_000
 export const FIRST35_SEATS_FPL = 12_000_000
 
-/** Category weights of the release-phase pool (must sum to 1). */
+/**
+ * Category weights of the release-phase pool. Weights are relative (allocation is
+ * score / sum of scores); buffer is held back. Validators are not in the user
+ * scorer: they are paid from the operators pool (config/operators.ts).
+ */
 export const AIRDROP_WEIGHTS = {
-  validator: 0.4,
-  setup: 0.1,
+  validator: 0,
+  setup: 0,
   dexLp: 0.35,
   faucet: 0.1,
   buffer: 0.05,

@@ -9,7 +9,7 @@ import { getNetwork } from '@/lib/networks'
  * Aggregates Falcon BtcBridgeState, hold UTXOs, header lag, withdrawal activity.
  */
 
-const DEFAULT_RPC = process.env.XRPLD_RPC_URL?.trim() || 'http://46.224.0.140:6005'
+const DEFAULT_RPC = process.env.XRPLD_RPC_URL?.trim() || '' // legacy network 1001 RPC retired; env override only
 const FEATURE = 'BitcoinSPVBridge'
 
 const EXPLORERS = {
@@ -161,7 +161,7 @@ export async function GET(req: NextRequest) {
         checked_at: new Date().toISOString(),
         btcNetwork: 'testnet',
         ready: String(btc.spv) === 'bitcoin',
-        message: 'Falcon PL 2300 BTC rail',
+        message: 'Legacy test rail (testnet3, retiring); not the BTC bridge (testnet4 BTC4 activates at ledger height 730,000)',
         amendment: { name: 'FalconPL', supported: true, enabled: true },
         falcon: {
           ledger: Number(st.tip_height ?? st.height ?? 0),
@@ -200,7 +200,7 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json(
       {
-        error: 'Falcon Ledger (network 1001) BTC bridge scan is retired. Use Falcon PL 2300.',
+        error: 'Legacy network 1001 BTC bridge scan is retired. Use Falcon PL 2300.',
         retired: true,
       },
       { status: 410 },

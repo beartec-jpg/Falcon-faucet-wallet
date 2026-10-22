@@ -53,6 +53,7 @@ const COMMUNITY_SUB_ITEMS: { label: string; href: string }[] = [
   { label: 'Feedback', href: '/feedback' },
   { label: 'Learn', href: '/community/learn' },
   { label: 'Validators', href: '/validator' },
+  { label: 'Network health', href: '/network/health' },
 ]
 
 function NavLinks({
@@ -217,7 +218,7 @@ export default function Header({
           <Link
             href="/"
             className="flex items-center gap-3 min-w-0 rounded-lg hover:opacity-90 transition-opacity group"
-            aria-label="Falcon Ledger home"
+            aria-label="Falcon PL home"
             title="Home"
           >
             <span className="w-8 h-8 rounded-lg overflow-hidden shrink-0 ring-1 ring-brand-500/30 group-hover:ring-brand-400/50 transition-shadow">
