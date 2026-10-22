@@ -39,7 +39,7 @@ import {
   readCachedAccountName,
 } from '@/lib/account-name'
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
-import { isKeyBindRefusal, KEY_BIND_HELP } from '@/lib/pl-key-commit'
+import { explainTxError } from '@/lib/pl-key-commit'
 import {
   activationFeeFpl,
   canonicalNameInput,
@@ -1280,7 +1280,7 @@ export default function WalletPage() {
       const out = (await res.json().catch(() => ({}))) as { error?: string; message?: string; success?: boolean }
       if (!res.ok || out.error || out.success === false) {
         const msg = out.error || out.message || `Claim failed (HTTP ${res.status})`
-        throw new Error(isKeyBindRefusal(msg) ? KEY_BIND_HELP : msg)
+        throw new Error(explainTxError(msg))
       }
       // Submit only means "accepted into the mempool". Wait for the claim to be packed
       // (sequence advances) before refreshing, otherwise the old claimable is shown again.
@@ -1786,7 +1786,7 @@ export default function WalletPage() {
                 ),
               })
               const out = (await res.json().catch(() => ({}))) as SubmitResult
-              if (out.error) throw new Error(isKeyBindRefusal(out.error) ? KEY_BIND_HELP : out.error)
+              if (out.error) throw new Error(explainTxError(out.error))
               return out
             })().catch((e: unknown): SubmitResult => ({
               success: false,

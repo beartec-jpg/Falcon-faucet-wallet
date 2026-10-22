@@ -15,7 +15,7 @@ import {
   signPlSwapRoute,
 } from '@/lib/pl-wallet-sign'
 import { fetchSequenceInfo } from '@/lib/wallet-submit'
-import { isKeyBindRefusal, KEY_BIND_HELP } from '@/lib/pl-key-commit'
+import { explainTxError } from '@/lib/pl-key-commit'
 
 type Asset = 'FPL' | 'BTC' | 'ETH' | 'USDC'
 const ASSETS: Asset[] = ['FPL', 'USDC', 'ETH', 'BTC']
@@ -386,7 +386,7 @@ async function submitSigned(tx: { rawJson?: string }, networkKey: string) {
   const out = (await res.json().catch(() => ({}))) as { error?: string; success?: boolean; message?: string }
   if (!res.ok || out.error || out.success === false) {
     const msg = out.error || out.message || `Submit failed (HTTP ${res.status})`
-    throw new Error(isKeyBindRefusal(msg) ? KEY_BIND_HELP : msg)
+    throw new Error(msg)
   }
   return out
 }
@@ -1199,7 +1199,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       setLpAmount('')
       load()
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Failed')
+      setErr(e instanceof Error ? explainTxError(e.message) : 'Failed')
     } finally {
       setBusy(false)
     }
