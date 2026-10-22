@@ -34,6 +34,25 @@ export async function postDiscord(url: string, body: unknown, f: Fetch = fetch):
   }
 }
 
+/** Best-effort mirror to Grok Bot; only when GROKBOT_ALERT_URL is set. Never affects Discord state. */
+export async function postGrokbot(body: unknown, f: Fetch = fetch): Promise<void> {
+  const url = process.env.GROKBOT_ALERT_URL?.trim()
+  if (!url) return
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  const auth = process.env.GROKBOT_ALERT_AUTH?.trim()
+  if (auth) headers.authorization = auth
+  try {
+    await f(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...(body as Obj), allowed_mentions: { parse: [] } }),
+      signal: AbortSignal.timeout(5000),
+    })
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * One cron run: advance state, detect, dedupe, notify. Discord only when
  * DISCORD_HEALTH_WEBHOOK_URL is set; without it nothing is sent and alerts are
@@ -52,7 +71,9 @@ export async function runHealthAlerts(
   let recoveries = 0
   if (webhook) {
     for (const m of discordMessages(s, at, opts.siteUrl ?? SITE_URL)) {
-      if (!(await postDiscord(webhook, m.msg, opts.fetch))) break
+      const ok = await postDiscord(webhook, m.msg, opts.fetch)
+      if (!ok) break
+      await postGrokbot(m.msg, opts.fetch) // mirror only after Discord succeeded
       s = markSent(s, m.fire, m.recover)
       sent += m.fire.length
       recoveries += m.recover

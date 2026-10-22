@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { advanceState, ago, buildHealth, detect, discordMessages, emptyState, reconcile, seatRows, RULES } from '@/lib/network-health'
 import { retiredSeats, RETIRED_SEATS } from '@/config/retired-seats'
 import { memoryHealthStore } from '@/lib/network-health-store'
-import { postDiscord, runHealthAlerts } from '@/lib/network-health-server'
+import { postDiscord, postGrokbot, runHealthAlerts } from '@/lib/network-health-server'
 
 type V = Record<string, unknown>
 const seat = (id: string, o: V = {}): V => ({ id, bond: 50_000, jailed: false, pack_count: 10, pong_fresh: true, last_advertised_tip: 1000, v2: { missed_turns: 0, inactive: false }, ...o })
@@ -126,6 +126,32 @@ describe('runHealthAlerts', () => {
       throw new Error('net')
     })
     expect(await postDiscord('https://x', {}, f as never)).toBe(false)
+  })
+  it('grokbot mirror: only when env set, after a successful Discord post, with whole-value auth', async () => {
+    const calls: { url: string; init: RequestInit }[] = []
+    let ok = false
+    const f = vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init })
+      return { ok } as Response
+    })
+    vi.stubEnv('GROKBOT_ALERT_URL', 'https://grok.test/alert')
+    vi.stubEnv('GROKBOT_ALERT_AUTH', 'Bearer t')
+    try {
+      const opts = { store: memoryHealthStore(), webhook: 'https://discord.test/hook', fetch: f as never }
+      await runHealthAlerts(lagging, 0, opts) // Discord fails -> no mirror
+      expect(calls.map((c) => c.url)).toEqual(['https://discord.test/hook'])
+      ok = true
+      await runHealthAlerts(lagging, MIN, opts)
+      expect(calls.map((c) => c.url)).toEqual(['https://discord.test/hook', 'https://discord.test/hook', 'https://grok.test/alert'])
+      const g = calls[2].init
+      expect((g.headers as Record<string, string>).authorization).toBe('Bearer t')
+      expect(JSON.parse(String(g.body))).toEqual(JSON.parse(String(calls[1].init.body)))
+      vi.stubEnv('GROKBOT_ALERT_URL', '')
+      await postGrokbot({}, f as never)
+      expect(calls).toHaveLength(3)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })
 

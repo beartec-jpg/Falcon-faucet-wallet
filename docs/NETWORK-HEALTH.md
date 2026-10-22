@@ -25,6 +25,7 @@
 - A failed post is retried on the next run.
 - If the env var is unset, nothing is posted. Alerts still show on the page, and turning the webhook on later does not replay them.
 - Mentions are disabled.
+- Optional mirror: if `GROKBOT_ALERT_URL` is set, each message that Discord accepted is also POSTed there as the same JSON, with `GROKBOT_ALERT_AUTH` (if set) as the whole `Authorization` header. Best effort: a mirror failure is ignored and never causes a Discord retry.
 - Detection runs on the 5-min cron, so a stall is reported 3–8 min after the last block.
 
 **Retired seats**:
