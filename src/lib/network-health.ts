@@ -31,6 +31,10 @@ export interface SeatRow {
   status: SeatStatus
   height: number | null
   lag: number | null
+  /** The advertised height (a peer's last pong, which can freeze while that link is
+   * stuck) says the seat is behind, but the seat sealed a block since the previous
+   * sample, so the reading is stale and the seat is not counted as behind. */
+  heightStale: boolean
   /** Unix ms of the cron sample where this seat's pack_count last went up (null = not seen yet). */
   lastProposalAt: number | null
   /** Seats do not report their version to the public status; blank until they do. */
@@ -84,6 +88,11 @@ export function seatRows(st: Obj, state: HealthState, retired: Set<string> = ret
       const adv = num(v.last_advertised_tip)
       const height = adv && adv > 0 ? adv : null
       const lag = tip != null && height != null ? Math.max(0, tip - height) : null
+      // pack_count is ledger-derived (bumped when a block it sealed commits) while
+      // last_advertised_tip comes from pongs. A seat whose pack_count rose in this
+      // sample is at tip whatever its pong reading says.
+      const pk = state.packs[id]
+      const heightStale = lag != null && lag > RULES.lagBlocks && pk?.at != null && state.updatedAt != null && pk.at === state.updatedAt
       const jailed = v.jailed === true
       const inactive = v2.inactive === true
       const fresh = v.pong_fresh === true || online.has(id)
@@ -91,7 +100,7 @@ export function seatRows(st: Obj, state: HealthState, retired: Set<string> = ret
         ? 'jailed'
         : inactive
           ? 'inactive'
-          : lag != null && lag > RULES.lagBlocks
+          : lag != null && lag > RULES.lagBlocks && !heightStale
             ? 'syncing'
             : v.pong_fresh === false && !online.has(id)
               ? 'offline'
@@ -103,6 +112,7 @@ export function seatRows(st: Obj, state: HealthState, retired: Set<string> = ret
         status,
         height,
         lag,
+        heightStale,
         lastProposalAt: state.packs[id]?.at ?? null,
         version: str(v.product_version) || null,
         workShare: share.has(id) ? (share.get(id) as number) : null,
@@ -163,7 +173,7 @@ export function detect(st: Obj, state: HealthState, rows: SeatRow[], at: number)
   for (const r of rows) {
     if (r.status === 'jailed') out.push({ key: `seat:${r.id}:jailed`, severity: 'critical', title: `${r.id} jailed`, detail: `${r.id} is jailed${r.missedTurns != null ? `, ${r.missedTurns}/20 missed turns` : ''}` })
     else if (r.status === 'inactive') out.push({ key: `seat:${r.id}:inactive`, severity: 'warning', title: `${r.id} inactive`, detail: `${r.id} is inactive${r.missedTurns != null ? ` (${r.missedTurns}/20 missed turns)` : ''}` })
-    else if (r.lag != null && r.lag > RULES.lagBlocks)
+    else if (r.lag != null && r.lag > RULES.lagBlocks && !r.heightStale)
       out.push({ key: `seat:${r.id}:lag`, severity: 'warning', title: `${r.id} falling behind`, detail: `${r.id} is ${fmtN(r.lag)} blocks behind (height ${fmtN(r.height)}, tip ${fmtN(tip)})` })
   }
   return out

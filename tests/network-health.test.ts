@@ -203,3 +203,29 @@ describe('missed turns only when known', () => {
     expect(d['seat:v33:jailed']).toBe('v33 is jailed')
   })
 })
+
+describe('stale height reading (v10, 23 Oct)', () => {
+  const vals = (adv: number, packs: number) => [seat('v1', { last_advertised_tip: 2000 }), seat('v10', { last_advertised_tip: adv, pack_count: packs })]
+  const v10 = (st: Record<string, unknown>, s: ReturnType<typeof emptyState>) => seatRows(st, s).find((x) => x.id === 'v10')!
+  it('seat that sealed a block this sample is not "behind" off a frozen pong reading', () => {
+    let s = advanceState(status(1000, vals(1000, 5)), emptyState(), 0)
+    const st = status(1040, vals(1000, 6))
+    s = advanceState(st, s, 5 * MIN)
+    expect(v10(st, s)).toMatchObject({ heightStale: true, status: 'active', lag: 40 })
+    expect(detect(st, s, seatRows(st, s), 5 * MIN).map((a) => a.key)).not.toContain('seat:v10:lag')
+    expect(buildHealth(st, s, [], 5 * MIN).behind).toEqual([])
+  })
+  it('seat that has not sealed since the last sample still fires', () => {
+    let s = advanceState(status(1000, vals(1000, 5)), emptyState(), 0)
+    s = advanceState(status(1040, vals(1000, 6)), s, 5 * MIN)
+    const st = status(1080, vals(1000, 6))
+    s = advanceState(st, s, 10 * MIN)
+    expect(v10(st, s)).toMatchObject({ heightStale: false, status: 'syncing' })
+    expect(detect(st, s, seatRows(st, s), 10 * MIN).map((a) => a.key)).toContain('seat:v10:lag')
+  })
+  it('first sighting is not enough to call a reading stale', () => {
+    const st = status(1040, vals(1000, 6))
+    const s = advanceState(st, emptyState(), 0)
+    expect(v10(st, s)).toMatchObject({ heightStale: false, status: 'syncing' })
+  })
+})
