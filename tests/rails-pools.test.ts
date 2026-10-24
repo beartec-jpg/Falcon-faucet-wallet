@@ -102,10 +102,11 @@ describe('pools', () => {
 })
 
 describe('activity index', () => {
-  it('excludes validators, bond accounts, watchers, faucet and loadgen', () => {
-    const ex = exclusionSet(st)
-    for (const a of ['v1', 'falcon-node', 'falcon-node-bond', 'watcher-browser', 'faucet', 'loadgen', 'lg-7', 'bench_1']) expect(isExcluded(a, ex)).toBe(true)
-    for (const a of ['dave', 'sally', 'scott.reynolds.123']) expect(isExcluded(a, ex)).toBe(false)
+  it('excludes validators, bond accounts, watchers, faucet and loadgen while allowing nodesafe', () => {
+    const stWithNodesafe = { ...st, validators: [...(st.validators as unknown[]), { id: 'nodesafe', bond: 50000 }] }
+    const ex = exclusionSet(stWithNodesafe)
+    for (const a of ['v1', 'falcon-node', 'falcon-node-bond', 'nodesafe-bond', 'watcher-browser', 'faucet', 'loadgen', 'lg-7', 'bench_1']) expect(isExcluded(a, ex)).toBe(true)
+    for (const a of ['dave', 'sally', 'scott.reynolds.123', 'nodesafe']) expect(isExcluded(a, ex)).toBe(false)
   })
 
   it('records rail events, time-weights LP and lending, caps every component', async () => {

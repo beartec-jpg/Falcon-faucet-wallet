@@ -39,6 +39,37 @@ describe('classification', () => {
     for (const n of ['dave', 'sally', 'scott.reynolds.123', 'testing', 'alexcrypto19']) expect(k(n)).toBe('user')
   })
 
+  it('allows nodesafe onto the user wallet board while keeping it on the operators board and keeping other validators as operator', () => {
+    const stWithNodesafe = {
+      ...st,
+      validators: [...(st.validators as unknown[]), { id: 'nodesafe', bond: 50000, online: true, jailed: false, pack_count: 100 }],
+      epoch_proposer_credits: { ...(st.epoch_proposer_credits as object), nodesafe: 10 },
+      epoch_verifier_credits: { ...(st.epoch_verifier_credits as object), nodesafe: 20 },
+    }
+    const ctxN = statusContext(stWithNodesafe)
+    expect(classify('nodesafe', ctxN).kind).toBe('user')
+    expect(classify('nodesafe-bond', ctxN).kind).toBe('system')
+    for (const n of ['v1', 'v13', 'falcon-node', 'scottspersonalnode']) expect(classify(n, ctxN).kind).toBe('operator')
+
+    const days: ActiveDay[] = [
+      { account: 'nodesafe', day: day(0), source: 'tx' },
+      { account: 'nodesafe', day: day(1), source: 'lp' },
+    ]
+    const inp = input({
+      st: stWithNodesafe,
+      days,
+      activity: [acct('nodesafe', { tx_count: 34, lp_fpl_hours: 500, lend_fpl_hours: 100 })],
+    })
+    const res = buildTracker(inp)
+    expect(res.board.map((r) => r.account)).toContain('nodesafe')
+    expect(res.operators.map((o) => o.id)).toContain('nodesafe')
+    const view = accountView('nodesafe', inp, res)
+    expect(view.classification.kind).toBe('user')
+    expect(view.row?.score).toBeGreaterThan(0)
+    expect(view.rank).toBe(1)
+    expect(view.operator?.id).toBe('nodesafe')
+  })
+
   it('discovers accounts from status, the index and faucet claims', () => {
     const names = discoverAccounts(st, { activity: [acct('sally')], events: [], days: [], faucet: [{ account: 'newbie', day: day(1), claims: 1 }] })
     expect(names).toEqual(expect.arrayContaining(['v1', 'falcon-node-bond', 'faucet', 'dave', 'sally', 'newbie']))

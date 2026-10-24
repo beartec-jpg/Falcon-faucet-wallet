@@ -14,6 +14,12 @@ export const TRACKER_CONFIG = {
     'watcher-brain', 'watcher-falcon2',
   ] as string[],
   systemPatterns: [/^watcher-/i, /-bond$/i] as RegExp[],
+  /**
+   * Validator seat accounts explicitly allowed onto the user wallet activity
+   * leaderboard in addition to the operators board (e.g. nodesafe, which used
+   * its validator seat account for user DeFi/wallet activity).
+   */
+  userBoardValidators: ['nodesafe'] as readonly string[],
   /** Load generators, node-generated load wallets, smoke tests and benchmarks. */
   harnessPatterns: [
     /^w\d{2,4}$/i,

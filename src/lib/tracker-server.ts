@@ -8,7 +8,8 @@ import { activityStore, type ActivityStore } from '@/lib/activity-index'
 import { pgFaucetSource, type FaucetSource } from '@/lib/faucet-activity'
 import { parseExact } from '@/lib/pl-exact-json'
 import { plRpc } from '@/lib/pl-rpc'
-import { statusExact } from '@/lib/rails-pools-server'
+import { TRACKER_CONFIG } from '@/config/tracker'
+import { runActivityIndex, statusExact } from '@/lib/rails-pools-server'
 import { ACCOUNT_NAME_RE, accountView, buildTracker, windowStart, type TrackerInput, type TrackerResult } from '@/lib/tracker'
 
 type Obj = Record<string, unknown>
@@ -22,7 +23,7 @@ export async function trackerData(opts: { store?: ActivityStore; faucet?: Faucet
   const store = opts.store ?? activityStore()
   const faucet = opts.faucet ?? pgFaucetSource()
   const since = windowStart(now)
-  const [st, activity, events, days, fdays, links, swaps, arcade] = await Promise.all([
+  let [st, activity, events, days, fdays, links, swaps, arcade] = await Promise.all([
     opts.status ? Promise.resolve(opts.status) : statusExact(),
     store.accounts(),
     store.events(),
@@ -32,6 +33,21 @@ export async function trackerData(opts: { store?: ActivityStore; faucet?: Faucet
     swapsSince(since),
     arcadeDaysByPlAccount('testnet', since),
   ])
+  if (!opts.status) {
+    const needsBootstrap = TRACKER_CONFIG.userBoardValidators.some((v) => {
+      const a = activity.find((x) => x.account === v)
+      if (!a) return true
+      return a.lp_fpl_hours === 0 && (a.last_lp_fpl > 0 || a.last_lend_fpl > 0) && now - a.last_at >= 30_000
+    })
+    if (needsBootstrap) {
+      try {
+        await runActivityIndex(now, store)
+        ;[activity, events, days] = await Promise.all([store.accounts(), store.events(), store.activeDays(since)])
+      } catch {
+        // Fallback to existing store data if on-demand indexing fails.
+      }
+    }
+  }
   let feedback: ApprovedFeedback[] = []
   try {
     feedback = await feedbackStore().approved()
