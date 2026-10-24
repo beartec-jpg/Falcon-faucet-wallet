@@ -142,6 +142,7 @@ import {
 } from '@/lib/create-xrpl-classic-wallet'
 import {
   isValidBtcP2pkh,
+  isValidBtcAddress,
   sendBtcP2pkh,
   type BtcBalance,
 } from '@/lib/btc-client'
@@ -166,6 +167,13 @@ interface TxRecord {
 }
 
 interface WalletAssets {
+  fbtc?: {
+    symbol?: string
+    balance: number
+    currency?: string
+    issuer?: string
+    hasTrustLine?: boolean
+  }
   fusdc: {
     symbol: string
     balance: number
@@ -1426,8 +1434,8 @@ export default function WalletPage() {
           setError('Bitcoin wallet not set up — open Multi-chain to provision keys')
           return
         }
-        if (!isValidBtcP2pkh(to, 'testnet')) {
-          setError('Invalid Bitcoin testnet address (expect m… or n… P2PKH)')
+        if (!isValidBtcAddress(to, 'testnet')) {
+          setError('Invalid Bitcoin Testnet4 address (expect tb1… or m… / n…)')
           return
         }
         if (to === wallet.btcAddress) {
@@ -1656,9 +1664,9 @@ export default function WalletPage() {
     )
     const fbnbBal = fbnbTok?.balance ?? 0
     const fbtcTok = account!.assets?.tokens?.find(
-      (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+      (t) => t.currency === 'BTC4' || t.currency === 'BTC' || t.symbol === 'FBTC',
     )
-    const fbtcBal = fbtcTok?.balance ?? 0
+    const fbtcBal = account!.assets?.fbtc?.balance ?? fbtcTok?.balance ?? 0
 
     const isPlDest = /^[A-Za-z0-9._-]{2,64}$/.test(to)
     if (!isValidFalconAddress(to) && !(network.networkId === 2300 && isPlDest)) {
@@ -1750,7 +1758,7 @@ export default function WalletPage() {
               const seq = await fetchSequence()
               const rail =
                 sendAsset === 'fbtc'
-                  ? { asset: 'BTC' as const, amount: decimalToBaseUnits(sendAmount, 8) }
+                  ? { asset: 'BTC4' as const, amount: decimalToBaseUnits(sendAmount, 8) }
                   : sendAsset === 'feth'
                     ? { asset: 'ETH' as const, amount: decimalToBaseUnits(sendAmount, 18) }
                     : sendAsset === 'fusdc'
@@ -2964,9 +2972,9 @@ export default function WalletPage() {
                         }
                       } else if (asset.id === 'fbtc') {
                         const fbtcTok = account?.assets?.tokens?.find(
-                          (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+                          (t) => t.currency === 'BTC4' || t.currency === 'BTC' || t.symbol === 'FBTC',
                         )
-                        balanceLabel = (fbtcTok?.balance ?? 0).toLocaleString(undefined, {
+                        balanceLabel = (account?.assets?.fbtc?.balance ?? fbtcTok?.balance ?? 0).toLocaleString(undefined, {
                           maximumFractionDigits: 8,
                         })
                         if (fbtcTok?.spvMpt) {
@@ -3500,7 +3508,7 @@ export default function WalletPage() {
                       : receiveAssetId === 'bnb'
                         ? 'Same 0x as ETH. On BSC testnet this receives BNB. There is no public Falcon dest-lock for BNB.'
                       : receiveAssetId === 'btc'
-                        ? 'Native Bitcoin testnet3 P2PKH address (legacy test rail, retiring). Only send testnet BTC. Not the testnet4 BTC4 bridge.'
+                        ? 'Native Bitcoin Testnet4 address (mempool.space/testnet4). Send Testnet4 BTC here to hold, send, or bridge to FBTC (BTC4 BitVM2).'
                       : receiveAssetId === 'xrp'
                         ? 'Classic XRP Ledger (today’s XRPL). Separate r… from Falcon. Fund via XRPL testnet faucet.'
                         : 'Native multi-chain deposit address.'}
@@ -3580,8 +3588,8 @@ export default function WalletPage() {
                     setShowSendScanner(false)
                     if (sendAsset === 'btc') {
                       const t = raw.trim()
-                      if (!isValidBtcP2pkh(t, 'testnet')) {
-                        setError('QR does not contain a valid Bitcoin testnet address (m…/n…)')
+                      if (!isValidBtcAddress(t, 'testnet')) {
+                        setError('QR does not contain a valid Bitcoin Testnet4 address (tb1… or m…/n…)')
                         return
                       }
                       setSendTo(t)
@@ -3641,7 +3649,7 @@ export default function WalletPage() {
                     </button>
                     <h3 className="font-semibold text-white text-sm">
                       {sendAsset === 'btc'
-                        ? 'Send Bitcoin (testnet)'
+                        ? 'Send Bitcoin (Testnet4)'
                         : sendAsset === 'bnb'
                           ? 'Send BNB (BSC testnet)'
                           : sendAsset === 'eth'
@@ -3696,7 +3704,7 @@ export default function WalletPage() {
                   {(sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth' || sendAsset === 'usdc') && (
                     <p className="text-[11px] text-slate-500 leading-snug">
                       {sendAsset === 'btc'
-                        ? 'Signed in-browser · broadcast via Blockstream/Mempool testnet API. Keys never leave this device.'
+                        ? 'Signed in-browser · broadcast via Mempool Testnet4 API. Keys never leave this device.'
                         : sendAsset === 'bnb'
                           ? 'Same 0x key as ETH · BSC testnet. Keys stay encrypted under your passkey.'
                           : sendAsset === 'usdc'
@@ -3761,7 +3769,7 @@ export default function WalletPage() {
                       <div className="space-y-1.5">
                         <label className="text-xs text-slate-400">
                           {sendAsset === 'btc'
-                            ? 'Destination (testnet m… / n…)'
+                            ? 'Destination (Testnet4 tb1… or m… / n…)'
                             : sendAsset === 'eth' || sendAsset === 'bnb' || sendAsset === 'usdc'
                               ? 'Destination (0x…)'
                               : sendAsset === 'xrp'
@@ -3775,7 +3783,7 @@ export default function WalletPage() {
                             onChange={e => { setSendTo(e.target.value); setError(null) }}
                             placeholder={
                               sendAsset === 'btc'
-                                ? 'm… or n…'
+                                ? 'tb1… or m… / n…'
                                 : sendAsset === 'eth' || sendAsset === 'bnb' || sendAsset === 'usdc'
                                   ? '0x…'
                                   : sendAsset === 'xrp'
@@ -3897,15 +3905,17 @@ export default function WalletPage() {
                             <span>
                               Available:{' '}
                               {(
+                                account.assets?.fbtc?.balance ??
                                 account.assets?.tokens?.find(
-                                  (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+                                  (t) => t.currency === 'BTC4' || t.currency === 'BTC' || t.symbol === 'FBTC',
                                 )?.balance ?? 0
                               ).toLocaleString(undefined, { maximumFractionDigits: 8 })}{' '}
                               FBTC
                             </span>
                             {(
+                              account.assets?.fbtc?.balance ??
                               account.assets?.tokens?.find(
-                                (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+                                (t) => t.currency === 'BTC4' || t.currency === 'BTC' || t.symbol === 'FBTC',
                               )?.balance ?? 0
                             ) > 0 && (
                               <button
@@ -3913,9 +3923,10 @@ export default function WalletPage() {
                                 onClick={() =>
                                   setSendAmount(
                                     String(
+                                      account.assets?.fbtc?.balance ??
                                       account.assets!.tokens!.find(
-                                        (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
-                                      )!.balance,
+                                        (t) => t.currency === 'BTC4' || t.currency === 'BTC' || t.symbol === 'FBTC',
+                                      )?.balance ?? 0,
                                     ),
                                   )
                                 }

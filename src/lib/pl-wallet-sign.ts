@@ -166,8 +166,8 @@ export async function signPlPay(opts: {
 
 export async function signPlSwapRoute(opts: {
   account: string
-  tokenIn: 'FPL' | 'BTC' | 'ETH' | 'USDC'
-  tokenOut: 'FPL' | 'BTC' | 'ETH' | 'USDC'
+  tokenIn: 'FPL' | 'BTC' | 'BTC4' | 'ETH' | 'USDC'
+  tokenOut: 'FPL' | 'BTC' | 'BTC4' | 'ETH' | 'USDC'
   amountIn: string
   minOut: string
   sequence: number
@@ -294,7 +294,7 @@ export async function signPlLend(opts: {
 export async function signPlAssetPay(opts: {
   account: string
   destination: string
-  asset: 'BTC' | 'ETH' | 'USDC'
+  asset: 'BTC' | 'BTC4' | 'ETH' | 'USDC'
   amount: string
   sequence: number
   fee?: number

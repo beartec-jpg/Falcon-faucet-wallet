@@ -7,8 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const EXPLORERS: Record<string, string[]> = {
   testnet: [
-    'https://blockstream.info/testnet/api',
-    'https://mempool.space/testnet/api',
+    'https://mempool.space/testnet4/api',
   ],
   mainnet: [
     'https://blockstream.info/api',
@@ -19,7 +18,14 @@ const EXPLORERS: Record<string, string[]> = {
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
 function isPlausibleP2pkh(addr: string, network: string): boolean {
-  if (!addr || addr.length < 26 || addr.length > 35) return false
+  if (!addr) return false
+  if (network === 'testnet' && /^tb1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{25,90}$/i.test(addr)) {
+    return true
+  }
+  if (network === 'mainnet' && /^bc1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{25,90}$/i.test(addr)) {
+    return true
+  }
+  if (addr.length < 26 || addr.length > 35) return false
   for (const ch of addr) {
     if (!B58.includes(ch)) return false
   }
