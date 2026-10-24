@@ -604,7 +604,7 @@ export default function LendPage() {
           <p className="mt-4 text-[11px] text-slate-500">
             Lending on Falcon PL has no interest rate yet. Suppliers earn the 20% lending share of each
             epoch&apos;s emission, pro rata to each supplier&apos;s lend weight and capped at 0.5% of the emission per account.
-            See <a href="/rewards" className="underline">Rewards</a> for your projected share and to claim.
+            See <a href="/airdrop?tab=claim" className="underline">Rewards</a> for your projected share and to claim.
           </p>
         </main>
       </ProductShell>

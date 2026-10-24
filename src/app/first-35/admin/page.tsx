@@ -197,7 +197,7 @@ export default function First35Admin() {
           {rows.length === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-700 p-8 text-center text-sm text-slate-400 space-y-2">
               <p className="text-slate-200 font-medium">No entries yet.</p>
-              <p>Applications arrive here when people submit the public form on <a href="/first-35" className="text-[#D4922A] hover:underline">/first-35</a>.</p>
+              <p>Applications arrive here when people submit the public form on <a href="/airdrop?tab=first35" className="text-[#D4922A] hover:underline">/first-35</a>.</p>
               <p>You can also add someone manually with <button onClick={() => setAdding(true)} className="text-[#D4922A] hover:underline">+ Add entry</button>, then approve them and assign a seat.</p>
             </div>
           ) : shown.length === 0 ? (

@@ -139,7 +139,7 @@ function OperatorsTable({ rows }: { rows: OperatorRow[] }) {
   )
 }
 
-export function TrackerBoard() {
+export function TrackerBoard({ hideOperatorsTab = false }: { hideOperatorsTab?: boolean } = {}) {
   const { d, err } = useTracker()
   const [view, setView] = useState<View>('overall')
   if (!d) return <Status err={err} what="testnet activity" />
@@ -153,7 +153,7 @@ export function TrackerBoard() {
           { id: 'defi' as View, label: 'DeFi' },
           { id: 'consistency' as View, label: 'Consistency' },
           { id: 'faucet' as View, label: 'Faucet' },
-          { id: 'operators' as View, label: 'Operators' },
+          ...(hideOperatorsTab ? [] : [{ id: 'operators' as View, label: 'Operators' }]),
         ]}
         cur={view}
         set={setView}

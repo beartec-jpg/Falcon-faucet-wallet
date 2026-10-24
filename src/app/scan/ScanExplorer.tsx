@@ -1,7 +1,6 @@
 'use client'
 
 import { PoolsView, RailsView } from '@/components/explorer/RailsPoolsTabs'
-import { TrackerBoard } from '@/components/explorer/TrackerBoard'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Header from '@/components/Header'
@@ -202,7 +201,7 @@ function Row({ k, v }: { k: string; v: string }) {
 }
 
 
-type ScanTab = 'network' | 'rails' | 'pools' | 'activity'
+type ScanTab = 'network' | 'rails' | 'pools'
 type ChartTarget = { kind: 'net'; key: string } | { kind: 'seat'; id: string; metric: SeatMetric }
 
 export default function ScanExplorer({
@@ -261,6 +260,17 @@ export default function ScanExplorer({
   }, [])
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const q = new URLSearchParams(window.location.search).get('tab')
+      if (q === 'activity' || q === 'leaderboard') {
+        window.location.replace('/airdrop')
+        return
+      }
+      if (q === 'operators') {
+        window.location.replace('/airdrop?tab=operators')
+        return
+      }
+    }
     if (initialData) setLastUpdate(new Date())
     if (!initialData) void fetchData()
     timerRef.current = setInterval(fetchData, POLL_MS)
@@ -295,7 +305,6 @@ export default function ScanExplorer({
               { id: 'network' as const, label: 'Network' },
               { id: 'rails' as const, label: 'Rails' },
               { id: 'pools' as const, label: 'Pools' },
-              { id: 'activity' as const, label: 'Activity' },
             ] as const
           ).map((t) => (
             <button
@@ -317,14 +326,12 @@ export default function ScanExplorer({
           >
             Live network map ↗
           </a>
-          {tab === 'activity' && (
-            <a
-              href="/first-35"
-              className="px-4 py-2 rounded-lg text-sm font-medium border border-[#D4922A]/40 text-[#D4922A] hover:bg-[#D4922A]/10 transition-colors"
-            >
-              The First 35 →
-            </a>
-          )}
+          <a
+            href="/airdrop"
+            className="px-4 py-2 rounded-lg text-sm font-medium border border-[#D4922A]/40 text-[#D4922A] hover:bg-[#D4922A]/10 transition-colors"
+          >
+            Airdrop &amp; Leaderboards →
+          </a>
           {lastUpdate && tab === 'network' && (
             <span className="ml-auto self-center text-[10px] text-slate-600 font-mono">
               live · {lastUpdate.toLocaleTimeString()}
@@ -334,7 +341,6 @@ export default function ScanExplorer({
 
         {tab === 'rails' && <RailsView />}
         {tab === 'pools' && <PoolsView />}
-        {tab === 'activity' && <TrackerBoard />}
 
         {tab === 'network' && error && (
           <div className="card p-4 border-red-900 bg-red-950/30 text-red-400 text-sm">

@@ -119,7 +119,7 @@ async function submitSigned(tx: { rawJson?: string }, networkKey: string) {
   return out
 }
 
-export default function PlRewards() {
+export default function PlRewards({ embedded = false }: { embedded?: boolean } = {}) {
   const { network } = useNetwork()
   const [wallet, setWallet] = useState<StoredWallet | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -189,10 +189,10 @@ export default function PlRewards() {
   const canClaim = Boolean(me && !me.isSeat && BigInt(me.claimable || '0') > 0n)
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
+    <div className={embedded ? 'space-y-6' : 'mx-auto max-w-5xl space-y-6 px-4 py-8'}>
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-400/90">Falcon PL 2300</p>
-        <h1 className="mt-1 text-2xl font-semibold text-white">Rewards</h1>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-400/90">Falcon PL 2300 · Epoch Emissions</p>
+        <h2 className="mt-1 text-xl font-semibold text-white">Claim Epoch Rewards</h2>
         <p className="mt-1 text-sm text-slate-400">
           Each 7-day epoch the chain emits {data ? (data.emissionBps / 100).toFixed(2) : '0.30'}% of the treasury
           (about {data ? data.emissionPctPerYear.toFixed(1) : '14.5'}% a year of what is left). 55% validators, 20% AMM
@@ -312,7 +312,7 @@ export default function PlRewards() {
 
       {data && (
         <div className="card overflow-x-auto bg-slate-900/70 p-5">
-          <h3 className="mb-3 text-sm font-semibold text-white">Validator seats</h3>
+          <h3 className="mb-3 text-sm font-semibold text-white">Validator seats (epoch emissions)</h3>
           <table className="w-full text-left font-mono text-xs">
             <thead className="text-slate-500">
               <tr>
@@ -326,7 +326,11 @@ export default function PlRewards() {
             <tbody>
               {data.seats.map((s) => (
                 <tr key={s.id} className="border-t border-slate-800 text-slate-300">
-                  <td className="py-1 pr-3">{s.id}</td>
+                  <td className="py-1 pr-3">
+                    <Link href={`/scan/account/${encodeURIComponent(s.id)}`} className="text-brand-300 hover:underline">
+                      {s.id}
+                    </Link>
+                  </td>
                   <td className={`py-1 pr-3 ${s.jailed ? 'text-amber-400' : 'text-emerald-400'}`}>{s.jailed ? 'jailed' : 'active'}</td>
                   <td className="py-1 pr-3 text-right">{fpl(s.packTxsEpoch)}</td>
                   <td className="py-1 pr-3 text-right">{short(s.claimable)}</td>

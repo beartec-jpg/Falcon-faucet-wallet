@@ -449,7 +449,7 @@ export default function ValidatorPage() {
             </tbody>
           </table>
           <p className="mt-2 text-[11px] text-slate-500">
-            Live per-account numbers: <Link href="/rewards" className="text-brand-400 hover:underline">Rewards</Link>. Explorer: <Link href="/scan" className="text-brand-400 hover:underline">Scan</Link>.
+            Live per-account numbers: <Link href="/airdrop?tab=claim" className="text-brand-400 hover:underline">Rewards</Link>. Explorer: <Link href="/scan" className="text-brand-400 hover:underline">Scan</Link>.
           </p>
         </section>
 

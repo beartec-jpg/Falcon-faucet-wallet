@@ -87,7 +87,7 @@ export default async function AirdropFaqPage() {
       ))}
       <p className="text-slate-400">
         More: <A href="/airdrop">community allocation</A>. Scoring details: <A href="/scan/methodology">how activity is counted</A>. Seats:{' '}
-        <A href="/first-35">First 35</A>. Nodes: <A href="/community/validators/run-a-node">run a node</A>.
+        <A href="/airdrop?tab=first35">First 35</A>. Nodes: <A href="/community/validators/run-a-node">run a node</A>.
       </p>
     </ContentPage>
   )

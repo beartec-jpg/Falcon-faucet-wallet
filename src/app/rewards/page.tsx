@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
@@ -1015,13 +1016,21 @@ function LegacyRewardsPage() {
   )
 }
 
-/** Falcon PL 2300 reads the live chain; other networks keep the legacy XRPL view. */
+/** Falcon PL 2300 redirects to the unified Airdrop hub (/airdrop?tab=claim); other networks keep the legacy XRPL view. */
 export default function RewardsPage() {
   const { network } = useNetwork()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (network.networkId === 2300) {
+      router.replace('/airdrop?tab=claim')
+    }
+  }, [network.networkId, router])
+
   if (network.networkId === 2300) {
     return (
       <ProductShell intensity={0.4}>
-        <Header current="wallet" subtitle="Rewards · claim · epoch economy" />
+        <Header current="airdrop" subtitle="Airdrop · Community" />
         <NetworkBanner />
         <PlRewards />
       </ProductShell>
