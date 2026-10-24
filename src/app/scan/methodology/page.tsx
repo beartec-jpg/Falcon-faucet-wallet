@@ -26,9 +26,13 @@ const ROWS: [string, number, string][] = [
 export default function MethodologyPage() {
   return (
     <ProductShell intensity={0.4} className="bg-slate-950 text-slate-100">
-      <Header current="scan" subtitle="Falcon PL · 2300" />
+      <Header current="airdrop" subtitle="Airdrop · Rewards & Leaderboards" />
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-10 space-y-6 text-sm text-slate-300">
-        <Link href="/scan" className="text-xs text-slate-500 hover:text-slate-300">← Explorer</Link>
+        <div className="flex items-center gap-3 text-xs">
+          <Link href="/airdrop" className="text-slate-400 hover:text-slate-200">← Airdrop &amp; Leaderboards</Link>
+          <span className="text-slate-700">·</span>
+          <Link href="/scan" className="text-slate-500 hover:text-slate-300">Explorer</Link>
+        </div>
         <h1 className="text-2xl font-semibold" style={{ color: '#E0DBCA' }}>Testnet activity: how it&apos;s counted</h1>
         <p>
           The testnet activity leaderboard measures how accounts use Falcon PL testnet 2300.
@@ -37,7 +41,7 @@ export default function MethodologyPage() {
           Under the proposed model, a frozen snapshot of these scores may be used for a pre-mainnet airdrop from the community
           bucket, with validators in a separate operators pool. Nothing is promised and every rule is subject to change. See the{' '}
           <Link href="/airdrop" className="hover:underline" style={{ color: '#D4922A' }}>community allocation</Link> page. The{' '}
-          <Link href="/first-35" className="hover:underline" style={{ color: '#D4922A' }}>First 35</Link> prize seats are a separate programme.
+          <Link href="/airdrop?tab=first35" className="hover:underline" style={{ color: '#D4922A' }}>First 35</Link> prize seats are a separate programme.
         </p>
         <section className="rounded-xl border border-slate-800 p-4" style={{ background: '#0F172A' }}>
           <h2 className="text-[11px] font-semibold uppercase tracking-widest mb-3" style={{ color: '#D4922A' }}>Categories (100 points)</h2>

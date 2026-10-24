@@ -70,7 +70,9 @@ export default function AccountProfile({ name }: { name: string }) {
       <Header current="scan" subtitle="Falcon PL · 2300" />
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-8 space-y-5">
         <div className="flex flex-wrap items-baseline gap-3">
-          <Link href="/scan" className="text-xs text-slate-500 hover:text-slate-300">← Explorer</Link>
+          <Link href="/airdrop" className="text-xs text-slate-500 hover:text-slate-300">← Airdrop &amp; Leaderboards</Link>
+          <span className="text-xs text-slate-700">·</span>
+          <Link href="/scan" className="text-xs text-slate-500 hover:text-slate-300">Explorer</Link>
           <h1 className="text-2xl font-semibold break-all" style={{ ...mono, color: C.cream }}>{name}</h1>
           {p && (
             <span className="text-xs px-2 py-0.5 rounded border" style={{ borderColor: C.copper, color: C.gold }}>{KIND_LABEL[p.classification.kind]}</span>

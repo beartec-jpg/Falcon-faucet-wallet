@@ -42,7 +42,6 @@ const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'pool', label: 'Pool', href: '/pool' },
   { key: 'lend', label: 'Lend', href: '/lend' },
   { key: 'airdrop', label: 'Airdrop', href: '/airdrop' },
-  { key: 'first35', label: 'First 35', href: '/first-35' },
   { key: 'community', label: 'Community', href: '/community' },
   { key: 'whitepaper', label: 'Whitepaper', href: '/whitepaper' },
 ]
@@ -114,7 +113,8 @@ function NavLinks({
   )
 
   function navItem(item: (typeof NAV_ITEMS)[number]) {
-        const isActive = item.key === current
+        const activeKey = current === 'first35' ? 'airdrop' : current
+        const isActive = item.key === activeKey
         const itemClass = 'px-2.5 sm:px-3 py-1.5 rounded-lg whitespace-nowrap scroll-mx-4'
         if (isActive) {
           return (
@@ -194,7 +194,7 @@ export default function Header({
           ? 'Pool · fUSDC / FPL'
           : current === 'lend'
             ? 'Lend · F-USDC vault'
-            : current === 'airdrop'
+            : current === 'airdrop' || current === 'first35'
               ? 'Airdrop · Community'
               : current === 'community'
                 ? 'Community'

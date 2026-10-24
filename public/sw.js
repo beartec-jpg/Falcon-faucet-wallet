@@ -1,7 +1,7 @@
 // Falcon PL Wallet — Service Worker
 // Network-first for GET API + WASM; never intercept POST (Claim / submit).
 
-const CACHE = 'falcon-wallet-v17'
+const CACHE = 'falcon-wallet-v18'
 const API_TIMEOUT_MS = 30_000
 
 const PRECACHE_URLS = [
