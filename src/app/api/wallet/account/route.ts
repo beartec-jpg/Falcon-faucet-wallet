@@ -152,6 +152,8 @@ export async function GET(req: NextRequest) {
         currentLedger: tip,
         network: networkKey,
         accountType: String(acct.account_type ?? 'hot'),
+        nameStatus: String(acct.name_status ?? 'none'),
+        keyFp: String(acct.key_fp ?? ''),
         allowlist: Array.isArray(acct.allowlist) ? acct.allowlist : [],
         vaultLocked: Boolean(acct.vault_locked),
         assets: plAssets(acct.assets, address, zp),

@@ -107,6 +107,8 @@ interface AccountSnap {
   sequence: number
   currentLedger: number
   accountType?: string
+  nameStatus?: string
+  keyFp?: string
   vaultLocked?: boolean
   allowlist?: string[]
   fusdc?: {
@@ -216,6 +218,8 @@ export default function VaultPage() {
         sequence: data.sequence ?? 0,
         currentLedger: data.currentLedger ?? 0,
         accountType: data.accountType,
+        nameStatus: data.nameStatus,
+        keyFp: data.keyFp,
         vaultLocked: Boolean(data.vaultLocked),
         allowlist: Array.isArray(data.allowlist) ? data.allowlist : [],
         fusdc: fusdc
@@ -237,6 +241,30 @@ export default function VaultPage() {
       loadBalance(vaultAccountId(vault))
     }
   }, [view, vault, loadBalance])
+
+  useEffect(() => {
+    if (
+      vault?.accountName &&
+      !vault.nameActivated &&
+      account &&
+      ((account.sequence ?? 0) > 0 || Boolean(account.keyFp) || account.nameStatus === 'activated')
+    ) {
+      const next = { ...vault, nameActivated: true }
+      void replacePrimaryVault(next)
+      setVault(next)
+      void fetch('/api/wallet/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'activate',
+          name: vault.accountName,
+          publicKey: vault.publicKey,
+        }),
+      }).catch(() => {
+        /* best-effort sync to reservation store */
+      })
+    }
+  }, [vault, account])
 
   async function reserveAccountName(name: string, publicKey: string) {
     const r = await fetch('/api/wallet/name', {

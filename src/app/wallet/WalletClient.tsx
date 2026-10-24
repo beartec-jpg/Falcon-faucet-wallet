@@ -205,6 +205,8 @@ interface AccountData {
   assets?:      WalletAssets
   accountName?: string | null
   accountNameStatus?: 'active' | 'releasing' | null
+  nameStatus?:  string
+  keyFp?:       string
   names?: Record<string, string>
 }
 
@@ -543,6 +545,30 @@ export default function WalletPage() {
       refreshBalance(plAccountId(wallet))
     }
   }, [networkKey, wallet, refreshBalance])
+
+  useEffect(() => {
+    if (
+      wallet?.accountName &&
+      !wallet.nameActivated &&
+      account &&
+      ((account.sequence ?? 0) > 0 || Boolean(account.keyFp) || account.nameStatus === 'activated')
+    ) {
+      const next = { ...wallet, nameActivated: true }
+      void saveWallet(next)
+      setWallet(next)
+      void fetch('/api/wallet/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'activate',
+          name: wallet.accountName,
+          publicKey: wallet.publicKey,
+        }),
+      }).catch(() => {
+        /* best-effort sync to reservation store */
+      })
+    }
+  }, [wallet, account])
 
   useEffect(() => {
     if (!wallet || network.networkId !== 2300) return
@@ -4526,8 +4552,10 @@ function NameActivateCard({
         {fee.toLocaleString()} FPL to activate
       </p>
       {expired ? (
-        <p className="text-xs text-red-400">
-          Reservation expired — this name is back in the pool. Create a new wallet to reserve again.
+        <p className={`text-xs ${funded ? 'text-amber-300' : 'text-red-400'}`}>
+          {funded
+            ? 'Hold timer elapsed — click Activate to lock in this name if still free.'
+            : 'Hold timer elapsed — fund and click Activate to claim this name if still free.'}
         </p>
       ) : (
         <p className="text-xs text-slate-500">
@@ -4544,7 +4572,7 @@ function NameActivateCard({
         </Link>
         <button
           type="button"
-          disabled={busy || expired || !funded}
+          disabled={busy || !funded}
           onClick={onActivate}
           className="flex-1 py-2 rounded-lg text-sm font-semibold bg-brand-500 text-slate-950 hover:bg-brand-400 disabled:opacity-40"
         >
