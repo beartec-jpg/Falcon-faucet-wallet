@@ -215,13 +215,21 @@ describe('stale height reading (v10, 23 Oct)', () => {
     expect(detect(st, s, seatRows(st, s), 5 * MIN).map((a) => a.key)).not.toContain('seat:v10:lag')
     expect(buildHealth(st, s, [], 5 * MIN).behind).toEqual([])
   })
-  it('seat that has not sealed since the last sample still fires', () => {
+  it('one quiet sample after a seal is still treated as a stale reading (v6, 24 Oct 03:50)', () => {
     let s = advanceState(status(1000, vals(1000, 5)), emptyState(), 0)
     s = advanceState(status(1040, vals(1000, 6)), s, 5 * MIN)
     const st = status(1080, vals(1000, 6))
     s = advanceState(st, s, 10 * MIN)
+    expect(v10(st, s)).toMatchObject({ heightStale: true, status: 'active' })
+    expect(detect(st, s, seatRows(st, s), 10 * MIN).map((a) => a.key)).not.toContain('seat:v10:lag')
+  })
+  it('seat that has not sealed for longer than sealFreshMs still fires', () => {
+    let s = advanceState(status(1000, vals(1000, 5)), emptyState(), 0)
+    s = advanceState(status(1040, vals(1000, 6)), s, 5 * MIN)
+    const st = status(1200, vals(1000, 6))
+    s = advanceState(st, s, 25 * MIN)
     expect(v10(st, s)).toMatchObject({ heightStale: false, status: 'syncing' })
-    expect(detect(st, s, seatRows(st, s), 10 * MIN).map((a) => a.key)).toContain('seat:v10:lag')
+    expect(detect(st, s, seatRows(st, s), 25 * MIN).map((a) => a.key)).toContain('seat:v10:lag')
   })
   it('first sighting is not enough to call a reading stale', () => {
     const st = status(1040, vals(1000, 6))

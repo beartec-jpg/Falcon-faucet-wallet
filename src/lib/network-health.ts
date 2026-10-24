@@ -22,6 +22,9 @@ export const RULES = {
   stallMs: 3 * 60_000,
   /** Seat behind the network tip by more than this => lagging. */
   lagBlocks: 20,
+  /** A seat that sealed a block this recently is at tip whatever its pong height says.
+   * One quiet 5-minute sample is normal lottery luck, so a single sample is too short. */
+  sealFreshMs: 15 * 60_000,
 } as const
 
 export type SeatStatus = 'active' | 'syncing' | 'offline' | 'jailed' | 'inactive'
@@ -89,10 +92,11 @@ export function seatRows(st: Obj, state: HealthState, retired: Set<string> = ret
       const height = adv && adv > 0 ? adv : null
       const lag = tip != null && height != null ? Math.max(0, tip - height) : null
       // pack_count is ledger-derived (bumped when a block it sealed commits) while
-      // last_advertised_tip comes from pongs. A seat whose pack_count rose in this
-      // sample is at tip whatever its pong reading says.
+      // last_advertised_tip comes from pongs. A seat whose pack_count rose within the
+      // last RULES.sealFreshMs is at tip whatever its pong reading says.
       const pk = state.packs[id]
-      const heightStale = lag != null && lag > RULES.lagBlocks && pk?.at != null && state.updatedAt != null && pk.at === state.updatedAt
+      const heightStale =
+        lag != null && lag > RULES.lagBlocks && pk?.at != null && state.updatedAt != null && state.updatedAt - pk.at <= RULES.sealFreshMs
       const jailed = v.jailed === true
       const inactive = v2.inactive === true
       const fresh = v.pong_fresh === true || online.has(id)
