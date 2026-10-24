@@ -6,6 +6,7 @@
 
 import { Wallet, hexlify, getBytes } from 'ethers'
 import { sha256 } from '@noble/hashes/sha2.js'
+import * as btc from '@scure/btc-signer'
 import { btcP2pkhFromCompressedPub } from '@/lib/create-btc-wallet'
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
@@ -29,8 +30,7 @@ export interface BtcBalance {
 
 const EXPLORERS: Record<BtcNetwork, string[]> = {
   testnet: [
-    'https://blockstream.info/testnet/api',
-    'https://mempool.space/testnet/api',
+    'https://mempool.space/testnet4/api',
   ],
   mainnet: [
     'https://blockstream.info/api',
@@ -161,6 +161,55 @@ export function isValidBtcP2pkh(address: string, network: BtcNetwork): boolean {
   }
 }
 
+/** Encode scriptPubKey for any valid Bitcoin address (P2PKH, P2SH, P2WPKH, P2WSH, P2TR). */
+export function scriptPubKeyForAddress(address: string, network: BtcNetwork = 'testnet'): Uint8Array {
+  const trimmed = address.trim()
+  try {
+    const h160 = decodeP2pkhAddress(trimmed, network)
+    return p2pkhScript(h160)
+  } catch {
+    // Try @scure/btc-signer (supports tb1q / tb1p bech32 & bech32m as well as base58)
+  }
+  try {
+    const net = network === 'mainnet' ? btc.NETWORK : btc.TEST_NETWORK
+    const decoded = btc.Address(net).decode(trimmed)
+    return btc.OutScript.encode(decoded)
+  } catch {
+    throw new Error(
+      network === 'testnet'
+        ? 'Expected a Bitcoin Testnet4 address (tb1… or m… / n…)'
+        : 'Expected a Bitcoin mainnet address (bc1… or 1…)',
+    )
+  }
+}
+
+export function isValidBtcAddress(address: string, network: BtcNetwork = 'testnet'): boolean {
+  try {
+    scriptPubKeyForAddress(address, network)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Derive native SegWit P2WPKH (tb1q… / bc1q…) address from a 32-byte hex private key. */
+export function btcTb1AddressFromSecret(privateKeyHex: string, network: BtcNetwork = 'testnet'): string {
+  const pk = privateKeyHex.replace(/^0x/i, '').toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(pk)) throw new Error('Invalid Bitcoin private key')
+  const wallet = new Wallet(`0x${pk}`)
+  const pubBytes = hexToBytes(wallet.signingKey.compressedPublicKey)
+  const net = network === 'mainnet' ? btc.NETWORK : btc.TEST_NETWORK
+  const addr = btc.p2wpkh(pubBytes, net).address
+  if (!addr) throw new Error('Could not derive bech32 address')
+  return addr
+}
+
+export function btcExplorerTxUrl(txid: string, network: BtcNetwork = 'testnet'): string {
+  return network === 'testnet'
+    ? `https://mempool.space/testnet4/tx/${txid}`
+    : `https://mempool.space/tx/${txid}`
+}
+
 function p2pkhScript(hash160: Uint8Array): Uint8Array {
   // OP_DUP OP_HASH160 <20> <h160> OP_EQUALVERIFY OP_CHECKSIG
   return concatBytes(
@@ -241,7 +290,7 @@ export async function fetchBtcBalance(
   network: BtcNetwork = 'testnet',
 ): Promise<BtcBalance | null> {
   try {
-    decodeP2pkhAddress(address, network)
+    scriptPubKeyForAddress(address, network)
   } catch {
     return null
   }
@@ -328,7 +377,7 @@ const DEFAULT_FEE_RATE = 2
 const DUST_SATS = 546
 /** Rough P2PKH input/output sizes (vbytes). */
 const IN_VBYTES = 148
-const OUT_VBYTES = 34
+const OUT_VBYTES = 43
 const OVERHEAD_VBYTES = 10
 
 function estimateFeeSats(nIn: number, nOut: number, feeRate: number): number {
@@ -433,9 +482,8 @@ export async function buildSignedP2pkhTx(opts: {
   const pubHex = wallet.signingKey.compressedPublicKey
   const fromAddr = btcP2pkhFromCompressedPub(pubHex, network)
   const fromHash = decodeP2pkhAddress(fromAddr, network)
-  const toHash = decodeP2pkhAddress(opts.toAddress, network)
   const scriptFrom = p2pkhScript(fromHash)
-  const scriptTo = p2pkhScript(toHash)
+  const scriptTo = scriptPubKeyForAddress(opts.toAddress, network)
 
   // Select UTXOs (largest first)
   const sorted = [...opts.utxos].sort((a, b) => b.value - a.value)
@@ -613,10 +661,7 @@ export async function sendBtcP2pkh(opts: {
   })
 
   const txid = await broadcastBtcTx(built.rawHex, network)
-  const explorerUrl =
-    network === 'testnet'
-      ? `https://mempool.space/testnet/tx/${txid}`
-      : `https://mempool.space/tx/${txid}`
+  const explorerUrl = btcExplorerTxUrl(txid || built.txid, network)
   return { txid: txid || built.txid, feeSats: built.feeSats, explorerUrl }
 }
 

@@ -31,7 +31,7 @@ function plAssets(
     }
     return 0
   }
-  const btc = offsetAsset(zp, account, 'BTC', sats('BTC'))
+  const btc = offsetAsset(zp, account, 'BTC4', sats('BTC4'))
   const eth = offsetAsset(zp, account, 'ETH', sats('ETH'))
   const usdc = offsetAsset(zp, account, 'USDC', sats('USDC'))
   const bnb = offsetAsset(zp, account, 'BNB', sats('BNB'))
@@ -39,7 +39,7 @@ function plAssets(
   if (btc) {
     tokens.push({
       symbol: 'FBTC',
-      currency: 'BTC',
+      currency: 'BTC4',
       issuer: '',
       balance: btc / 1e8,
       hasTrustLine: true,
@@ -61,7 +61,7 @@ function plAssets(
     fbtc: {
       symbol: 'FBTC',
       balance: btc / 1e8,
-      currency: 'BTC',
+      currency: 'BTC4',
       issuer: '',
       hasTrustLine: true,
       sats: btc,
@@ -69,6 +69,7 @@ function plAssets(
     feth: { symbol: 'FETH', balance: eth / 1e18, currency: 'ETH', issuer: '', hasTrustLine: true },
     fbnb: { symbol: 'FBNB', balance: bnb / 1e18, currency: 'BNB', issuer: '', hasTrustLine: true },
     BTC: btc,
+    BTC4: btc,
     ETH: eth,
     USDC: usdc,
     tokens,
@@ -135,7 +136,7 @@ export async function GET(req: NextRequest) {
           hash: String(t.tx_id ?? ''),
           type,
           amount: t.amount != null ? String(t.amount) : undefined,
-          amountAsset: kind === 'asset_pay' ? String(t.asset ?? '') : 'FPL',
+          amountAsset: kind === 'asset_pay' || kind === 'rail_deposit' || kind === 'rail_withdraw' ? (String(t.asset ?? '') === 'BTC4' || String(t.asset ?? '') === 'BTC' ? 'FBTC' : String(t.asset ?? '')) : 'FPL',
           destination: t.destination != null ? String(t.destination) : undefined,
           account: String(t.account ?? ''),
           result: 'tesSUCCESS',

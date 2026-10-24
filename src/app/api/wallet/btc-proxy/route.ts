@@ -13,8 +13,7 @@ const MAX_BODY = 820_000
 
 const EXPLORERS: Record<string, string[]> = {
   testnet: [
-    'https://blockstream.info/testnet/api',
-    'https://mempool.space/testnet/api',
+    'https://mempool.space/testnet4/api',
   ],
   mainnet: [
     'https://blockstream.info/api',
@@ -75,7 +74,7 @@ export async function GET(req: NextRequest) {
 
   if (op === 'utxo') {
     const address = (req.nextUrl.searchParams.get('address') || '').trim()
-    if (address.length < 26 || address.length > 64) {
+    if (address.length < 26 || address.length > 96) {
       return NextResponse.json({ error: 'Invalid address' }, { status: 400 })
     }
     const r = await explorerGet(net, `/address/${encodeURIComponent(address)}/utxo`)
