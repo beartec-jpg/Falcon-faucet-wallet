@@ -108,10 +108,20 @@ export default function AccountProfile({ name }: { name: string }) {
               </Panel>
               <Panel title="Testnet activity">
                 {p.row ? (
-                  <div className="flex flex-wrap gap-6">
-                    <Stat k="Score" v={`${fmt(p.row.score)} / ${TRACKER_MAX_SCORE}`} sub="100 activity + feedback bonus" />
-                    <Stat k="Rank" v={p.rank ? `#${p.rank}` : '—'} sub={p.rank ? undefined : 'not ranked yet'} />
-                    <Stat k="Active days" v={String(p.active_days.length)} sub="last 60 days" />
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap gap-6">
+                      <Stat k="Score" v={`${fmt(p.row.score)} / ${TRACKER_MAX_SCORE}`} sub="100 activity + feedback bonus" />
+                      <Stat k="Rank" v={p.rank ? `#${p.rank}` : '—'} sub={p.rank ? undefined : 'not ranked yet'} />
+                      <Stat k="Active days" v={String(p.active_days.length)} sub="last 60 days" />
+                    </div>
+                    {p.operator && (
+                      <div className="flex flex-wrap gap-6 border-t border-white/[0.06] pt-3">
+                        <Stat k="Epoch work share" v={`${fmtWorkShare(p.operator.work_share)}%`} />
+                        <Stat k="Status" v={p.operator.jailed ? 'jailed' : p.operator.online ? 'online' : 'offline'} />
+                        <Stat k="Blocks sealed" v={fmt(p.operator.pack_count, 0)} />
+                        <Stat k="Bond" v={fmt(p.operator.bond, 0)} />
+                      </div>
+                    )}
                   </div>
                 ) : p.operator ? (
                   <div className="flex flex-wrap gap-6">

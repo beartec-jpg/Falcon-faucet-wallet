@@ -10,6 +10,7 @@
 // wallets are excluded from ranking; every component is capped per address.
 
 import { ACTIVITY_CONFIG } from '@/config/activity'
+import { TRACKER_CONFIG } from '@/config/tracker'
 import { getSql, isDbConfigured } from '@/lib/db'
 import { big, toFloat } from '@/lib/pl-exact-json'
 import { ASSET_DECIMALS, buildRails, type LpPosition, type PoolSample, type Transfer } from '@/lib/rails-pools'
@@ -207,8 +208,10 @@ export function pricesFpl(st: Obj): Record<string, number> {
 
 export function exclusionSet(st: Obj): Set<string> {
   const set = new Set<string>(ACTIVITY_CONFIG.excludeAccounts)
+  const allowUserValidators = new Set<string>(TRACKER_CONFIG.userBoardValidators)
   for (const v of arr(st.validators)) {
-    if (s(v.id)) set.add(s(v.id))
+    const id = s(v.id)
+    if (id && !allowUserValidators.has(id)) set.add(id)
     if (s(v.bond_account)) set.add(s(v.bond_account))
   }
   for (const k of Object.keys(obj(st.watcher_slots))) set.add(k)

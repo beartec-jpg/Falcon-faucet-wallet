@@ -70,7 +70,8 @@ export function statusContext(st: Obj): StatusContext {
 
 export function classify(name: string, ctx: StatusContext): Classification {
   const c = TRACKER_CONFIG
-  if (ctx.validators.has(name)) return { kind: 'operator', reason: 'Validator seat (operators board)' }
+  if (ctx.validators.has(name) && !TRACKER_CONFIG.userBoardValidators.includes(name))
+    return { kind: 'operator', reason: 'Validator seat (operators board)' }
   if (c.testAccounts.includes(name)) return { kind: 'test', reason: 'Development test account' }
   if (ctx.bondAccounts.has(name)) return { kind: 'system', reason: 'Validator bond account' }
   if (name === ctx.faucet || c.systemAccounts.includes(name)) return { kind: 'system', reason: 'Protocol or service account' }
