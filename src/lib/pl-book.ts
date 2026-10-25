@@ -18,8 +18,8 @@ export type PlLendLine = {
   debt: string
 }
 
-const DECIMALS: Record<string, number> = { FPL: 0, BTC: 8, ETH: 18, USDC: 6 }
-const ORDER = ['USDC', 'ETH', 'BTC']
+const DECIMALS: Record<string, number> = { FPL: 0, BTC4: 8, ETH: 18, USDC: 6 }
+const ORDER = ['USDC', 'ETH', 'BTC4']
 
 function digits(v: unknown): string {
   if (typeof v === 'string' && /^\d+$/.test(v)) return v.replace(/^0+(?=\d)/, '') || '0'
@@ -30,7 +30,7 @@ function digits(v: unknown): string {
 function assetLabel(asset: string): string {
   if (asset === 'USDC') return 'F-USDC'
   if (asset === 'ETH') return 'FETH'
-  if (asset === 'BTC') return 'FBTC'
+  if (asset === 'BTC4') return 'FBTC'
   return asset
 }
 
@@ -84,7 +84,7 @@ export function parsePlBook(body: {
   const lines: PlPoolLine[] = []
   for (const row of lpRows) {
     const id = String(row.pool_id ?? '')
-    if (!id || id === 'fpl-btc') continue
+    if (!id || id === 'fpl-btc' || id === 'btc-fpl') continue
     const lp = digits(row.lp)
     if (lp === '0') continue
     const pool = pools.find((p) => String(p.id ?? '') === id)
@@ -106,7 +106,7 @@ export function parsePlBook(body: {
       sharePct: pctOf(lp, supply),
     })
   }
-  lines.sort((x, y) => rank(x.assetLabel === 'F-USDC' ? 'USDC' : x.assetLabel === 'FETH' ? 'ETH' : 'BTC') - rank(y.assetLabel === 'F-USDC' ? 'USDC' : y.assetLabel === 'FETH' ? 'ETH' : 'BTC'))
+  lines.sort((x, y) => rank(x.assetLabel === 'F-USDC' ? 'USDC' : x.assetLabel === 'FETH' ? 'ETH' : 'BTC4') - rank(y.assetLabel === 'F-USDC' ? 'USDC' : y.assetLabel === 'FETH' ? 'ETH' : 'BTC4'))
 
   const lend: PlLendLine[] = []
   for (const pos of positions) {
@@ -128,7 +128,7 @@ export function parsePlBook(body: {
       debt: debt === '0' ? '' : human(debt, asset),
     })
   }
-  lend.sort((x, y) => rank(x.label === 'F-USDC' ? 'USDC' : x.label === 'FETH' ? 'ETH' : 'BTC') - rank(y.label === 'F-USDC' ? 'USDC' : y.label === 'FETH' ? 'ETH' : 'BTC'))
+  lend.sort((x, y) => rank(x.label === 'F-USDC' ? 'USDC' : x.label === 'FETH' ? 'ETH' : 'BTC4') - rank(y.label === 'F-USDC' ? 'USDC' : y.label === 'FETH' ? 'ETH' : 'BTC4'))
 
   return { pools: lines, lend }
 }

@@ -17,8 +17,8 @@ import {
 import { fetchSequenceInfo } from '@/lib/wallet-submit'
 import { explainTxError } from '@/lib/pl-key-commit'
 
-type Asset = 'FPL' | 'BTC' | 'ETH' | 'USDC'
-const ASSETS: Asset[] = ['FPL', 'USDC', 'ETH', 'BTC']
+type Asset = 'FPL' | 'BTC4' | 'ETH' | 'USDC'
+const ASSETS: Asset[] = ['FPL', 'USDC', 'ETH', 'BTC4']
 
 type Pool = {
   id: string
@@ -52,7 +52,7 @@ type LpPos = {
 
 const DECIMALS: Record<Asset, number> = {
   FPL: 0,
-  BTC: 8,
+  BTC4: 8,
   ETH: 18,
   USDC: 6,
 }
@@ -70,7 +70,7 @@ function toRaw(asset: Asset, human: string): string {
 function assetLabel(asset: Asset): string {
   if (asset === 'USDC') return 'fUSDC'
   if (asset === 'ETH') return 'fETH'
-  if (asset === 'BTC') return 'fBTC'
+  if (asset === 'BTC4') return 'fBTC'
   return 'FPL'
 }
 
@@ -78,7 +78,7 @@ function assetLabel(asset: Asset): string {
 const POOL_MARKETS: { id: string; asset: Asset }[] = [
   { id: 'usdc-fpl', asset: 'USDC' },
   { id: 'eth-fpl', asset: 'ETH' },
-  { id: 'btc-fpl', asset: 'BTC' },
+  { id: 'btc4-fpl', asset: 'BTC4' },
 ]
 
 function assetFromPoolId(id: string): Asset | null {
@@ -86,14 +86,14 @@ function assetFromPoolId(id: string): Asset | null {
   if (known) return known.asset
   if (id.includes('usdc')) return 'USDC'
   if (id.includes('eth')) return 'ETH'
-  if (id.includes('btc')) return 'BTC'
+  if (id.includes('btc4')) return 'BTC4'
   return null
 }
 
 const LEND_MARKETS: { id: string; asset: Asset }[] = [
   { id: 'lend-usdc', asset: 'USDC' },
   { id: 'lend-eth', asset: 'ETH' },
-  { id: 'lend-btc', asset: 'BTC' },
+  { id: 'lend-btc4', asset: 'BTC4' },
 ]
 
 function assetFromLendId(id: string): Asset | null {
@@ -101,30 +101,31 @@ function assetFromLendId(id: string): Asset | null {
   if (known) return known.asset
   if (id.includes('usdc')) return 'USDC'
   if (id.includes('eth')) return 'ETH'
-  if (id.includes('btc')) return 'BTC'
+  if (id.includes('btc4')) return 'BTC4'
   return null
 }
 
 function lendChoices(markets: Market[]): { id: string; asset: Asset }[] {
-  const rank: Record<string, number> = { USDC: 0, ETH: 1, BTC: 2 }
+  const rank: Record<string, number> = { USDC: 0, ETH: 1, BTC4: 2 }
   const fromChain = markets
+    .filter((m) => m.id !== 'lend-btc')
     .map((m) => {
       const asset = (m.asset as Asset) || assetFromLendId(m.id)
       if (!asset || asset === 'FPL' || !(asset in DECIMALS)) return null
       return { id: m.id, asset }
     })
-    .filter((row): row is { id: string; asset: 'USDC' | 'ETH' | 'BTC' } => row !== null)
+    .filter((row): row is { id: string; asset: 'USDC' | 'ETH' | 'BTC4' } => row !== null)
   const rows = fromChain.length ? fromChain : LEND_MARKETS
   return [...rows].sort((a, b) => (rank[a.asset] ?? 9) - (rank[b.asset] ?? 9))
 }
 
 function poolChoices(pools: Pool[]): { id: string; asset: Asset }[] {
-  const rank: Record<string, number> = { USDC: 0, ETH: 1, BTC: 2 }
+  const rank: Record<string, number> = { USDC: 0, ETH: 1, BTC4: 2 }
   const fromChain = pools
-    .filter((p) => p.id !== 'fpl-btc')
+    .filter((p) => p.id !== 'fpl-btc' && p.id !== 'btc-fpl')
     .map((p) => {
       const asset = poolPair(p)?.fAsset ?? assetFromPoolId(p.id)
-      return asset ? { id: p.id, asset } : null
+      return asset && asset in DECIMALS ? { id: p.id, asset } : null
     })
     .filter((row): row is { id: string; asset: Asset } => row !== null)
   const rows = fromChain.length ? fromChain : POOL_MARKETS
@@ -146,10 +147,10 @@ function plainAmount(asset: Asset, raw: string): string {
 type PoolPair = { fAsset: Asset; fReserve: string; fplReserve: string }
 
 function poolPair(p: Pool): PoolPair | null {
-  if (p.asset_a === 'FPL' && p.asset_b !== 'FPL') {
+  if (p.asset_a === 'FPL' && p.asset_b !== 'FPL' && p.asset_b in DECIMALS) {
     return { fAsset: p.asset_b as Asset, fReserve: p.reserve_b, fplReserve: p.reserve_a }
   }
-  if (p.asset_b === 'FPL' && p.asset_a !== 'FPL') {
+  if (p.asset_b === 'FPL' && p.asset_a !== 'FPL' && p.asset_a in DECIMALS) {
     return { fAsset: p.asset_a as Asset, fReserve: p.reserve_a, fplReserve: p.reserve_b }
   }
   return null
@@ -1001,7 +1002,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
   const [collateral, setCollateral] = useState('')
   const [balances, setBalances] = useState<Record<Asset, string>>({
     FPL: '0',
-    BTC: '0',
+    BTC4: '0',
     ETH: '0',
     USDC: '0',
   })
@@ -1033,7 +1034,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
         const assets = (j.assets || {}) as Record<string, unknown>
         setBalances({
           FPL: digitsOf(j.balance),
-          BTC: digitsOf(assets.BTC ?? assets.btc),
+          BTC4: digitsOf(assets.BTC4),
           ETH: digitsOf(assets.ETH ?? assets.eth),
           USDC: digitsOf(assets.USDC ?? assets.usdc),
         })
@@ -1052,7 +1053,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
   }, [load])
 
   useEffect(() => {
-    const visible = pools.filter((p) => p.id !== 'fpl-btc')
+    const visible = pools.filter((p) => p.id !== 'fpl-btc' && p.id !== 'btc-fpl')
     if (!visible.length) return
     if (!visible.some((p) => p.id === poolId)) setPoolId(visible[0].id)
   }, [pools, poolId])
@@ -1286,7 +1287,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       {err && <p className="text-sm text-red-300">{err}</p>}
       {mode === 'swap' && (
         <div className="space-y-2">
-          {pools.filter((p) => p.id !== 'fpl-btc').map((p) => {
+          {pools.filter((p) => p.id !== 'fpl-btc' && p.id !== 'btc-fpl' && poolPair(p) !== null).map((p) => {
             const px = poolPrice(p)
             return (
               <div key={p.id} className="rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-400">
