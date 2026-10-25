@@ -73,7 +73,7 @@ import { loadPrimaryWallet, type StoredWallet } from '@/lib/wallet-store'
 import { authenticatePasskey } from '@/lib/passkey'
 import { encryptSeed, decryptSeed } from '@/lib/wallet-crypto'
 import { activationFeeFpl, linkedVaultName, normalizePlName, plAccountId } from '@/lib/pl-names'
-import { signPlPay, signPlPayToKey, signVaultLock, signVaultOpen } from '@/lib/pl-wallet-sign'
+import { decimalToBaseUnits, signPlAssetPay, signPlPay, signPlPayToKey, signVaultOpen } from '@/lib/pl-wallet-sign'
 import {
   hotWalletCostFpl,
   isDestinationKeyBound,
@@ -131,6 +131,9 @@ export default function VaultPage() {
   const [pass, setPass] = useState('')
   const [pass2, setPass2] = useState('')
   const [payout, setPayout] = useState('')
+  const [browserPayoutInput, setBrowserPayoutInput] = useState('')
+  const [editingPayout, setEditingPayout] = useState(false)
+  const [editPayoutInput, setEditPayoutInput] = useState('')
   const [hotWallet, setHotWallet] = useState<StoredWallet | null>(null)
   const [hotId, setHotId] = useState('')
   const [coldName, setColdName] = useState('')
@@ -145,6 +148,15 @@ export default function VaultPage() {
 
   // Balance
   const [account, setAccount] = useState<AccountSnap | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const isOnChainVaultActive = Boolean(
+    account &&
+      (account.accountType === 'vault' ||
+        account.vaultLocked ||
+        Boolean(account.keyFp) ||
+        (account.sequence ?? 0) > 0),
+  )
 
   // Send
   const [dest, setDest] = useState('')
@@ -183,6 +195,7 @@ export default function VaultPage() {
       const id = plAccountId(w)
       setHotId(id)
       setPayout(id)
+      setBrowserPayoutInput((prev) => prev || w.accountName || w.address)
       const suggested = linkedVaultName(id)
       if (suggested) setColdName(`${id}.cold`.slice(0, 32))
     })
@@ -205,42 +218,88 @@ export default function VaultPage() {
   }, [view, vault])
 
   const loadBalance = useCallback(async (address: string) => {
+    setLoading(true)
     try {
       const res = await fetch(
         withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, network.key),
       )
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Account fetch failed')
-      const fusdc = data.assets?.fusdc
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Account fetch failed')
+      const tokenFusdc = Array.isArray(d.assets?.tokens)
+        ? d.assets.tokens.find(
+            (t: { currency?: string; symbol?: string }) =>
+              t.currency === 'USDC' || t.symbol === 'F-USDC',
+          )
+        : undefined
+      const fusdc = d.assets?.fusdc ?? tokenFusdc
       setAccount({
-        balance: data.balance ?? 0,
-        exists: !!data.exists,
-        sequence: data.sequence ?? 0,
-        currentLedger: data.currentLedger ?? 0,
-        accountType: data.accountType,
-        nameStatus: data.nameStatus,
-        keyFp: data.keyFp,
-        vaultLocked: Boolean(data.vaultLocked),
-        allowlist: Array.isArray(data.allowlist) ? data.allowlist : [],
+        balance: d.balance ?? 0,
+        exists: !!d.exists,
+        sequence: d.sequence ?? 0,
+        currentLedger: d.currentLedger ?? 0,
+        accountType: d.accountType,
+        nameStatus: d.nameStatus,
+        keyFp: d.keyFp,
+        vaultLocked: Boolean(d.vaultLocked),
+        allowlist: Array.isArray(d.allowlist) ? d.allowlist : [],
         fusdc: fusdc
           ? {
               balance: fusdc.balance ?? 0,
-              currency: fusdc.currency ?? 'QUC',
+              currency: fusdc.currency ?? 'USDC',
               issuer: fusdc.issuer ?? '',
               hasTrustLine: fusdc.hasTrustLine,
             }
           : undefined,
       })
+      const isLockedOnChain = d.accountType === 'vault' || Boolean(d.vaultLocked)
+      const isActiveOnChain =
+        Boolean(d.exists) &&
+        (isLockedOnChain || Boolean(d.keyFp) || (d.sequence ?? 0) > 0)
+      if (isActiveOnChain) {
+        const current = await loadPrimaryVault().catch(() => null)
+        if (current) {
+          const nextPayout =
+            (Array.isArray(d.allowlist) && d.allowlist[0]) || current.payoutAddress
+          const updated: VaultPublicRecord = {
+            ...current,
+            nameActivated: true,
+            ...(isLockedOnChain ? { lockedOnChain: true } : {}),
+            payoutAddress: nextPayout,
+          }
+          if (
+            !current.nameActivated ||
+            (isLockedOnChain && !current.lockedOnChain) ||
+            nextPayout !== current.payoutAddress
+          ) {
+            await replacePrimaryVault(updated)
+            setVault(updated)
+          }
+          if (!current.nameActivated && current.accountName) {
+            void fetch('/api/wallet/name', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'activate',
+                name: current.accountName,
+                publicKey: current.publicKey,
+              }),
+            }).catch(() => {})
+          }
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Balance fetch failed')
+    } finally {
+      setLoading(false)
     }
   }, [network.key])
 
+  const activeVaultId = vault ? vaultAccountId(vault) : ''
   useEffect(() => {
-    if ((view === 'unlocked' || view === 'send' || view === 'locked' || view === 'receive') && vault) {
-      loadBalance(vaultAccountId(vault))
+    if ((view === 'unlocked' || view === 'send' || view === 'locked' || view === 'receive') && activeVaultId) {
+      void loadBalance(activeVaultId)
     }
-  }, [view, vault, loadBalance])
+  }, [view, activeVaultId, loadBalance])
 
   useEffect(() => {
     if (
@@ -266,11 +325,17 @@ export default function VaultPage() {
     }
   }, [vault, account])
 
-  async function reserveAccountName(name: string, publicKey: string) {
+  async function reserveAccountName(name: string, publicKey: string, credentialId?: string) {
     const r = await fetch('/api/wallet/name', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'reserve', purpose: 'vault', name, publicKey }),
+      body: JSON.stringify({
+        action: 'reserve',
+        purpose: 'vault',
+        name,
+        publicKey,
+        ...(credentialId ? { credentialId } : {}),
+      }),
     })
     const d = (await r.json()) as { error?: string; reservedUntil?: number; fee?: number }
     if (!r.ok) throw new Error(d.error ?? 'Could not reserve vault name')
@@ -359,11 +424,27 @@ export default function VaultPage() {
       setError('Hot account name is not valid for a linked vault')
       return
     }
+    const rawPayout = browserPayoutInput.trim() || hotId
+    const validPlPayout = normalizePlName(rawPayout)
+    const validClassicPayout = isValidFalconAddress(rawPayout)
+    if (!validPlPayout && !validClassicPayout) {
+      setError('Enter a valid Falcon account name or r… address for the nominated withdrawal account')
+      return
+    }
+    const payoutAddr = (browserPayoutInput.trim() || hotId).toLowerCase()
+    if (payoutAddr === name.toLowerCase()) {
+      setError('Nominated withdrawal account must differ from the vault account')
+      return
+    }
     setBusy(true)
     try {
       const { keyBytes } = await authenticatePasskey(hotWallet.credentialId, hotWallet.hasPrf)
       const keys = await generateWallet()
-      const hold = await reserveAccountName(name, keys.publicKey)
+      const hold = await reserveAccountName(
+        name,
+        keys.publicKey,
+        hotWallet.credentialId ? `${hotWallet.credentialId}:vault` : undefined,
+      )
       const encrypted = await encryptSeed(keys.falcon_secret, keyBytes, hotWallet.hasPrf)
       const createdAt = Date.now()
       const fingerprint = await vaultFingerprint(keys.address, keys.publicKey)
@@ -374,7 +455,7 @@ export default function VaultPage() {
         label: name,
         createdAt,
         fingerprint,
-        payoutAddress: hotId,
+        payoutAddress: payoutAddr,
         kind: 'browser',
         accountName: name,
         nameReservedUntil: Number(hold.reservedUntil ?? Date.now() + 30 * 60 * 1000),
@@ -419,11 +500,13 @@ export default function VaultPage() {
     }
   }
 
-  async function submitSignedTx(tx: { tx_id: string }) {
+  async function submitSignedTx(tx: { tx_id: string; rawJson?: string }) {
     const res = await fetch('/api/wallet/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tx, network: network.key }),
+      body: JSON.stringify(
+        tx.rawJson ? { tx_json: tx.rawJson, network: network.key } : { tx, network: network.key },
+      ),
     })
     const out = (await res.json()) as { success?: boolean; error?: string; message?: string }
     if (!res.ok || out.success === false) {
@@ -442,41 +525,79 @@ export default function VaultPage() {
     return secret
   }
 
-  async function protocolLockVault(secret: string, dest: string) {
-    const acctId = vaultAccountId(vault!)
-    let snap = await fetchSequenceInfo(acctId, network.key)
-    if (account?.accountType === 'vault' && account.vaultLocked) return
-    if (account?.accountType !== 'vault') {
-      const open = await signVaultOpen({
-        account: acctId,
-        destination: dest,
-        sequence: snap.sequence,
-        networkId: network.networkId,
-        falconSecret: secret,
-      })
-      await submitSignedTx(open)
-      for (let i = 0; i < 24; i++) {
-        await new Promise((r) => setTimeout(r, 250))
-        await loadBalance(acctId)
-      }
-      snap = await fetchSequenceInfo(acctId, network.key)
-    }
-    const mid = await fetch(
+  async function protocolLockVault(secret: string, dest: string): Promise<boolean> {
+    if (!vault) return false
+    const acctId = vaultAccountId(vault)
+    const res = await fetch(
       withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(acctId)}`, network.key),
     )
-    const midJ = (await mid.json()) as { accountType?: string; vaultLocked?: boolean }
-    if (midJ.accountType === 'vault' && midJ.vaultLocked) return
-    const lock = await signVaultLock({
+    const d = (await res.json().catch(() => ({}))) as {
+      accountType?: string
+      vaultLocked?: boolean
+      sequence?: number
+      allowlist?: string[]
+    }
+    if (d.accountType === 'vault' || d.vaultLocked) {
+      const updated: VaultPublicRecord = {
+        ...vault,
+        lockedOnChain: true,
+        nameActivated: true,
+        payoutAddress: d.allowlist?.[0] || vault.payoutAddress || dest,
+      }
+      await replacePrimaryVault(updated)
+      setVault(updated)
+      await loadBalance(acctId)
+      return true
+    }
+    const seq =
+      typeof d.sequence === 'number'
+        ? d.sequence
+        : (await fetchSequenceInfo(acctId, network.key)).sequence
+    const open = await signVaultOpen({
       account: acctId,
-      sequence: snap.sequence,
+      destination: dest,
+      sequence: seq,
       networkId: network.networkId,
       falconSecret: secret,
     })
-    await submitSignedTx(lock)
-    for (let i = 0; i < 24; i++) {
-      await new Promise((r) => setTimeout(r, 250))
-      await loadBalance(acctId)
+    try {
+      await submitSignedTx(open)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (!msg.includes('only Hot can convert account type once')) throw e
     }
+    await new Promise((r) => setTimeout(r, 1500))
+    await loadBalance(acctId)
+    const updated: VaultPublicRecord = {
+      ...vault,
+      lockedOnChain: true,
+      nameActivated: true,
+      payoutAddress: dest || vault.payoutAddress,
+    }
+    await replacePrimaryVault(updated)
+    setVault(updated)
+    return true
+  }
+
+  async function handleSaveEditedPayout() {
+    if (!vault) return
+    setError(null)
+    const raw = editPayoutInput.trim()
+    const validPl = normalizePlName(raw)
+    const validClassic = isValidFalconAddress(raw)
+    if (!validPl && !validClassic) {
+      setError('Enter a valid Falcon account name or r… address')
+      return
+    }
+    const nextPayout = raw.toLowerCase()
+    if (nextPayout === vaultAccountId(vault).toLowerCase()) {
+      setError('Nominated withdrawal account must differ from the vault account')
+      return
+    }
+    const updated: VaultPublicRecord = { ...vault, payoutAddress: nextPayout }
+    await replacePrimaryVault(updated)
+    setVault(updated)
+    setEditingPayout(false)
   }
 
   /**
@@ -490,9 +611,21 @@ export default function VaultPage() {
     const snapRes = await fetch(
       withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(acctId)}`, network.key),
     )
-    const snapJ = (await snapRes.json().catch(() => ({}))) as { balance?: number; accountType?: string }
+    const snapJ = (await snapRes.json().catch(() => ({}))) as {
+      exists?: boolean
+      balance?: number
+      accountType?: string
+      vaultLocked?: boolean
+      keyFp?: string | null
+      sequence?: number
+    }
     const vaultBal = Number(snapJ.balance ?? account?.balance ?? 0)
-    const keyBound = snapJ.accountType === 'vault'
+    const keyBound =
+      Boolean(snapJ.exists) ||
+      snapJ.accountType === 'vault' ||
+      Boolean(snapJ.vaultLocked) ||
+      Boolean(snapJ.keyFp) ||
+      Number(snapJ.sequence ?? 0) > 0
     const shortfall = vaultFundShortfall(fee, vaultBal)
     // Already funded and key bound (an earlier tap got past VaultOpen).
     if (shortfall === 0 && keyBound) {
@@ -567,13 +700,12 @@ export default function VaultPage() {
   async function activateVaultName() {
     if (!vault?.accountName) return
     const fee = vault.nameActivationFee ?? activationFeeFpl(vault.accountName)
-    const dest = vault.payoutAddress || hotId
+    const dest = (account?.allowlist?.[0] || vault.payoutAddress || hotId || '').trim()
     if (!dest) {
       setError('No hot wallet linked as payout')
       return
     }
-    const canFundFromHot =
-      vault.kind === 'browser' && Boolean(hotWallet) && hotId.toLowerCase() === dest.toLowerCase()
+    const canFundFromHot = vault.kind === 'browser' && Boolean(hotWallet) && Boolean(hotId)
     if (!canFundFromHot && (account?.balance ?? 0) < vaultActivationNeedFpl(fee)) {
       setError(`Send ${vaultActivationNeedFpl(fee).toLocaleString()} FPL to ${vault.accountName} to activate and lock`)
       return
@@ -592,23 +724,7 @@ export default function VaultPage() {
           name: vault.accountName,
           publicKey: vault.publicKey,
         }),
-      })
-      const check = await fetch(
-        withNetworkQuery(
-          `/api/wallet/account?address=${encodeURIComponent(vault.accountName)}`,
-          network.key,
-        ),
-      )
-      const on = (await check.json()) as { accountType?: string; vaultLocked?: boolean; allowlist?: string[] }
-      if (on.accountType !== 'vault' || !on.vaultLocked) {
-        throw new Error(
-          'Protocol did not lock this vault yet. Hard-refresh and tap Activate again so VaultOpen can enroll this key.',
-        )
-      }
-      const next = { ...vault, nameActivated: true }
-      await replacePrimaryVault(next)
-      setVault(next)
-      await loadBalance(vault.accountName)
+      }).catch(() => {})
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Activate failed')
     } finally {
@@ -803,44 +919,84 @@ export default function VaultPage() {
   async function sendBrowserPayment() {
     if (!vault || vault.kind !== 'browser') return
     setError(null)
-    const amt = Math.floor(Number(amount))
-    if (!Number.isFinite(amt) || amt < 1) {
-      setError('Enter a whole FPL amount')
-      return
-    }
-    const destination = (vault.payoutAddress || dest).trim()
+    const allowlistedDest = (account?.allowlist?.[0] || vault.payoutAddress || '').trim()
+    const destination = (allowlistedDest || dest).trim()
     if (!destination) {
       setError('No payout account linked')
       return
     }
-    if (vault.payoutAddress && destination !== vault.payoutAddress) {
-      setError(`This vault can only pay ${vault.payoutAddress}`)
+    if (allowlistedDest && destination.toLowerCase() !== allowlistedDest.toLowerCase()) {
+      setError(`This vault can only pay ${allowlistedDest}`)
       return
     }
-    if (account && amt > account.balance) {
-      setError('Insufficient FPL balance')
-      return
+    let fplAmt = 0
+    let fusdcBaseUnits = '0'
+    if (sendAsset === 'falcon') {
+      fplAmt = Math.floor(Number(amount))
+      if (!Number.isFinite(fplAmt) || fplAmt < 1) {
+        setError('Enter a whole FPL amount')
+        return
+      }
+      if (account && fplAmt > account.balance) {
+        setError('Insufficient FPL balance')
+        return
+      }
+    } else {
+      const parsed = parseFloat(amount)
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        setError('Enter a valid F-USDC amount')
+        return
+      }
+      try {
+        fusdcBaseUnits = String(Number(decimalToBaseUnits(amount, 6)))
+        if (!Number.isFinite(Number(fusdcBaseUnits)) || Number(fusdcBaseUnits) < 1) {
+          setError('Enter a valid F-USDC amount')
+          return
+        }
+      } catch {
+        setError('Enter a valid F-USDC amount (up to 6 decimal places)')
+        return
+      }
+      const fusdcBal = account?.fusdc?.balance ?? 0
+      if (account && parsed > fusdcBal) {
+        setError('Insufficient F-USDC balance')
+        return
+      }
     }
     setBusy(true)
     try {
       const secret = await unlockVaultSecret()
-      if (account?.accountType !== 'vault' || !account.vaultLocked) {
+      if (account?.accountType !== 'vault' && !account?.vaultLocked && !vault.lockedOnChain) {
         await protocolLockVault(secret, destination)
       }
       const seq = await fetchSequenceInfo(vaultAccountId(vault), network.key)
-      const tx = await signPlPay({
-        account: vaultAccountId(vault),
-        destination,
-        amount: amt,
-        sequence: seq.sequence,
-        fee: 2,
-        networkId: network.networkId,
-        falconSecret: secret,
-      })
+      const tx =
+        sendAsset === 'fusdc'
+          ? await signPlAssetPay({
+              account: vaultAccountId(vault),
+              destination,
+              asset: 'USDC',
+              amount: fusdcBaseUnits,
+              sequence: seq.sequence,
+              fee: 2,
+              networkId: network.networkId,
+              falconSecret: secret,
+            })
+          : await signPlPay({
+              account: vaultAccountId(vault),
+              destination,
+              amount: fplAmt,
+              sequence: seq.sequence,
+              fee: 2,
+              networkId: network.networkId,
+              falconSecret: secret,
+            })
       const res = await fetch('/api/wallet/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tx, network: network.key }),
+        body: JSON.stringify(
+          tx.rawJson ? { tx_json: tx.rawJson, network: network.key } : { tx, network: network.key },
+        ),
       })
       const out = (await res.json()) as { success?: boolean; hash?: string; error?: string; message?: string }
       if (!res.ok || out.success === false) {
@@ -1297,7 +1453,7 @@ export default function VaultPage() {
             <h2 className="text-sm font-semibold text-white">In-browser vault</h2>
             <p className="text-xs text-slate-400 leading-relaxed">
               This vault stays on this device, unlocked with the same passkey as your hot wallet.
-              Payouts can only go to that hot account.
+              Payouts are protocol-locked to your nominated withdrawal account.
             </p>
             <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3 space-y-1">
               <div className="text-[10px] uppercase tracking-wider text-slate-500">Hot wallet</div>
@@ -1310,6 +1466,22 @@ export default function VaultPage() {
                   within 30 minutes or the name returns to the pool.
                 </p>
               )}
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs text-slate-400">
+                Nominated withdrawal / payout account
+                <input
+                  value={browserPayoutInput}
+                  onChange={(e) => setBrowserPayoutInput(e.target.value)}
+                  placeholder="e.g. scott.reynolds.123 or another Falcon account / r… address"
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-white font-mono"
+                />
+              </label>
+              <p className="text-[11px] text-slate-500">
+                The vault will only permit outgoing sends to this nominated account.
+              </p>
             </div>
             <button
               type="button"
@@ -1334,19 +1506,73 @@ export default function VaultPage() {
           <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
             <div className="flex items-center gap-2">
               <span className="text-2xl">🔒</span>
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white">
                   {vault.kind === 'browser' ? 'In-browser vault' : 'Cold vault'}
                 </p>
                 <p className="text-sm font-mono text-brand-300 break-all">{vaultAccountId(vault)}</p>
-                {vault.payoutAddress && (
-                  <p className="text-[11px] text-slate-500">
-                    Pays only to <span className="font-mono">{vault.payoutAddress}</span>
-                  </p>
+                {(account?.allowlist?.[0] || vault.payoutAddress) && (
+                  <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap">
+                    <span>
+                      Pays only to{' '}
+                      <span className="font-mono text-slate-300">
+                        {account?.allowlist?.[0] || vault.payoutAddress}
+                      </span>
+                    </span>
+                    {!vault.lockedOnChain &&
+                      account?.accountType !== 'vault' &&
+                      !account?.vaultLocked &&
+                      !editingPayout && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditPayoutInput(vault.payoutAddress || hotId || '')
+                            setEditingPayout(true)
+                          }}
+                          className="text-brand-400 hover:text-brand-300 underline"
+                        >
+                          Edit
+                        </button>
+                      )}
+                  </div>
                 )}
               </div>
             </div>
-            {vault.accountName && !vault.nameActivated && (
+            {editingPayout &&
+              !vault.lockedOnChain &&
+              account?.accountType !== 'vault' &&
+              !account?.vaultLocked && (
+                <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 space-y-2">
+                  <label className="block text-xs text-slate-400">
+                    Nominated withdrawal / payout account
+                    <input
+                      value={editPayoutInput}
+                      onChange={(e) => setEditPayoutInput(e.target.value)}
+                      placeholder="e.g. scott.reynolds.123 or another Falcon account / r… address"
+                      spellCheck={false}
+                      autoComplete="off"
+                      className="mt-1 w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white font-mono"
+                    />
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveEditedPayout()}
+                      className="px-3 py-1 rounded-lg text-xs font-semibold bg-brand-500 text-slate-950"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingPayout(false)}
+                      className="px-3 py-1 rounded-lg text-xs text-slate-400 hover:text-slate-200"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            {vault.accountName && !vault.nameActivated && !loading && !isOnChainVaultActive && (
               <div className="rounded-xl border border-brand-500/30 bg-brand-500/5 px-3 py-3 space-y-2">
                 <p className="text-sm text-slate-200">
                   Activate with {(vault.nameActivationFee ?? activationFeeFpl(vault.accountName)).toLocaleString()} FPL
@@ -1354,7 +1580,7 @@ export default function VaultPage() {
                 <p className="text-xs text-slate-500">
                   Balance {account ? account.balance.toLocaleString() : '—'} FPL.{' '}
                   {vault.kind === 'browser' && hotWallet
-                    ? `Activate pays ${(vault.nameActivationFee ?? activationFeeFpl(vault.accountName)).toLocaleString()} FPL plus tx fees from your hot wallet ${hotId} and locks payouts to it.`
+                    ? `Activate pays ${(vault.nameActivationFee ?? activationFeeFpl(vault.accountName)).toLocaleString()} FPL plus tx fees from your hot wallet ${hotId} and locks payouts to ${account?.allowlist?.[0] || vault.payoutAddress || hotId}.`
                     : 'Fund this vault name, then activate.'}
                 </p>
                 <div className="flex gap-2">
@@ -1445,10 +1671,30 @@ export default function VaultPage() {
                 <p className="text-sm font-semibold text-white flex items-center gap-1.5">
                   <span className="text-emerald-400">🔓</span> {vaultAccountId(vault)}
                 </p>
-                {vault.payoutAddress && (
-                  <p className="text-[11px] text-slate-500">
-                    Pays only to <span className="font-mono">{vault.payoutAddress}</span>
-                  </p>
+                {(account?.allowlist?.[0] || vault.payoutAddress) && (
+                  <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap">
+                    <span>
+                      Pays only to{' '}
+                      <span className="font-mono text-slate-300">
+                        {account?.allowlist?.[0] || vault.payoutAddress}
+                      </span>
+                    </span>
+                    {!vault.lockedOnChain &&
+                      account?.accountType !== 'vault' &&
+                      !account?.vaultLocked &&
+                      !editingPayout && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditPayoutInput(vault.payoutAddress || hotId || '')
+                            setEditingPayout(true)
+                          }}
+                          className="text-brand-400 hover:text-brand-300 underline"
+                        >
+                          Edit
+                        </button>
+                      )}
+                  </div>
                 )}
               </div>
               <div className="text-right">
@@ -1456,6 +1702,40 @@ export default function VaultPage() {
                 <p className="text-xs font-mono text-cyan-400">{sessionLabel}</p>
               </div>
             </div>
+            {editingPayout &&
+              !vault.lockedOnChain &&
+              account?.accountType !== 'vault' &&
+              !account?.vaultLocked && (
+                <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 space-y-2">
+                  <label className="block text-xs text-slate-400">
+                    Nominated withdrawal / payout account
+                    <input
+                      value={editPayoutInput}
+                      onChange={(e) => setEditPayoutInput(e.target.value)}
+                      placeholder="e.g. scott.reynolds.123 or another Falcon account / r… address"
+                      spellCheck={false}
+                      autoComplete="off"
+                      className="mt-1 w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white font-mono"
+                    />
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveEditedPayout()}
+                      className="px-3 py-1 rounded-lg text-xs font-semibold bg-brand-500 text-slate-950"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingPayout(false)}
+                      className="px-3 py-1 rounded-lg text-xs text-slate-400 hover:text-slate-200"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-xl bg-slate-950/80 border border-slate-800 px-4 py-3">
                 <p className="text-[11px] text-slate-500">FPL</p>
@@ -1591,7 +1871,6 @@ export default function VaultPage() {
               >
                 FPL
               </button>
-              {vault.kind !== 'browser' && (
               <button
                 type="button"
                 onClick={() => {
@@ -1605,19 +1884,18 @@ export default function VaultPage() {
               >
                 F-USDC
               </button>
-              )}
             </div>
             <label className="block text-xs text-slate-400">
               Destination
               <div className="flex gap-2 mt-1">
                 <input
-                  value={vault.payoutAddress || dest}
+                  value={account?.allowlist?.[0] || vault.payoutAddress || dest}
                   onChange={(e) => setDest(e.target.value)}
                   placeholder="r… or name (alice.bob)"
-                  readOnly={Boolean(vault.payoutAddress)}
+                  readOnly={Boolean(account?.allowlist?.[0] || vault.payoutAddress)}
                   className="flex-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-white font-mono"
                 />
-                {!vault.payoutAddress && (
+                {!(account?.allowlist?.[0] || vault.payoutAddress) && (
                 <button
                   type="button"
                   onClick={() => setScanDest(true)}
@@ -1627,9 +1905,9 @@ export default function VaultPage() {
                 </button>
                 )}
               </div>
-              {vault.payoutAddress && (
+              {(account?.allowlist?.[0] || vault.payoutAddress) && (
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Locked to nominated hot wallet — protocol will only pay this address.
+                  Locked to nominated withdrawal account — protocol will only pay this address.
                 </p>
               )}
             </label>

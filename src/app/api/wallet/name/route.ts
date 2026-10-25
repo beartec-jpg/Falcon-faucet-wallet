@@ -69,7 +69,12 @@ export async function GET(req: NextRequest) {
       let onChainTaken = false
       try {
         const acct = await plAccount(view.name)
-        onChainTaken = Boolean(acct.exists) && String(acct.name_status ?? '') === 'activated'
+        onChainTaken =
+          Boolean(acct.exists) &&
+          (String(acct.name_status ?? '') === 'activated' ||
+            Boolean(acct.key_fp) ||
+            Number(acct.sequence ?? 0) > 0 ||
+            Number(acct.balance ?? 0) > 0)
       } catch {
         /* node may not speak name_status yet */
       }
@@ -279,7 +284,9 @@ export async function POST(req: NextRequest) {
   const name = String(body.name ?? '').trim()
   const publicKey = String(body.publicKey ?? '').trim()
   const credentialHash = body.credentialId
-    ? String(body.credentialId).slice(0, 64)
+    ? String(body.credentialId).endsWith(':vault')
+      ? `${String(body.credentialId).slice(0, -6).slice(0, 58)}:vault`
+      : String(body.credentialId).slice(0, 64)
     : undefined
   if (action !== 'activate') {
     const err = reserveNameError(name, String(body.purpose ?? 'wallet'))

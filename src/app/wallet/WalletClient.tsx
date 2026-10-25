@@ -31,7 +31,7 @@ import {
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
 import { signPlAssetPay, signPlClaim, signPlPay, signPlPayToKey } from '@/lib/pl-wallet-sign'
-import { isOwnLinkedVault, isPayToKeyUnsupported, keyCommitHash } from '@/lib/vault-activation'
+import { isDestinationKeyBound, isOwnLinkedVault, isPayToKeyUnsupported, keyCommitHash } from '@/lib/vault-activation'
 import { loadPrimaryVault } from '@/lib/vault-store'
 import {
   normalizeAccountName,
@@ -1601,17 +1601,33 @@ export default function WalletPage() {
         const r = await fetch(
           withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(name)}`, networkKey),
         )
-        const j = (await r.json()) as { exists?: boolean }
-        if (r.ok && j.exists === false) {
-          // This wallet's own not-yet-activated `.vault`: fund it with
-          // pay_to_key so the commit binds the vault key (2.9.65+).
-          const own = await loadPrimaryVault().catch(() => null)
-          const hotAcct = plAccountId(wallet)
-          if (own && isOwnLinkedVault(name, hotAcct, own, linkedVaultName(hotAcct))) {
-            ownVaultKeyHash = await keyCommitHash(own.publicKey)
-          } else {
-            setError(`No Falcon account named “${name}”`)
-            return
+        const j = (await r.json()) as {
+          exists?: boolean
+          keyFp?: string | null
+          sequence?: number
+          accountType?: string
+          vaultLocked?: boolean
+        }
+        if (r.ok) {
+          const alreadyBound =
+            Boolean(j.exists) ||
+            Boolean(j.keyFp) ||
+            Number(j.sequence ?? 0) > 0 ||
+            j.accountType === 'vault' ||
+            Boolean(j.vaultLocked)
+          if (!alreadyBound) {
+            // This wallet's own not-yet-activated `.vault`: fund it with
+            // pay_to_key so the commit binds the vault key (2.9.65+).
+            const own = await loadPrimaryVault().catch(() => null)
+            const hotAcct = plAccountId(wallet)
+            if (own && isOwnLinkedVault(name, hotAcct, own, linkedVaultName(hotAcct))) {
+              if (sendAsset === 'falcon') {
+                ownVaultKeyHash = await keyCommitHash(own.publicKey)
+              }
+            } else {
+              setError(`No Falcon account named “${name}”`)
+              return
+            }
           }
         }
       } catch {
@@ -1792,11 +1808,13 @@ export default function WalletPage() {
                 try {
                   const out = await submitTx(ptk)
                   if (out.success !== false) return out
-                  if (!isPayToKeyUnsupported(String(out.message ?? ''))) return out
+                  const msg = String(out.message ?? '')
+                  if (!isPayToKeyUnsupported(msg) && !isDestinationKeyBound(msg)) return out
                 } catch (e) {
-                  if (!isPayToKeyUnsupported(e instanceof Error ? e.message : String(e))) throw e
+                  const msg = e instanceof Error ? e.message : String(e)
+                  if (!isPayToKeyUnsupported(msg) && !isDestinationKeyBound(msg)) throw e
                 }
-                // pay_to_key not live yet: a plain Pay still enrolls first-seen.
+                // pay_to_key not live yet or destination already key-bound: fall through to plain Pay.
               }
               const tx = rail
                 ? await signPlAssetPay({
@@ -3616,9 +3634,17 @@ export default function WalletPage() {
                       setError(null)
                       return
                     }
-                    const addr = parseFalconAddressFromScan(raw)
+                    const addr =
+                      parseFalconAddressFromScan(raw) ??
+                      (network.networkId === 2300
+                        ? normalizePlName(raw.trim().replace(/^falcon:/i, '').split('?')[0])
+                        : null)
                     if (!addr) {
-                      setError('QR code does not contain a valid Falcon r-address')
+                      setError(
+                        network.networkId === 2300
+                          ? 'QR code does not contain a valid Falcon account name or r-address'
+                          : 'QR code does not contain a valid Falcon r-address',
+                      )
                       return
                     }
                     setSendTo(addr)
@@ -3810,6 +3836,27 @@ export default function WalletPage() {
                             <span className="text-[10px] font-semibold leading-none">Scan</span>
                           </button>
                         </div>
+                        {network.networkId === 2300 &&
+                          (sendAsset === 'falcon' ||
+                            sendAsset === 'fusdc' ||
+                            sendAsset === 'feth' ||
+                            sendAsset === 'fbtc' ||
+                            sendAsset === 'fbnb') &&
+                          !plAccountId(wallet).startsWith('r') &&
+                          !plAccountId(wallet).toLowerCase().endsWith('.vault') &&
+                          linkedVaultName(plAccountId(wallet)) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSendTo(linkedVaultName(plAccountId(wallet))!)
+                                setError(null)
+                              }}
+                              disabled={busy}
+                              className="text-[11px] font-medium text-brand-400 hover:text-brand-300 transition-colors"
+                            >
+                              Send to my vault ({linkedVaultName(plAccountId(wallet))})
+                            </button>
+                          )}
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-xs text-slate-400">
