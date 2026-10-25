@@ -2445,6 +2445,49 @@ const handleSpvCompleteClaim = async () => {
     }
   }, [falconId])
 
+  const [tn4OpCap, setTn4OpCap] = useState<{ maxSingleBtc: number; totalBtc: number; onlineCount: number } | null>(null)
+
+  useEffect(() => {
+    if (!isFbtcRoute) return
+    let cancelled = false
+    const loadCap = async () => {
+      try {
+        const r = await fetch('/api/scan/btc-operators', { cache: 'no-store' })
+        if (!r.ok) return
+        const j = await r.json()
+        if (cancelled) return
+        const ops = Array.isArray(j.operators) ? j.operators : []
+        const online = ops.filter((o: { online?: boolean }) => o.online !== false)
+        const active = online.length > 0 ? online : ops
+        const maxSats = active.reduce(
+          (m: number, o: { btc_available_sats?: number }) =>
+            Math.max(m, Number(o.btc_available_sats) || 0),
+          0,
+        )
+        const totSats =
+          Number(j.totals?.available_sats) ||
+          active.reduce(
+            (s: number, o: { btc_available_sats?: number }) =>
+              s + (Number(o.btc_available_sats) || 0),
+            0,
+          )
+        setTn4OpCap({
+          maxSingleBtc: maxSats / 1e8,
+          totalBtc: totSats / 1e8,
+          onlineCount: active.length,
+        })
+      } catch {
+        /* ignore */
+      }
+    }
+    void loadCap()
+    const iv = setInterval(() => void loadCap(), 15000)
+    return () => {
+      cancelled = true
+      clearInterval(iv)
+    }
+  }, [isFbtcRoute])
+
   useEffect(() => {
     if (!falconId) return
     void refreshTn4Deposits()
@@ -2592,6 +2635,12 @@ const handleSpvCompleteClaim = async () => {
     const avail = fbtcSpvLive ?? fbtcLive ?? 0
     if (amt > avail) {
       setError(`Insufficient FBTC balance (available ${avail.toFixed(8)} FBTC).`)
+      return
+    }
+    if (tn4OpCap && tn4OpCap.maxSingleBtc > 0 && amt > tn4OpCap.maxSingleBtc + 1e-12) {
+      setError(
+        `Amount exceeds largest single operator capacity (${tn4OpCap.maxSingleBtc.toFixed(8).replace(/\.?0+$/, '')} BTC). Click Max or split into smaller withdrawals.`,
+      )
       return
     }
     if (!/^tb1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{25,90}$/i.test(tn4WdTo.trim())) {
@@ -3611,13 +3660,37 @@ const handleSpvCompleteClaim = async () => {
                       {(fbtcSpvLive ?? fbtcLive ?? 0) > 0 && (
                         <button
                           type="button"
-                          onClick={() => setWithdrawAmount(String(fbtcSpvLive ?? fbtcLive ?? 0))}
+                          onClick={() => {
+                            const userAvail = fbtcSpvLive ?? fbtcLive ?? 0
+                            const cap =
+                              tn4OpCap && tn4OpCap.maxSingleBtc > 0
+                                ? Math.min(userAvail, tn4OpCap.maxSingleBtc)
+                                : userAvail
+                            setWithdrawAmount(String(cap))
+                          }}
                           className="text-brand-500"
                         >
                           Max
                         </button>
                       )}
                     </div>
+                    {tn4OpCap && tn4OpCap.maxSingleBtc > 0 && (
+                      <div className="flex flex-wrap justify-between gap-2 text-[11px] text-slate-500 pt-0.5">
+                        <span>
+                          Max single bridge-out:{' '}
+                          <span className="font-mono text-slate-300">
+                            {fmt(tn4OpCap.maxSingleBtc, 6)} BTC
+                          </span>
+                        </span>
+                        <span>
+                          Operator liquidity:{' '}
+                          <span className="font-mono text-slate-400">
+                            {fmt(tn4OpCap.totalBtc, 4)} BTC
+                          </span>{' '}
+                          ({tn4OpCap.onlineCount} online)
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">

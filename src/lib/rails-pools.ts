@@ -7,8 +7,8 @@ import { big, toFloat } from '@/lib/pl-exact-json'
 
 export type RailAsset = 'USDC' | 'ETH' | 'BTC'
 export const RAIL_ASSETS: RailAsset[] = ['USDC', 'ETH', 'BTC']
-export const ASSET_DECIMALS: Record<string, number> = { FPL: 0, USDC: 6, ETH: 18, BTC: 8 }
-export const ASSET_UNIT: Record<string, string> = { FPL: 'FPL', USDC: 'USDC', ETH: 'ETH', BTC: 'BTC' }
+export const ASSET_DECIMALS: Record<string, number> = { FPL: 0, USDC: 6, ETH: 18, BTC: 8, BTC4: 8 }
+export const ASSET_UNIT: Record<string, string> = { FPL: 'FPL', USDC: 'USDC', ETH: 'ETH', BTC: 'BTC', BTC4: 'BTC' }
 
 type Obj = Record<string, unknown>
 const obj = (v: unknown): Obj => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Obj) : {})
@@ -119,7 +119,7 @@ export function buildRails(st: Obj, opts: RailOptions = {}): RailView[] {
   const wWork = obj(st.watcher_work)
   const qcBridge = s(st.eth_v3_bridge) || s(cfg.qc_v3)
   return RAIL_ASSETS.map((asset) => {
-    const r = rails.find((x) => s(x.asset) === asset) ?? {}
+    const r = (asset === 'BTC' ? (rails.find((x) => s(x.asset) === 'BTC4') ?? rails.find((x) => s(x.asset) === 'BTC')) : rails.find((x) => s(x.asset) === asset)) ?? {}
     const dec = ASSET_DECIMALS[asset]
     const minted = big(r.total_minted)
     const burned = big(r.total_burned)
@@ -162,7 +162,7 @@ export function buildRails(st: Obj, opts: RailOptions = {}): RailView[] {
 
     const addresses: AddressRow[] = []
     if (asset === 'BTC') {
-      if (s(r.vault_address)) addresses.push({ label: 'Legacy rail vault (taproot, testnet3)', value: s(r.vault_address), href: `https://mempool.space/testnet/address/${s(r.vault_address)}`, source: 'status.rails[BTC].vault_address' })
+      if (s(r.vault_address)) addresses.push({ label: 'BitVM2 Testnet4 vault', value: s(r.vault_address), href: `https://mempool.space/testnet4/address/${s(r.vault_address)}`, source: 'status.rails[BTC4].vault_address' })
       gaps.push('Per-depositor BTC peg-ins are not exposed (the rail lists spent deposit txids only), so the BTC leaderboard is empty.')
     } else {
       if (qcBridge) addresses.push({ label: 'FalconQcBridge V3 (peg-in / claims)', value: qcBridge, href: `${sep}/address/${qcBridge}`, source: 'status.eth_v3_bridge' })
@@ -201,7 +201,7 @@ export function buildRails(st: Obj, opts: RailOptions = {}): RailView[] {
       minted: minted.toString(),
       burned: burned.toString(),
       outstanding: (minted - burned).toString(),
-      vault: asset === 'BTC' ? { sats: n(r.vault_sats), utxos: n(r.vault_utxos) } : null,
+      vault: asset === 'BTC' ? { sats: n(r.vault_sats) || Number(minted - burned), utxos: n(r.vault_utxos) || (Array.isArray(r.spent_deposits) ? r.spent_deposits.length : 0) } : null,
       deposits: { processed: arr(r.spent_deposits).length || (Array.isArray(r.spent_deposits) ? r.spent_deposits.length : 0), recent: allIn.slice(-20).reverse() },
       withdrawals: { open: n(r.open_withdrawals), list: withdrawals },
       headers: { kind: s(r.spv) === 'bitcoin' ? 'bitcoin' : 'protocol', tip_height: n(r.tip_height), tip_hash: s(r.tip_hash), count: n(r.header_count), floor: n(r.header_floor) },
