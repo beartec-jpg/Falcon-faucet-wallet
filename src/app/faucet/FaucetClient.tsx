@@ -25,13 +25,13 @@ interface NetworkStatus {
 interface DripResult {
   txHash: string
   amount: number
+  amountBtc?: string
+  amountSats?: number
+  asset?: string
   account: string
-  reset: string
+  resolvedFrom?: string
+  reset?: string
 }
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-
 
 // ─── Subcomponents ───────────────────────────────────────────────────────────
 
@@ -86,16 +86,37 @@ function TxHashDisplay({ hash, explorerUrl }: { hash: string; explorerUrl: strin
 
 const PL_DRIP = 2_000
 
+function looksLikeTestnet4BtcAddr(s: string): boolean {
+  const v = s.trim()
+  if (/^tb1[ac-hj-np-z02-9]{25,87}$/i.test(v)) return true
+  if (!v.includes('.') && /^[mn2][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(v)) return true
+  return false
+}
+
 function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | null }) {
   const searchParams = useSearchParams()
   const [address, setAddress] = useState(
     () => searchParams?.get('address') ?? searchParams?.get('account') ?? '',
   )
+  const [faucetAsset, setFaucetAsset] = useState<'fpl' | 'tbtc'>(() => {
+    const assetParam = (searchParams?.get('asset') ?? '').toLowerCase()
+    if (assetParam === 'btc' || assetParam === 'tbtc' || assetParam === 'btc4') return 'tbtc'
+    const addrParam = searchParams?.get('address') ?? searchParams?.get('account') ?? ''
+    if (looksLikeTestnet4BtcAddr(addrParam)) return 'tbtc'
+    return 'fpl'
+  })
 
   useEffect(() => {
     const fromUrl = searchParams?.get('address') ?? searchParams?.get('account') ?? ''
     if (fromUrl) setAddress(fromUrl)
+    const assetParam = (searchParams?.get('asset') ?? '').toLowerCase()
+    if (assetParam === 'btc' || assetParam === 'tbtc' || assetParam === 'btc4') {
+      setFaucetAsset('tbtc')
+    } else if (fromUrl && looksLikeTestnet4BtcAddr(fromUrl)) {
+      setFaucetAsset('tbtc')
+    }
   }, [searchParams])
+
   const [status, setStatus]     = useState<NetworkStatus>({ online: false })
   const [loading, setLoading]   = useState(false)
   const [result, setResult]     = useState<DripResult | null>(null)
@@ -168,7 +189,11 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
       const res = await fetch('/api/faucet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account: address.trim(), network: 'testnet' }),
+        body: JSON.stringify({
+          account: address.trim(),
+          asset: faucetAsset,
+          network: 'testnet',
+        }),
       })
       const data = await res.json()
 
@@ -210,39 +235,98 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
             <p className="text-[11px] font-semibold tracking-[0.16em] uppercase text-brand-400/90">
               Falcon PL faucet
             </p>
-            <h1 className="text-3xl font-bold text-white tracking-tight">
-              Get testnet{' '}
-              <span className="bg-gradient-to-r from-brand-400 to-brand-500 bg-clip-text text-transparent">
-                FPL
-              </span>
-            </h1>
-            <p className="text-slate-400 text-sm">
-              {PL_DRIP.toLocaleString()} FPL per successful drip · failed attempts don&apos;t count
-            </p>
+            {faucetAsset === 'fpl' ? (
+              <>
+                <h1 className="text-3xl font-bold text-white tracking-tight">
+                  Get testnet{' '}
+                  <span className="bg-gradient-to-r from-brand-400 to-brand-500 bg-clip-text text-transparent">
+                    FPL
+                  </span>
+                </h1>
+                <p className="text-slate-400 text-sm">
+                  {PL_DRIP.toLocaleString()} FPL per successful drip · failed attempts don&apos;t count
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className="text-3xl font-bold text-white tracking-tight">
+                  Get Testnet4{' '}
+                  <span className="bg-gradient-to-r from-orange-400 to-amber-500 bg-clip-text text-transparent">
+                    BTC
+                  </span>
+                </h1>
+                <p className="text-slate-400 text-sm">
+                  0.002 tBTC (200,000 sats) for BitVM2 BTC4 bridge testing
+                </p>
+              </>
+            )}
           </div>
 
           {/* Faucet card */}
           <div className="card p-6 space-y-4 border-brand-500/20 bg-slate-900/70 backdrop-blur-md shadow-[0_0_40px_rgba(192,120,56,0.08)]">
+            {/* Asset toggle */}
+            <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-slate-950/70 p-1 border border-slate-800/80">
+              <button
+                type="button"
+                onClick={() => {
+                  setFaucetAsset('fpl')
+                  setError(null)
+                  setResult(null)
+                }}
+                className={`py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+                  faucetAsset === 'fpl'
+                    ? 'bg-brand-500/20 text-brand-300 border border-brand-500/40 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                FPL (2,000 FPL)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFaucetAsset('tbtc')
+                  setError(null)
+                  setResult(null)
+                }}
+                className={`py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+                  faucetAsset === 'tbtc'
+                    ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Testnet4 BTC (0.002 tBTC)
+              </button>
+            </div>
+
             <form action="/api/faucet" method="post" onSubmit={handleSubmit} className="space-y-4">
               <input type="hidden" name="network" value="testnet" />
+              <input type="hidden" name="asset" value={faucetAsset} />
               <input type="hidden" name="account" value={address.trim()} />
               <div className="space-y-1.5">
                 <label htmlFor="address" className="block text-sm font-medium text-slate-300">
-                  Your Falcon PL account
+                  {faucetAsset === 'fpl'
+                    ? 'Your Falcon PL account'
+                    : 'Testnet4 BTC address or linked Falcon PL name'}
                 </label>
                 <input
                   id="address"
                   type="text"
                   value={address}
                   onChange={e => { setAddress(e.target.value); setError(null) }}
-                  placeholder="your.name or r… from wallet"
+                  placeholder={
+                    faucetAsset === 'fpl'
+                      ? 'your.name or r… from wallet'
+                      : 'tb1q… / m… / n… or your.name'
+                  }
                   autoComplete="off"
                   spellCheck={false}
                   className="input-field font-mono text-sm"
                   disabled={loading}
                 />
                 <p className="text-[11px] text-slate-500">
-                  Use the account name you created (or the r… on an older wallet). Opening faucet from Wallet fills this in.
+                  {faucetAsset === 'fpl'
+                    ? 'Use the account name you created (or the r… on an older wallet). Opening faucet from Wallet fills this in.'
+                    : 'Enter your Testnet4 BTC address (tb1… / m… / n…) or your Falcon PL account name (resolves to your linked Multi-chain BTC address).'}
                 </p>
               </div>
 
@@ -259,6 +343,8 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                     </svg>
                     Sending…
                   </span>
+                ) : faucetAsset === 'tbtc' ? (
+                  'Request 0.002 tBTC'
                 ) : (
                   `Request ${PL_DRIP} FPL`
                 )}
@@ -282,20 +368,39 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  {result.amount} FPL sent!
+                  {result.asset === 'tBTC'
+                    ? `${result.amountBtc ?? '0.002'} tBTC sent!`
+                    : `${result.amount} FPL sent!`}
                 </div>
+                {result.resolvedFrom && (
+                  <div className="text-xs text-emerald-300/90 font-mono">
+                    Linked name: {result.resolvedFrom} → {result.account}
+                  </div>
+                )}
                 <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
                   <span className="text-slate-500">To</span>
                   <span className="font-mono text-slate-300 text-xs break-all">{result.account}</span>
                   <span className="text-slate-500">Tx</span>
-                  <TxHashDisplay hash={result.txHash} explorerUrl="/scan" />
+                  <TxHashDisplay
+                    hash={result.txHash}
+                    explorerUrl={result.asset === 'tBTC' ? 'https://mempool.space/testnet4' : '/scan'}
+                  />
                 </div>
-                <Link
-                  href={`/wallet?address=${encodeURIComponent(result.account)}`}
-                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-colors"
-                >
-                  Open in Wallet →
-                </Link>
+                {result.asset === 'tBTC' ? (
+                  <Link
+                    href="/bridge"
+                    className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-colors"
+                  >
+                    Open BTC4 Bridge →
+                  </Link>
+                ) : (
+                  <Link
+                    href={`/wallet?address=${encodeURIComponent(result.account)}`}
+                    className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-colors"
+                  >
+                    Open in Wallet →
+                  </Link>
+                )}
               </div>
             )}
           </div>

@@ -140,4 +140,39 @@ describe('vault activation from the hot wallet', () => {
     vi.doUnmock('@/lib/falcon-wasm')
     vi.doUnmock('@/lib/falcon-keys')
   })
+  it('SetExternalAddr signs {"kind":"SetExternalAddr","chain":…,"address":…} with destination="" and amount=0', async () => {
+    vi.resetModules()
+    const seen: string[] = []
+    vi.doMock('@/lib/falcon-wasm', () => ({
+      getFalcon512: async () => ({
+        sign: (m: Uint8Array) => {
+          seen.push(new TextDecoder().decode(m))
+          return new Uint8Array([1, 2])
+        },
+      }),
+    }))
+    vi.doMock('@/lib/falcon-keys', () => ({
+      decodeFalconSecret: () => ({ pubBlob: new Uint8Array([0xfb, 0xaa]), secretKey: new Uint8Array([9]) }),
+      bytesToHex: (b: Uint8Array) => Buffer.from(b).toString('hex'),
+      zeroize: (b: Uint8Array) => b.fill(0),
+    }))
+    const { signPlSetExternalAddr } = await import('@/lib/pl-wallet-sign')
+    const tx = await signPlSetExternalAddr({
+      account: 'scott.reynolds.123',
+      chain: 'BTC',
+      address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
+      sequence: 7,
+      falconSecret: 'x',
+    })
+    expect(seen[0]).toBe(
+      'pl-tx:v2|scott.reynolds.123|7||0|2|2300|{"kind":"SetExternalAddr","chain":"btc","address":"tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"}',
+    )
+    expect(tx.body).toEqual({
+      kind: 'SetExternalAddr',
+      chain: 'btc',
+      address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx',
+    })
+    vi.doUnmock('@/lib/falcon-wasm')
+    vi.doUnmock('@/lib/falcon-keys')
+  })
 })

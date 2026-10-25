@@ -20,6 +20,7 @@ export type StoredName = {
   reservedUntil: number
   activated: boolean
   fee: number
+  externalAddrs?: Record<string, string>
 }
 
 export type NameView = {
@@ -29,6 +30,7 @@ export type NameView = {
   fee: number
   reservedUntil?: number
   publicKey?: string
+  externalAddrs?: Record<string, string>
   error?: string
 }
 
@@ -53,6 +55,19 @@ function save(rows: StoredName[]) {
 
 function live(rows: StoredName[], now = Date.now()): StoredName[] {
   return rows.filter((r) => r.activated || r.reservedUntil > now)
+}
+
+function sanitizeExternalAddrs(raw?: Record<string, string>): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    const chain = k.trim().toLowerCase()
+    const addr = typeof v === 'string' ? v.trim() : ''
+    if (chain && addr && addr.length <= 128) {
+      out[chain] = addr
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 export function viewName(raw: string, now = Date.now()): NameView {
@@ -82,7 +97,14 @@ export function viewName(raw: string, now = Date.now()): NameView {
     return { name, available: true, status: 'free', fee }
   }
   if (rec.activated) {
-    return { name, available: false, status: 'activated', fee: rec.fee, publicKey: rec.publicKey }
+    return {
+      name,
+      available: false,
+      status: 'activated',
+      fee: rec.fee,
+      publicKey: rec.publicKey,
+      externalAddrs: rec.externalAddrs,
+    }
   }
   return {
     name,
@@ -91,6 +113,7 @@ export function viewName(raw: string, now = Date.now()): NameView {
     fee: rec.fee,
     reservedUntil: rec.reservedUntil,
     publicKey: rec.publicKey,
+    externalAddrs: rec.externalAddrs,
   }
 }
 
@@ -98,6 +121,7 @@ export function reserveName(opts: {
   name: string
   publicKey: string
   credentialHash?: string
+  externalAddrs?: Record<string, string>
   now?: number
 }): StoredName {
   const now = opts.now ?? Date.now()
@@ -123,6 +147,7 @@ export function reserveName(opts: {
   if (heldKey && heldKey.name !== name) {
     throw new Error(`This key already reserved ${heldKey.name}`)
   }
+  const cleanAddrs = sanitizeExternalAddrs(opts.externalAddrs)
   const rec: StoredName = {
     name,
     publicKey: opts.publicKey,
@@ -130,6 +155,7 @@ export function reserveName(opts: {
     reservedUntil: now + NAME_RESERVE_MS,
     activated: false,
     fee: activationFeeFpl(name),
+    ...(cleanAddrs ? { externalAddrs: cleanAddrs } : {}),
   }
   rows = rows.filter((r) => r.name !== name)
   rows.push(rec)
@@ -137,13 +163,27 @@ export function reserveName(opts: {
   return rec
 }
 
-export function activateName(nameRaw: string, publicKey: string, now = Date.now()): StoredName {
+export function activateName(
+  nameRaw: string,
+  publicKey: string,
+  now = Date.now(),
+  externalAddrs?: Record<string, string>,
+): StoredName {
   const name = normalizePlName(nameRaw)
   if (!name) throw new Error('Invalid name')
   const rows = live(load(), now)
   const rec = rows.find((r) => r.name === name)
+  const mergedAddrs = sanitizeExternalAddrs({
+    ...(rec?.externalAddrs ?? {}),
+    ...(externalAddrs ?? {}),
+  })
   if (rec?.activated) {
     if (rec.publicKey !== publicKey) throw new Error('Name already activated')
+    if (mergedAddrs) {
+      const updated: StoredName = { ...rec, externalAddrs: mergedAddrs }
+      save(rows.filter((r) => r.name !== name).concat(updated))
+      return updated
+    }
     return rec
   }
   if (rec && rec.publicKey !== publicKey) throw new Error('Name is reserved by another wallet')
@@ -154,6 +194,38 @@ export function activateName(nameRaw: string, publicKey: string, now = Date.now(
     reservedUntil: 0,
     activated: true,
     fee: rec?.fee ?? activationFeeFpl(name),
+    ...(mergedAddrs ? { externalAddrs: mergedAddrs } : {}),
+  }
+  save(rows.filter((r) => r.name !== name).concat(next))
+  return next
+}
+
+export function setNameAddrs(
+  nameRaw: string,
+  publicKey: string,
+  externalAddrs: Record<string, string>,
+  now = Date.now(),
+): StoredName {
+  const name = normalizePlName(nameRaw)
+  if (!name) throw new Error('Invalid name')
+  if (!publicKey.trim()) throw new Error('public key required')
+  const rows = live(load(), now)
+  const rec = rows.find((r) => r.name === name)
+  if (rec && rec.publicKey && rec.publicKey !== publicKey) {
+    throw new Error('Name is owned by another wallet')
+  }
+  const mergedAddrs = sanitizeExternalAddrs({
+    ...(rec?.externalAddrs ?? {}),
+    ...(externalAddrs ?? {}),
+  })
+  const next: StoredName = {
+    name,
+    publicKey,
+    credentialHash: rec?.credentialHash,
+    reservedUntil: rec?.reservedUntil ?? 0,
+    activated: rec?.activated ?? true,
+    fee: rec?.fee ?? activationFeeFpl(name),
+    ...(mergedAddrs ? { externalAddrs: mergedAddrs } : {}),
   }
   save(rows.filter((r) => r.name !== name).concat(next))
   return next
