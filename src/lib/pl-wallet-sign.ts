@@ -605,3 +605,32 @@ export async function signPlPayToKey(opts: {
     falconSecret: opts.falconSecret,
   })
 }
+
+/**
+ * v2.10.0 `TxPayload::SetExternalAddr` — binds a native external chain address
+ * (`btc`, `eth`, `xrp`, `bnb`, etc.) to this Falcon PL account on-chain.
+ */
+export async function signPlSetExternalAddr(opts: {
+  account: string
+  chain: string
+  address: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: {
+      kind: 'SetExternalAddr',
+      chain: opts.chain.trim().toLowerCase(),
+      address: opts.address.trim(),
+    },
+    falconSecret: opts.falconSecret,
+  })
+}

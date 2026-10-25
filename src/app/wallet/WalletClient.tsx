@@ -402,6 +402,13 @@ export default function WalletPage() {
     success: boolean; hash?: string; message: string; explorerUrl?: string
   } | null>(null)
   const [showSendScanner, setShowSendScanner] = useState(false)
+  const [nativeNameLookup, setNativeNameLookup] = useState<{
+    status: 'idle' | 'checking' | 'found' | 'missing'
+    name: string
+    chainKey: 'btc' | 'eth' | 'xrp'
+    address?: string
+  }>({ status: 'idle', name: '', chainKey: 'btc' })
+  const syncedExternalAddrsRef = useRef<string>('')
 
   // Account name (AccountNames amendment)
   const [accountName, setAccountName] = useState<string | null>(null)
@@ -564,6 +571,11 @@ export default function WalletPage() {
       const next = { ...wallet, nameActivated: true }
       void saveWallet(next)
       setWallet(next)
+      const externalAddrs: Record<string, string> = {
+        ...(wallet.btcAddress ? { btc: wallet.btcAddress } : {}),
+        ...(wallet.evmAddress ? { eth: wallet.evmAddress, bnb: wallet.evmAddress } : {}),
+        ...(wallet.xrplClassicAddress ? { xrp: wallet.xrplClassicAddress } : {}),
+      }
       void fetch('/api/wallet/name', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -571,12 +583,83 @@ export default function WalletPage() {
           action: 'activate',
           name: wallet.accountName,
           publicKey: wallet.publicKey,
+          ...(Object.keys(externalAddrs).length > 0 ? { externalAddrs } : {}),
         }),
       }).catch(() => {
         /* best-effort sync to reservation store */
       })
     }
   }, [wallet, account])
+
+  // Sync linked Multi-chain addresses (BTC, ETH/BNB, XRP) to the Falcon PL account name
+  useEffect(() => {
+    if (!wallet?.accountName || !wallet?.publicKey) return
+    const externalAddrs: Record<string, string> = {
+      ...(wallet.btcAddress ? { btc: wallet.btcAddress } : {}),
+      ...(wallet.evmAddress ? { eth: wallet.evmAddress, bnb: wallet.evmAddress } : {}),
+      ...(wallet.xrplClassicAddress ? { xrp: wallet.xrplClassicAddress } : {}),
+    }
+    if (Object.keys(externalAddrs).length === 0) return
+    const syncKey = `${wallet.accountName}|${wallet.btcAddress || ''}|${wallet.evmAddress || ''}|${wallet.xrplClassicAddress || ''}`
+    if (syncedExternalAddrsRef.current === syncKey) return
+    syncedExternalAddrsRef.current = syncKey
+    void fetch('/api/wallet/name', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'set-addrs',
+        name: wallet.accountName,
+        publicKey: wallet.publicKey,
+        externalAddrs,
+      }),
+    }).catch(() => {
+      /* best-effort multi-chain address link */
+    })
+  }, [wallet?.accountName, wallet?.publicKey, wallet?.btcAddress, wallet?.evmAddress, wallet?.xrplClassicAddress])
+
+  // Debounced lookup when sending native BTC/ETH/USDC/BNB/XRP to a Falcon PL account name
+  useEffect(() => {
+    const isNativeSend =
+      sendAsset === 'btc' ||
+      sendAsset === 'eth' ||
+      sendAsset === 'usdc' ||
+      sendAsset === 'bnb' ||
+      sendAsset === 'xrp'
+    const raw = sendTo.trim()
+    const chainKey: 'btc' | 'eth' | 'xrp' =
+      sendAsset === 'btc' ? 'btc' : sendAsset === 'xrp' ? 'xrp' : 'eth'
+    const isAlreadyNative =
+      raw.startsWith('0x') ||
+      isValidBtcAddress(raw, 'testnet') ||
+      isValidFalconAddress(raw)
+    if (!isNativeSend || !raw || isAlreadyNative || !/^[a-z0-9][a-z0-9._-]{1,63}$/i.test(raw)) {
+      setNativeNameLookup({ status: 'idle', name: '', chainKey })
+      return
+    }
+    const norm = raw.toLowerCase()
+    setNativeNameLookup({ status: 'checking', name: norm, chainKey })
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void fetch(`/api/wallet/name?name=${encodeURIComponent(norm)}`, { cache: 'no-store' })
+        .then(async (r) => {
+          const d = (await r.json()) as { externalAddrs?: Record<string, string> }
+          if (cancelled) return
+          const linked = d.externalAddrs?.[chainKey]?.trim()
+          if (linked) {
+            setNativeNameLookup({ status: 'found', name: norm, chainKey, address: linked })
+          } else {
+            setNativeNameLookup({ status: 'missing', name: norm, chainKey })
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setNativeNameLookup({ status: 'missing', name: norm, chainKey })
+        })
+    }, 280)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [sendAsset, sendTo])
 
   useEffect(() => {
     if (!wallet || network.networkId !== 2300) return
@@ -1368,10 +1451,47 @@ export default function WalletPage() {
     // ── Native multi-chain send (BTC / BNB / ETH / classic XRPL XRP) ─────────
     if (isNative) {
       let to = sendTo.trim()
+      let resolvedPlName: string | null = null
       const amt = parseFloat(sendAmount)
       if (isNaN(amt) || amt <= 0) {
         setError('Invalid amount')
         return
+      }
+
+      const chainKey: 'btc' | 'eth' | 'xrp' =
+        sendAsset === 'btc' ? 'btc' : sendAsset === 'xrp' ? 'xrp' : 'eth'
+      const isAlreadyNative =
+        sendAsset === 'btc'
+          ? isValidBtcAddress(to, 'testnet')
+          : sendAsset === 'xrp'
+            ? isValidFalconAddress(to)
+            : /^0x[a-fA-F0-9]{40}$/.test(parseEvmAddressFromScan(to) || to)
+
+      if (!isAlreadyNative && /^[a-z0-9][a-z0-9._-]{1,63}$/i.test(to)) {
+        const lookupName = to.toLowerCase()
+        let resolvedAddr =
+          nativeNameLookup.status === 'found' &&
+          nativeNameLookup.name === lookupName &&
+          nativeNameLookup.chainKey === chainKey
+            ? nativeNameLookup.address
+            : undefined
+        if (!resolvedAddr) {
+          try {
+            const r = await fetch(`/api/wallet/name?name=${encodeURIComponent(lookupName)}`, {
+              cache: 'no-store',
+            })
+            const d = (await r.json()) as { externalAddrs?: Record<string, string> }
+            resolvedAddr = d.externalAddrs?.[chainKey]?.trim()
+          } catch {
+            /* handled below */
+          }
+        }
+        if (!resolvedAddr) {
+          setError(`No ${chainKey.toUpperCase()} address is linked to "${lookupName}" yet.`)
+          return
+        }
+        resolvedPlName = lookupName
+        to = resolvedAddr
       }
 
       if (sendAsset === 'xrp') {
@@ -1380,7 +1500,7 @@ export default function WalletPage() {
           return
         }
         if (!isValidFalconAddress(to)) {
-          setError('Invalid classic XRPL destination (expect r… address)')
+          setError('Invalid classic XRPL destination (expect r… address or linked Falcon name)')
           return
         }
         if (to === wallet.xrplClassicAddress) {
@@ -1410,7 +1530,9 @@ export default function WalletPage() {
           setSendResult({
             success: true,
             hash: result.hash,
-            message: `Classic XRPL: ${result.engine_result}`,
+            message: resolvedPlName
+              ? `Sent ${amt} XRP to ${resolvedPlName} (${to.slice(0, 8)}…) · ${result.engine_result}`
+              : `Classic XRPL: ${result.engine_result}`,
             explorerUrl: result.hash
               ? `https://testnet.xrpl.org/transactions/${result.hash}`
               : undefined,
@@ -1492,10 +1614,11 @@ export default function WalletPage() {
             amountBtc: sendAmount.trim(),
             network: 'testnet',
           })
+          const recipientSuffix = resolvedPlName ? ` to ${resolvedPlName} (${to.slice(0, 8)}…)` : ''
           setSendResult({
             success: true,
             hash: result.txid,
-            message: `Broadcast ${sendAmount} BTC (fee ~${(result.feeSats / 1e8).toFixed(8)} BTC)`,
+            message: `Broadcast ${sendAmount} BTC${recipientSuffix} (fee ~${(result.feeSats / 1e8).toFixed(8)} BTC)`,
             explorerUrl: result.explorerUrl,
           })
           setSendTo('')
@@ -1505,6 +1628,7 @@ export default function WalletPage() {
             void fetchBtcTestnetBalance(wallet.btcAddress).then(setBtcNativeBal)
           }
         } else {
+          const recipientSuffix = resolvedPlName ? ` to ${resolvedPlName} (${to.slice(0, 8)}…)` : ''
           const evmPk = await decryptSeed(wallet.evmEncrypted!, keyBytes)
           const pk = evmPk.startsWith('0x') ? evmPk : `0x${evmPk}`
           if (sendAsset === 'bnb') {
@@ -1516,7 +1640,7 @@ export default function WalletPage() {
             setSendResult({
               success: true,
               hash,
-              message: `Sent ${sendAmount} BNB on BSC testnet`,
+              message: `Sent ${sendAmount} BNB${recipientSuffix} on BSC testnet`,
               explorerUrl: `https://testnet.bscscan.com/tx/${hash}`,
             })
             if (wallet.evmAddress) {
@@ -1532,7 +1656,7 @@ export default function WalletPage() {
             setSendResult({
               success: true,
               hash,
-              message: `Sent ${sendAmount} USDC on Sepolia`,
+              message: `Sent ${sendAmount} USDC${recipientSuffix} on Sepolia`,
               explorerUrl: `${bridgeCfg!.sepolia.explorer_url}/tx/${hash}`,
             })
             if (wallet.evmAddress && bridgeCfg?.sepolia) {
@@ -1551,7 +1675,7 @@ export default function WalletPage() {
             setSendResult({
               success: true,
               hash,
-              message: `Sent ${sendAmount} ETH on Sepolia`,
+              message: `Sent ${sendAmount} ETH${recipientSuffix} on Sepolia`,
               explorerUrl: `${bridgeCfg!.sepolia.explorer_url}/tx/${hash}`,
             })
             if (wallet.evmAddress && bridgeCfg?.sepolia) {
@@ -2772,6 +2896,11 @@ export default function WalletPage() {
                                   action: 'activate',
                                   name: wallet.accountName,
                                   publicKey: wallet.publicKey,
+                                  externalAddrs: {
+                                    ...(wallet.btcAddress ? { btc: wallet.btcAddress } : {}),
+                                    ...(wallet.evmAddress ? { eth: wallet.evmAddress, bnb: wallet.evmAddress } : {}),
+                                    ...(wallet.xrplClassicAddress ? { xrp: wallet.xrplClassicAddress } : {}),
+                                  },
                                 }),
                               })
                               const d = (await r.json()) as { error?: string }
@@ -3180,6 +3309,16 @@ export default function WalletPage() {
                               {chain.id === 'btc' && hasBtc && btcNativeBal && btcNativeBal.totalSats > 0 && (
                                 <div className="text-[10px] text-slate-600 mt-0.5">
                                   {btcNativeBal.totalSats.toLocaleString()} sats
+                                </div>
+                              )}
+                              {chain.id === 'btc' && hasBtc && (
+                                <div className="mt-1 font-sans">
+                                  <Link
+                                    href={`/faucet?asset=btc&address=${encodeURIComponent(wallet.btcAddress || plAccountId(wallet))}`}
+                                    className="text-[11px] font-medium text-orange-400 hover:text-orange-300 transition-colors"
+                                  >
+                                    Get Testnet4 BTC (0.002 tBTC) →
+                                  </Link>
                                 </div>
                               )}
                               {chain.id === 'bnb' && bnbNativeBal == null && !nativeBalLoading && hasEvmKey && (
@@ -3795,11 +3934,11 @@ export default function WalletPage() {
                       <div className="space-y-1.5">
                         <label className="text-xs text-slate-400">
                           {sendAsset === 'btc'
-                            ? 'Destination (Testnet4 tb1… or m… / n…)'
+                            ? 'Destination (Testnet4 tb1… / m… or Falcon name)'
                             : sendAsset === 'eth' || sendAsset === 'bnb' || sendAsset === 'usdc'
-                              ? 'Destination (0x…)'
+                              ? 'Destination (0x… or Falcon name)'
                               : sendAsset === 'xrp'
-                                ? 'Destination (classic XRPL r…)'
+                                ? 'Destination (classic XRPL r… or Falcon name)'
                               : 'Destination (r… or name)'}
                         </label>
                         <div className="flex items-stretch gap-2">
@@ -3809,11 +3948,11 @@ export default function WalletPage() {
                             onChange={e => { setSendTo(e.target.value); setError(null) }}
                             placeholder={
                               sendAsset === 'btc'
-                                ? 'tb1… or m… / n…'
+                                ? 'tb1… / m… or Falcon name (scott.reynolds.123)'
                                 : sendAsset === 'eth' || sendAsset === 'bnb' || sendAsset === 'usdc'
-                                  ? '0x…'
+                                  ? '0x… or Falcon name (scott.reynolds.123)'
                                   : sendAsset === 'xrp'
-                                    ? 'rXXX… (classic XRPL)'
+                                    ? 'r… or Falcon name (scott.reynolds.123)'
                                   : 'rXXX… or alice.bob'
                             }
                             className="input-field flex-1 min-w-0 w-0"
@@ -3836,6 +3975,22 @@ export default function WalletPage() {
                             <span className="text-[10px] font-semibold leading-none">Scan</span>
                           </button>
                         </div>
+                        {nativeNameLookup.status === 'checking' && (
+                          <div className="text-[11px] text-slate-400 font-mono">
+                            Looking up {nativeNameLookup.chainKey.toUpperCase()} address for {nativeNameLookup.name}…
+                          </div>
+                        )}
+                        {nativeNameLookup.status === 'found' && nativeNameLookup.address && (
+                          <div className="text-[11px] text-emerald-400 font-mono">
+                            ✓ Linked {nativeNameLookup.chainKey.toUpperCase()} address for {nativeNameLookup.name}:{' '}
+                            {nativeNameLookup.address.slice(0, 10)}…{nativeNameLookup.address.slice(-6)}
+                          </div>
+                        )}
+                        {nativeNameLookup.status === 'missing' && (
+                          <div className="text-[11px] text-amber-400 font-mono">
+                            No {nativeNameLookup.chainKey.toUpperCase()} address linked to {nativeNameLookup.name} yet
+                          </div>
+                        )}
                         {network.networkId === 2300 &&
                           (sendAsset === 'falcon' ||
                             sendAsset === 'fusdc' ||
