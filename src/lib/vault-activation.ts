@@ -73,15 +73,11 @@ export function isDestinationKeyBound(msg: string): boolean {
 /** Is `dest` this hot wallet's own linked vault (the vault record on this device)? */
 export function isOwnLinkedVault(
   dest: string,
-  hotAccount: string,
+  _hotAccount: string,
   vault: { accountName?: string; payoutAddress?: string; publicKey?: string } | null | undefined,
   linkedName: string | null,
 ): boolean {
   const d = dest.trim().toLowerCase()
   if (!d || !vault?.accountName || !vault.publicKey || !linkedName) return false
-  return (
-    d === vault.accountName.toLowerCase() &&
-    d === linkedName.toLowerCase() &&
-    (vault.payoutAddress || '').trim().toLowerCase() === hotAccount.trim().toLowerCase()
-  )
+  return d === vault.accountName.toLowerCase() && d === linkedName.toLowerCase()
 }

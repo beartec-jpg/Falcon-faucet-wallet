@@ -97,7 +97,9 @@ describe('vault activation from the hot wallet', () => {
   })
   it('own linked vault detection', () => {
     const v = { accountName: 'scott.reynolds.123.vault', payoutAddress: 'scott.reynolds.123', publicKey: 'FB00' }
+    const vCustomPayout = { accountName: 'scott.reynolds.123.vault', payoutAddress: 'cold.payout.account', publicKey: 'FB00' }
     expect(isOwnLinkedVault('Scott.Reynolds.123.vault', 'scott.reynolds.123', v, 'scott.reynolds.123.vault')).toBe(true)
+    expect(isOwnLinkedVault('Scott.Reynolds.123.vault', 'scott.reynolds.123', vCustomPayout, 'scott.reynolds.123.vault')).toBe(true)
     expect(isOwnLinkedVault('other.vault', 'scott.reynolds.123', v, 'scott.reynolds.123.vault')).toBe(false)
     expect(isOwnLinkedVault('scott.reynolds.123.vault', 'mallory', v, 'mallory.vault')).toBe(false)
     expect(isOwnLinkedVault('scott.reynolds.123.vault', 'scott.reynolds.123', null, 'scott.reynolds.123.vault')).toBe(false)

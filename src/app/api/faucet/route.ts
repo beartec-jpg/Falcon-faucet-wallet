@@ -189,6 +189,9 @@ export async function POST(req: NextRequest) {
           { limitType: 'walletd' },
         )
       }
+      if (e instanceof WalletApiError && e.status >= 400 && e.status < 500) {
+        return NextResponse.json({ error: e.message }, { status: e.status })
+      }
       return err('Cannot reach Falcon PL. Try again shortly.', 503)
     }
 

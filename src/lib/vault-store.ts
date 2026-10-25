@@ -27,6 +27,7 @@ export interface VaultPublicRecord {
   nameReservedUntil?: number
   nameActivationFee?: number
   nameActivated?: boolean
+  lockedOnChain?: boolean
   /** Browser vault only — passkey-encrypted falcon_secret. */
   encrypted?: EncryptedSeed
   credentialId?: string
