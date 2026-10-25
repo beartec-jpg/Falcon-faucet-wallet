@@ -165,6 +165,14 @@ function fmtFloor(n: string | number, decimals = 2): string {
   return floored.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: decimals })
 }
 
+function formatBridgeError(e: unknown, fallback: string): string {
+  const msg = e instanceof Error ? e.message : fallback
+  if (/timed out or was not allowed|NotAllowedError|webauthn/i.test(msg)) {
+    return 'Passkey prompt was cancelled or timed out. Try again.'
+  }
+  return msg || fallback
+}
+
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
   return (
@@ -374,6 +382,29 @@ export default function BridgeDepositPanel({
   const [tn4Msg, setTn4Msg] = useState<string | null>(null)
   const [tn4WdTo, setTn4WdTo] = useState('')
   const [tn4DerivedTb1, setTn4DerivedTb1] = useState<string | null>(null)
+  const [dismissedTn4Ids, setDismissedTn4Ids] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return []
+    try {
+      const raw = localStorage.getItem('fpl-tn4-dismissed')
+      const parsed = raw ? JSON.parse(raw) : []
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+    } catch {
+      return []
+    }
+  })
+  const btcPkRef = useRef<string | null>(null)
+  const tn4AutoSignRef = useRef<Set<string>>(new Set())
+  const dismissTn4Deposit = useCallback((id: string) => {
+    setDismissedTn4Ids((prev) => {
+      const next = prev.includes(id) ? prev : [...prev, id]
+      try {
+        localStorage.setItem('fpl-tn4-dismissed', JSON.stringify(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }, [])
   /** Live bridge routes — honour initialRoute from Falcon / Multi-chain buttons */
   const [bridgeRoute, setBridgeRoute] = useState<BridgeRouteId>(() => {
     return PUBLIC_BRIDGE_ROUTES.includes(initialRoute as BridgeRouteId)
@@ -457,7 +488,7 @@ export default function BridgeDepositPanel({
           ? fethReady
           : bridgeReady
   const openSpvBlocksIn =
-    isFbtcRoute && direction === 'deposit' && !!spvPending && spvPending.status !== 'claimed'
+    !isPl2300 && isFbtcRoute && direction === 'deposit' && !!spvPending && spvPending.status !== 'claimed'
   const canBridgeIn = openSpvBlocksIn
     ? false
     : isFbtcRoute
@@ -570,8 +601,13 @@ export default function BridgeDepositPanel({
       }
       const fbtcTok =
         tokens.find((t) => (t as { spvMpt?: boolean }).spvMpt) ||
-        tokens.find((t) => t.symbol === 'FBTC' || t.currency === 'BTC4' || t.currency === 'BTC') ||
-        tokens.find((t) => t.issuer === fbtcIssuer)
+        tokens.find(
+          (t) =>
+            t.symbol === 'FBTC' ||
+            t.currency === 'BTC4' ||
+            (!isPl2300 && t.currency === 'BTC'),
+        ) ||
+        (Boolean(fbtcIssuer) ? tokens.find((t) => t.issuer === fbtcIssuer) : undefined)
       if (fbtcTok) {
         setHasFbtcTrustLine(!!fbtcTok.hasTrustLine)
         // Product balance = BTC4 / SPV MPT balance
@@ -590,7 +626,7 @@ export default function BridgeDepositPanel({
       }
       const fxrpTok =
         tokens.find((t) => t.currency === 'XRP' || t.symbol === 'FXRP') ||
-        tokens.find((t) => t.issuer === fxrpIssuer)
+        (Boolean(fxrpIssuer) ? tokens.find((t) => t.issuer === fxrpIssuer) : undefined)
       if (fxrpTok) {
         setHasFxrpTrustLine(!!fxrpTok.hasTrustLine)
         setFxrpLive(fxrpTok.hasTrustLine ? (fxrpTok.balance ?? 0) : 0)
@@ -2060,6 +2096,10 @@ const handleSpvCompleteClaim = async () => {
   }
 
   const handleDeposit = async () => {
+    if (isFbtcRoute) {
+      await handleTn4BridgeIn()
+      return
+    }
     if (!activeLockReady) return
     if (!isFbtcRoute && (!wallet.evmEncrypted || !wallet.evmAddress)) return
     if (!canBridgeIn) {
@@ -2370,104 +2410,97 @@ const handleSpvCompleteClaim = async () => {
     try {
       const list = await listDeposits(falconId)
       setTn4Deposits(list)
+      const cachedPk = btcPkRef.current
+      if (cachedPk) {
+        for (const d of list) {
+          if (d.state === 'awaiting_signature' && !tn4AutoSignRef.current.has(d.id)) {
+            tn4AutoSignRef.current.add(d.id)
+            void (async () => {
+              try {
+                const full = await getDeposit(d.id)
+                if (!full.depositor_request) {
+                  tn4AutoSignRef.current.delete(d.id)
+                  return
+                }
+                const sigs = signDepositorRequest(full.depositor_request, cachedPk)
+                try {
+                  localStorage.setItem(
+                    `fpl-tn4-signed-${d.id}`,
+                    JSON.stringify({ ...sigs, request: full.depositor_request }),
+                  )
+                } catch {
+                  /* ignore */
+                }
+                const updated = await postSignatures(d.id, sigs)
+                setTn4Deposits((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+              } catch {
+                tn4AutoSignRef.current.delete(d.id)
+              }
+            })()
+          }
+        }
+      }
     } catch {
       /* ignore transient intake errors */
     }
   }, [falconId])
 
   useEffect(() => {
-    if (!isFbtcRoute || !falconId) return
+    if (!falconId) return
     void refreshTn4Deposits()
     const iv = setInterval(() => {
       void refreshTn4Deposits()
     }, 6000)
     return () => clearInterval(iv)
-  }, [isFbtcRoute, falconId, refreshTn4Deposits])
+  }, [falconId, refreshTn4Deposits])
 
-  async function handleTn4CreateDeposit(andFundFromWallet: boolean) {
+  async function handleTn4BridgeIn() {
     setError(null)
     setTn4Msg(null)
+    setResult(null)
     if (!hasBtc || !wallet.btcEncrypted) {
-      setError('Create Bitcoin keys first in Multi-chain BTC (your wallet BTC key is your BitVM2 depositor key).')
+      setError('Create Bitcoin keys first in Multi-chain BTC.')
       return
     }
-    const sendBtcAmt = parseFloat(amount || '0.0005')
-    if (andFundFromWallet) {
-      if (!Number.isFinite(sendBtcAmt) || sendBtcAmt < 0.0005 || sendBtcAmt > 0.01) {
-        setError('Testnet4 BitVM2 peg-in requires between 0.0005 and 0.01 BTC (50,000–1,000,000 sats).')
-        return
-      }
-      const curBtc = btcBal != null ? parseFloat(btcBal) : 0
-      if (sendBtcAmt > curBtc) {
-        setError(`Insufficient Testnet4 BTC balance (have ${curBtc.toFixed(8)} BTC).`)
-        return
-      }
+    const sendBtcAmt = parseFloat(amount)
+    if (!Number.isFinite(sendBtcAmt) || sendBtcAmt < 0.0005 || sendBtcAmt > 0.01) {
+      setError('Amount must be between 0.0005 and 0.01 BTC.')
+      return
     }
-    setTn4Busy(andFundFromWallet ? 'create-and-send' : 'create')
+    const curBtc = btcBal != null ? parseFloat(btcBal) : 0
+    if (sendBtcAmt > curBtc) {
+      setError(`Insufficient BTC balance (have ${curBtc.toFixed(8)} BTC).`)
+      return
+    }
+    setBusy(true)
+    setStep('Confirm passkey…')
     try {
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const btcPk = (await decryptSeed(wallet.btcEncrypted, keyBytes)).replace(/^0x/i, '')
+      btcPkRef.current = btcPk
       try {
         setTn4DerivedTb1(btcTb1AddressFromSecret(btcPk, 'testnet'))
       } catch {
         /* ignore */
       }
+      setStep('Starting bridge in…')
       const pub = depositorPubkey(btcPk)
       const dep = await createDeposit(falconId, pub)
-      setTn4Deposits((prev) => [dep, ...prev.filter((x) => x.id !== dep.id)])
-      if (andFundFromWallet) {
-        const sent = await sendBtcP2pkh({
-          privateKeyHex: btcPk,
-          toAddress: dep.address,
-          amountBtc: String(sendBtcAmt),
-          network: 'testnet',
-        })
-        setTn4Msg(
-          `Sent ${sendBtcAmt} Testnet4 BTC to peg-in address ${dep.address.slice(0, 14)}… (tx ${sent.txid.slice(0, 14)}…). Once confirmed, click "Sign peg-in" below.`,
-        )
-        if (wallet.btcAddress) {
-          fetchBtcBalance(wallet.btcAddress, 'testnet')
-            .then((r) => { if (r) setBtcBal(r.btc) })
-            .catch(() => {})
-        }
-        void refreshTn4Deposits()
-      } else {
-        setTn4Msg(
-          `Created peg-in deposit ${dep.id}. Send 0.0005–0.01 Testnet4 BTC (50,000–1,000,000 sats) to ${dep.address}, then click "Sign peg-in".`,
-        )
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to create Testnet4 peg-in deposit')
-    } finally {
-      setTn4Busy(null)
-    }
-  }
-
-  async function handleTn4FundExistingDeposit(dep: Tn4Deposit) {
-    setError(null)
-    setTn4Msg(null)
-    if (!hasBtc || !wallet.btcEncrypted) {
-      setError('Create Bitcoin keys first in Multi-chain to fund from wallet.')
-      return
-    }
-    const sendBtcAmt = parseFloat(amount || '0.0005')
-    if (!Number.isFinite(sendBtcAmt) || sendBtcAmt < 0.0005 || sendBtcAmt > 0.01) {
-      setError('Enter an amount between 0.0005 and 0.01 BTC (50,000–1,000,000 sats) above first.')
-      return
-    }
-    setTn4Busy(`fund:${dep.id}`)
-    try {
-      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-      const btcPk = (await decryptSeed(wallet.btcEncrypted, keyBytes)).replace(/^0x/i, '')
+      setStep('Sending BTC…')
       const sent = await sendBtcP2pkh({
         privateKeyHex: btcPk,
         toAddress: dep.address,
         amountBtc: String(sendBtcAmt),
         network: 'testnet',
       })
-      setTn4Msg(
-        `Broadcast ${sendBtcAmt} Testnet4 BTC to ${dep.address.slice(0, 14)}… (tx ${sent.txid.slice(0, 14)}…). Once confirmed, click "Sign peg-in".`,
-      )
+      const seeded: Tn4Deposit = {
+        ...dep,
+        funding: `${sent.txid}:0`,
+        funding_sats: Math.round(sendBtcAmt * 1e8),
+      }
+      setTn4Deposits((prev) => [seeded, ...prev.filter((x) => x.id !== dep.id)])
+      setAmount('')
+      setTn4Msg('Bridge in started.')
       if (wallet.btcAddress) {
         fetchBtcBalance(wallet.btcAddress, 'testnet')
           .then((r) => { if (r) setBtcBal(r.btc) })
@@ -2475,9 +2508,10 @@ const handleSpvCompleteClaim = async () => {
       }
       void refreshTn4Deposits()
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to send Testnet4 BTC')
+      setError(formatBridgeError(e, 'Bridge in failed'))
     } finally {
-      setTn4Busy(null)
+      setBusy(false)
+      setStep(null)
     }
   }
 
@@ -2492,10 +2526,14 @@ const handleSpvCompleteClaim = async () => {
     try {
       const full = await getDeposit(dep.id)
       if (!full.depositor_request) {
-        throw new Error('Nothing to sign yet — wait for operator ceremony.')
+        throw new Error('Nothing to sign yet — wait for 1st confirmation.')
       }
-      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-      const btcPk = (await decryptSeed(wallet.btcEncrypted, keyBytes)).replace(/^0x/i, '')
+      let btcPk = btcPkRef.current
+      if (!btcPk) {
+        const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+        btcPk = (await decryptSeed(wallet.btcEncrypted, keyBytes)).replace(/^0x/i, '')
+        btcPkRef.current = btcPk
+      }
       const sigs = signDepositorRequest(full.depositor_request, btcPk)
       try {
         localStorage.setItem(
@@ -2507,26 +2545,11 @@ const handleSpvCompleteClaim = async () => {
       }
       const updated = await postSignatures(dep.id, sigs)
       setTn4Deposits((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
-      setTn4Msg(
-        `Signed peg-in ${dep.id}! Download your signed refund below. FBTC (BTC4) mints automatically to ${falconId} after 6 Testnet4 confirmations.`,
-      )
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Signing failed')
+      setError(formatBridgeError(e, 'Signing failed'))
     } finally {
       setTn4Busy(null)
     }
-  }
-
-  function handleTn4DownloadRefund(id: string) {
-    const v = localStorage.getItem(`fpl-tn4-signed-${id}`)
-    if (!v) {
-      setError('No signed refund stored in this browser for that deposit.')
-      return
-    }
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(new Blob([v], { type: 'application/json' }))
-    a.download = `fpl-tn4-refund-${id}.json`
-    a.click()
   }
 
   async function handleTn4UseWalletTb1() {
@@ -2536,18 +2559,22 @@ const handleSpvCompleteClaim = async () => {
       return
     }
     if (!wallet.btcEncrypted) {
-      setError('No wallet BTC key found — enter any Testnet4 tb1… address manually or create BTC keys in Multi-chain.')
+      setError('No wallet BTC key found — enter a tb1… address manually or create BTC keys in Multi-chain.')
       return
     }
     setTn4Busy('derive-tb1')
     try {
-      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
-      const btcPk = await decryptSeed(wallet.btcEncrypted, keyBytes)
+      let btcPk = btcPkRef.current
+      if (!btcPk) {
+        const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+        btcPk = (await decryptSeed(wallet.btcEncrypted, keyBytes)).replace(/^0x/i, '')
+        btcPkRef.current = btcPk
+      }
       const tb1 = btcTb1AddressFromSecret(btcPk, 'testnet')
       setTn4DerivedTb1(tb1)
       setTn4WdTo(tb1)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Could not derive tb1… address')
+      setError(formatBridgeError(e, 'Could not derive tb1… address'))
     } finally {
       setTn4Busy(null)
     }
@@ -2593,15 +2620,12 @@ const handleSpvCompleteClaim = async () => {
       if (!subRes.ok || sub.error || sub.success === false) {
         throw new Error(sub.error || sub.message || `Submit HTTP ${subRes.status}`)
       }
-      const txHash = sub.hash || tx.tx_id
-      setTn4Msg(
-        `Burned ${amt} FBTC (BTC4) on Falcon (tx ${txHash.slice(0, 16)}…). An operator will front the Testnet4 BTC payout to ${tn4WdTo.trim()}.`,
-      )
+      setTn4Msg('Bridge out submitted.')
       setWithdrawAmount('')
       refreshFusdcBalance()
       onFalconRefresh?.()
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Withdrawal failed')
+      setError(formatBridgeError(e, 'Withdrawal failed'))
     } finally {
       setTn4Busy(null)
     }
@@ -2653,11 +2677,7 @@ const handleSpvCompleteClaim = async () => {
           </span>
         </div>
 
-        {isFbtcRoute && (
-          <a href="/bridge" className="block">
-            <ActivationNote />
-          </a>
-        )}
+
 
         {/* W1.5 — SPV header lag / config mismatch (BTC only) */}
         {!isFbtcRoute && isFbtcRoute && spvStatus?.headers && (
@@ -2722,10 +2742,20 @@ const handleSpvCompleteClaim = async () => {
         {(() => {
           const openDest = destLockJobs.filter((j) => j.status !== 'done')
           const doneDest = destLockJobs.filter((j) => j.status === 'done')
-          const openBtc = spvPending && spvPending.status !== 'claimed' ? spvPending : null
-          const doneBtc = spvPending?.status === 'claimed' ? spvPending : null
-          const openN = openDest.length + (openBtc ? 1 : 0)
-          const doneN = doneDest.length + (doneBtc ? 1 : 0)
+          const activeTn4 = tn4Deposits.filter(
+            (d) =>
+              d.state !== 'expired' &&
+              d.state !== 'failed' &&
+              d.state !== 'minted' &&
+              !dismissedTn4Ids.includes(d.id),
+          )
+          const doneTn4 = tn4Deposits.filter(
+            (d) => d.state === 'minted' && !dismissedTn4Ids.includes(d.id),
+          )
+          const openBtc = !isPl2300 && spvPending && spvPending.status !== 'claimed' ? spvPending : null
+          const doneBtc = !isPl2300 && spvPending?.status === 'claimed' ? spvPending : null
+          const openN = openDest.length + activeTn4.length + (openBtc ? 1 : 0)
+          const doneN = doneDest.length + doneTn4.length + (doneBtc ? 1 : 0)
           if (openN + doneN === 0) return null
           return (
             <div className="space-y-2">
@@ -2797,6 +2827,80 @@ const handleSpvCompleteClaim = async () => {
                     </a>
                   </div>
                 ))}
+
+                {activeTn4.map((d) => {
+                  const txid = d.peg_in_confirm_txid || d.funding?.split(':')[0] || ''
+                  const explorerHref = txid
+                    ? `${TN4_MEMPOOL}/tx/${txid}`
+                    : `${TN4_MEMPOOL}/address/${d.address}`
+                  const statusLine =
+                    d.state === 'awaiting_funding'
+                      ? 'Waiting for 1st Bitcoin confirmation'
+                      : d.state === 'funded' ||
+                          d.state === 'ceremony_pubkeys' ||
+                          d.state === 'waiting_operator_liquidity'
+                        ? 'Preparing deposit'
+                        : d.state === 'awaiting_signature'
+                          ? 'Ready to confirm'
+                          : d.state === 'signed' ||
+                              d.state === 'presigned' ||
+                              d.state === 'broadcasting'
+                            ? 'Confirming on Bitcoin'
+                            : d.state === 'peg_in_confirmed'
+                              ? `Confirming on Bitcoin (${d.confirmations ?? 1}/6)`
+                              : d.state === 'awaiting_mint'
+                                ? 'Minting FBTC on Falcon.'
+                                : 'Deposit in progress'
+                  return (
+                    <div
+                      key={d.id}
+                      className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-white">
+                            BTC → FBTC
+                            {d.funding_sats ? ` · ${(d.funding_sats / 1e8).toFixed(4)} BTC` : ''}
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Testnet4 deposit · started {new Date(d.created * 1000).toLocaleTimeString()}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">{statusLine}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {d.state === 'awaiting_signature' && (
+                            <button
+                              type="button"
+                              onClick={() => void handleTn4SignDeposit(d)}
+                              disabled={tn4Busy !== null}
+                              className="px-2.5 py-1 rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 font-semibold text-xs transition-colors disabled:opacity-40"
+                            >
+                              {tn4Busy === `sign:${d.id}` ? 'Confirming…' : 'Confirm'}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => dismissTn4Deposit(d.id)}
+                            className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                      <a
+                        href={explorerHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-[11px] font-mono text-brand-400/90 hover:text-brand-300 truncate"
+                        title={txid || d.address}
+                      >
+                        {txid
+                          ? `${txid.slice(0, 10)}…${txid.slice(-8)}`
+                          : `${d.address.slice(0, 10)}…${d.address.slice(-8)}`}
+                      </a>
+                    </div>
+                  )
+                })}
 
                 {openBtc && (
                   <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3">
@@ -2926,6 +3030,30 @@ const handleSpvCompleteClaim = async () => {
                     ) : null}
                   </div>
                 )}
+
+                {doneTn4.map((d) => {
+                  const txid = d.peg_in_confirm_txid || d.deposit_txid || d.funding?.split(':')[0] || d.id
+                  return (
+                    <div
+                      key={`done-tn4-${d.id}`}
+                      className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 flex items-center justify-between gap-3"
+                    >
+                      <div>
+                        <div className="text-sm font-medium text-emerald-300">FBTC minted</div>
+                        <p className="text-[11px] font-mono text-slate-500 mt-0.5">
+                          {txid.slice(0, 12)}…
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => dismissTn4Deposit(d.id)}
+                        className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  )
+                })}
 
                 {doneDest.map((job) => (
                   <div
@@ -3461,39 +3589,30 @@ const handleSpvCompleteClaim = async () => {
             {direction === 'withdraw' && isFbtcRoute && (
               <>
                 <div className="space-y-3">
-                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-3 py-2.5 space-y-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-emerald-300">Bitcoin Testnet4 · BitVM2 Peg-Out (BTC4)</span>
-                      <span className="text-[10px] font-mono text-emerald-400/90">Min 0.0001 FBTC</span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 leading-snug">
-                      Burns FBTC (<span className="font-mono text-slate-300">BTC4</span> rail) on Falcon. An operator fronts the Bitcoin Testnet4 payout to your <span className="font-mono text-slate-300">tb1…</span> address and settles against the BitVM2 vault.
-                    </p>
-                  </div>
-
                   <div className="space-y-1.5">
-                    <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">Amount (FBTC)</div>
+                    <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">Amount</div>
+                    <label className="text-xs text-slate-400">FBTC</label>
                     <input
                       type="number"
                       value={withdrawAmount}
                       onChange={(e) => { setWithdrawAmount(e.target.value); setError(null) }}
-                      placeholder="0.00050000"
+                      placeholder="0.00"
                       min="0.0001"
-                      step="0.0001"
-                      className="input-field font-mono"
+                      step="any"
+                      className="input-field"
                       disabled={tn4Busy !== null}
                     />
-                    <div className="flex justify-between text-xs text-slate-500">
+                    <div className="flex justify-between text-xs text-slate-600">
                       <span>
                         {(fbtcSpvLive ?? fbtcLive ?? 0) > 0
-                          ? `Available: ${fmt(fbtcSpvLive ?? fbtcLive ?? 0, 8)} FBTC`
-                          : 'No FBTC (BTC4) balance'}
+                          ? `Available ${fmt(fbtcSpvLive ?? fbtcLive ?? 0, 8)} FBTC`
+                          : 'No FBTC balance'}
                       </span>
                       {(fbtcSpvLive ?? fbtcLive ?? 0) > 0 && (
                         <button
                           type="button"
                           onClick={() => setWithdrawAmount(String(fbtcSpvLive ?? fbtcLive ?? 0))}
-                          className="text-brand-400 hover:text-brand-300 font-medium"
+                          className="text-brand-500"
                         >
                           Max
                         </button>
@@ -3503,7 +3622,7 @@ const handleSpvCompleteClaim = async () => {
 
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
-                      <label className="text-xs text-slate-400">Destination Testnet4 address (tb1…)</label>
+                      <label className="text-xs text-slate-400">Destination address (tb1…)</label>
                       {hasBtc && (
                         <button
                           type="button"
@@ -3527,8 +3646,15 @@ const handleSpvCompleteClaim = async () => {
                   </div>
 
                   {tn4Msg && (
-                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-200 break-words">
-                      {tn4Msg}
+                    <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200 flex items-center justify-between gap-2">
+                      <span>{tn4Msg}</span>
+                      <button
+                        type="button"
+                        onClick={() => setTn4Msg(null)}
+                        className="text-xs text-slate-400 hover:text-slate-200 shrink-0"
+                      >
+                        Dismiss
+                      </button>
                     </div>
                   )}
 
@@ -3545,10 +3671,10 @@ const handleSpvCompleteClaim = async () => {
                   >
                     {tn4Busy === 'withdraw' ? (
                       <>
-                        <Spinner /> Signing BTC4 burn…
+                        <Spinner /> Signing…
                       </>
                     ) : (
-                      'Bridge out (FBTC → Testnet4 BTC)'
+                      'Bridge out'
                     )}
                   </button>
                 </div>
@@ -3765,228 +3891,34 @@ const handleSpvCompleteClaim = async () => {
                     </button>
                   </div>
                 )}
-                {isFbtcRoute ? (
-                  <div className="space-y-3">
-                    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5 text-xs text-emerald-200/90 space-y-1">
-                      <div className="flex justify-between gap-2">
-                        <span>FBTC ready (Testnet4 BitVM2 · BTC4)</span>
-                        <span className="font-mono tabular-nums">
-                          {fusdcLoading ? '…' : fmt(fbtcLive ?? 0, 8)}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 leading-snug">
-                        Lock <span className="font-mono text-slate-300">0.0005 – 0.01 BTC</span> (<span className="font-mono text-slate-300">50,000 – 1,000,000 sats</span>) on Bitcoin Testnet4 in a 1-of-n BitVM2 taproot address, sign the peg-in graph with your passkey, and mint FBTC 1:1 after 6 confirmations.
-                      </p>
-                    </div>
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200/90 flex justify-between gap-2">
+                  <span>{assetLabel} ready</span>
+                  <span className="font-mono tabular-nums">
+                    {fusdcLoading
+                      ? '…'
+                      : isFbtcRoute
+                        ? fmt(fbtcLive ?? 0, 8)
+                        : isFbnbRoute
+                          ? fmt(fbnbLive ?? 0, 6)
+                          : isFethRoute
+                            ? fmt(fethLive ?? 0, 6)
+                            : fmt(fusdcAvail, 2)}
+                  </span>
+                </div>
 
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs text-slate-400">Amount (Testnet4 BTC · 0.0005 to 0.01)</label>
-                        <div className="flex items-center gap-1.5 text-[11px]">
-                          <button
-                            type="button"
-                            onClick={() => setAmount('0.0005')}
-                            className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono"
-                          >
-                            0.0005
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAmount('0.001')}
-                            className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono"
-                          >
-                            0.001
-                          </button>
-                          {btcAvail >= 0.00052 && (
-                            <button
-                              type="button"
-                              onClick={() => setAmount(Math.min(0.01, Math.max(0.0005, btcAvail - 0.00002)).toFixed(8))}
-                              className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-brand-400 font-medium"
-                            >
-                              Max
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      <input
-                        type="number"
-                        value={amount}
-                        onChange={(e) => { setAmount(e.target.value); setError(null) }}
-                        placeholder="0.0005"
-                        min="0.0005"
-                        max="0.01"
-                        step="0.0001"
-                        className="input-field font-mono"
-                        disabled={tn4Busy !== null}
-                      />
-                      <div className="flex justify-between text-xs text-slate-500">
-                        <span>Available in Multi-chain wallet: {btcBal != null ? `${btcBal} BTC` : '—'}</span>
-                        <span>Destination: <span className="font-mono text-slate-300">{falconId}</span></span>
-                      </div>
-                    </div>
-
-                    {tn4Msg && (
-                      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-200 break-words">
-                        {tn4Msg}
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleTn4CreateDeposit(false)}
-                        disabled={tn4Busy !== null}
-                        className="py-2.5 px-3 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
-                      >
-                        {tn4Busy === 'create' ? <><Spinner /> Requesting…</> : 'Request peg-in address'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleTn4CreateDeposit(true)}
-                        disabled={tn4Busy !== null || !hasBtc || btcAvail < 0.0005}
-                        className="btn-primary py-2.5 px-3 text-xs flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40"
-                      >
-                        {tn4Busy === 'create-and-send' ? (
-                          <><Spinner /> Sending BTC…</>
-                        ) : (
-                          'Bridge in from wallet'
-                        )}
-                      </button>
-                    </div>
-
-                    {tn4Deposits.length > 0 && (
-                      <div className="space-y-2.5 pt-2 border-t border-slate-800/80">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
-                            Your Testnet4 Peg-In Deposits ({tn4Deposits.length})
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => void refreshTn4Deposits()}
-                            className="text-[11px] text-brand-400 hover:text-brand-300"
-                          >
-                            Refresh
-                          </button>
-                        </div>
-                        {tn4Deposits.map((d) => (
-                          <div
-                            key={d.id}
-                            className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-2 text-xs"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono text-slate-400">#{d.id}</span>
-                              <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-300 text-[11px] font-medium">
-                                {STATE_LABEL[d.state]}
-                              </span>
-                            </div>
-                            <div className="space-y-1">
-                              <div className="text-[11px] text-slate-500">
-                                Taproot peg-in address (send 50,000 – 1,000,000 sats on Testnet4):
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <a
-                                  href={`${TN4_MEMPOOL}/address/${d.address}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="font-mono text-[11px] text-emerald-300 hover:underline break-all flex-1"
-                                >
-                                  {d.address}
-                                </a>
-                                <CopyButton text={d.address} />
-                              </div>
-                            </div>
-
-                            {d.state === 'awaiting_funding' && hasBtc && btcAvail >= 0.0005 && (
-                              <button
-                                type="button"
-                                onClick={() => void handleTn4FundExistingDeposit(d)}
-                                disabled={tn4Busy !== null}
-                                className="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 font-semibold text-xs transition-colors disabled:opacity-40"
-                              >
-                                {tn4Busy === `fund:${d.id}`
-                                  ? 'Sending Testnet4 BTC…'
-                                  : `Fund ${amount || '0.0005'} BTC from Multi-chain wallet`}
-                              </button>
-                            )}
-
-                            {d.funding && (
-                              <div className="text-[11px] text-slate-400">
-                                Funding UTXO:{' '}
-                                <a
-                                  href={`${TN4_MEMPOOL}/tx/${d.funding.split(':')[0]}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="font-mono text-sky-400 hover:underline"
-                                >
-                                  {d.funding.slice(0, 18)}…
-                                </a>{' '}
-                                ({d.funding_sats?.toLocaleString()} sats
-                                {typeof d.confirmations === 'number' ? ` · ${d.confirmations}/6 conf` : ''})
-                              </div>
-                            )}
-
-                            {d.peg_in_confirm_txid && (
-                              <div className="text-[11px] text-slate-400">
-                                PegInConfirm tx:{' '}
-                                <a
-                                  href={`${TN4_MEMPOOL}/tx/${d.peg_in_confirm_txid}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="font-mono text-sky-400 hover:underline"
-                                >
-                                  {d.peg_in_confirm_txid.slice(0, 16)}…
-                                </a>
-                              </div>
-                            )}
-
-                            {d.last_error && (
-                              <div className="text-[11px] text-red-400 break-words">{d.last_error}</div>
-                            )}
-
-                            {d.state === 'awaiting_signature' && (
-                              <button
-                                type="button"
-                                onClick={() => void handleTn4SignDeposit(d)}
-                                disabled={tn4Busy !== null}
-                                className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs transition-colors disabled:opacity-40"
-                              >
-                                {tn4Busy === `sign:${d.id}` ? 'Signing with passkey…' : 'Sign peg-in (passkey)'}
-                              </button>
-                            )}
-
-                            {d.state !== 'awaiting_funding' && d.state !== 'awaiting_signature' && (
-                              <button
-                                type="button"
-                                onClick={() => handleTn4DownloadRefund(d.id)}
-                                className="inline-block text-[11px] text-amber-300 hover:underline"
-                              >
-                                Download signed refund (reclaim after timelock if unminted) →
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200/90 flex justify-between gap-2">
-                    <span>{assetLabel} ready</span>
-                    <span className="font-mono tabular-nums">
-                      {fusdcLoading
-                        ? '…'
-                        : isFbtcRoute
-                          ? fmt(fbtcLive ?? 0, 8)
-                          : isFbnbRoute
-                            ? fmt(fbnbLive ?? 0, 6)
-                            : isFethRoute
-                              ? fmt(fethLive ?? 0, 6)
-                              : fmt(fusdcAvail, 2)}
-                    </span>
+                {isFbtcRoute && tn4Msg && (
+                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200 flex items-center justify-between gap-2">
+                    <span>{tn4Msg}</span>
+                    <button
+                      type="button"
+                      onClick={() => setTn4Msg(null)}
+                      className="text-xs text-slate-400 hover:text-slate-200 shrink-0"
+                    >
+                      Dismiss
+                    </button>
                   </div>
                 )}
 
-                {!isFbtcRoute && (
-                <>
                 <div className="space-y-1.5">
                   <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">Amount</div>
                   <label className="text-xs text-slate-400">
@@ -4005,7 +3937,8 @@ const handleSpvCompleteClaim = async () => {
                     value={amount}
                     onChange={(e) => { setAmount(e.target.value); setError(null) }}
                     placeholder="0.00"
-                    min="0.000001"
+                    min={isFbtcRoute ? '0.0005' : '0.000001'}
+                    max={isFbtcRoute ? '0.01' : undefined}
                     step="any"
                     className="input-field"
                     disabled={busy || !activeLockReady || !canBridgeIn || openSpvBlocksIn}
@@ -4034,7 +3967,7 @@ const handleSpvCompleteClaim = async () => {
                             <button
                               type="button"
                               onClick={() =>
-                                setAmount(Math.max(0, btcAvail - 0.00002).toFixed(8))
+                                setAmount(Math.min(0.01, Math.max(0, btcAvail - 0.00002)).toFixed(8))
                               }
                               className="text-brand-500"
                             >
@@ -4080,7 +4013,7 @@ const handleSpvCompleteClaim = async () => {
                     !canBridgeIn ||
                     amtNum <= 0 ||
                     (isFbtcRoute
-                      ? btcAvail < 0.00005
+                      ? btcAvail < 0.0005
                       : isFbnbRoute
                         ? bnbAvail < 0.0025
                         : ethAvail < (isFethRoute ? 0.0015 : 0.0001))
@@ -4097,8 +4030,6 @@ const handleSpvCompleteClaim = async () => {
                     'Bridge in'
                   )}
                 </button>
-                </>
-                )}
                 {isPl2300 && !isFbtcRoute && !isFbnbRoute && !isFxrpRoute && destLockCfg?.pegin_notice && (
                   <p className="text-xs font-semibold text-amber-300" data-testid="pegin-notice">
                     {destLockCfg.pegin_notice}

@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
             hasTrustLine: true,
             sats: btc,
           },
-          BTC: btc,
+          BTC: 0,
           BTC4: btc,
           feth: { symbol: 'FETH', balance: eth / 1e18, currency: 'ETH', issuer: '', hasTrustLine: true },
           tokens,

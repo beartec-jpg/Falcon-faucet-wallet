@@ -59,7 +59,7 @@ export function parseFalconBalances(account: {
     falcon: account?.balance ?? 0,
     fusdc: account?.assets?.fusdc?.balance ?? 0,
     feth: find('ETH', 'FETH'),
-    fbtc: account?.assets?.fbtc?.balance ?? (find('BTC4', 'FBTC') || find('BTC', 'FBTC')),
+    fbtc: account?.assets?.fbtc?.balance ?? find('BTC4', 'FBTC'),
     fbnb: find('BNB', 'FBNB'),
   }
 }
