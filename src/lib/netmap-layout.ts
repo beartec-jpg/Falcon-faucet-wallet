@@ -59,9 +59,11 @@ export function layoutMap(
   statusSeats: { id: string; online: boolean }[],
 ): MapLayout {
   const configured = new Set<string>([cfg.hub.seat])
+  const active = new Set(statusSeats.filter((s) => s.online).map((s) => s.id))
   const locs: MapLocation[] = cfg.locations.map((l) => ({
     ...l,
-    hosts: l.hosts.map((h) => ({ ...h, seats: h.seats.filter((s) => s !== cfg.hub.seat) })),
+    // Only active seats: drop placed seats that status reports offline, jailed or absent.
+    hosts: l.hosts.map((h) => ({ ...h, seats: h.seats.filter((s) => s !== cfg.hub.seat && (!statusSeats.length || active.has(s))) })),
   }))
   for (const l of locs) for (const h of l.hosts) h.seats.forEach((s) => configured.add(s))
   const extra = statusSeats
