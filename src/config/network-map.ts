@@ -43,7 +43,7 @@ export interface NetworkMapConfig {
 }
 
 export const NETWORK_MAP_CONFIG: NetworkMapConfig = {
-  hub: { seat: 'v3', host: 'falcon2' },
+  hub: { seat: 'v1', host: 'falcon1' },
   wallet: { label: 'Wallet services', sub: 'wallet app · loadgen' },
   pollMs: 1500,
   maxBulges: 160,
@@ -54,9 +54,8 @@ export const NETWORK_MAP_CONFIG: NetworkMapConfig = {
       id: 'england',
       label: 'England',
       hosts: [
-        { host: 'falcon1', seats: ['v1'] },
-        // v3 (hub) runs on falcon2; it is drawn as the hub, not here.
-        { host: 'falcon2', seats: ['v11', 'scottdog'] },
+        // v1 (hub / archive) runs on falcon1; it is drawn as the hub, not here.
+        { host: 'falcon2', seats: ['v3', 'scottdog'] },
         { host: 'beartec-brain', seats: ['falcon-node'], note: 'loadgen: transactions enter here' },
       ],
     },
