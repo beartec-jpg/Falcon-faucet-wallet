@@ -3317,7 +3317,7 @@ export default function WalletPage() {
                                     href={`/faucet?asset=btc&address=${encodeURIComponent(wallet.btcAddress || plAccountId(wallet))}`}
                                     className="text-[11px] font-medium text-orange-400 hover:text-orange-300 transition-colors"
                                   >
-                                    Get Testnet4 BTC (0.002 tBTC) →
+                                    Get Testnet4 BTC (0.01 tBTC) →
                                   </Link>
                                 </div>
                               )}

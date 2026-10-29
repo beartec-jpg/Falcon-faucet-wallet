@@ -65,7 +65,14 @@ const mem = new Map<string, MemEntry>()
 export const GAME_IP_CLAIMS_PER_DAY = envInt('GAME_IP_CLAIMS_PER_DAY', 16)
 export const GAME_IP_COOLDOWN_SECONDS = envInt('GAME_IP_COOLDOWN_SECONDS', 15)
 
+/** Testnet4 BTC faucet (`tbtc4:` keys): 0.01 tBTC per claim, one claim per 6h per IP/address. */
+export const TN4_BTC_COOLDOWN_SECONDS = envInt('TN4_BTC_FAUCET_COOLDOWN_SECONDS', 21600)
+export const TN4_BTC_CLAIMS_PER_DAY = envInt('TN4_BTC_FAUCET_CLAIMS_PER_DAY', 4)
+
 export function limitsFromKey(key: string): { dayCap: number; cooldown: number } {
+  if (key.startsWith('tbtc4:')) {
+    return { dayCap: TN4_BTC_CLAIMS_PER_DAY, cooldown: TN4_BTC_COOLDOWN_SECONDS }
+  }
   if (key.startsWith('game:')) {
     return { dayCap: GAME_IP_CLAIMS_PER_DAY, cooldown: GAME_IP_COOLDOWN_SECONDS }
   }

@@ -10,6 +10,8 @@ import {
   peekFaucetQuota,
   cooldownSecondsForNetwork,
   claimsPerDayForNetwork,
+  TN4_BTC_CLAIMS_PER_DAY,
+  TN4_BTC_COOLDOWN_SECONDS,
 } from '@/lib/faucet-quota'
 import { runFaucetSybilGates, consumeFaucetSybilBudgets } from '@/lib/faucet-sybil'
 import { signPayment, dropsFromQxrp } from '@/lib/xrpl-sign'
@@ -165,7 +167,7 @@ export async function POST(req: NextRequest) {
 
   if (!account) return err('Missing "account" field')
 
-  // Testnet4 BTC faucet (0.002 tBTC = 200,000 sats)
+  // Testnet4 BTC faucet (0.01 tBTC = 1,000,000 sats, 6h cooldown)
   if (asset === 'btc' || asset === 'tbtc' || asset === 'btc4') {
     let btcAddr = account
     if (!TESTNET4_BTC_ADDR_RE.test(btcAddr)) {
@@ -185,8 +187,8 @@ export async function POST(req: NextRequest) {
 
     const clientIpAddr = ip(req)
     const ratePrefix = 'tbtc4:'
-    const dayCap = claimsPerDayForNetwork('testnet')
-    const cooldownSec = cooldownSecondsForNetwork('testnet')
+    const dayCap = TN4_BTC_CLAIMS_PER_DAY
+    const cooldownSec = TN4_BTC_COOLDOWN_SECONDS
     const unlimitedTestnet = process.env.TESTNET_FAUCET_UNLIMITED?.toLowerCase() === 'true'
     const unlimitedOk = {
       success: true as const,
@@ -203,7 +205,7 @@ export async function POST(req: NextRequest) {
     if (!ipLimit.success) {
       return err(
         ipLimit.reason === 'cooldown'
-          ? `Wait at least ${Math.round(cooldownSec / 60)} minutes between Testnet4 BTC faucet claims (IP).`
+          ? `Wait at least ${Math.round(cooldownSec / 3600)} hours between Testnet4 BTC faucet claims (IP).`
           : `Daily Testnet4 BTC faucet limit reached for your IP.`,
         429,
         { reset: ipLimit.reset, limitType: 'ip' },
@@ -212,7 +214,7 @@ export async function POST(req: NextRequest) {
     if (!addrLimit.success) {
       return err(
         addrLimit.reason === 'cooldown'
-          ? `Wait at least ${Math.round(cooldownSec / 60)} minutes between Testnet4 BTC faucet claims.`
+          ? `Wait at least ${Math.round(cooldownSec / 3600)} hours between Testnet4 BTC faucet claims.`
           : `Daily Testnet4 BTC faucet limit reached for this address.`,
         429,
         { reset: addrLimit.reset, limitType: 'account' },
@@ -250,9 +252,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       txHash: d.txid,
-      amount: 0.002,
-      amountBtc: d.amount_btc ?? '0.002',
-      amountSats: d.amount_sats ?? 200000,
+      amount: 0.01,
+      cooldownSeconds: unlimitedTestnet ? 0 : cooldownSec,
+      amountBtc: d.amount_btc ?? '0.01',
+      amountSats: d.amount_sats ?? 1000000,
       asset: 'tBTC',
       account: btcAddr,
       resolvedFrom: btcAddr !== account ? account.toLowerCase() : undefined,
