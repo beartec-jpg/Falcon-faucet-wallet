@@ -256,7 +256,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                   </span>
                 </h1>
                 <p className="text-slate-400 text-sm">
-                  0.002 tBTC (200,000 sats) for BitVM2 BTC4 bridge testing
+                  0.01 tBTC (1,000,000 sats) per claim, every 6h, for BitVM2 BTC4 bridge testing
                 </p>
               </>
             )}
@@ -294,7 +294,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Testnet4 BTC (0.002 tBTC)
+                Testnet4 BTC (0.01 tBTC)
               </button>
             </div>
 
@@ -344,7 +344,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                     Sending…
                   </span>
                 ) : faucetAsset === 'tbtc' ? (
-                  'Request 0.002 tBTC'
+                  'Request 0.01 tBTC'
                 ) : (
                   `Request ${PL_DRIP} FPL`
                 )}
@@ -369,7 +369,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                   {result.asset === 'tBTC'
-                    ? `${result.amountBtc ?? '0.002'} tBTC sent!`
+                    ? `${result.amountBtc ?? '0.01'} tBTC sent!`
                     : `${result.amount} FPL sent!`}
                 </div>
                 {result.resolvedFrom && (
