@@ -388,7 +388,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                 </div>
                 {result.asset === 'tBTC' ? (
                   <Link
-                    href="/bridge"
+                    href="/wallet?section=bridge"
                     className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-colors"
                   >
                     Open BTC4 Bridge →
