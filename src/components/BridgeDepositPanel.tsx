@@ -2460,15 +2460,15 @@ const handleSpvCompleteClaim = async () => {
         const online = ops.filter((o: { online?: boolean }) => o.online !== false)
         const active = online.length > 0 ? online : ops
         const maxSats = active.reduce(
-          (m: number, o: { btc_available_sats?: number }) =>
-            Math.max(m, Number(o.btc_available_sats) || 0),
+          (m: number, o: { btc_available_sats?: number; availableSats?: number }) =>
+            Math.max(m, Number(o.btc_available_sats ?? o.availableSats) || 0),
           0,
         )
         const totSats =
           Number(j.totals?.available_sats) ||
           active.reduce(
-            (s: number, o: { btc_available_sats?: number }) =>
-              s + (Number(o.btc_available_sats) || 0),
+            (s: number, o: { btc_available_sats?: number; availableSats?: number }) =>
+              s + (Number(o.btc_available_sats ?? o.availableSats) || 0),
             0,
           )
         setTn4OpCap({
@@ -2915,6 +2915,28 @@ const handleSpvCompleteClaim = async () => {
                             Testnet4 deposit · started {new Date(d.created * 1000).toLocaleTimeString()}
                           </p>
                           <p className="text-xs text-slate-500 mt-0.5">{statusLine}</p>
+                          {d.ceremony?.seats && d.ceremony.seats.length > 0 && (
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Presigned by {d.ceremony.seats.map((s) => s.id).join(', ')}
+                              {d.ceremony.attestations ? ` · ${d.ceremony.attestations} key-deletion attestations` : ''}
+                            </p>
+                          )}
+                          {typeof window !== 'undefined' && localStorage.getItem(`fpl-tn4-signed-${d.id}`) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const v = localStorage.getItem(`fpl-tn4-signed-${d.id}`)
+                                if (!v) return
+                                const a = document.createElement('a')
+                                a.href = URL.createObjectURL(new Blob([v], { type: 'application/json' }))
+                                a.download = `falcon-tn4-peg-in-${d.id}-signed.json`
+                                a.click()
+                              }}
+                              className="text-[11px] text-brand-400/90 hover:text-brand-300 mt-0.5"
+                            >
+                              Download signed peg-in (refund) JSON
+                            </button>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           {d.state === 'awaiting_signature' && (
