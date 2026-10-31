@@ -10,19 +10,23 @@
  *  • Wallets saved by older builds with a rawId-derived key are migrated on the next unlock:
  *    the user must set a password (or PRF re-wrap if now available), the blobs are re-encrypted
  *    and the weak copies overwritten.
+ *  • Optional two-factor mode 'prf+password': KEK = HKDF(PRF || Argon2id(password)), so a
+ *    broken P-256 passkey alone cannot unlock the keys. Added at creation or later from settings.
  */
 
 import {
   newPasswordKdfParams,
   walletKeyFromPassword,
   walletKeyFromPrf,
+  walletKeyFromPrfAndPassword,
+  validateWalletPassword,
   WalletKeyError,
   type WalletKey,
 } from '@/lib/wallet-key'
 import { decryptSeed, encryptSeed } from '@/lib/wallet-crypto'
 import { KEK_CHECK_PLAINTEXT, loadKekRecord, saveKekRecord, type KekRecord } from '@/lib/kek-store'
-import { promptWalletPassword, type PasswordPromptMode } from '@/lib/password-prompt'
-import { hasLegacyBlobs, migrateLegacyBlobs } from '@/lib/wallet-migrate'
+import { PasswordPromptCancelled, promptWalletPassword, type PasswordPromptMode } from '@/lib/password-prompt'
+import { hasLegacyBlobs, migrateLegacyBlobs, rewrapAllBlobs } from '@/lib/wallet-migrate'
 
 // ─── Base64url helpers ────────────────────────────────────────────────────────
 
@@ -145,13 +149,40 @@ async function unlockPasswordKek(rec: KekRecord): Promise<WalletKey> {
   throw new WalletKeyError('Wrong wallet password')
 }
 
+async function createCombinedKek(credentialId: string, prfKey: WalletKey, password: string): Promise<WalletKey> {
+  const problem = validateWalletPassword(password)
+  if (problem) throw new WalletKeyError(problem)
+  const kdf = newPasswordKdfParams()
+  const key = await walletKeyFromPrfAndPassword(prfKey, await walletKeyFromPassword(password, kdf))
+  const check = await encryptSeed(KEK_CHECK_PLAINTEXT, key)
+  await saveKekRecord({ credentialId, mode: 'prf+password', kdf, check, createdAt: Date.now() })
+  return key
+}
+
+async function unlockCombinedKek(rec: KekRecord, prfKey: WalletKey): Promise<WalletKey> {
+  if (!rec.kdf || !rec.check) throw new WalletKeyError('Wallet password record is incomplete')
+  let error: string | undefined
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const pw = await promptWalletPassword({ mode: 'enter', error })
+    const key = await walletKeyFromPrfAndPassword(prfKey, await walletKeyFromPassword(pw, rec.kdf))
+    try {
+      if ((await decryptSeed(rec.check, key)) === KEK_CHECK_PLAINTEXT) return key
+    } catch { /* wrong password */ }
+    error = 'Wrong password, try again'
+  }
+  throw new WalletKeyError('Wrong wallet password')
+}
+
 // ─── Register ─────────────────────────────────────────────────────────────────
 
 /**
  * Register a new platform passkey and return a strong wallet key. If the authenticator has no
  * PRF, the user must set a password (Argon2id); there is no weaker option.
  */
-export async function registerPasskey(label: string): Promise<PasskeyRegistration> {
+export async function registerPasskey(
+  label: string,
+  opts: { offerPassword?: boolean } = {},
+): Promise<PasskeyRegistration> {
   const cred = (await navigator.credentials.create({
     publicKey: {
       challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -181,8 +212,19 @@ export async function registerPasskey(label: string): Promise<PasskeyRegistratio
     prf = prfResult(await getAssertion(credentialId))
   }
   if (prf) {
+    const prfKey = walletKeyFromPrf(prf)
+    if (opts.offerPassword) {
+      // Optional second factor, offered right after the passkey step (ticked by default).
+      let pw = ''
+      try {
+        pw = await promptWalletPassword({ mode: 'add-optional' })
+      } catch (e) {
+        if (!(e instanceof PasswordPromptCancelled)) throw e
+      }
+      if (pw) return { credentialId, keyBytes: await createCombinedKek(credentialId, prfKey, pw), hasPrf: true }
+    }
     await saveKekRecord({ credentialId, mode: 'prf', createdAt: Date.now() })
-    return { credentialId, keyBytes: walletKeyFromPrf(prf), hasPrf: true }
+    return { credentialId, keyBytes: prfKey, hasPrf: true }
   }
   const keyBytes = await createPasswordKek(credentialId, 'create')
   return { credentialId, keyBytes, hasPrf: false }
@@ -200,7 +242,10 @@ export async function authenticatePasskey(credentialId: string, hasPrf: boolean)
   const rec = await loadKekRecord(credentialId)
 
   let key: WalletKey
-  if (rec?.mode === 'password') {
+  if (rec?.mode === 'prf+password') {
+    if (!prf) throw new PrfUnavailableError()
+    key = await unlockCombinedKek(rec, walletKeyFromPrf(prf))
+  } else if (rec?.mode === 'password') {
     key = await unlockPasswordKek(rec)
   } else if (rec?.mode === 'prf' || (!rec && hasPrf)) {
     if (!prf) throw new PrfUnavailableError()
@@ -221,5 +266,64 @@ export async function authenticatePasskey(credentialId: string, hasPrf: boolean)
   if (await hasLegacyBlobs(credentialId)) {
     await migrateLegacyBlobs(credentialId, new Uint8Array(cred.rawId), key)
   }
-  return { keyBytes: key, hasPrf: key.source === 'prf' }
+  return { keyBytes: key, hasPrf: key.source !== 'password' }
+}
+
+// ─── Add / remove the wallet password on a PRF wallet ───────────────────────
+
+/** 'prf' | 'password' | 'prf+password' for this credential, or null if unknown. */
+export async function walletKekMode(credentialId: string): Promise<KekRecord['mode'] | null> {
+  return (await loadKekRecord(credentialId))?.mode ?? null
+}
+
+/**
+ * Settings → "Add password": unlock with the passkey (PRF), then re-encrypt every stored key
+ * for this credential under HKDF(PRF || Argon2id(password)). Plaintext stays in memory only.
+ */
+export async function addWalletPassword(credentialId: string, password: string): Promise<void> {
+  const problem = validateWalletPassword(password)
+  if (problem) throw new WalletKeyError(problem)
+  const rec = await loadKekRecord(credentialId)
+  if (rec?.mode === 'prf+password') throw new WalletKeyError('This wallet already has a password')
+  if (rec?.mode === 'password') throw new WalletKeyError('This wallet is already password-protected (no passkey PRF)')
+  const { keyBytes: oldKey } = await authenticatePasskey(credentialId, true)
+  if (oldKey.source !== 'prf') throw new WalletKeyError('Adding a password needs a passkey with PRF')
+  const kdf = newPasswordKdfParams()
+  const newKey = await walletKeyFromPrfAndPassword(oldKey, await walletKeyFromPassword(password, kdf))
+  const check = await encryptSeed(KEK_CHECK_PLAINTEXT, newKey)
+  await rewrapAllBlobs(credentialId, oldKey, newKey)
+  await saveKekRecord({ credentialId, mode: 'prf+password', kdf, check, createdAt: Date.now() })
+}
+
+/**
+ * Remove the wallet password: requires a full successful unlock (passkey PRF + current password),
+ * then re-encrypts every stored key back under the PRF key alone.
+ */
+export async function removeWalletPassword(credentialId: string): Promise<void> {
+  const rec = await loadKekRecord(credentialId)
+  if (rec?.mode !== 'prf+password') throw new WalletKeyError('This wallet has no passkey + password protection')
+  const cred = await getAssertion(credentialId)
+  const prf = prfResult(cred)
+  if (!prf) throw new PrfUnavailableError()
+  const prfKey = walletKeyFromPrf(prf)
+  const oldKey = await unlockCombinedKek(rec, prfKey)
+  await rewrapAllBlobs(credentialId, oldKey, prfKey)
+  await saveKekRecord({ credentialId, mode: 'prf', createdAt: Date.now() })
+}
+
+/** Change the wallet password: needs passkey PRF + current password, then re-wraps under the new one. */
+export async function changeWalletPassword(credentialId: string, newPassword: string): Promise<void> {
+  const problem = validateWalletPassword(newPassword)
+  if (problem) throw new WalletKeyError(problem)
+  const rec = await loadKekRecord(credentialId)
+  if (rec?.mode !== 'prf+password') throw new WalletKeyError('This wallet has no passkey + password protection')
+  const prf = prfResult(await getAssertion(credentialId))
+  if (!prf) throw new PrfUnavailableError()
+  const prfKey = walletKeyFromPrf(prf)
+  const oldKey = await unlockCombinedKek(rec, prfKey)
+  const kdf = newPasswordKdfParams()
+  const newKey = await walletKeyFromPrfAndPassword(prfKey, await walletKeyFromPassword(newPassword, kdf))
+  const check = await encryptSeed(KEK_CHECK_PLAINTEXT, newKey)
+  await rewrapAllBlobs(credentialId, oldKey, newKey)
+  await saveKekRecord({ credentialId, mode: 'prf+password', kdf, check, createdAt: Date.now() })
 }

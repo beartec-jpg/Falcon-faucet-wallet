@@ -4,7 +4,7 @@
  * the stored record so the weak copy is gone.
  */
 
-import { isLegacyWeakBlob, reencryptLegacyBlob, type EncryptedSeed } from '@/lib/wallet-crypto'
+import { decryptSeed, encryptSeed, isLegacyWeakBlob, reencryptLegacyBlob, type EncryptedSeed } from '@/lib/wallet-crypto'
 import type { WalletKey } from '@/lib/wallet-key'
 import { loadWallets, saveWallet, type StoredWallet } from '@/lib/wallet-store'
 import { loadVaults, saveVaultPublic } from '@/lib/vault-store'
@@ -32,7 +32,7 @@ export async function hasLegacyBlobs(credentialId: string): Promise<boolean> {
  */
 export async function migrateLegacyBlobs(credentialId: string, rawId: Uint8Array, key: WalletKey): Promise<number> {
   let n = 0
-  const hasPrf = key.source === 'prf'
+  const hasPrf = key.source !== 'password'
 
   const walletUpdates: StoredWallet[] = []
   for (const w of (await loadWallets()).filter((x) => x.credentialId === credentialId)) {
@@ -61,6 +61,50 @@ export async function migrateLegacyBlobs(credentialId: string, rawId: Uint8Array
   let vcUpdate = null
   if (vc && vc.credentialId === credentialId && isLegacyWeakBlob(vc.encrypted)) {
     vcUpdate = { ...vc, encrypted: await rewrap(vc.encrypted, rawId, key), hasPrf }
+    n++
+  }
+
+  for (const w of walletUpdates) await saveWallet(w)
+  for (const v of vaultUpdates) await saveVaultPublic(v)
+  if (vcUpdate) saveValidatorCredentials(vcUpdate)
+  return n
+}
+
+/**
+ * Re-encrypt every blob for `credentialId` from `oldKey` to `newKey` (add/remove wallet password).
+ * Plaintext exists only inside this function. Every new blob is computed (and old ones verified
+ * decryptable) before anything is written, so a wrong key or failure leaves records unchanged.
+ */
+export async function rewrapAllBlobs(credentialId: string, oldKey: WalletKey, newKey: WalletKey): Promise<number> {
+  const swap = async (b: EncryptedSeed) => encryptSeed(await decryptSeed(b, oldKey), newKey)
+  const hasPrf = newKey.source !== 'password'
+  let n = 0
+
+  const walletUpdates: StoredWallet[] = []
+  for (const w of (await loadWallets()).filter((x) => x.credentialId === credentialId)) {
+    const next: StoredWallet = { ...w, hasPrf }
+    for (const f of WALLET_FIELDS) {
+      const b = w[f]
+      if (b) {
+        next[f] = await swap(b)
+        n++
+      }
+    }
+    walletUpdates.push(next)
+  }
+
+  const vaultUpdates = []
+  for (const v of (await loadVaults()).filter((x) => x.credentialId === credentialId)) {
+    if (v.encrypted) {
+      vaultUpdates.push({ ...v, encrypted: await swap(v.encrypted), hasPrf })
+      n++
+    }
+  }
+
+  const vc = loadValidatorCredentials()
+  let vcUpdate = null
+  if (vc && vc.credentialId === credentialId && vc.encrypted) {
+    vcUpdate = { ...vc, encrypted: await swap(vc.encrypted), hasPrf }
     n++
   }
 

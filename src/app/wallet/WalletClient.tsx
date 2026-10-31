@@ -13,6 +13,10 @@ import {
   isPasskeySupported,
   registerPasskey,
   authenticatePasskey,
+  addWalletPassword,
+  changeWalletPassword,
+  removeWalletPassword,
+  walletKekMode,
 } from '@/lib/passkey'
 import { encryptSeed, decryptSeed } from '@/lib/wallet-crypto'
 import {
@@ -446,6 +450,14 @@ export default function WalletPage() {
   const [exportPassphrase,   setExportPassphrase]   = useState('')
   const [exportPassConfirm,  setExportPassConfirm]  = useState('')
   const [showExportBackup,   setShowExportBackup]   = useState(false)
+
+  // Optional passkey + password (two-factor KEK)
+  const [kekMode,            setKekMode]            = useState<'prf' | 'password' | 'prf+password' | null>(null)
+  const [showAddPassword,    setShowAddPassword]    = useState(false)
+  const [managePw,           setManagePw]           = useState<'closed' | 'menu' | 'change'>('closed')
+  const [newWalletPw,        setNewWalletPw]        = useState('')
+  const [newWalletPwConfirm, setNewWalletPwConfirm] = useState('')
+  const [walletPwNote,       setWalletPwNote]       = useState<string | null>(null)
   const [destLockHomeJobs, setDestLockHomeJobs] = useState<DestLockPending[]>([])
   const [spvHomePending, setSpvHomePending] = useState<SpvPendingDeposit | null>(null)
 
@@ -925,7 +937,7 @@ export default function WalletPage() {
       })
       const holdJ = (await hold.json()) as { error?: string; reservedUntil?: number; fee?: number }
       if (!hold.ok) throw new Error(holdJ.error ?? 'Could not reserve that name')
-      const { credentialId, keyBytes, hasPrf } = await registerPasskey(picked)
+      const { credentialId, keyBytes, hasPrf } = await registerPasskey(picked, { offerPassword: true })
       const encrypted = await encryptSeed(falcon_secret, keyBytes, hasPrf)
       const { address: evmAddress, privateKeyHex: evmPrivateKeyHex } = createRandomEvmWallet()
       const evmEncrypted = await encryptSeed(evmPrivateKeyHex, keyBytes, hasPrf)
@@ -1127,7 +1139,7 @@ export default function WalletPage() {
     try {
       const { address, publicKey } = await keysFromFalconSecret(falconSecret)
       const walletLabel = label.trim() || 'Restored Wallet'
-      const { credentialId, keyBytes, hasPrf } = await registerPasskey(walletLabel)
+      const { credentialId, keyBytes, hasPrf } = await registerPasskey(walletLabel, { offerPassword: true })
       const encrypted = await encryptSeed(falconSecret, keyBytes, hasPrf)
       const evm = bridgeFromBackup?.evm_private_key && bridgeFromBackup.evm_address
         ? await encryptEvmKeyForPasskey(bridgeFromBackup.evm_private_key, keyBytes, hasPrf)
@@ -1261,6 +1273,59 @@ export default function WalletPage() {
     } finally {
       setBusy(false)
       if (restoreFileRef.current) restoreFileRef.current.value = ''
+    }
+  }
+
+  useEffect(() => {
+    if (!wallet?.credentialId) { setKekMode(null); return }
+    let live = true
+    walletKekMode(wallet.credentialId).then(m => { if (live) setKekMode(m) }).catch(() => {})
+    return () => { live = false }
+  }, [wallet?.credentialId])
+
+  const handleAddWalletPassword = async () => {
+    if (!wallet) return
+    if (newWalletPw !== newWalletPwConfirm) { setError('Passwords do not match'); return }
+    setBusy(true)
+    setError(null)
+    setWalletPwNote(null)
+    try {
+      const changing = kekMode === 'prf+password'
+      if (changing) await changeWalletPassword(wallet.credentialId, newWalletPw)
+      else await addWalletPassword(wallet.credentialId, newWalletPw)
+      const fresh = await loadPrimaryWallet()
+      if (fresh) setWallet(fresh)
+      setKekMode('prf+password')
+      setShowAddPassword(false)
+      setManagePw('closed')
+      setWalletPwNote(changing
+        ? 'Password changed.'
+        : 'Password added. Unlocking now needs your passkey and this password.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to add password')
+    } finally {
+      setNewWalletPw('')
+      setNewWalletPwConfirm('')
+      setBusy(false)
+    }
+  }
+
+  const handleRemoveWalletPassword = async () => {
+    if (!wallet) return
+    setBusy(true)
+    setError(null)
+    setWalletPwNote(null)
+    try {
+      await removeWalletPassword(wallet.credentialId)
+      const fresh = await loadPrimaryWallet()
+      if (fresh) setWallet(fresh)
+      setKekMode('prf')
+      setManagePw('closed')
+      setWalletPwNote('Password removed. This wallet now unlocks with your passkey only.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to remove password')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -4620,6 +4685,105 @@ export default function WalletPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* Optional passkey + password (PRF wallets only) */}
+                  {(kekMode === 'prf' || kekMode === 'prf+password') && (() => {
+                    const pwForm = (
+                      <div className="space-y-2">
+                        <input
+                          type="password"
+                          value={newWalletPw}
+                          onChange={e => setNewWalletPw(e.target.value)}
+                          placeholder={kekMode === 'prf+password' ? 'New wallet password' : 'Wallet password'}
+                          className="input-field"
+                          autoComplete="new-password"
+                        />
+                        <input
+                          type="password"
+                          value={newWalletPwConfirm}
+                          onChange={e => setNewWalletPwConfirm(e.target.value)}
+                          placeholder="Confirm wallet password"
+                          className="input-field"
+                          autoComplete="new-password"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setShowAddPassword(false); setManagePw('closed'); setNewWalletPw(''); setNewWalletPwConfirm('') }}
+                            className="flex-1 py-2 text-xs rounded-lg text-slate-500 hover:text-slate-300"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleAddWalletPassword}
+                            disabled={busy || !newWalletPw || !newWalletPwConfirm}
+                            className="flex-1 py-2 text-xs rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50"
+                          >
+                            {busy ? 'Re-encrypting…' : kekMode === 'prf+password' ? 'Change password' : 'Add password'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                    if (kekMode === 'prf') {
+                      return !showAddPassword ? (
+                        <button
+                          type="button"
+                          onClick={() => { setShowAddPassword(true); setError(null); setWalletPwNote(null) }}
+                          disabled={busy}
+                          className="w-full py-2 text-sm rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition disabled:opacity-50"
+                        >
+                          Add password
+                        </button>
+                      ) : pwForm
+                    }
+                    if (managePw === 'change') return pwForm
+                    if (managePw === 'menu') {
+                      return (
+                        <div className="space-y-2">
+                          <div className="text-xs text-slate-500">
+                            Both options ask for your passkey and current password first.
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setManagePw('closed')}
+                              className="flex-1 py-2 text-xs rounded-lg text-slate-500 hover:text-slate-300"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setManagePw('change'); setError(null) }}
+                              disabled={busy}
+                              className="flex-1 py-2 text-xs rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50"
+                            >
+                              Change password
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleRemoveWalletPassword}
+                              disabled={busy}
+                              className="flex-1 py-2 text-xs rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                            >
+                              {busy ? 'Re-encrypting…' : 'Turn off password'}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    }
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => { setManagePw('menu'); setError(null); setWalletPwNote(null) }}
+                        disabled={busy}
+                        className="w-full py-2 text-sm rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition disabled:opacity-50"
+                      >
+                        Manage password
+                      </button>
+                    )
+                  })()}
+                  {walletPwNote && <div className="text-xs text-emerald-400">{walletPwNote}</div>}
                 </div>
               )}
 

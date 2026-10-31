@@ -51,7 +51,7 @@ export interface EncryptedSeed {
   data: string   // base64 AES-GCM ciphertext
   iv: string     // base64 12-byte IV
   salt: string   // base64 32-byte HKDF salt
-  /** true → encrypted under a passkey PRF key. Kept for older readers. */
+  /** true → passkey PRF is (part of) the key. Kept for older readers. */
   hasPrf: boolean
   /** Which kind of key wraps this blob. Missing on pre-H-1 blobs (see blobKek). */
   kek?: WalletKeySource
@@ -69,7 +69,7 @@ export class LegacyWeakBlobError extends Error {
 
 /** Classify a stored blob. Pre-H-1 blobs with hasPrf=false were wrapped with the rawId. */
 export function blobKek(b: EncryptedSeed): BlobKek {
-  if (b.kek === 'prf' || b.kek === 'password') return b.kek
+  if (b.kek === 'prf' || b.kek === 'password' || b.kek === 'prf+password') return b.kek
   return b.hasPrf ? 'prf' : 'legacy-rawid'
 }
 
@@ -87,7 +87,7 @@ export async function encryptSeed(seed: string, key: WalletKey, _legacyHasPrf?: 
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const aes = await deriveAesKey(kb, salt)
   const enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: ab(iv) }, aes, new TextEncoder().encode(seed))
-  return { data: toBase64(enc), iv: toBase64(iv), salt: toBase64(salt), hasPrf: key.source === 'prf', kek: key.source }
+  return { data: toBase64(enc), iv: toBase64(iv), salt: toBase64(salt), hasPrf: key.source !== 'password', kek: key.source }
 }
 
 async function rawDecrypt(encrypted: EncryptedSeed, material: Uint8Array): Promise<string> {
@@ -109,13 +109,17 @@ export async function decryptSeed(encrypted: EncryptedSeed, key: WalletKey): Pro
   if (kind === 'legacy-rawid') throw new LegacyWeakBlobError()
   if (kind !== key.source) {
     throw new WalletKeyError(
-      kind === 'password' ? 'This wallet is protected by a password.' : 'This wallet needs your passkey (PRF).',
+      kind === 'password'
+        ? 'This wallet is protected by a password.'
+        : kind === 'prf+password'
+          ? 'This wallet needs your passkey and your wallet password.'
+          : 'This wallet needs your passkey (PRF).',
     )
   }
   try {
     return await rawDecrypt(encrypted, walletKeyBytes(key))
   } catch {
-    throw new WalletKeyError(key.source === 'password' ? 'Wrong wallet password' : 'Passkey could not decrypt this wallet')
+    throw new WalletKeyError(key.source === 'prf' ? 'Passkey could not decrypt this wallet' : 'Wrong wallet password')
   }
 }
 

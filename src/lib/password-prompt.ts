@@ -6,10 +6,14 @@
 
 import { validateWalletPassword } from '@/lib/wallet-key'
 
-export type PasswordPromptMode = 'create' | 'enter' | 'migrate'
+export type PasswordPromptMode = 'create' | 'enter' | 'migrate' | 'add-optional' | 'add'
 
 export interface PasswordPromptRequest {
   mode: PasswordPromptMode
+  /**
+   * 'add-optional' (after the passkey step at wallet creation): resolves '' when the user
+   * unticks "Add a password". Ticked by default.
+   */
   /** Shown after a failed attempt. */
   error?: string
 }
@@ -50,6 +54,20 @@ const TEXT: Record<PasswordPromptMode, { title: string; body: string; button: st
       'this wallet on this device.',
     button: 'Re-encrypt wallet',
   },
+  'add-optional': {
+    title: 'Add a password',
+    body:
+      'Optional extra protection: require this password as well as your passkey to unlock the wallet. ' +
+      'It is never sent anywhere and cannot be recovered: keep it with your encrypted backup.',
+    button: 'Continue',
+  },
+  add: {
+    title: 'Add a wallet password',
+    body:
+      'From now on this wallet will need your passkey and this password to unlock. It is never sent ' +
+      'anywhere and cannot be recovered: keep it with your encrypted backup.',
+    button: 'Add password',
+  },
   enter: {
     title: 'Wallet password',
     body: 'Enter the password that protects this wallet on this device.',
@@ -89,6 +107,15 @@ function domPrompter(req: PasswordPromptRequest): Promise<string> {
       width: '100%', boxSizing: 'border-box', padding: '10px', margin: '0 0 8px', borderRadius: '8px',
       border: '1px solid #475569', background: '#020617', color: '#f8fafc',
     }
+    const optional = req.mode === 'add-optional'
+    const toggle = el('input', {})
+    toggle.type = 'checkbox'
+    toggle.checked = true
+    if (optional) {
+      const lab = el('label', { display: 'flex', gap: '8px', alignItems: 'center', margin: '0 0 8px' })
+      lab.append(toggle, document.createTextNode('Add a password'))
+      box.appendChild(lab)
+    }
     const pw = el('input', inputStyle)
     pw.type = 'password'
     pw.autocomplete = confirmNeeded ? 'new-password' : 'current-password'
@@ -119,8 +146,17 @@ function domPrompter(req: PasswordPromptRequest): Promise<string> {
       done()
       reject(new PasswordPromptCancelled())
     }
+    toggle.onchange = () => {
+      pw.disabled = pw2.disabled = !toggle.checked
+      err.textContent = ''
+    }
     box.onsubmit = (ev) => {
       ev.preventDefault()
+      if (optional && !toggle.checked) {
+        done()
+        resolve('')
+        return
+      }
       const v = pw.value
       if (confirmNeeded) {
         const problem = validateWalletPassword(v)

@@ -12,7 +12,7 @@
 
 import { argon2idAsync } from '@noble/hashes/argon2.js'
 
-export type WalletKeySource = 'prf' | 'password'
+export type WalletKeySource = 'prf' | 'password' | 'prf+password'
 
 const KEY_BRAND = Symbol('falcon.walletKey')
 
@@ -31,7 +31,9 @@ export function isWalletKey(k: unknown): k is WalletKey {
     typeof k === 'object' &&
     k !== null &&
     (KEY_BRAND in (k as object)) &&
-    ((k as WalletKey).source === 'prf' || (k as WalletKey).source === 'password') &&
+    ((k as WalletKey).source === 'prf' ||
+      (k as WalletKey).source === 'password' ||
+      (k as WalletKey).source === 'prf+password') &&
     (k as WalletKey)[KEY_BRAND] instanceof Uint8Array &&
     (k as WalletKey)[KEY_BRAND].length === 32
   )
@@ -112,6 +114,37 @@ export async function walletKeyFromPassword(password: string, params: PasswordKd
     return makeKey('password', out)
   } finally {
     out.fill(0)
+  }
+}
+
+// ─── Two-factor key: passkey PRF + password ─────────────────────────────────
+
+const COMBINED_SALT = new TextEncoder().encode('falcon-kek-prf+password-v1')
+const COMBINED_INFO = new TextEncoder().encode('falcon wallet kek: HKDF(prf || argon2id(password))')
+
+/**
+ * Combine a PRF key and an Argon2id password key into one KEK:
+ *   KEK = HKDF-SHA256(ikm = prfOutput || Argon2id(password, salt)).
+ * Neither factor alone (e.g. a compromised P-256 passkey) is enough to rebuild it.
+ */
+export async function walletKeyFromPrfAndPassword(prfKey: WalletKey, passwordKey: WalletKey): Promise<WalletKey> {
+  if (!isWalletKey(prfKey) || prfKey.source !== 'prf') throw new WalletKeyError('A passkey PRF key is required')
+  if (!isWalletKey(passwordKey) || passwordKey.source !== 'password') throw new WalletKeyError('A wallet password key is required')
+  const ikm = new Uint8Array(64)
+  ikm.set(prfKey[KEY_BRAND], 0)
+  ikm.set(passwordKey[KEY_BRAND], 32)
+  try {
+    const base = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits'])
+    const bits = new Uint8Array(
+      await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: COMBINED_SALT, info: COMBINED_INFO }, base, 256),
+    )
+    try {
+      return makeKey('prf+password', bits)
+    } finally {
+      bits.fill(0)
+    }
+  } finally {
+    ikm.fill(0)
   }
 }
 
