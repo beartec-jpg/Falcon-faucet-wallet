@@ -39,7 +39,7 @@ function makeCred(results: Record<string, unknown>) {
 
 export const calls = { create: 0, get: 0, lastGetUv: '' as string }
 
-;(globalThis as any).navigator = {
+;Object.defineProperty(globalThis, 'navigator', { configurable: true, writable: true, value: {
   credentials: {
     async create(opts: any) {
       calls.create++
@@ -56,4 +56,4 @@ export const calls = { create: 0, get: 0, lastGetUv: '' as string }
       return makeCred({ prf: { results: { first: await prf(authenticator.prfSecret, input) } } })
     },
   },
-}
+} })

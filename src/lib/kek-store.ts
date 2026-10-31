@@ -13,7 +13,8 @@ const STORE = 'keks'
 
 export interface KekRecord {
   credentialId: string
-  mode: 'prf' | 'password'
+  /** 'prf+password': KEK = HKDF(PRF || Argon2id(password)); kdf + check are set. */
+  mode: 'prf' | 'password' | 'prf+password'
   kdf?: PasswordKdfParams
   /** encryptSeed(KEK_CHECK_PLAINTEXT) under the key: detects a wrong password early. */
   check?: EncryptedSeed
