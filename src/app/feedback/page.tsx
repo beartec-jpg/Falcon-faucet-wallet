@@ -24,7 +24,7 @@ export default function FeedbackPage() {
             Found a bug, something confusing, or have an idea? Tell us. Each submission is reviewed; useful, valid feedback adds
             bonus points (usually {FEEDBACK_CONFIG.defaultBonus}, up to {FEEDBACK_CONFIG.maxBonus} in total) to the{' '}
             <Link href="/scan/methodology" className="hover:underline" style={{ color: '#D4922A' }}>Feedback category</Link> of your testnet activity score.
-            Nothing is promised and the rules may change.
+            Nothing is promised and the rules may change. <Link href="/terms" className="hover:underline" style={{ color: '#D4922A' }}>See the Terms</Link>.
           </p>
         </section>
         <FeedbackForm />

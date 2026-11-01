@@ -1,5 +1,5 @@
 /**
- * Arcade top 5: secondary prize for the top five Arcade players, paid at mainnet
+ * Arcade top 5: secondary prize for the top five Arcade players, intended for mainnet
  * launch from the builder (dev) pot (proposed; nothing guaranteed).
  */
 export const ARCADE_PRIZES = [
