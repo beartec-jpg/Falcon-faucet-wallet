@@ -14,7 +14,7 @@ export default function ArcadePrizes() {
         <h2 className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: C.gold }}>Arcade top 5</h2>
         <p className="text-sm text-slate-300 mt-1">
           A secondary prize for the top five <Link href="/arcade/leaderboard" className="hover:underline" style={{ color: C.gold }}>Arcade</Link> players,
-          paid at mainnet launch from the builder pot, separate from the community airdrop and the First 35.
+          that we intend to reward at mainnet launch from the builder pot, separate from the community airdrop and the First 35.
         </p>
       </div>
       <div className="grid grid-cols-5 gap-2">
@@ -35,7 +35,8 @@ export default function ArcadePrizes() {
         </p>
         <p>
           Nothing is guaranteed. The programme, amounts, places and timing are subject to change or cancellation. Payment depends on
-          mainnet launching. No purchase necessary. Testnet FPL has no value. This is not financial advice.
+          mainnet launching. No purchase necessary. Testnet FPL has no value. This is not financial advice.{' '}
+          <Link href="/terms" className="hover:underline" style={{ color: C.gold }}>See the Terms</Link>.
         </p>
       </div>
     </section>

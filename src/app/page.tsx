@@ -170,12 +170,12 @@ export default function MarketingHomePage() {
                 },
                 {
                   src: '/assets/images/icons/icon-validators.jpg',
-                  title: 'Validators Get Paid',
+                  title: 'Validators Earn Testnet Rewards',
                   text: 'On this testnet, those who secure the network earn from the protocol. Test tokens have no cash value.',
                 },
                 {
                   src: '/assets/images/icons/icon-liquidity.jpg',
-                  title: 'Liquidity Providers Get Paid',
+                  title: 'Liquidity Providers Earn Testnet Rewards',
                   text: 'On this testnet, providing liquidity is recognised by the protocol. Testnet rewards only — not mainnet yield. Test tokens have no cash value.',
                 },
               ].map((card, i) => (
@@ -348,7 +348,7 @@ export default function MarketingHomePage() {
                 },
                 {
                   n: '03',
-                  title: 'Real rewards for the people who secure and use the network',
+                  title: 'Testnet rewards for the people who secure and use the network',
                   text: 'On testnet 2300, validators, liquidity providers, and participants earn from the protocol. Testnet rewards only — test tokens have no cash value.',
                 },
                 {
@@ -418,6 +418,7 @@ export default function MarketingHomePage() {
             <Link href="/arcade">Arcade</Link>
             <Link href="/whitepaper">Whitepaper</Link>
             <Link href="/community">Community</Link>
+            <Link href="/terms">Terms</Link>
             <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
               Discord
             </a>

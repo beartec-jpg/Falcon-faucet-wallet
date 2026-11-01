@@ -36,7 +36,7 @@ export function faucetEngagementScore(opts: {
 
 /**
  * Proposed allocation model (2026-10-14). Nothing promised; subject to change.
- * Community bucket 2B = 1B pre-mainnet airdrop (testnet snapshot, credited at
+ * Community bucket 2B = 1B pre-mainnet airdrop (testnet snapshot, intended to be credited at
  * mainnet genesis) + 1B release-phase giveaway (mainnet epochs 1-7, per epoch,
  * capped). First-35 prize seats (12M) come from the 1B builder pot; mainnet
  * faucet drips from the 1B faucet bucket; operators have a separate pool.
@@ -51,7 +51,7 @@ export const FIRST35_SEATS_FPL = 12_000_000
 /**
  * Category weights of the release-phase pool. Weights are relative (allocation is
  * score / sum of scores); buffer is held back. Validators are not in the user
- * scorer: they are paid from the operators pool (config/operators.ts).
+ * scorer: they may be rewarded from the operators pool (config/operators.ts).
  */
 export const AIRDROP_WEIGHTS = {
   validator: 0,
