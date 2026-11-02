@@ -2506,8 +2506,8 @@ const handleSpvCompleteClaim = async () => {
       return
     }
     const sendBtcAmt = parseFloat(amount)
-    if (!Number.isFinite(sendBtcAmt) || sendBtcAmt < 0.0005 || sendBtcAmt > 0.01) {
-      setError('Amount must be between 0.0005 and 0.01 BTC.')
+    if (!Number.isFinite(sendBtcAmt) || sendBtcAmt < 0.0005 || sendBtcAmt > 0.1) {
+      setError('Amount must be between 0.0005 and 0.1 BTC.')
       return
     }
     const curBtc = btcBal != null ? parseFloat(btcBal) : 0
@@ -4011,7 +4011,7 @@ const handleSpvCompleteClaim = async () => {
                     onChange={(e) => { setAmount(e.target.value); setError(null) }}
                     placeholder="0.00"
                     min={isFbtcRoute ? '0.0005' : '0.000001'}
-                    max={isFbtcRoute ? '0.01' : undefined}
+                    max={isFbtcRoute ? '0.1' : undefined}
                     step="any"
                     className="input-field"
                     disabled={busy || !activeLockReady || !canBridgeIn || openSpvBlocksIn}
@@ -4040,7 +4040,7 @@ const handleSpvCompleteClaim = async () => {
                             <button
                               type="button"
                               onClick={() =>
-                                setAmount(Math.min(0.01, Math.max(0, btcAvail - 0.00002)).toFixed(8))
+                                setAmount(Math.min(0.1, Math.max(0, btcAvail - 0.00002)).toFixed(8))
                               }
                               className="text-brand-500"
                             >

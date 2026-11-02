@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
 
   if (!account) return err('Missing "account" field')
 
-  // Testnet4 BTC faucet (0.002 tBTC = 200,000 sats)
+  // Testnet4 BTC faucet (0.1 tBTC = 10,000,000 sats)
   if (asset === 'btc' || asset === 'tbtc' || asset === 'btc4') {
     let btcAddr = account
     if (!TESTNET4_BTC_ADDR_RE.test(btcAddr)) {
@@ -250,9 +250,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       txHash: d.txid,
-      amount: 0.002,
-      amountBtc: d.amount_btc ?? '0.002',
-      amountSats: d.amount_sats ?? 200000,
+      amount: 0.1,
+      amountBtc: d.amount_btc ?? '0.1',
+      amountSats: d.amount_sats ?? 10_000_000,
       asset: 'tBTC',
       account: btcAddr,
       resolvedFrom: btcAddr !== account ? account.toLowerCase() : undefined,
