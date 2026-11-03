@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 // Testnet feedback review (inside the First 35 admin; same Bearer FIRST35_ADMIN_TOKEN).

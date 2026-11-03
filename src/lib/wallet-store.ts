@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * IndexedDB storage for Falcon Ledger wallet credentials.
  * All operations run in the browser only.

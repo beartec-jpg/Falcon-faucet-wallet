@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { configureFalconWasmPath } from '@/lib/falcon-wasm'

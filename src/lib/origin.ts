@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Shared origin allow-list for state-changing / browser-only API routes (CSRF defence).
 //
 // ALLOWED_ORIGINS: comma-separated origins, e.g. "https://wallet.example.com".

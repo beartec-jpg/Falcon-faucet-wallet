@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Full-screen block when a vault is loaded AND the device is online.
  * First-time install / empty device is NOT blocked — only vault use.

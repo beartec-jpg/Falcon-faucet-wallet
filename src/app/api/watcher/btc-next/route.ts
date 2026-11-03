@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/watcher/btc-next
 // Next real Bitcoin testnet3 header after the Falcon PL BTC rail tip, for a
 // browser-signed `rail_header` (watcher work). Read-only: this route never signs

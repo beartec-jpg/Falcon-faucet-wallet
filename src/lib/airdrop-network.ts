@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Airdrop scoring is mainnet-only.
  * Testnet faucet/validators/LP must never write into airdrop allocations or snapshots

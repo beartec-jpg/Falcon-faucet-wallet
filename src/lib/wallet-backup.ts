@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Encrypted wallet backup files for client-side restore.
  * One file = Falcon + multi-chain deposit keys (EVM + BTC + classic XRPL).

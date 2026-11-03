@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Sepolia USDC → Falcon USDC bridge configuration.
  * Deposits use an external EVM wallet — Falcon wallet only needs the Falcon address.

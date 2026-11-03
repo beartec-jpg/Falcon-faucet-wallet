@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Testnet feedback programme. Submissions are reviewed in the First 35 admin;
  * approved ones add bonus points to the testnet activity score ("feedback" category).

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Operators pool scoring: per-epoch work shares (operatorsBoard formula), window
 // averages, eligibility and the allocation split. Pure functions; storage is in
 // operator-store.ts. Copy rule: proposed model, nothing promised.

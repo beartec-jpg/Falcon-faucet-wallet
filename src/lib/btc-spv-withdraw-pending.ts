@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Persist open SPV peg-out jobs so Bridge Out status survives refresh
  * (mirrors falcon-spv-pending for peg-in).

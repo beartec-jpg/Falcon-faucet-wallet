@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Per-wallet-tab asset row visibility (localStorage).
  * Falcon tab: FPL / F-USDC / FETH / FBTC / FBNB

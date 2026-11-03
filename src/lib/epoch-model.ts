@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Epoch / CID / PoPL display parameters (legacy XRPL UI + preview math).
  * Falcon PL 2300 does not use the CID schedule: it emits a flat `emission_bps`

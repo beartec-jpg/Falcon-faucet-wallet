@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/scan — explorer snapshot (height / peers / commit from one PL status)
 
 import { NextRequest, NextResponse } from 'next/server'

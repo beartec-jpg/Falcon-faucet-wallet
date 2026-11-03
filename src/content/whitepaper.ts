@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Falcon PL white paper — technical system paper for /whitepaper (v5.0) */
 
 export const WHITEPAPER_VERSION = '5.1'

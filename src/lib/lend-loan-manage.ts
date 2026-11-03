@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** LoanManage transaction flags and broker enforcement helpers. */
 
 export const TF_LOAN_DEFAULT = 0x00010000

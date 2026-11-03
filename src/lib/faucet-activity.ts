@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Faucet claims as a tracker source (Neon `faucet_claims`, written by /api/faucet).
 // The hashed IP is used ONLY to group linked accounts for scoring. It never
 // leaves the server: no API response, page or CSV includes it.

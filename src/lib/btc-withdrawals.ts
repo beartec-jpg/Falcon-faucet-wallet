@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Single switch for FBTC → BTC withdrawals (Bridge out to Bitcoin).
  *

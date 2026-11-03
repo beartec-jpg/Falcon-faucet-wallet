@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Live network map (/scan/map) layout config. Edit this file to move seats
  * between locations, add hosts, or change the hub.

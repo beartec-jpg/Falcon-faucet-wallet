@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Testnet feedback (Neon). Public submit; admin review via FIRST35_ADMIN_TOKEN (same as First 35).
 // Approved items carry a bonus that the activity tracker adds as the "feedback" category.
 

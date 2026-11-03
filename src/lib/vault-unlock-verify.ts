@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Verify vault unlock responses on the hot portal (Falcon-512).
  */

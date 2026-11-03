@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Browser Falcon-512 loader — avoids @openforge-sh/liboqs dynamic import paths
  * that webpack cannot resolve in production bundles.

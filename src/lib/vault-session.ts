@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Time-boxed vault unlock session on the hot portal.
  * Holds NO secrets — only proves the cold device recently signed a challenge

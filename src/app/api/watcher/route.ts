@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // /api/watcher
 // GET  ?account=   live enter/exit + on-chain presence (read-only, any account)
 // POST { action: 'start' | 'stop' | 'heartbeat' | 'claim' }

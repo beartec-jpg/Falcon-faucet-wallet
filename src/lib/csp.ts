@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Content-Security-Policy builder (audit M-3). Used by src/middleware.ts with a fresh
  * per-request nonce. script-src has no 'unsafe-inline': only scripts carrying the nonce

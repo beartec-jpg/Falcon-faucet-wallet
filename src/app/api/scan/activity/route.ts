@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/scan/activity — kept for PR #101 links: the user board (JSON, or ?format=csv).
 import { NextRequest, NextResponse } from 'next/server'
 import { trackerCsv } from '@/lib/tracker'

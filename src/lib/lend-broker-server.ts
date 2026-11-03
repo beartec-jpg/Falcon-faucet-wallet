@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Server-side broker owner signing (testnet) — retired with broker co-sign (audit).
  *
  * `/api/lend/cosign` and `TESTNET_LENDING_BROKER_SECRET` are no longer used.

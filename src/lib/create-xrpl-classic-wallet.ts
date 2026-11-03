@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Classic XRPL multi-chain wallet (today’s XRP Ledger crypto).
  *

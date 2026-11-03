@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Watcher pool summary for /api/scan (and the network map ring).
 //
 // "This epoch" = accounts in status.watcher_slots.

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * AES-GCM 256 encryption of wallet secrets under a WalletKey (passkey PRF or Argon2id password).
  *

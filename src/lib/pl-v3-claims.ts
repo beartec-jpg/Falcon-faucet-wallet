@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * FalconQcBridgeV2 / V3 claim routing for the site (pure helpers, no network).
  *

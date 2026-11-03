@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Loan duration in PoPL epochs (7 days each, 52 per year). */
 
 export const LEND_EPOCH_DAYS = 7

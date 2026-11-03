@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Audit H-1 migration: find every blob on this device that is still wrapped with the
  * credential-rawId key for a given passkey, re-wrap it under a strong WalletKey, and overwrite

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Minimal, framework-free password dialog used when a passkey has no PRF support.
  * Built with DOM APIs (no inline script/HTML strings) so it works under a strict CSP.

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Server side of the Rails / Pools / Activity tabs: one exact status_req, a
 // capped set of account_query calls, the public bridge config, and the
 // activity index. Cached 30 s so tab switches do not hit the node.

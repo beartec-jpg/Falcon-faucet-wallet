@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * IndexedDB storage for Falcon vault records.
  * Cold vaults store PUBLIC metadata only — secrets live in the JSON / cold signer.

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Consensus cycle for the 3D map: which seats vote and which seat packs each
 // round, and when the phases fire. Pure, so it is unit-tested.
 //

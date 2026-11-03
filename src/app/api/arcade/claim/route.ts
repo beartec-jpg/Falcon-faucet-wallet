@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // POST /api/arcade/claim
 // Body: { account, game, network? }  — score in body is IGNORED for eligibility
 // Eligibility uses server-stored accumulated progress only (sum of today's run
