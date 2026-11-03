@@ -1092,9 +1092,20 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       // Seats keep user keys in memory and only re-learn them from enroll txs (Pay, claim, vault…).
       // After a seat restart a DeFi tx alone is refused with 'unknown key'; re-enroll with a
       // zero self-Pay (fee only, same passkey session), then submit the action at the next sequence.
+      // Mempool "accepted" is not inclusion: wait for the account sequence to move.
+      const included = async (after: number) => {
+        for (let i = 0; i < 12; i++) {
+          await new Promise((r) => setTimeout(r, 2500))
+          const s = await fetchSequenceInfo(account, network.key).catch(() => null)
+          if (s && s.sequence > after) return
+        }
+        throw new Error('Accepted by the node but not included after 30 s, so nothing moved yet. An earlier stuck transaction on your account may be blocking it.')
+      }
       const send = async (build: (sequence: number) => Promise<{ rawJson?: string }>) => {
         try {
-          return await submitSigned(await build(seq.sequence), network.key)
+          const out = await submitSigned(await build(seq.sequence), network.key)
+          await included(seq.sequence)
+          return out
         } catch (e) {
           if (!/unknown key/i.test(e instanceof Error ? e.message : String(e))) throw e
           const enroll = await signPlPay({
@@ -1107,7 +1118,9 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
             falconSecret,
           })
           await submitSigned(enroll, network.key)
-          return await submitSigned(await build(seq.sequence + 1), network.key)
+          const out = await submitSigned(await build(seq.sequence + 1), network.key)
+          await included(seq.sequence + 1)
+          return out
         }
       }
       if (kind === 'swap') {
