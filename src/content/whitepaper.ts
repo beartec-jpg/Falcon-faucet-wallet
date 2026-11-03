@@ -489,6 +489,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ['Transactions / ledger', '128 core seats; 400 default cap', 'Packer-side cap plus ~1 MB body budget'],
           ['Mempool', '50,000', 'Reject when full'],
           ['Measured soak', '20 tx/s for ~15 h', 'Over 1 million transactions, modest hardware (October 2026)'],
+          ['Measured burst', '98.1 tx/s for 88 s', 'Testnet 2300, 13 Oct 2026 06:55–06:57 UTC, heights 501,209–501,232: 24 blocks, 8,634 txs, 400-tx per-block cap, Falcon-512 sender signatures in Merkle batches. Seven validators/hubs and two lite nodes on 2–12-core hosts; 120 wallets offering 200 tx/s into one hub. Short burst, not a sustained rate (Falcon-PL docs/ops/THROUGHPUT-2300-IMPLEMENTATION.md)'],
           ['Measured block time', '~5.3 s average', 'Testnet 2300 chain height data, around 3 November 2026'],
           ['Measured block time', '~7.8 s', 'Live sample, 3 Nov 2026 20:36–20:42 GMT: 40 blocks in 311 s, read from falcon-fpl.com/v1/health'],
         ],
