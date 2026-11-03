@@ -1,0 +1,142 @@
+[
+  {
+    "body_json": "{\"kind\":\"pay\"}",
+    "name": "pay",
+    "payload": "pl-tx:v2|rGoldenAccount|7|bob|1234|2|2300|{\"kind\":\"pay\"}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"bob\",\"amount\":1234,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"pay\"}}",
+    "tx_id": "7ab017b0baa8032711d88d597fa2d6b3dae1b9e4be9eef2ce26bd17c48845b60"
+  },
+  {
+    "body_json": "{\"kind\":\"asset_pay\",\"asset\":\"ETH\"}",
+    "name": "asset_pay",
+    "payload": "pl-tx:v2|rGoldenAccount|7|bob|18446744073709551615|2|2300|{\"kind\":\"asset_pay\",\"asset\":\"ETH\"}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"bob\",\"amount\":18446744073709551615,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"asset_pay\",\"asset\":\"ETH\"}}",
+    "tx_id": "382c45ffa66926daaac4ceea38cfad35f0424104eb311aa3cfa775fd4891e105"
+  },
+  {
+    "body_json": "{\"kind\":\"pay_to_key\",\"key_hash\":\"abababababababababababababababababababababababababababababababab\"}",
+    "name": "pay_to_key",
+    "payload": "pl-tx:v2|rGoldenAccount|7|bob|9|2|2300|{\"kind\":\"pay_to_key\",\"key_hash\":\"abababababababababababababababababababababababababababababababab\"}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"bob\",\"amount\":9,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"pay_to_key\",\"key_hash\":\"abababababababababababababababababababababababababababababababab\"}}",
+    "tx_id": "5bf6c999b9dab812ea350901394a178dc21e74cb1d8d18481c8a7b10e5339244"
+  },
+  {
+    "body_json": "{\"kind\":\"swap_route\",\"token_in\":\"FPL\",\"token_out\":\"USDC\",\"amount_in\":20000000000000001,\"min_out\":1}",
+    "name": "swap_route",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"swap_route\",\"token_in\":\"FPL\",\"token_out\":\"USDC\",\"amount_in\":20000000000000001,\"min_out\":1}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"swap_route\",\"token_in\":\"FPL\",\"token_out\":\"USDC\",\"amount_in\":20000000000000001,\"min_out\":1}}",
+    "tx_id": "c73815175a2ee1f591dc13bde0eb36106ba35eb1c4a448503ef481dd92c6dcc3"
+  },
+  {
+    "body_json": "{\"kind\":\"add_liquidity\",\"pool_id\":\"FPL-USDC\",\"amt_a\":10,\"amt_b\":20}",
+    "name": "add_liquidity",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"add_liquidity\",\"pool_id\":\"FPL-USDC\",\"amt_a\":10,\"amt_b\":20}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"add_liquidity\",\"pool_id\":\"FPL-USDC\",\"amt_a\":10,\"amt_b\":20}}",
+    "tx_id": "582fd52915dd9a35038595e1117df4b91ef065611ed5d182dd2e1516f13ae008"
+  },
+  {
+    "body_json": "{\"kind\":\"remove_liquidity\",\"pool_id\":\"FPL-USDC\",\"lp_burn\":5}",
+    "name": "remove_liquidity",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"remove_liquidity\",\"pool_id\":\"FPL-USDC\",\"lp_burn\":5}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"remove_liquidity\",\"pool_id\":\"FPL-USDC\",\"lp_burn\":5}}",
+    "tx_id": "54344bab07b5d06adec4c2bbf18fd72c9d70bcd8de7bc7d227df89cacd1df21a"
+  },
+  {
+    "body_json": "{\"kind\":\"lend_supply\",\"market_id\":\"USDC\",\"amount\":7}",
+    "name": "lend_supply",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"lend_supply\",\"market_id\":\"USDC\",\"amount\":7}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"lend_supply\",\"market_id\":\"USDC\",\"amount\":7}}",
+    "tx_id": "c8ee43467ea06c655da66cbf2cda88ca58abfcd1776baa40da7b674845da94c2"
+  },
+  {
+    "body_json": "{\"kind\":\"lend_withdraw\",\"market_id\":\"USDC\",\"shares\":7}",
+    "name": "lend_withdraw",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"lend_withdraw\",\"market_id\":\"USDC\",\"shares\":7}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"lend_withdraw\",\"market_id\":\"USDC\",\"shares\":7}}",
+    "tx_id": "1d202400abb2001d0bfd853d34607bc6a0cc78c052d0d92ac86e7bcd7962c23b"
+  },
+  {
+    "body_json": "{\"kind\":\"lend_borrow\",\"market_id\":\"USDC\",\"amount\":7,\"collateral_fpl\":100}",
+    "name": "lend_borrow",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"lend_borrow\",\"market_id\":\"USDC\",\"amount\":7,\"collateral_fpl\":100}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"lend_borrow\",\"market_id\":\"USDC\",\"amount\":7,\"collateral_fpl\":100}}",
+    "tx_id": "4a304c6358585d34a017e3626f2fa855b0ae93f7f134323f18f2a65d30165ff0"
+  },
+  {
+    "body_json": "{\"kind\":\"lend_repay\",\"market_id\":\"USDC\",\"amount\":7}",
+    "name": "lend_repay",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"lend_repay\",\"market_id\":\"USDC\",\"amount\":7}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"lend_repay\",\"market_id\":\"USDC\",\"amount\":7}}",
+    "tx_id": "0d788c97157851f0767b34f2f9714b79d68ecdfd815189d7261fbe3652a9f477"
+  },
+  {
+    "body_json": "{\"kind\":\"vault_open\",\"destination\":\"cold\"}",
+    "name": "vault_open",
+    "payload": "pl-tx:v2|rGoldenAccount|7|cold|0|2|2300|{\"kind\":\"vault_open\",\"destination\":\"cold\"}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"cold\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"vault_open\",\"destination\":\"cold\"}}",
+    "tx_id": "b351057bc30099a49c775ab6809a66593ffc97298bb006193be68c6684ed45c9"
+  },
+  {
+    "body_json": "{\"kind\":\"vault_lock\"}",
+    "name": "vault_lock",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"vault_lock\"}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"vault_lock\"}}",
+    "tx_id": "c41bf1a8f5ae3ebb79cd8710f3f13bfd2d57fc20b59f76262ae8eb1f2ad115bb"
+  },
+  {
+    "body_json": "{\"kind\":\"claim\"}",
+    "name": "claim",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"claim\"}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"claim\"}}",
+    "tx_id": "5bef4e1b34fa27dda6d08c0b4935b4f335497306f6e3f9751c147a3457209a45"
+  },
+  {
+    "body_json": "{\"kind\":\"watcher_heartbeat\"}",
+    "name": "watcher_heartbeat",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"watcher_heartbeat\"}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"watcher_heartbeat\"}}",
+    "tx_id": "01beb8a42001147761cc5bc9ce97e4fe33f68000f00f5d5f21738b0fa31e623d"
+  },
+  {
+    "body_json": "{\"kind\":\"rail_withdraw\",\"asset\":\"BTC\",\"amount\":15000,\"external_to\":\"tb1qexample\"}",
+    "name": "rail_withdraw",
+    "payload": "pl-tx:v2|rGoldenAccount|7|tb1qexample|15000|2|2300|{\"kind\":\"rail_withdraw\",\"asset\":\"BTC\",\"amount\":15000,\"external_to\":\"tb1qexample\"}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"tb1qexample\",\"amount\":15000,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"rail_withdraw\",\"asset\":\"BTC\",\"amount\":15000,\"external_to\":\"tb1qexample\"}}",
+    "tx_id": "67a69c96fbd563e9dc6faa4be3e0881211b241ee453c90aa496668ee024276e5"
+  },
+  {
+    "body_json": "{\"kind\":\"rail_withdraw\",\"asset\":\"BTC\",\"amount\":15000,\"external_to\":\"tb1qexample\",\"signed_btc_tx\":\"00ff\"}",
+    "name": "rail_withdraw_kickoff",
+    "payload": "pl-tx:v2|rGoldenAccount|7|tb1qexample|15000|2|2300|{\"kind\":\"rail_withdraw\",\"asset\":\"BTC\",\"amount\":15000,\"external_to\":\"tb1qexample\",\"signed_btc_tx\":\"00ff\"}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"tb1qexample\",\"amount\":15000,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"rail_withdraw\",\"asset\":\"BTC\",\"amount\":15000,\"external_to\":\"tb1qexample\",\"signed_btc_tx\":\"00ff\"}}",
+    "tx_id": "0cb1f45be4879619dda03ca967c4326ca3a060f9aeee17b4eceeb1b48074ca61"
+  },
+  {
+    "body_json": "{\"kind\":\"set_external_addrs\",\"chain\":\"btc\",\"address\":\"tb1q\\\"esc\\\\apedé\"}",
+    "name": "set_external_addrs",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"set_external_addrs\",\"chain\":\"btc\",\"address\":\"tb1q\\\"esc\\\\apedé\"}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"set_external_addrs\",\"chain\":\"btc\",\"address\":\"tb1q\\\"esc\\\\apedé\"}}",
+    "tx_id": "a0d1d8a91ed30fdc146295824e29b6ff1620c6ab10a973b4af0f83b302e668c0"
+  },
+  {
+    "body_json": "{\"kind\":\"place_limit_order\",\"pair\":\"FPL/USDC\",\"side\":\"sell\",\"price\":123,\"amount\":456}",
+    "name": "place_limit_order",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"place_limit_order\",\"pair\":\"FPL/USDC\",\"side\":\"sell\",\"price\":123,\"amount\":456}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"place_limit_order\",\"pair\":\"FPL/USDC\",\"side\":\"sell\",\"price\":123,\"amount\":456}}",
+    "tx_id": "8843a5e7941baaa120ff48f555e5b6ec32f1ea6423e672b90309a829dad60fa8"
+  },
+  {
+    "body_json": "{\"kind\":\"place_limit_order\",\"pair\":\"FPL/USDC\",\"side\":\"buy\",\"price\":1,\"amount\":2,\"expiry_height\":999}",
+    "name": "place_limit_order_expiry",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"place_limit_order\",\"pair\":\"FPL/USDC\",\"side\":\"buy\",\"price\":1,\"amount\":2,\"expiry_height\":999}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"place_limit_order\",\"pair\":\"FPL/USDC\",\"side\":\"buy\",\"price\":1,\"amount\":2,\"expiry_height\":999}}",
+    "tx_id": "23f1ce167e564b1d7c74e983ceb7e982fcb5380dff9e05d2d078c93136e802ac"
+  },
+  {
+    "body_json": "{\"kind\":\"cancel_order\",\"order_id\":18446744073709551615}",
+    "name": "cancel_order",
+    "payload": "pl-tx:v2|rGoldenAccount|7||0|2|2300|{\"kind\":\"cancel_order\",\"order_id\":18446744073709551615}",
+    "tx": "{\"account\":\"rGoldenAccount\",\"sequence\":7,\"destination\":\"\",\"amount\":0,\"fee\":2,\"network_id\":2300,\"public_key\":\"\",\"signature\":\"\",\"tx_id\":\"\",\"body\":{\"kind\":\"cancel_order\",\"order_id\":18446744073709551615}}",
+    "tx_id": "17555eb2362b6d777ff88152f521670e45cc3e0df3655c24e1d36d5097af1ff3"
+  }
+]

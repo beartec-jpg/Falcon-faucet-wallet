@@ -2,6 +2,9 @@
 
 Copyright (c) 2025-2026 BEARTEC. All rights reserved. See `LICENSE`.
 
+Exception: `falcon-sign/` (Falcon Sign SDK) is licensed under Apache-2.0; see
+`falcon-sign/LICENSE` and `falcon-sign/NOTICE`.
+
 Original code in this repository was written by or for BEARTEC (including
 AI-assisted commits made under the BEARTEC GitHub account `beartec-jpg`).
 

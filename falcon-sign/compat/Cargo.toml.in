@@ -1,0 +1,16 @@
+[package]
+name = "falcon-sign-compat"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Cross-compat harness: Falcon Sign SDK vs the Falcon PL node (fd-pl)"
+
+[workspace]
+
+[dependencies]
+# @FD_PL_PATH@ is filled in by scripts/test-compat.sh (generated Cargo.toml is gitignored).
+fd-pl = { path = "@FD_PL_PATH@" }
+falcon-sign = { path = "../rust" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

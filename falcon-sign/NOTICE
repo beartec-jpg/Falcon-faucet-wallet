@@ -1,0 +1,34 @@
+Falcon Sign SDK
+Copyright 2026 BEARTEC
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+It applies to the contents of this falcon-sign/ directory only. The rest of
+the repository it lives in keeps its own licence.
+
+Falcon PL is a testnet. FPL testnet tokens have no monetary value.
+
+Third-party software used (not vendored; installed as dependencies):
+
+- liboqs, Open Quantum Safe project (MIT). Falcon-512 implementation.
+  https://github.com/open-quantum-safe/liboqs
+- @openforge-sh/liboqs (MIT), Copyright (c) 2025 openforge-sh. WebAssembly
+  build of liboqs used by the TypeScript package (and by the Falcon wallet).
+- @noble/hashes (MIT), Copyright (c) Paul Miller. SHA-256 and RIPEMD-160.
+- pqcrypto-falcon / pqcrypto-traits (MIT OR Apache-2.0), wrapping the PQClean
+  Falcon-512 reference code. Used by the Rust crate, as by the Falcon PL node.
+- sha2, hex, serde, serde_json (MIT OR Apache-2.0). Rust crate.
+
+The account address encoding follows the XRP Ledger classic-address format
+(base58check, XRPL alphabet), reimplemented here; no XRPL source is copied.
+
+Acknowledgements (related Falcon work in the wider BEARTEC Falcon effort; no
+code from these projects is included in this SDK):
+
+- ZKNox, for ETHFALCON, the Falcon signature verifier for the EVM.
+- OpenZeppelin, for Solidity contract libraries used alongside on-chain
+  Falcon verification work.
+- rukafe0x, for contributions to Falcon on-chain verification research.
+
+Falcon itself was designed by P.-A. Fouque, J. Hoffstein, P. Kirchner,
+V. Lyubashevsky, T. Pornin, T. Prest, T. Ricosset, G. Seiler, W. Whyte and
+Z. Zhang.
