@@ -44,6 +44,11 @@ const nextConfig = {
     return config
   },
 
+  async rewrites() {
+    // Public explorer API v1: /v1/* is served by src/app/api/v1/* (gateway-friendly prefix).
+    return [{ source: '/v1/:path*', destination: '/api/v1/:path*' }]
+  },
+
   async headers() {
     // Page CSP (with a per-request nonce) is set in src/middleware.ts (audit M-3).
     // Static HTML in /public is not served through middleware, so it gets a fixed policy
