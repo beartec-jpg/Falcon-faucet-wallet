@@ -1046,6 +1046,26 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     void loadPrimaryWallet().then(setWallet)
   }, [])
 
+  // 24h volume per pool (Explorer's inferred-from-reserve-samples figure; lower bound).
+  const [poolVolume, setPoolVolume] = useState<Record<string, number | null>>({})
+  useEffect(() => {
+    if (mode !== 'swap') return
+    let live = true
+    const get = () =>
+      fetch('/api/scan/rails-pools', { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((j) => {
+          if (!live) return
+          const out: Record<string, number | null> = {}
+          for (const p of (j?.pools ?? []) as { id: string; volume_24h_fpl: number | null }[]) out[p.id] = p.volume_24h_fpl
+          setPoolVolume(out)
+        })
+        .catch(() => {})
+    void get()
+    const t = setInterval(get, 60_000)
+    return () => { live = false; clearInterval(t) }
+  }, [mode])
+
   useEffect(() => {
     load()
     const t = setInterval(load, 8000)
@@ -1221,9 +1241,11 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-slate-500">
-        Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. fBNB is not a market.
-      </p>
+      {mode !== 'swap' && (
+        <p className="text-xs text-slate-500">
+          Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. fBNB is not a market.
+        </p>
+      )}
       {mode === 'swap' && (
         <div className="card p-5 space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -1299,13 +1321,32 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       {msg && <p className="text-sm text-emerald-300">{msg}</p>}
       {err && <p className="text-sm text-red-300">{err}</p>}
       {mode === 'swap' && (
-        <div className="space-y-2">
+        <p className="text-xs text-slate-500">
+          Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. fBNB is not a market.
+        </p>
+      )}
+      {mode === 'swap' && (
+        <div className="grid gap-3 sm:grid-cols-3">
           {pools.filter((p) => p.id !== 'fpl-btc' && p.id !== 'btc-fpl' && poolPair(p) !== null).map((p) => {
             const px = poolPrice(p)
+            const pair = poolPair(p)!
+            const vol = poolVolume[p.id]
             return (
-              <div key={p.id} className="rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-400">
-                {assetLabel(p.asset_a as Asset)}/{assetLabel(p.asset_b as Asset)}: {fromRaw(p.asset_a as Asset, p.reserve_a)} {assetLabel(p.asset_a as Asset)} / {fromRaw(p.asset_b as Asset, p.reserve_b)} {assetLabel(p.asset_b as Asset)}
-                {px ? ` · ${fromRaw('FPL', px.price)} FPL per ${assetLabel(px.asset as Asset)}` : ''}
+              <div key={p.id} className="card p-4 space-y-2 text-xs">
+                <div className="flex items-baseline justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-white">{assetLabel(pair.fAsset)} / FPL</h3>
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500">AMM pool</span>
+                </div>
+                <div className="text-lg font-bold tabular-nums text-brand-300">
+                  {px ? `${fromRaw('FPL', px.price)} FPL` : '—'}
+                  <span className="block text-[10px] font-normal text-slate-500">per {assetLabel(pair.fAsset)}</span>
+                </div>
+                <dl className="space-y-1 text-slate-400">
+                  <div className="flex justify-between gap-2"><dt>Reserve {assetLabel(pair.fAsset)}</dt><dd className="font-mono text-slate-200">{fromRaw(pair.fAsset, pair.fReserve)}</dd></div>
+                  <div className="flex justify-between gap-2"><dt>Reserve FPL</dt><dd className="font-mono text-slate-200">{fromRaw('FPL', pair.fplReserve)}</dd></div>
+                  <div className="flex justify-between gap-2"><dt>LP supply</dt><dd className="font-mono text-slate-200">{BigInt(p.lp_supply || '0').toLocaleString()}</dd></div>
+                  <div className="flex justify-between gap-2"><dt>24h volume</dt><dd className="font-mono text-slate-200">{vol == null ? 'collecting' : `${Math.round(vol).toLocaleString()} FPL`}</dd></div>
+                </dl>
               </div>
             )
           })}

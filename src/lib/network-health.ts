@@ -215,7 +215,7 @@ export interface DiscordMessage {
 }
 
 export function discordMessages(state: HealthState, at: number, siteUrl: string): { msg: DiscordMessage; fire: string[]; recover: number }[] {
-  const url = `${siteUrl.replace(/\/$/, '')}/network/health`
+  const url = `${siteUrl.replace(/\/$/, '')}/scan#network-health`
   const out: { msg: DiscordMessage; fire: string[]; recover: number }[] = []
   const fire = Object.values(state.alerts).filter((a) => !a.notified)
   const ts = new Date(at).toISOString()

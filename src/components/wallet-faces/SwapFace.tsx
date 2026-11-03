@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
+import { useEmbeddedFace } from '@/components/EmbeddedFace'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
@@ -149,6 +150,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 }
 
 export default function SwapPage() {
+  const embedded = useEmbeddedFace()
   const { networkKey, network } = useNetwork()
   const [tradeMode, setTradeMode] = useState<TradeMode>('instant')
   const [wallet, setWallet] = useState<StoredWallet | null>(null)
@@ -612,7 +614,7 @@ export default function SwapPage() {
       <ProductShell intensity={0.4}>
         <Header current="swap" />
         <NetworkBanner />
-        <main className="flex-1 px-4 py-8 max-w-2xl mx-auto w-full">
+        <main className={`flex-1 px-4 ${embedded ? 'pt-0 pb-8' : 'py-8'} max-w-2xl mx-auto w-full`}>
           <PlFplMarkets mode="swap" />
         </main>
       </ProductShell>

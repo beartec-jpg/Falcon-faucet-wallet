@@ -2197,7 +2197,7 @@ export default function WalletPage() {
       <Header current="wallet" />
       <NetworkBanner />
 
-      <main className="flex-1 flex items-start justify-center px-4 py-10">
+      <main className={`${extFace && view === 'dashboard' ? '' : 'flex-1 '}flex items-start justify-center px-4 ${extFace && view === 'dashboard' ? 'pt-10 pb-3' : 'py-10'}`}>
         <div className="w-full max-w-lg space-y-4">
 
           {/* ── Loading ── */}
@@ -4909,7 +4909,7 @@ export default function WalletPage() {
           )}
 
           {/* ── Footer note ── */}
-          <p className="text-center text-xs text-slate-700">
+          <p hidden={Boolean(extFace && view === 'dashboard')} className="text-center text-xs text-slate-700">
             {network.badge === 'testnet' ? 'Testnet tokens · No real value' : `${network.name} · Network ID ${network.networkId}`}
             {' · '}
             <a
