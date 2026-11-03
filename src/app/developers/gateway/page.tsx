@@ -1,7 +1,7 @@
 // Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import ContentPage, { A, Code, Section } from '@/components/content/ContentPage'
 import { DevNav, Table, TestnetNotice } from '@/components/developers/DevBits'
-import { EXAMPLES, GATEWAY_ERRORS, GATEWAY_METHODS, GATEWAY_ROUTES, GATEWAY_URL } from '@/lib/developers/content'
+import { EXAMPLES, GATEWAY_CORS_ORIGINS, GATEWAY_ERRORS, GATEWAY_METHODS, GATEWAY_ROUTES, GATEWAY_URL } from '@/lib/developers/content'
 import { pageMeta } from '@/lib/seo'
 
 export const metadata = pageMeta('/developers/gateway', 'RPC gateway docs', 'Falcon Cloud RPC gateway: API keys, JSON-RPC methods, examples and rate limits.')
@@ -11,15 +11,25 @@ export default function GatewayDocs() {
     <ContentPage current="community" title="Falcon Cloud RPC gateway" back={{ href: '/developers', label: 'Developers' }}>
       <DevNav active="/developers/gateway" />
       <TestnetNotice />
-      <p className="text-xs text-slate-400" data-testid="gateway-not-live">
-        Preview: the gateway is not live yet. The base URL <span className="font-mono">{GATEWAY_URL}</span> is provisional.
+      <p className="text-xs text-slate-400" data-testid="gateway-base-url">
+        Base URL: <span className="font-mono">{GATEWAY_URL}</span>
       </p>
       <Section title="Authentication">
         <p>Every RPC call needs an API key. Send it as <span className="font-mono">Authorization: Bearer fplk_…</span> or <span className="font-mono">X-API-Key: fplk_…</span>.</p>
-        <p>Keys are shown once when issued and stored only as a SHA-256 hash. Keep them server-side; never ship a key in browser code or a public repo.</p>
+        <p>Keys are shown once when issued and stored only as a SHA-256 hash. Keep them server-side; never ship a key in browser code or a public repo. Every plan, including Free, needs a key. Keys are issued on request through BEARTEC: see <A href="/developers/api-keys">get an API key</A>.</p>
       </Section>
       <Section title="Endpoints">
         <Table head={['Route', 'Key', 'Notes']} rows={GATEWAY_ROUTES.map((r) => [`${r.method} ${r.path}`, r.auth ? 'yes' : 'no', r.note])} />
+      </Section>
+      <Section title="Browser calls (CORS)">
+        <p data-testid="gateway-cors">Browser requests are accepted only from approved origins: {GATEWAY_CORS_ORIGINS.map((o) => <span key={o} className="font-mono mr-2">{o}</span>)}. Call the gateway from your own server for anything else.</p>
+      </Section>
+      <Section title="Not supported yet">
+        <ul className="list-disc pl-5 space-y-1" data-testid="gateway-not-supported">
+          <li>Batch requests (a JSON array) return HTTP 400. Send one request per call.</li>
+          <li>There is no WebSocket or subscription endpoint. Poll instead.</li>
+        </ul>
+        <p className="text-xs text-slate-400">Both are planned for a later release.</p>
       </Section>
       <Section title="Allowed methods">
         <p>Read methods plus transaction submit. Node admin and operator calls are never exposed.</p>

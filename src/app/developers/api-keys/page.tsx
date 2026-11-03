@@ -16,8 +16,9 @@ export default function ApiKeysPage() {
       {on ? (
         <ApiKeyRequest />
       ) : (
-        <Section title="Not open yet">
-          <p data-testid="api-keys-closed">API key sign-up opens when the RPC gateway launches. Follow the <a className="text-amber-300 hover:underline" href="/community">community</a> channels for the announcement.</p>
+        <Section title="Keys are issued on request">
+          <p data-testid="api-keys-closed">Every plan, including Free, needs an API key. Keys are issued manually on request through BEARTEC; self-serve sign-up is not available yet. Ask via the <a className="text-amber-300 hover:underline" href="/feedback">feedback page</a> or the <a className="text-amber-300 hover:underline" href="/community">community</a> channels, saying which plan you want. Your key is shown to you once; keep it private.</p>
+          <p className="text-xs text-slate-400">Plan changes are also handled on request. No payment is taken on this site.</p>
         </Section>
       )}
     </ContentPage>

@@ -3,8 +3,11 @@
 // (PR #17, not deployed). Explorer endpoints are read from the live OpenAPI spec.
 import { openapi } from '@/lib/explorer-api/openapi'
 
-/** Planned public gateway URL. Placeholder until Scott confirms the hostname. */
+/** Live public gateway URL. */
 export const GATEWAY_URL = 'https://rpc.falcon-fpl.com'
+/** Origins allowed to call the gateway from a browser. */
+export const GATEWAY_CORS_ORIGINS = ['https://falcon-fpl.com', 'https://www.beartec.uk']
+
 export const EXPLORER_URL = 'https://falcon-fpl.com'
 
 export const TESTNET_NOTICE =
@@ -27,7 +30,7 @@ export type Tier = {
   blurb: string
 }
 
-/** Prices approved. Limits are PROVISIONAL (fpl-gateway proposed defaults). */
+/** Prices and limits confirmed by Scott (match the live fpl-gateway config). */
 export const TIERS: Tier[] = [
   { id: 'free', name: 'Free', priceGbpMonthly: 0, rps: 5, burst: 10, monthlyUnits: 300_000, txPerMin: 10, blurb: 'Prototypes, hackathons, learning.' },
   { id: 'builder', name: 'Builder', priceGbpMonthly: 29, rps: 25, burst: 50, monthlyUnits: 5_000_000, txPerMin: 120, blurb: 'Apps and bots in active development.' },
@@ -56,7 +59,8 @@ export const GATEWAY_ERRORS: { http: number; code: number; meaning: string; acti
   { http: 200, code: -32601, meaning: 'Method not allowed', action: 'Only the methods listed above are available.' },
   { http: 200, code: -32602, meaning: 'Invalid params', action: 'Check the params object.' },
   { http: 200, code: -32000, meaning: 'Node rejected the request', action: 'Read error.message (e.g. unknown account, bad tx).' },
-  { http: 400, code: -32700, meaning: 'Body is not valid JSON', action: 'Send one JSON-RPC 2.0 object (no batches).' },
+  { http: 400, code: -32700, meaning: 'Body is not valid JSON', action: 'Send one JSON-RPC 2.0 object.' },
+  { http: 400, code: -32600, meaning: 'Batch requests are not supported yet', action: 'Send one request per call.' },
   { http: 413, code: 0, meaning: 'Body larger than 64 KiB', action: 'Transactions are far smaller; check what you send.' },
   { http: 502, code: -32002, meaning: 'Node unavailable', action: 'Retry with backoff.' },
   { http: 503, code: -32003, meaning: 'Gateway busy', action: 'Retry with backoff.' },
@@ -142,6 +146,6 @@ export const DEV_PAGES: { href: string; title: string; desc: string }[] = [
   { href: '/developers/gateway', title: 'Falcon Cloud RPC gateway', desc: 'API keys, JSON-RPC methods, examples, errors and 429 handling.' },
   { href: '/developers/explorer-api', title: 'Explorer API', desc: 'Public read-only REST API for blocks, accounts, validators and the order book.' },
   { href: '/developers/pricing', title: 'Pricing', desc: 'Free, Builder and Scale. Testnet only.' },
-  { href: '/developers/api-keys', title: 'Get an API key', desc: 'Key sign-up (not open yet).' },
+  { href: '/developers/api-keys', title: 'Get an API key', desc: 'Keys are issued on request through BEARTEC.' },
   { href: '/developers/sdk', title: 'Falcon Sign SDK', desc: 'Coming soon, Apache-2.0.' },
 ]

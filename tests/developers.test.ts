@@ -6,7 +6,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import {
   EXAMPLES,
+  GATEWAY_CORS_ORIGINS,
   GATEWAY_ERRORS,
+  GATEWAY_URL,
   GATEWAY_METHODS,
   TESTNET_NOTICE,
   TIERS,
@@ -34,16 +36,18 @@ describe('pricing tiers', () => {
     expect(TIERS.map((t) => [t.name, t.priceGbpMonthly])).toEqual([['Free', 0], ['Builder', 29], ['Scale', 199]])
     expect(formatGbp(29)).toBe('£29')
   })
-  it('limits grow with the tier and match fpl-gateway proposed defaults', () => {
+  it('limits grow with the tier and match the confirmed fpl-gateway config', () => {
     expect(TIERS.map((t) => [t.rps, t.burst, t.monthlyUnits, t.txPerMin])).toEqual([
       [5, 10, 300_000, 10],
       [25, 50, 5_000_000, 120],
       [100, 200, 50_000_000, 600],
     ])
   })
-  it('pricing page marks limits provisional and states testnet / no value', () => {
+  it('pricing page marks limits confirmed (not provisional) and states testnet / no value', () => {
     const p = read('src/app/developers/pricing/page.tsx')
-    expect(p).toMatch(/Provisional limits/)
+    expect(p).toMatch(/Confirmed limits/)
+    expect(p).not.toMatch(/provisional/i)
+    expect(p).toMatch(/including Free, needs an API key/)
     expect(p).toContain('<TestnetNotice />')
     expect(TESTNET_NOTICE).toMatch(/testnet/i)
     expect(TESTNET_NOTICE).toMatch(/no monetary value/)
@@ -83,6 +87,23 @@ describe('gateway docs', () => {
   it('only read methods plus submit; no admin/ctl', () => {
     expect(GATEWAY_METHODS.map((m) => m.name)).toEqual(['fpl_status', 'fpl_health', 'fpl_getAccount', 'fpl_orderBook', 'fpl_openOrders', 'fpl_fills', 'fpl_submitTx'])
     for (const m of GATEWAY_METHODS) expect(m.name).not.toMatch(/seal|admin|drop|snapshot|reset|vault|rail/i)
+  })
+  it('gateway docs are live: no preview / provisional wording', () => {
+    for (const f of devFiles) expect(readFileSync(f, 'utf8'), relative(root, f)).not.toMatch(/not live|provisional|preview|placeholder/i)
+    expect(GATEWAY_URL).toBe('https://rpc.falcon-fpl.com')
+  })
+  it('states batch + WebSocket unsupported and CORS approved origins only', () => {
+    const g = read('src/app/developers/gateway/page.tsx')
+    expect(g).toMatch(/Batch requests[\s\S]*400/)
+    expect(g).toMatch(/no WebSocket/)
+    expect(g).toMatch(/only from approved origins/)
+    expect(GATEWAY_CORS_ORIGINS).toEqual(['https://falcon-fpl.com', 'https://www.beartec.uk'])
+    expect(GATEWAY_ERRORS.find((e) => e.code === -32600)?.http).toBe(400)
+  })
+  it('keys are issued on request through BEARTEC, no email published', () => {
+    const k = read('src/app/developers/api-keys/page.tsx')
+    expect(k).toMatch(/issued manually on request through BEARTEC/)
+    for (const f of devFiles) expect(readFileSync(f, 'utf8'), relative(root, f)).not.toMatch(/mailto:|[\w.+-]+@[\w-]+\.[a-z]{2,}/i)
   })
   it('documents 429 and the error codes', () => {
     expect(GATEWAY_ERRORS.find((e) => e.http === 429)?.code).toBe(-32005)

@@ -9,9 +9,9 @@ export default function ApiKeyRequest() {
   const [tier, setTier] = useState<string>('free')
   const [done, setDone] = useState(false)
   return (
-    <Section title="Request a key (preview)">
+    <Section title="Request a key">
       {done ? (
-        <p data-testid="api-key-stub-done">Thanks. Self-serve keys are not live yet; nothing was sent or charged. Keys are issued manually during the testnet.</p>
+        <p data-testid="api-key-stub-done">Thanks. Self-serve keys are not available yet; nothing was sent or charged. Keys are issued manually on request through BEARTEC.</p>
       ) : (
         <form
           className="space-y-3"

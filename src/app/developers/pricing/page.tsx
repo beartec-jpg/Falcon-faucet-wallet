@@ -22,17 +22,17 @@ export default function PricingPage() {
             </p>
             <p className="text-xs text-slate-400">{t.blurb}</p>
             <ul className="text-xs space-y-1">
-              <li>{t.rps} requests/s (burst {t.burst})*</li>
-              <li>{n(t.monthlyUnits)} units / month*</li>
-              <li>{t.txPerMin} tx submits / minute*</li>
+              <li>{t.rps} requests/s (burst {t.burst})</li>
+              <li>{n(t.monthlyUnits)} units / month</li>
+              <li>{t.txPerMin} tx submits / minute</li>
             </ul>
           </Section>
         ))}
       </div>
-      <p className="text-xs text-slate-400" data-testid="provisional-note">
-        * Provisional limits, subject to change before launch. One read = 1 unit, one tx submit = 5 units. Quotas reset on the 1st of each month (00:00 UTC). Prices in GBP.
+      <p className="text-xs text-slate-400" data-testid="limits-note">
+        Confirmed limits. Every plan, including Free, needs an API key. One read = 1 unit, one tx submit = 5 units. Quotas reset on the 1st of each month (00:00 UTC). Prices in GBP.
       </p>
-      <p className="text-xs text-slate-400">Plans pay for access to BEARTEC-run RPC infrastructure. They do not buy, include or earn FPL, and FPL testnet tokens have no monetary value. Paid plans are not open yet.</p>
+      <p className="text-xs text-slate-400">Plans pay for access to BEARTEC-run RPC infrastructure. They do not buy, include or earn FPL, and FPL testnet tokens have no monetary value. Keys and plan changes are handled on request through BEARTEC; there is no online payment.</p>
     </ContentPage>
   )
 }
