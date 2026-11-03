@@ -1,12 +1,35 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
+import WalletCylinder from '@/components/WalletCylinder'
+import { EmbeddedFaceContext } from '@/components/EmbeddedFace'
+
+const VaultFace = dynamic(() => import('@/components/wallet-faces/VaultFace'), { ssr: false })
+const SwapFace = dynamic(() => import('@/components/wallet-faces/SwapFace'), { ssr: false })
+const PoolFace = dynamic(() => import('@/components/wallet-faces/PoolFace'), { ssr: false })
+const LendFace = dynamic(() => import('@/components/wallet-faces/LendFace'), { ssr: false })
+
+/** Cylinder order (loops back to Falcon). */
+const WALLET_FACES = [
+  { id: 'falcon', label: 'Falcon' },
+  { id: 'multichain', label: 'Multi-chain' },
+  { id: 'vault', label: 'Vault' },
+  { id: 'bridge', label: 'Bridge' },
+  { id: 'swap', label: 'Swap' },
+  { id: 'pool', label: 'Pool' },
+  { id: 'lend', label: 'Lend' },
+] as const
+type ExtFace = 'vault' | 'swap' | 'pool' | 'lend'
+const EXT_FACES: readonly string[] = ['vault', 'swap', 'pool', 'lend']
+const HIDE_BAL_KEY = 'falcon-wallet-hide-balances-v1'
+const MASK = '****'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
 import {
@@ -364,12 +387,42 @@ export default function WalletPage() {
   const [bridgeMissing, setBridgeMissing] = useState(false)
   const bridgeAutoProvisioned = useRef(false)
 
+  const [extFace, setExtFace] = useState<ExtFace | null>(null)
+  const [hideBalances, setHideBalances] = useState(false)
+
   useEffect(() => {
+    try { if (localStorage.getItem(HIDE_BAL_KEY) === '1') setHideBalances(true) } catch { /* ignore */ }
+  }, [])
+  const toggleHideBalances = () => {
+    setHideBalances((h) => {
+      try { localStorage.setItem(HIDE_BAL_KEY, h ? '0' : '1') } catch { /* ignore */ }
+      return !h
+    })
+  }
+
+  // Deep links: /wallet?tab=<face> (falcon|multichain|vault|bridge|swap|pool|lend);
+  // legacy /wallet?bridge=1 and ?section=bridge still open Bridge. Re-read on client
+  // navigation too (e.g. an in-face link to /swap redirects back to /wallet?tab=swap).
+  const applyUrlFace = useCallback(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get('bridge') === '1' || params.get('section') === 'bridge') {
+    const tab = params.get('tab')
+    if (params.get('bridge') === '1' || params.get('section') === 'bridge' || tab === 'bridge') {
+      setExtFace(null)
       setWalletSection('bridge')
+    } else if (tab === 'falcon' || tab === 'multichain') {
+      setExtFace(null)
+      setWalletSection(tab)
+    } else if (tab && EXT_FACES.includes(tab)) {
+      setExtFace(tab as ExtFace)
     }
   }, [])
+  useEffect(() => {
+    applyUrlFace()
+    window.addEventListener('popstate', applyUrlFace)
+    return () => window.removeEventListener('popstate', applyUrlFace)
+  }, [applyUrlFace])
+  const urlTab = useSearchParams()?.get('tab') ?? null
+  useEffect(() => { if (urlTab) applyUrlFace() }, [urlTab, applyUrlFace])
 
   useEffect(() => {
     setFalconVisible({ ...loadFalconVisibility(), fbnb: false })
@@ -2531,39 +2584,77 @@ export default function WalletPage() {
                 </div>
               )}
 
-              {view === 'dashboard' && (
-                <div className="wallet-glass p-1.5 flex gap-1">
-                  {(
-                    [
-                      { id: 'falcon' as const, label: 'Falcon' },
-                      { id: 'multichain' as const, label: 'Multi-chain' },
-                      { id: 'bridge' as const, label: 'Bridge' },
-                    ] as const
-                  ).map((tab) => (
+              {view === 'dashboard' && (() => {
+                const fb = parseFalconBalances(account)
+                const fmt = (v: number) => (hideBalances ? MASK : v.toLocaleString(undefined, { maximumFractionDigits: 6 }))
+                const chips: { label: string; v: number }[] = [
+                  { label: 'F-USDC', v: fb.fusdc },
+                  { label: 'F-ETH', v: fb.feth },
+                  { label: 'F-BTC', v: fb.fbtc },
+                ].filter((c) => c.v > 0)
+                return (
+                  <div className="wallet-glass px-4 py-2.5 flex items-center gap-3" aria-label="Falcon balance">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Falcon balance</div>
+                      <div className="flex items-baseline gap-x-3 gap-y-0.5 flex-wrap">
+                        <span className="text-lg font-bold tabular-nums text-white">
+                          {account == null ? <span className="wallet-skeleton inline-block h-5 w-20 align-middle" /> : fmt(fb.falcon)}
+                          <span className="text-xs font-semibold text-brand-400"> FPL</span>
+                        </span>
+                        {chips.map((c) => (
+                          <span key={c.label} className="text-[11px] tabular-nums text-slate-400">
+                            {fmt(c.v)} <span className="text-slate-500">{c.label}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                     <button
-                      key={tab.id}
                       type="button"
-                      onClick={() => {
-                        setWalletSection(tab.id)
-                        setPanelKey((k) => k + 1)
-                        if (tab.id === 'bridge') {
-                          setBridgeInitialMode('deposit')
-                          setBridgeInitialSpvTxid('')
-                        }
-                        refreshBalance(plAccountId(wallet))
-                      }}
-                      className={`wallet-tab-pill ${
-                        walletSection === tab.id
-                          ? 'bg-brand-500/15 text-brand-400 shadow-[inset_0_0_0_1px_rgba(192,120,56,0.35)]'
-                          : 'text-slate-500 hover:text-slate-300'
-                      }`}
+                      onClick={toggleHideBalances}
+                      className="p-2 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800/60"
+                      aria-label={hideBalances ? 'Show balances' : 'Hide balances'}
+                      aria-pressed={hideBalances}
+                      title={hideBalances ? 'Show balances' : 'Hide balances'}
                     >
-                      {tab.label}
+                      {hideBalances ? (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18M10.6 10.6a2 2 0 002.8 2.8M9.9 5.1A9.8 9.8 0 0112 5c4.5 0 8.3 2.9 9.5 7a10 10 0 01-2.6 4.1M6.1 6.1A10 10 0 002.5 12c1.2 4.1 5 7 9.5 7 1.6 0 3.2-.4 4.5-1" /></svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.5 12C3.7 7.9 7.5 5 12 5s8.3 2.9 9.5 7c-1.2 4.1-5 7-9.5 7s-8.3-2.9-9.5-7z" /><circle cx="12" cy="12" r="3" strokeWidth={2} /></svg>
+                      )}
                     </button>
-                  ))}
-                </div>
+                  </div>
+                )
+              })()}
+
+              {view === 'dashboard' && (
+                <WalletCylinder
+                  faces={WALLET_FACES as unknown as { id: string; label: string }[]}
+                  activeId={extFace ?? walletSection}
+                  onSelect={(id) => {
+                    const params = new URLSearchParams(window.location.search)
+                    params.delete('bridge')
+                    params.delete('section')
+                    params.set('tab', id)
+                    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+                    if (EXT_FACES.includes(id)) {
+                      setExtFace(id as ExtFace)
+                      return
+                    }
+                    setExtFace(null)
+                    // Same behaviour as the former Falcon / Multi-chain / Bridge tab pills.
+                    const tabId = id as 'falcon' | 'multichain' | 'bridge'
+                    setWalletSection(tabId)
+                    setPanelKey((k) => k + 1)
+                    if (tabId === 'bridge') {
+                      setBridgeInitialMode('deposit')
+                      setBridgeInitialSpvTxid('')
+                    }
+                    refreshBalance(plAccountId(wallet))
+                  }}
+                />
               )}
 
+              <div className={extFace && view === 'dashboard' ? 'hidden' : 'space-y-4'}>
               {/* Network health */}
               {view === 'dashboard' && (walletSection === 'falcon' || walletSection === 'multichain') && (
                 <div className="flex items-center justify-between gap-2 px-1 text-[11px] text-slate-500">
@@ -4803,6 +4894,7 @@ export default function WalletPage() {
                   Remove wallet from this device
                 </button>
               )}
+              </div>
             </>
           )}
 
@@ -4831,6 +4923,18 @@ export default function WalletPage() {
           </p>
         </div>
       </main>
+
+      {/* Vault / Swap / Pool / Lend faces: existing page components, unchanged, full width. */}
+      {view === 'dashboard' && extFace && (
+        <EmbeddedFaceContext.Provider value={true}>
+          <div key={extFace} className="wallet-panel-enter">
+            {extFace === 'vault' && <VaultFace />}
+            {extFace === 'swap' && <SwapFace />}
+            {extFace === 'pool' && <PoolFace />}
+            {extFace === 'lend' && <LendFace />}
+          </div>
+        </EmbeddedFaceContext.Provider>
+      )}
     </ProductShell>
   )
 }

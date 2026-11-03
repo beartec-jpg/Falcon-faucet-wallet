@@ -1,9 +1,12 @@
 'use client'
 
 import { useNetwork } from '@/components/NetworkProvider'
+import { useEmbeddedFace } from '@/components/EmbeddedFace'
 
 export default function NetworkBanner() {
   const { network } = useNetwork()
+  const embedded = useEmbeddedFace()
+  if (embedded) return null
 
   if (network.live) {
     if (network.badge === 'testnet') {

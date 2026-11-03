@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import BrandAtmosphere from '@/components/BrandAtmosphere'
+import { useEmbeddedFace } from '@/components/EmbeddedFace'
 
 /**
  * Shared shell for product pages: gold particle atmosphere + content above it.
@@ -15,6 +16,8 @@ export default function ProductShell({
   intensity?: number
   className?: string
 }) {
+  const embedded = useEmbeddedFace()
+  if (embedded) return <div className="relative flex flex-col">{children}</div>
   return (
     <div className={`relative min-h-screen flex flex-col ${className}`}>
       <BrandAtmosphere intensity={intensity} />
