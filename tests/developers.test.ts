@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import * as React from 'react'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -15,6 +16,8 @@ import {
 } from '@/lib/developers/content'
 import { Table, TestnetNotice } from '@/components/developers/DevBits'
 
+// Vitest uses the classic JSX transform for .tsx imports.
+;(globalThis as { React?: typeof React }).React = React
 const root = join(__dirname, '..')
 const read = (p: string) => readFileSync(join(root, p), 'utf8')
 function walk(dir: string): string[] {

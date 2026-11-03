@@ -1,6 +1,6 @@
 // Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
-// STUB behind NEXT_PUBLIC_DEV_PORTAL_KEYS. Makes no network calls: no Stripe, no key issuance.
+// STUB behind NEXT_PUBLIC_DEV_PORTAL_KEYS. Makes no network calls: no billing provider, no key issuance.
 import { useState } from 'react'
 import { Section } from '@/components/content/ContentPage'
 import { TIERS, formatGbp } from '@/lib/developers/content'
