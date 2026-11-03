@@ -561,6 +561,9 @@ function PoolAdd({
   walletReady,
   onAdd,
   onRemove,
+  stage,
+  msg,
+  err,
 }: {
   pools: Pool[]
   poolId: string
@@ -577,6 +580,9 @@ function PoolAdd({
   walletReady: boolean
   onAdd: () => void
   onRemove: () => void
+  stage?: string | null
+  msg?: string | null
+  err?: string | null
 }) {
   const choices = poolChoices(pools)
   const pool = pools.find((p) => p.id === poolId) ?? null
@@ -692,7 +698,10 @@ function PoolAdd({
           <p className="text-[11px] leading-relaxed text-slate-500">
             Max uses the smaller side so the add matches the pool. 2 FPL stays back for the fee.
           </p>
-          <button type="button" className="btn-primary" disabled={busy} onClick={onAdd}>Add</button>
+          <button type="button" className="btn-primary" disabled={busy} onClick={onAdd}>{busy ? stage || 'Working…' : 'Add'}</button>
+          {busy && stage && <p className="text-xs text-slate-400" aria-live="polite">{stage}</p>}
+          {!busy && msg && <p className="text-sm text-emerald-300" aria-live="polite">{msg}</p>}
+          {!busy && err && <p className="text-sm text-red-300" aria-live="assertive">{err}</p>}
         </section>
         <section className="space-y-3 border-t border-slate-800/80 pt-5">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Remove</h3>
@@ -1007,6 +1016,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     USDC: '0',
   })
   const [busy, setBusy] = useState(false)
+  const [stage, setStage] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
@@ -1104,8 +1114,22 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     setBusy(true)
     setErr(null)
     setMsg(null)
-    try {
-      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+    setStage('Confirm with your passkey…')
+    // Hard cap so the button can never stay grey forever: any hung step ends in a visible error.
+    let capTimer: ReturnType<typeof setTimeout> | undefined
+    const cap = new Promise<never>((_, reject) => {
+      capTimer = setTimeout(
+        () => reject(new Error('No final answer after 3 minutes. Check your balance before retrying: it may still land.')),
+        180_000,
+      )
+    })
+    const flow = async () => {
+      const { keyBytes } = await withTimeout(
+        authenticatePasskey(wallet.credentialId, wallet.hasPrf),
+        90_000,
+        'Passkey confirmation',
+      )
+      setStage('Preparing…')
       const falconSecret = await decryptSeed(wallet.encrypted, keyBytes)
       const account = plAccountId(wallet)
       const seq = await withTimeout(fetchSequenceInfo(account, network.key), 20_000, 'Loading your account')
@@ -1115,6 +1139,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       // Mempool "accepted" is not inclusion: wait for the account sequence to move.
       const included = async (after: number) => {
         for (let i = 0; i < 12; i++) {
+          setStage(`Waiting for inclusion… ${(i + 1) * 2.5 | 0}s`)
           await new Promise((r) => setTimeout(r, 2500))
           const s = await fetchSequenceInfo(account, network.key).catch(() => null)
           if (s && s.sequence > after) return
@@ -1123,6 +1148,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       }
       const send = async (build: (sequence: number) => Promise<{ rawJson?: string }>) => {
         try {
+          setStage('Submitting…')
           const out = await submitSigned(await build(seq.sequence), network.key)
           await included(seq.sequence)
           return out
@@ -1232,9 +1258,14 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       setAmountB('')
       setLpAmount('')
       load()
+    }
+    try {
+      await Promise.race([flow(), cap])
     } catch (e: unknown) {
       setErr(e instanceof Error ? explainTxError(e.message) : 'Failed')
     } finally {
+      clearTimeout(capTimer)
+      setStage(null)
       setBusy(false)
     }
   }
@@ -1274,7 +1305,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
               : ''}
           </p>
           <button type="button" className="btn-primary w-full" disabled={busy} onClick={() => act('swap')}>
-            {busy ? 'Submitting…' : 'Swap on ledger'}
+            {busy ? stage || 'Submitting…' : 'Swap on ledger'}
           </button>
         </div>
       )}
@@ -1302,6 +1333,9 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
           walletReady={Boolean(wallet)}
           onAdd={() => act('add')}
           onRemove={() => act('remove')}
+          stage={stage}
+          msg={msg}
+          err={err}
         />
       )}
       {mode === 'lend' && (
