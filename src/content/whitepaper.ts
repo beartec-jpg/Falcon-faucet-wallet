@@ -131,7 +131,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'p',
-        text: 'Honest seats share one parent hash, one height, and one state root. Time is loosely synchronised: pack and progress timeouts are wall-clock, but the lottery seed is the committed tip, not a clock. The public wire is a persistent peer mesh. Admin mutations do not travel on that wire.',
+        text: 'Honest seats share one parent hash, one height, and one state root. Time is loosely synchronised: pack and progress timeouts are wall-clock, but the lottery seed is the committed tip, not a clock. The public wire is a persistent peer mesh. Headers gossip and bodies are pulled. Votes, bodies and catch-up use separate lanes, with byte-capped queues. Since 2.10.3 a line over 64 KB goes to 2.10.3+ peers as ordered pieces of up to 48 KB (limits: 2,048 pieces, 48 MB, 8 streams, 30 s); older peers get one line. A Hello must name a compatible release (2.9.x, or ≥ 2.9.60 after the Gloas height); 2.10.x advertises `2.9.100` on the wire for that reason. Admin mutations do not travel on that wire.',
       },
       {
         type: 'table',
@@ -186,6 +186,16 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ['Public mint', 'Epoch settlement only — not a user transaction'],
         ],
       },
+      {
+        type: 'table',
+        headers: ['Commitment', 'Construction (as implemented)'],
+        rows: [
+          ['State root', 'SHA-256 of the canonical serialisation of the full state: accounts, DeFi, bridge, validator fields, claimables, and (once used) v2 validator, presence, catch-up and seat-payout maps. Not a Merkle tree, so there are no state inclusion proofs. Since 2.9.58 the large ETH exec-header map’s JSON is cached and a root already computed for identical bytes is reused. Since 2.9.59 the stage-time hash runs outside the node lock, using `ring` SHA-256 (measured: 207 MB in 0.80 s vs 1.43 s with `sha2` on a seat without SHA-NI)'],
+          ['Tx root', 'SHA-256 of the comma-joined tx ids, in the ledger header `pl-ledger:v3` with height, parent, packer, state root, skips and parent-cert hash'],
+          ['Merkle batch', 'Binary SHA-256 tree (leaf tag 0, node tag 1, odd node paired with itself) over tx payloads, plus a second tree over the sender signatures. The packer signs `payload_root|sig_root` once. From 520,000 every sender signature and key stays in the body and receivers re-check them. A key already stored on the account is left off the body'],
+          ['Packing', 'Per-tx row undo instead of a state clone per candidate (2.9.49). Body sized by estimate: ~5 KB for a first-seen key, ~2.3 KB otherwise, up to the ~1 MB budget'],
+        ],
+      },
     ],
   },
   {
@@ -207,7 +217,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'The round’s proposer packs applicable mempool transactions under its pack budget (4,000 ms on the core seats, 1,000 ms in the public install profile) and proposes a body. In round 0 it waits until 2.5 s after the height opened (`--min-block-interval-ms 2500`, capped at one live pack window of 3.3 s) unless its mempool already holds a full block; later rounds do not wait. Every full node verifies parent, height, packer identity, Falcon-512 seal, transaction signatures, and the resulting state root. Soft votes pipeline the body; the height commits when four committee members have signed in one round. From height 369,998 on 2300 (Phase 2) OK votes are scoped to (height, round) (`pl-ok:v2`); heights 371,037–374,999 were signed with the legacy `pl-ok:v1` payload during a pause, and round-scoped votes resumed at 375,000. The next ledger records that certificate as `parent_cert`. Height 1 has no parent certificate.',
+        text: 'The round’s proposer packs applicable mempool transactions under its pack budget (4,000 ms on the core seats, 1,000 ms in the public install profile) and proposes a body. In round 0 it waits until 2.5 s after the height opened (`--min-block-interval-ms 2500`, capped at one live pack window, pack budget + 2.3 s: 6.3 s on the core seats, 3.3 s in the public profile) unless its mempool already holds a full block; later rounds do not wait. Every full node verifies parent, height, packer identity, Falcon-512 seal, transaction signatures, and the resulting state root. Soft votes pipeline the body; the height commits when four committee members have signed in one round. From height 369,998 on 2300 (Phase 2) OK votes are scoped to (height, round) (`pl-ok:v2`); heights 371,037–374,999 were signed with the legacy `pl-ok:v1` payload during a pause, and round-scoped votes resumed at 375,000. The next ledger records that certificate as `parent_cert`. Height 1 has no parent certificate.',
       },
       {
         type: 'table',
@@ -217,7 +227,8 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ['Verify', 'Every seat checks parent, packer, sigs, and state root'],
           ['Commit', '4 of the frozen 6 — packer counts — form the ledger certificate'],
           ['Confirm', 'Hard quorum ceil(n × 0.6) of bonded seats; flag only, not the commit rule'],
-          ['Round change', 'Round-0 silence timeout 6.6 s (2 × live pack window), +50% per round up to round 4; 3,000 ms when the proposer is offline or lagging. Timers run only while there is work'],
+          ['Round change', 'Silence timeout 2 × live pack window (12.6 s core seats, 6.6 s public profile), +50% per round up to round 4; the progress timeout (9,000 / 3,000 ms) when the proposer is offline or lagging. With a body in hand: 4 × progress timeout, same backoff. Timers run only while there is work'],
+          ['Cert recovery', 'A seat that committed the tip without its certificate rebuilds it from the sealing committee’s signed OKs seen on the wire; cert holders answer a peer’s recert vote. A cert-less seat may vote a round change only after 2 × proposal timeout without progress'],
           ['Lock', 'A seat that OK’d body A re-votes A in later rounds unless round r proves A cannot reach 4 of 6'],
           ['Slash', 'Two different hashes from one seat in one (height, round) → full bond, unbonding and escrow seized into the validator reward pot; jail. Unjail costs 1,000 × 2^jail_count FPL'],
         ],
@@ -243,7 +254,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'Catch-up is two stages on purpose. A join-snap is a point-in-time copy of tip state plus a short certified tail, served only by nodes that advertise the archive role. Residual ledgers after that snap apply without re-verifying every historical Falcon signature; **live packing still verifies every transaction**. Light validators keep 128 ledgers in memory. They follow gossip. They are not fed the tip by the archive after they are live.',
+        text: 'Catch-up is two stages on purpose. A join-snap is a point-in-time copy of tip state plus a short certified tail, served only by nodes that advertise the archive role. Residual ledgers after that snap are certified, and since 2.9.66 catch-up re-checks every transaction signature by default, as the live path does (Merkle batch bodies via the batch proof). A weak box may opt out with `FPL_CATCHUP_SKIP_TX_SIG=1` when a parent certificate is present. A seat more than 256 behind may pull a snapshot. Archives publish a new join pin at most every 10 minutes and keep the newest 6 for at least 30 minutes, fetchable by hash. A joiner resumes kept chunks by SHA-256 and skips a source that is too slow (snapshot projected over 8 min, or a `NeedLedgers` peer that moves the tip nowhere in 10 s). Light validators keep 128 ledgers in memory. They follow gossip. They are not fed the tip by the archive after they are live.',
       },
       {
         type: 'table',
@@ -273,6 +284,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
         items: [
           'Domain-separated payloads for LedgerOk (round-scoped `pl-ok:v2` on 2300 from 369,998), SkipPacker, ViewChange, and OnlineSetVote.',
           'Implementation: Falcon-512 detached signatures via `pqcrypto-falcon` 0.3. An account tx is checked against the account’s on-chain key when it has one. From height 520,000 on 2300 Merkle batch bodies carry every sender signature and key, and receivers re-check them.',
+          'Key binding on 2300: from 470,000 the sender key is recorded on the account. From 571,000 an account’s first key binds only if the id is that key’s classic address or a funder committed its hash with `PayToKey`. From 692,000 sender verification, key binding and consensus signatures read only on-chain keys and the seat registry, never a node-local key ring. Seat keys and account keys are separate.',
           'Voter identity must match the key. Empty, unknown, jailed, or unbonded voters do not count.',
           'Local, deterministic verification. No external signing service on the consensus path.',
           'Public binaries refuse development HMAC keys unless `--allow-dev-crypto` is set.',
@@ -347,7 +359,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'A watcher heartbeat fills the current presence slot and adds **zero** work. Opening a tab is not a job. Self-written credit is not in the public transaction set. Unfilled LP and watcher remainder returns to the validator pot.',
+        text: 'A seat that misses 20 own turns is benched. From 441,000 a miss counts only when the seat was within 256 blocks of the tip. A seat with less than half an epoch’s presence gets no floor weight, and a seat back from jail must post 20 consecutive packs or certificate votes before it earns again. From 692,000 validator pay accrues to a per-seat bucket: `SetSeatPayout` names a payout account and `ClaimSeat` moves the bucket, both signed by the seat key (`<validator>#seat`). A watcher heartbeat fills the current presence slot and adds **zero** work. Opening a tab is not a job. Self-written credit is not in the public transaction set. Unfilled LP and watcher remainder returns to the validator pot.',
       },
     ],
   },
@@ -366,7 +378,8 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
         rows: [
           ['Falcon PL', 'Settlement, FPL, lending, AMM, rewards'],
           ['Bitcoin testnet', 'BitVM2 instance + dest-lock Kickoff (FBTC); no FROST'],
-          ['Ethereum Sepolia', 'FalconDestLock: dest-lock Kickoff + dest take (no live n-of-n)'],
+          ['Bitcoin testnet4', '`BTC4` rail from 692,000: `Btc4PegIn` mint against operator-bound graphs, BitVM2 withdraw claims refunded after 43,200 ledgers still awaiting peg-out. From 775,000 a competing header branch accumulates and replaces a lighter pending fork. From 800,000 `AssetPay` moves BTC4 and BTC4 lend prices are per 1 BTC4 (1e8 sats)'],
+          ['Ethereum Sepolia', 'FalconDestLock: dest-lock Kickoff + dest take (no live n-of-n). Light client follows Gloas from 409,134. Exec headers kept for a 50,400-block (~7-day) window. From 414,000 `EthV3Deposit` mints within 3 days of LC time or refunds the sender'],
           ['BNB', 'Protocol rail exists; not a public dest-lock product'],
           ['XRP', 'Classic XRPL FXRP corridor — not 1001, not dest-lock'],
         ],
