@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Sign+submit Falcon-512 txs via falcon-pl-ctl (live 2200 keyring).
  * Status still goes over TCP in pl-rpc.ts.

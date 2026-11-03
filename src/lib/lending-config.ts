@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Testnet lending manifest — vault + loan broker IDs (public/config/lending.json). */
 
 import lendingManifestJson from '../../public/config/lending.json'

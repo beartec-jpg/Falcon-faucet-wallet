@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 export interface ValidatorEntry {
   account: string
   pubkey: string

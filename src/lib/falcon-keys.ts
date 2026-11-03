@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Falcon-512 key encoding and address derivation (browser-safe).
  * Matches xrpld wallet_propose / encodeFalconSecret layout.

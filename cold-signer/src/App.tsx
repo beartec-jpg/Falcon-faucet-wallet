@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { useCallback, useEffect, useState } from 'react'
 import { AnimatedQr, MultiQrScan } from './components/MultiQr'
 import {

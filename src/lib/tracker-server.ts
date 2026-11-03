@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Server side of the testnet activity tracker. Reads node status, the activity
 // index, and faucet claims; caches 60 s. Linked-account data stays in here.
 

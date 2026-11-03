@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET/POST /api/feedback/admin — feedback review. Authorization: Bearer $FIRST35_ADMIN_TOKEN (same as First 35).
 // GET ?status=pending|approved|rejected → { feedback, counts, default_bonus, max_bonus }
 // POST {action: 'approve', id, bonus?} | {action: 'reject', id} | {action: 'pending', id} | {action: 'notes', id, admin_notes} | {action: 'bonus', id, bonus} | {action: 'delete', id}

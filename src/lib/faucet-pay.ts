@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Shared faucet payment (same pool for normal + game claims).
  * Server signs with faucet secret and submits to the ledger.

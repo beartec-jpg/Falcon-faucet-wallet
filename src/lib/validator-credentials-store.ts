@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Optional encrypted validator signing credentials (separate from payout wallet).
  * Used for ClaimReward and validator-account payments.

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Bitcoin testnet (and mainnet-ready helpers) balance + P2PKH send.
  * Uses public explorers (Blockstream / Mempool) — no server key material.

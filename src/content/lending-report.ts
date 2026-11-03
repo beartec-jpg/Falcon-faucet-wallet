@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Lending implementation report — rendered on /whitepaper (July 2026). HISTORICAL: legacy network 1001, retired. */
 
 export const LENDING_REPORT_DATE = '2026-07-14'

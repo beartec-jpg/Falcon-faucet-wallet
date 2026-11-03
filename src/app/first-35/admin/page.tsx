@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 // First 35 admin. The token is typed once and kept in sessionStorage only (never in the URL);

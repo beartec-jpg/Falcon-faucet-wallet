@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * https://falcon-fpl.com/install-operator.sh: serves install-operator.sh from the NEWEST published
  * `operator-v*` release of beartec-jpg/falcon-pl-releases. Operator kits are published as

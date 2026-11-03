@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Seats that are retired but cannot be deregistered on chain (they stay in
  * status.validators, usually jailed). Hidden from /network/health: table,

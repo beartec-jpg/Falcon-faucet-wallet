@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // POST /api/feedback — public testnet feedback. The account must exist on testnet; test
 // accounts are refused; rate-limited per hashed IP and per account (24 h, stored in Postgres).
 // Accepts JSON (no images) or multipart/form-data with up to FEEDBACK_CONFIG.maxImages files in "images".

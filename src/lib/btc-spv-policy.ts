@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Portal-side BTC SPV policy (W1/W2 hardening).
  * No node SSH required — used by Bridge UI + claim preflight.

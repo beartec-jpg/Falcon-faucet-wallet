@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Read-only native balances + simple sends for multi-chain deposit wallets.
  * BNB send signs in-browser and broadcasts via same-origin /api/wallet/bnb-rpc

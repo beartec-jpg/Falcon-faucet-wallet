@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/arcade/status?account=&network=
 // Per-game best single run (leaderboard), accumulated claim progress
 // (sum of today's runs since the last claim) + claims remaining.

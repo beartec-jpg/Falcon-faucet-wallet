@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import Link from 'next/link'
 import { ARCADE_PRIZES, ARCADE_PRIZES_TOTAL_FPL } from '@/config/arcade-prizes'
 

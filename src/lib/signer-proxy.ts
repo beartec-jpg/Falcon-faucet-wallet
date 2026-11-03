@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Server-side client for the Falcon signing proxy on node1.
 
 import { networkIdForTx } from '@/lib/networks'

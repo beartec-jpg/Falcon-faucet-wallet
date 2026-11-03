@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // POST /api/faucet
 // Body: { account: string, asset?: 'fpl' | 'btc' | 'tbtc' | 'btc4', network?: 'testnet' | 'mainnet' }
 

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Audit C-1 (Falcon PL 2.9.65): the PayToKey commitment is sha256 of the raw
  * 897-byte Falcon-512 public key, lowercase hex. A 0xFB-prefixed blob hashes

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import {
   LEND_LIQUIDATION_THRESHOLD,
   LEND_MIN_COLLATERAL_RATIO,

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Falcon PL 2300 faucet drip — shared by /api/faucet and /api/arcade/claim.
 // PL testnet has no xrpld JSON-RPC (account_info/submit); drips go through the
 // local pl-ctl seat when present, otherwise the walletd HTTP API.

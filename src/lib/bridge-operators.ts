@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * BTC bridge operators shown on the network map's Operators orbit.
  * The on-chain OperatorRegister is not active yet, so this is a static, empty-safe list.

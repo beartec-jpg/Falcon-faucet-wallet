@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Falcon vault QR protocol payloads (UTF-8 JSON inside multi-QR bodies).
  *

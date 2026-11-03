@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Pure layout for the 3D network map: hub on top, location groups on an arc below.
 
 import type { MapLocation, NetworkMapConfig } from '@/config/network-map'

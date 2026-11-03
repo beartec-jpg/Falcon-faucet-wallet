@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Pre-flight helpers for DEX limit orders vs AMM / book crossing. */
 
 export type LimitSide = 'sell' | 'buy'

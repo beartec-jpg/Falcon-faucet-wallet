@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { existsSync } from 'fs'
 import { NextRequest, NextResponse } from 'next/server'
 import { btcWithdrawalsPausedResponse, isBtcWithdrawWalletdAction } from '@/lib/btc-withdrawals'

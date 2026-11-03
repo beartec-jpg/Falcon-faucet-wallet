@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { pageMeta } from '@/lib/seo'

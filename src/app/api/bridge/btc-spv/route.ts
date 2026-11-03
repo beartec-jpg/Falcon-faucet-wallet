@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { BTC_DEPOSITS_ENABLED, BTC_DEPOSITS_OFF_ERROR } from '@/lib/btc-withdrawals'
 import { NextRequest, NextResponse } from 'next/server'
 import { readFile } from 'node:fs/promises'

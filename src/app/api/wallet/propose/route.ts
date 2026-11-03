@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // DEPRECATED: client wallet generates Falcon keys in-browser via WASM.
 // Unauthenticated secret minting is disabled (fail closed).
 

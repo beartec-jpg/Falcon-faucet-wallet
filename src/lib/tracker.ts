@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Testnet activity tracker: account discovery and classification, category
 // scoring, linked-account grouping, and the separate operators board.
 // Pure functions; the server wrapper (tracker-server.ts) feeds them.

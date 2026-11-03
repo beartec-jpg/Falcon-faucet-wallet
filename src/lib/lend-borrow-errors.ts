@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import type { LendOverview } from '@/lib/lend-model'
 
 /** Minimum broker first-loss cover required for a principal (CoverRateMinimum is tenth-bips / 1000 = %). */

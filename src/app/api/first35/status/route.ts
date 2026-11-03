@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/first35/status — seats filled (approved entries) vs remaining, plus the public seat-holder list
 // (approved only: seat, tier, account name). Public; no handles, notes or IPs.
 import { NextResponse } from 'next/server'

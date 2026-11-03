@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Testnet activity index: per-address usage recorded by the 5-min cron from
 // the same public status_req / account_query the explorer already uses.
 //

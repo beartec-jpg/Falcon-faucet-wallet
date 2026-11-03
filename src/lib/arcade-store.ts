@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Arcade Game Faucet storage:
  * - Best scores per (network, address, game, dayUtc) for leaderboard + claim checks

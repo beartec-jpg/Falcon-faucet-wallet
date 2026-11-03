@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Pending withdrawals discovery (pure, no imports): this wallet's ETH/USDC RailWithdraw notes
  * from a node status body (`rails[].withdrawals`). Used server-side by /api/wallet/pl

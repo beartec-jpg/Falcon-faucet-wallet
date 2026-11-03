@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // PL status lines carry 18-decimal amounts (wei) that overflow a JS number.
 // Parse with every integer of 16+ digits kept as a string, and do maths in BigInt.
 
