@@ -1,8 +1,8 @@
 // Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Falcon PL white paper — technical system paper for /whitepaper (v5.0) */
 
-export const WHITEPAPER_VERSION = '5.1'
-export const WHITEPAPER_DATE = '26 August 2026'
+export const WHITEPAPER_VERSION = '5.2'
+export const WHITEPAPER_DATE = '3 November 2026'
 
 export interface WhitepaperDownload {
   title: string
@@ -87,7 +87,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'lead',
-        text: 'Falcon PL is a quantum-safe **participation ledger**. Settlement is a single hash-linked chain: one parent, one height, one hash. **Falcon Consensus** elects a packer from bonded seats, requires a 4-of-6 committee certificate to commit, and skips a silent packer so the height can still close. Every transaction, vote, and seal is **Falcon-512**. The native unit **FPL** pays security, liquidity, collateral, and rail work under one set of rules.',
+        text: 'Falcon PL is a quantum-safe **participation ledger**. Settlement is a single hash-linked chain: one parent, one height, one hash. **Falcon Consensus** elects a packer from bonded seats, requires a 4-of-6 committee certificate to commit, and passes a silent packer’s turn to the next committee seat so the height can still close. Every transaction, vote, and seal is **Falcon-512**. The native unit **FPL** pays security, liquidity, collateral, and rail work under one set of rules.',
       },
       {
         type: 'p',
@@ -144,7 +144,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'A seat is eligible for the lottery only if it is bonded, not jailed, and answering the mesh liveness channel. Bond is a slash target and a lottery ticket. It is not an interest rate. The committee at each height is six frozen seats: one packer and five checkers. A ledger becomes *the* ledger when **four of those six** have signed it. Confirmation beyond that is a separate hard quorum of the bonded set and does not replace the certificate.',
+        text: 'A seat is eligible for the lottery only if it is bonded, not jailed, and not benched as inactive (20 missed own turns; 2300 from height 420,000). A fresh mesh pong is permission to pack, not a lottery filter. Bond is a slash target and the entry ticket; from height 420,000 on 2300 every eligible seat has equal lottery odds. It is not an interest rate. The committee at each height is six frozen seats: one packer and five checkers. A ledger becomes *the* ledger when **four of those six** have signed it. Confirmation beyond that is a separate hard quorum of the bonded set and does not replace the certificate.',
       },
       {
         type: 'bullets',
@@ -172,16 +172,17 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'Transactions are sequenced per account. The mempool is gossiped and size-capped. Empty bodies are rejected: a packer who has nothing applicable must not seal. Fees escalate with mempool utilisation (1× / 2× / 4× / 8× / 16× the base minimum). Half of each fee is burned; the rest enters the validator pot at epoch settle.',
+        text: 'Transactions are sequenced per account. The mempool is gossiped and size-capped (50,000 by default), kept in arrival order, and holds at most 64 pending transactions per account (sequence window 64). A transaction that fails permanently at pack is evicted and its id refused for 6 hours at the same tip; 2.10.4 adds disallowed sends to that class. An idle chain does not seal. Before height 755,000 empty bodies were rejected; from 755,000 (2.10.0) a packer that has just evicted permanently failing transactions and has nothing applicable may seal an empty fallback block so the height closes. Fees escalate with mempool utilisation (1× / 2× / 4× / 8× / 16× the base minimum at 25 / 50 / 75 / 90% full). From height 420,000 on 2300, 50% of each fee is burned, 30% goes to the proposer, and 20% enters the validator pot at epoch settle.',
       },
       {
         type: 'table',
         headers: ['Object', 'Rule'],
         rows: [
           ['Accounts', 'Falcon-512 identity; sequence number; multi-asset balances'],
-          ['Bond', 'On-chain lock; min 1,000 FPL; 14-day unbond'],
-          ['Mempool', 'Capped; reject when full; fee tier from utilisation'],
-          ['Ledger cap', '128 transactions; pack budget 1,000 ms'],
+          ['Bond', 'On-chain lock; genesis seats 1,000 FPL; new seats need ApproveValidator admission and ≥ 50,000 FPL (2300, from 420,000); 14-day unbond'],
+          ['Mempool', 'Capped (50,000); reject when full; arrival order; ≤ 64 pending per account; permanent failures evicted; fee tier from utilisation'],
+          ['Ledger cap', 'Packer-side, not a verify rule: `--max-txs` (128 on the core seats; 0 in the public profile = 400 safety cap) and a ~1 MB body budget; pack budget 1,000 ms'],
+          ['Header time', '`sealed_at` ≥ parent and ≤ parent + 60 s; from 420,000 a checker also refuses a stamp > 5 s ahead of its clock (a 1 s step is always allowed)'],
           ['Public mint', 'Epoch settlement only — not a user transaction'],
         ],
       },
@@ -194,19 +195,19 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'lead',
-        text: 'Falcon Consensus is a bonded-committee protocol. Stake seats a deterministic lottery. A small frozen committee commits the block. A skip certificate walks a dead packer. Post-quantum signatures bind every vote and seal.',
+        text: 'Falcon Consensus is a bonded-committee protocol. Stake seats a deterministic lottery. A small frozen committee commits the block. A 4-of-6 round change passes a silent packer’s turn to the next seat. Post-quantum signatures bind every vote and seal.',
       },
       {
         type: 'p',
-        text: 'At each height the eligible set is the bonded, non-jailed seats. The lottery seed is a hash of network id, height, committed tip, certified skips, and the eligible set. Integer reduction against total bond ranks packers. Honest nodes that share a tip compute the same ranking. Mesh pongs are pack **permission**, not election: an offline bonded seat is not selected.',
+        text: 'At each height the eligible set is the bonded, non-jailed seats. The lottery seed is a hash of network id, height, committed tip seed, previous packer, and the eligible set (id and bond). Integer reduction ranks packers: weighted by bond before height 420,000 on 2300, equal weight from 420,000. Honest nodes that share a tip compute the same ranking. Mesh pongs are pack **permission**, not election: an offline seat stays in the draw until it is benched as inactive, and its round is passed by view-change.',
       },
       {
         type: 'code',
-        text: 'eligible = bonded ∧ ¬jailed\nseed     = H(network_id ‖ height ‖ tip_hash ‖ skips ‖ eligible)\nrank     = lottery(seed, bonds)          # same tip ⇒ same #1, #2, …\ncommittee = freeze(packer #1 + 5 checkers)\ncommit   = 4 distinct committee signatures\nskip     = 4-of-6 after progress timeout, then next rank packs',
+        text: 'eligible = bonded ∧ ¬jailed\nseed     = H(network_id ‖ height ‖ tip_hash ‖ skips ‖ eligible)\nrank     = lottery(seed, weights)        # same tip ⇒ same #1, #2, …\ncommittee = freeze(first 6 of rank)      # frozen at tip commit\nproposer = committee[round mod 6]\ncommit   = 4 distinct committee signatures in one round\nround++  = 4-of-6 ViewChange after round timeout',
       },
       {
         type: 'p',
-        text: 'The winner packs applicable mempool transactions under a 1,000 ms budget and proposes a non-empty body. Every full node verifies parent, height, packer identity, Falcon-512 seal, transaction signatures, and the resulting state root. Soft votes pipeline the body; the height commits when four committee members have signed. The next ledger records that certificate as `parent_cert`. Height 1 has no parent certificate.',
+        text: 'The round’s proposer packs applicable mempool transactions under a 1,000 ms budget and proposes a body. In round 0 it waits until 2.5 s after the height opened (`--min-block-interval-ms 2500`, capped at one live pack window of 3.3 s) unless its mempool already holds a full block; later rounds do not wait. Every full node verifies parent, height, packer identity, Falcon-512 seal, transaction signatures, and the resulting state root. Soft votes pipeline the body; the height commits when four committee members have signed in one round. From height 369,998 on 2300 (Phase 2) OK votes are scoped to (height, round) (`pl-ok:v2`); heights 371,037–374,999 were signed with the legacy `pl-ok:v1` payload during a pause, and round-scoped votes resumed at 375,000. The next ledger records that certificate as `parent_cert`. Height 1 has no parent certificate.',
       },
       {
         type: 'table',
@@ -216,13 +217,14 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ['Verify', 'Every seat checks parent, packer, sigs, and state root'],
           ['Commit', '4 of the frozen 6 — packer counts — form the ledger certificate'],
           ['Confirm', 'Hard quorum ceil(n × 0.6) of bonded seats; flag only, not the commit rule'],
-          ['Skip', 'After pack budget + grace, committee may vote view-change on silence'],
-          ['Slash', 'Two different hashes at one height from one seat → jail and slash'],
+          ['Round change', 'Round-0 silence timeout 6.6 s (2 × live pack window), +50% per round up to round 4; 3,000 ms when the proposer is offline or lagging. Timers run only while there is work'],
+          ['Lock', 'A seat that OK’d body A re-votes A in later rounds unless round r proves A cannot reach 4 of 6'],
+          ['Slash', 'Two different hashes from one seat in one (height, round) → full bond, unbonding and escrow seized into the validator reward pot; jail. Unjail costs 1,000 × 2^jail_count FPL'],
         ],
       },
       {
         type: 'p',
-        text: 'If the winner is silent, the committee issues a skip (same 4-of-6 bar). View-change redraws the committee from the new view seed so a dead packer cannot pin the height. The same packer cannot reseal a second body at that height. Conflicting live proposals keep the first valid body; the chain does not rewind the tip to resolve them.',
+        text: 'If the proposer is silent, the committee votes a round change (same 4-of-6 bar) and the next seat in the frozen committee proposes. View-change does not redraw the committee; it walks the order, so a dead packer cannot pin the height. A pending body that survives 3 round advances is dropped and the round’s proposer seals fresh. Conflicting live proposals keep the first valid body; the chain does not rewind the tip to resolve them.',
       },
     ],
   },
@@ -237,7 +239,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'code',
-        text: '1. Generate a Falcon-512 identity.\n2. Fund the account and submit Bond (≥ 1,000 FPL).\n3. Wait until that Bond is packed — the registry now includes the seat.\n4. Start the node with --join against published seeds.\n5. If tip = 0 or lag ≥ 2,048: pull a join-snap from an archive\n   (tip state + 128 ledgers). Snapshots are not a live feed.\n6. Close the residual gap with certified NeedLedgers.\n7. Pong at the mesh tip. Only then is the seat lottery-eligible.\n8. To leave: RequestUnbond → 14-day cooldown → CompleteUnbond.',
+        text: '1. Generate a Falcon-512 identity.\n2. Obtain ApproveValidator admission, fund the account and submit Bond\n   (≥ 50,000 FPL for new seats on 2300).\n3. Wait until that Bond is packed — the registry now includes the seat.\n4. Start the node with --join against published seeds.\n5. If tip = 0 or lag ≥ 2,048: pull a join-snap from an archive\n   (tip state + 128 ledgers). Snapshots are not a live feed.\n6. Close the residual gap with certified NeedLedgers.\n7. Pong at the mesh tip. Only then may the seat pack.\n8. To leave: RequestUnbond → 14-day cooldown → CompleteUnbond.',
       },
       {
         type: 'p',
@@ -269,7 +271,8 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       {
         type: 'bullets',
         items: [
-          'Domain-separated payloads for LedgerOk, SkipPacker, ViewChange, and OnlineSetVote.',
+          'Domain-separated payloads for LedgerOk (round-scoped `pl-ok:v2` on 2300 from 369,998), SkipPacker, ViewChange, and OnlineSetVote.',
+          'Implementation: Falcon-512 detached signatures via `pqcrypto-falcon` 0.3. An account tx is checked against the account’s on-chain key when it has one. From height 520,000 on 2300 Merkle batch bodies carry every sender signature and key, and receivers re-check them.',
           'Voter identity must match the key. Empty, unknown, jailed, or unbonded voters do not count.',
           'Local, deterministic verification. No external signing service on the consensus path.',
           'Public binaries refuse development HMAC keys unless `--allow-dev-crypto` is set.',
@@ -314,7 +317,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ['Watchers', '5%', 'Rail work × presence'],
           ['AMM LPs', '20%', 'Active pool share; 0.5% cap per account'],
           ['Lending LPs', '20%', 'Active supply share; 0.5% cap per account'],
-          ['Fee remainder', '50% of fees after burn', 'Validator pot'],
+          ['Fees (from 420,000)', '50% burned, 30% proposer, 20% pot', 'Validator pot'],
         ],
       },
     ],
@@ -332,8 +335,8 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
         type: 'table',
         headers: ['Actor', 'What counts', 'Pay rule'],
         rows: [
-          ['Packer', 'Transactions actually sealed', 'Half the validator pot, pro-rata'],
-          ['Checker', 'Qualifying OK votes on accepted ledgers', 'Other half of the validator pot'],
+          ['Packer', 'Transactions actually sealed', '50% of the validator pot, pro-rata (40% / 10% split below from 420,000)'],
+          ['Checker', 'Qualifying OK votes on accepted ledgers', '40% of the validator pot; 10% is a presence floor'],
           ['Watcher', 'Accepted rail header or deposit', '`work × (slots / 168)`, then cap'],
           ['AMM / lend LP', 'Active liquidity share', 'Pro-rata inside the 20% bucket, 0.5% cap'],
         ],
@@ -370,7 +373,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'Supported rails are genesis- or governance-listed. Arbitrary user-added bridges are not a day-one path. Public mint of native FPL remains epoch settlement only. Live addresses and the trust model: portal `docs/BRIDGES-2300.md` and Falcon-PL `docs/BRIDGES_2300_STATUS.md`.',
+        text: 'From height 800,000 on 2300 (2.10.4) the ledger also runs a limit order book for `<ASSET>-FPL` pairs: `PlaceLimitOrder` / `CancelOrder` escrow inside the order, matching runs in transaction apply on every seat with price-time priority, and each swap takes the better of book and AMM. A per-ledger hook fills orders the AMM price has crossed and expires old ones. Supported rails are genesis- or governance-listed. Arbitrary user-added bridges are not a day-one path. Public mint of native FPL remains epoch settlement only. Live addresses and the trust model: portal `docs/BRIDGES-2300.md` and Falcon-PL `docs/BRIDGES_2300_STATUS.md`.',
       },
     ],
   },
@@ -393,19 +396,19 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ],
           [
             'Equivocation (two hashes at one height)',
-            'Packer or checker: slash the bond and jail. The same packer cannot reseal after view-change.',
+            'Two OKs for different hashes in one (height, round): seize the full bond into the reward pot and jail. Unjail cost doubles per jail.',
           ],
           [
             'Silent or dead packer',
-            'Progress timeout, then 4-of-6 skip. View-change redraws the committee so one seat cannot pin the height.',
+            'Round timeout, then 4-of-6 ViewChange. The next seat in the frozen committee proposes, so one seat cannot pin the height.',
           ],
           [
             'Lagging joiner elected packer',
-            'Refuse to pack while behind tip. Live-but-lagging winners are skippable. Lottery requires a mesh pong.',
+            'Refuse to pack while behind tip. Live-but-lagging winners are skippable. Packing requires a mesh pong.',
           ],
           [
             'Empty-seal farming',
-            'Empty bodies are rejected. No qualifying work and no fees means zero claims.',
+            'An idle chain does not seal. Empty fallback blocks (from 755,000) follow only a permanent-failure eviction. No qualifying work and no fees means zero claims.',
           ],
           [
             'Unbond and run (nothing at stake)',
@@ -429,7 +432,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ],
           [
             'Mempool flood',
-            'Hard cap. Fee tier 1×–16× from utilisation. Submits below the suggested minimum are rejected.',
+            'Hard cap; 64 pending per account. Fee tier 1×–16× from utilisation. Submits below the suggested minimum are rejected. Permanent failures are evicted and not re-admitted at the same tip.',
           ],
           [
             'Eclipse of a joiner',
@@ -474,7 +477,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'p',
-        text: 'The pack budget is a **maximum** packing window (1,000 ms), not a fixed close clock. A ledger holds at most 128 transactions. When there is work and the committee is live, the tip can advance in a few hundred milliseconds. When there is no work, the chain does not mint empty height.',
+        text: 'The pack budget is a **maximum** packing window (1,000 ms), not a fixed close clock. The round-0 packer waits 2.5 s after the height opens unless a full block is waiting, so a busy chain closes a height every few seconds. When there is no work, the chain does not mint empty height. Figures below are measured unless marked projected.',
       },
       {
         type: 'table',
@@ -482,14 +485,17 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
         rows: [
           ['Pack budget', '1,000 ms', 'Upper bound to assemble one body'],
           ['Progress timeout', '3,000 ms', 'Silence before skip / view-change'],
-          ['Transactions / ledger', '128', 'Hard cap on one body'],
+          ['Min block gap', '2,500 ms', 'Round-0 pacing; waived when a full block is waiting'],
+          ['Transactions / ledger', '128 core seats; 400 default cap', 'Packer-side cap plus ~1 MB body budget'],
           ['Mempool', '50,000', 'Reject when full'],
-          ['Measured keep-up', '500 tx/s', 'Submit path stayed current under Falcon-512'],
+          ['Measured soak', '20 tx/s for ~15 h', 'Over 1 million transactions, modest hardware (October 2026)'],
+          ['Measured block time', '~5.3 s average', 'Testnet 2300 chain height data, around 3 November 2026'],
+          ['Measured block time', '~7.8 s', 'Live sample, 3 Nov 2026 20:36–20:42 GMT: 40 blocks in 311 s, read from falcon-fpl.com/v1/health'],
         ],
       },
       {
         type: 'p',
-        text: 'Verify cost, committee fan-out, and host memory dominate before the signature scheme itself becomes a law of nature. Resource exhaustion (RAM) is a capacity limit, not a second history. Throughput claims above a measured keep-up are envelopes and are not used as product numbers.',
+        text: 'Verify cost, committee fan-out, and host memory dominate before the signature scheme itself becomes a law of nature. Resource exhaustion (RAM) is a capacity limit, not a second history. Any throughput above the measured soak is projected, not measured, and is not used as a product number.',
       },
     ],
   },
@@ -519,7 +525,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
         rows: [
           ['Chain', 'Falcon PL (Falcon Participation Ledger)'],
           ['Token', 'FPL — 200B hard cap, 98% keyless treasury'],
-          ['Consensus', 'Falcon Consensus — lottery packer, 4-of-6 commit, skip failover'],
+          ['Consensus', 'Falcon Consensus — lottery committee of 6, 4-of-6 commit, round-change failover'],
           ['Signatures', 'Falcon-512 on txs, votes, and seals'],
           ['Join', 'Bond → archive join-snap → certified residual → pong at tip'],
           ['Leave', 'Unbond, 14-day lock, out of lottery immediately'],
