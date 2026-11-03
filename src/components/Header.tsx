@@ -58,6 +58,7 @@ const COMMUNITY_SUB_ITEMS: { label: string; href: string }[] = [
   { label: 'Learn', href: '/community/learn' },
   { label: 'Validators', href: '/validator' },
   { label: 'Network health', href: '/scan#network-health' },
+  { label: 'Developers', href: '/developers' },
 ]
 
 function NavLinks({
