@@ -23,7 +23,8 @@
     "verify:v3-claims": "node scripts/verify-v3-claims.mjs",
     "verify:pl-rewards": "node scripts/verify-pl-rewards-model.mjs",
     "verify:explorer-metrics": "node scripts/verify-explorer-metrics.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:all": "tsc --noEmit && vitest run && next build"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
