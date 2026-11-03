@@ -10,6 +10,7 @@ import {
   peekFaucetQuota,
   cooldownSecondsForNetwork,
   claimsPerDayForNetwork,
+  TBTC4_FAUCET_COOLDOWN_SECONDS,
 } from '@/lib/faucet-quota'
 import { runFaucetSybilGates, consumeFaucetSybilBudgets } from '@/lib/faucet-sybil'
 import { signPayment, dropsFromQxrp } from '@/lib/xrpl-sign'
@@ -186,7 +187,7 @@ export async function POST(req: NextRequest) {
     const clientIpAddr = ip(req)
     const ratePrefix = 'tbtc4:'
     const dayCap = claimsPerDayForNetwork('testnet')
-    const cooldownSec = cooldownSecondsForNetwork('testnet')
+    const cooldownSec = TBTC4_FAUCET_COOLDOWN_SECONDS
     const unlimitedTestnet = process.env.TESTNET_FAUCET_UNLIMITED?.toLowerCase() === 'true'
     const unlimitedOk = {
       success: true as const,
@@ -203,7 +204,7 @@ export async function POST(req: NextRequest) {
     if (!ipLimit.success) {
       return err(
         ipLimit.reason === 'cooldown'
-          ? `Wait at least ${Math.round(cooldownSec / 60)} minutes between Testnet4 BTC faucet claims (IP).`
+          ? `Wait at least ${Math.round(cooldownSec / 3600)} hours between Testnet4 BTC faucet claims (IP).`
           : `Daily Testnet4 BTC faucet limit reached for your IP.`,
         429,
         { reset: ipLimit.reset, limitType: 'ip' },
@@ -212,7 +213,7 @@ export async function POST(req: NextRequest) {
     if (!addrLimit.success) {
       return err(
         addrLimit.reason === 'cooldown'
-          ? `Wait at least ${Math.round(cooldownSec / 60)} minutes between Testnet4 BTC faucet claims.`
+          ? `Wait at least ${Math.round(cooldownSec / 3600)} hours between Testnet4 BTC faucet claims.`
           : `Daily Testnet4 BTC faucet limit reached for this address.`,
         429,
         { reset: addrLimit.reset, limitType: 'account' },
