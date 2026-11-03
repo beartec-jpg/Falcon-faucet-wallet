@@ -181,7 +181,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ['Accounts', 'Falcon-512 identity; sequence number; multi-asset balances'],
           ['Bond', 'On-chain lock; genesis seats 1,000 FPL; new seats need ApproveValidator admission and ≥ 50,000 FPL (2300, from 420,000); 14-day unbond'],
           ['Mempool', 'Capped (50,000); reject when full; arrival order; ≤ 64 pending per account; permanent failures evicted; fee tier from utilisation'],
-          ['Ledger cap', 'Packer-side, not a verify rule: `--max-txs` (128 on the core seats; 0 in the public profile = 400 safety cap) and a ~1 MB body budget; pack budget 1,000 ms'],
+          ['Ledger cap', 'Packer-side, not a verify rule: `--max-txs 0` on every live seat (core seats and the public profile), which selects the 400-tx safety cap (`PACK_DEFAULT_MAX_TXS`; `--max-txs N` > 0 overrides), plus a ~1 MB body budget; pack budget 4,000 ms on the core seats, 1,000 ms in the public profile'],
           ['Header time', '`sealed_at` ≥ parent and ≤ parent + 60 s; from 420,000 a checker also refuses a stamp > 5 s ahead of its clock (a 1 s step is always allowed)'],
           ['Public mint', 'Epoch settlement only — not a user transaction'],
         ],
@@ -207,7 +207,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'The round’s proposer packs applicable mempool transactions under a 1,000 ms budget and proposes a body. In round 0 it waits until 2.5 s after the height opened (`--min-block-interval-ms 2500`, capped at one live pack window of 3.3 s) unless its mempool already holds a full block; later rounds do not wait. Every full node verifies parent, height, packer identity, Falcon-512 seal, transaction signatures, and the resulting state root. Soft votes pipeline the body; the height commits when four committee members have signed in one round. From height 369,998 on 2300 (Phase 2) OK votes are scoped to (height, round) (`pl-ok:v2`); heights 371,037–374,999 were signed with the legacy `pl-ok:v1` payload during a pause, and round-scoped votes resumed at 375,000. The next ledger records that certificate as `parent_cert`. Height 1 has no parent certificate.',
+        text: 'The round’s proposer packs applicable mempool transactions under its pack budget (4,000 ms on the core seats, 1,000 ms in the public install profile) and proposes a body. In round 0 it waits until 2.5 s after the height opened (`--min-block-interval-ms 2500`, capped at one live pack window of 3.3 s) unless its mempool already holds a full block; later rounds do not wait. Every full node verifies parent, height, packer identity, Falcon-512 seal, transaction signatures, and the resulting state root. Soft votes pipeline the body; the height commits when four committee members have signed in one round. From height 369,998 on 2300 (Phase 2) OK votes are scoped to (height, round) (`pl-ok:v2`); heights 371,037–374,999 were signed with the legacy `pl-ok:v1` payload during a pause, and round-scoped votes resumed at 375,000. The next ledger records that certificate as `parent_cert`. Height 1 has no parent certificate.',
       },
       {
         type: 'table',
@@ -378,6 +378,35 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     ],
   },
   {
+    id: 'bridge-operators',
+    title: 'Bridge operators and watchers',
+    blocks: [
+      {
+        type: 'p',
+        text: '**Bridge operators** (BitVM2, `operator_registry.rs`) are outside parties that front BTC withdrawals with their own BTC. They are then reimbursed from the locked deposit through the presigned peg-out graph (Take1/Take2). The bridges are **non-custodial**: Falcon holds no BTC and no keys, and operators have no keys or votes over funds. BTC moves only through presigned graphs. On 2300 the `Operator*` transactions are refused below the bridge height (692,000).',
+      },
+      {
+        type: 'table',
+        headers: ['Operator rule', 'Value in code (preset B, default)'],
+        rows: [
+          ['Register', '`OperatorRegister` with a BTC x-only graph key and an FPL bond of at least 5,000 FPL; one registration per account and per BTC key'],
+          ['Duties', 'Hourly `OperatorHeartbeat` (liveness plus free BTC capacity), `OperatorGraphBind` per deposit (immutable), watch all claims, front payouts (fee ≤ 0.30% of the amount)'],
+          ['Slashing', 'Permissionless `OperatorSlash`: a BitVM2 Disprove of the operator’s bound graph, SPV-included on the BTC rail. Slash = 100% of the current bond; 50% goes to a registered disproving operator and the rest is burned. Jail 26 epochs; removed after 2 disproves'],
+          ['Unbond', '`OperatorUnbond`: the bond stays slashable for a 2-epoch cooldown, then returns at epoch settle'],
+          ['Reward', '5% of epoch emission off the top: 25% liveness (≥ 151 of 168 hourly slots), 25% watching, 50% proven payouts; per-operator cap 25% of the bucket'],
+        ],
+      },
+      {
+        type: 'p',
+        text: '**Watchers** are ordinary funded accounts, not validator keys. They feed the rails and police the bridge. Header submitters post signed Bitcoin headers (`RailHeader`) and Ethereum light-client and execution headers. SPV deposits (`RailDeposit`) mint against the rail tip. Each accepted header that advances the rail tip, or wins a reorg, counts as +1 work and marks the current hourly presence slot. A pending-fork header marks presence only, and so does a `WatcherHeartbeat` (zero work). `WatcherCredit` is refused on the public wire. The permissionless BitVM2 challenger watches instance Kickoffs: an honest Kickoff pays the dest-lock output to an open burn and returns change to the instance. For anything else it broadcasts the presigned abort or a Challenge on Bitcoin. From the bridge height a BitVM2 claim is challenged on Bitcoin (Challenge → Assert → Disprove, then `OperatorSlash`), not with a ledger `RailChallenge`.',
+      },
+      {
+        type: 'p',
+        text: 'The code sets no watcher bond; each submission is a signed, fee-paying transaction. A watcher’s pay weight is `work × slots / 168`. The watcher pot is 5% of epoch emission, with a per-account cap of 0.05% of emission. Watchers cannot credit themselves, and a mint needs a proof against a header the ledger already accepted. A false Kickoff can therefore be aborted or challenged by anyone watching.',
+      },
+    ],
+  },
+  {
     id: 'attacks',
     number: '10',
     title: 'Attack surfaces',
@@ -477,17 +506,20 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'p',
-        text: 'The pack budget is a **maximum** packing window (1,000 ms), not a fixed close clock. The round-0 packer waits 2.5 s after the height opens unless a full block is waiting, so a busy chain closes a height every few seconds. When there is no work, the chain does not mint empty height. Figures below are measured unless marked projected.',
+        text: 'The pack budget is a **maximum** packing window (4,000 ms on the core seats, 1,000 ms in the public profile), not a fixed close clock. The round-0 packer waits 2.5 s after the height opens unless a full block is waiting, so a busy chain closes a height every few seconds. When there is no work, the chain does not mint empty height. Figures below are measured unless marked projected.',
       },
       {
         type: 'table',
         headers: ['Bound', 'Value', 'Meaning'],
         rows: [
-          ['Pack budget', '1,000 ms', 'Upper bound to assemble one body'],
-          ['Progress timeout', '3,000 ms', 'Silence before skip / view-change'],
+          ['Pack budget', '4,000 ms core seats; 1,000 ms public profile', 'Upper bound to assemble one body'],
+          ['Progress timeout', '9,000 ms core seats; 3,000 ms public profile', 'Silence before skip / view-change'],
           ['Min block gap', '2,500 ms', 'Round-0 pacing; waived when a full block is waiting'],
-          ['Transactions / ledger', '128 core seats; 400 default cap', 'Packer-side cap plus ~1 MB body budget'],
+          ['Transactions / ledger', '400 on every live seat', '`--max-txs 0` = 400-tx safety cap, packer-side, plus ~1 MB body budget. Largest block in heights 706,466–796,393: 330 txs'],
           ['Mempool', '50,000', 'Reject when full'],
+          ['Cumulative (3 Nov 2026)', '27,835,801 txs in 796,352 ledgers', 'v1 archive counters at 20:58 GMT, chain age 79 d 22 h: about 4.0 tx/s averaged over the whole chain. Not continuous: the chain nearly halted from 21 Sep to 6 Oct 2026 (about 6,200 heights in 15 days) and stalled for about 4.4 h on 21–22 Oct'],
+          ['Measured sustained', '~16.8 tx/s for 10.9 days', '10 Oct 09:51 – 21 Oct 06:56 UTC: 15.81 million txs sealed, from v1/falcon-node snapshot counters. Load came mostly from Falcon’s own load generator offering 20 tx/s; its accepted submissions averaged 19.4 tx/s (median 19.8) on 13–15 Oct'],
+          ['After 21 Oct', '~4–11 tx/s', 'Daily averages from 22 Oct to 3 Nov. Blocks still had room (mean 55–81 txs, max 330, cap 400) and the mempool stayed small (median 60–165), but rounds slowed from ~18 to 4–8 blocks a minute. The load generator sat at its own in-flight limit (20 wallets × 16), and from 23 to 29 Oct one of its target seats (v11) refused connections. Since this was client-side throttling plus slower rounds, it is not a full-block limit. The slowdown began on 16 Oct, before the 21 Oct outage'],
           ['Measured soak', '20 tx/s for ~15 h', 'Over 1 million transactions, modest hardware (October 2026)'],
           ['Measured burst', '98.1 tx/s for 88 s', 'Testnet 2300, 13 Oct 2026 06:55–06:57 UTC, heights 501,209–501,232: 24 blocks, 8,634 txs, 400-tx per-block cap, Falcon-512 sender signatures in Merkle batches. Seven validators/hubs and two lite nodes on 2–12-core hosts; 120 wallets offering 200 tx/s into one hub. Short burst, not a sustained rate (Falcon-PL docs/ops/THROUGHPUT-2300-IMPLEMENTATION.md)'],
           ['Measured block time', '~5.3 s average', 'Testnet 2300 chain height data, around 3 November 2026'],
