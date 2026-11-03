@@ -123,7 +123,7 @@ export type ExplorerEndpoint = { path: string; summary: string; params: string[]
 export function explorerEndpoints(): ExplorerEndpoint[] {
   type P = { name: string; in: string; required?: boolean }
   const comps = (openapi as unknown as { components?: { parameters?: Record<string, P> } }).components?.parameters ?? {}
-  return Object.entries(openapi.paths as Record<string, { get: { summary: string; tags: string[]; parameters?: unknown[]; responses: Record<string, unknown> } }>).map(
+  return Object.entries(openapi.paths as unknown as Record<string, { get: { summary: string; tags: readonly string[]; parameters?: unknown[]; responses: Record<string, unknown> } }>).map(
     ([path, item]) => {
       const params = (item.get.parameters ?? []).map((p) => {
         const ref = (p as { $ref?: string }).$ref
