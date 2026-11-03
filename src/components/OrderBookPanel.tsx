@@ -5,7 +5,7 @@ import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
 import { fmtOfferAmount } from '@/lib/swap/dust-offers'
 
-interface BookEntry {
+export interface BookEntry {
   price: number
   amountToken: number
   amountXrp: number
@@ -13,13 +13,15 @@ interface BookEntry {
   owner: string
 }
 
-interface OrderBookData {
+export interface OrderBookData {
   token: { symbol: string; currency: string; issuer: string }
   amm: { xrp: number; usdc: number; tradingFeeBps: unknown; account: unknown } | null
   ammEnabled: boolean
   asks: BookEntry[]
   bids: BookEntry[]
   updatedAt: string
+  /** Owner column header (PL depth levels show an order count instead). */
+  ownerHeader?: string
 }
 
 function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
@@ -45,12 +47,14 @@ function BookTable({
   accent,
   empty,
   tokenSymbol,
+  ownerHeader = 'Owner',
 }: {
   title: string
   rows: BookEntry[]
   accent: string
   empty: string
   tokenSymbol: string
+  ownerHeader?: string
 }) {
   return (
     <div className="card overflow-hidden">
@@ -66,12 +70,12 @@ function BookTable({
               <th className="text-left px-3 py-2 font-medium">Price</th>
               <th className="text-right px-3 py-2 font-medium">{tokenSymbol}</th>
               <th className="text-right px-3 py-2 font-medium hidden sm:table-cell">FPL</th>
-              <th className="text-right px-3 py-2 font-medium hidden md:table-cell">Owner</th>
+              <th className="text-right px-3 py-2 font-medium hidden md:table-cell">{ownerHeader}</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.seq} className="border-b border-slate-800/30 hover:bg-slate-800/30">
+              <tr key={`${r.seq}-${r.price}`} className="border-b border-slate-800/30 hover:bg-slate-800/30">
                 <td className="px-3 py-2 font-mono text-slate-200">{fmt(r.price, 6)}</td>
                 <td className="px-3 py-2 text-right font-mono text-slate-300">{fmtOfferAmount(r.amountToken)}</td>
                 <td className="px-3 py-2 text-right font-mono text-slate-400 hidden sm:table-cell">{fmtOfferAmount(r.amountXrp)}</td>
@@ -91,6 +95,8 @@ interface Props {
   symbol?: string
   currency?: string
   issuer?: string
+  /** Falcon PL 2300: book supplied by the caller (no XRPL fetch). */
+  external?: { data: OrderBookData | null; error?: string | null; onRefresh?: () => void }
 }
 
 export default function OrderBookPanel({
@@ -99,7 +105,29 @@ export default function OrderBookPanel({
   symbol,
   currency,
   issuer,
+  external,
 }: Props) {
+  if (external) {
+    if (external.error && !external.data) return <div className="card p-4 text-sm text-amber-400">{external.error}</div>
+    if (!external.data) {
+      return (
+        <div className="flex items-center justify-center gap-2 py-8 text-slate-500 text-sm">
+          <Spinner /> Loading order book…
+        </div>
+      )
+    }
+    return <BookView data={external.data} compact={compact} refresh={external.onRefresh ?? (() => {})} />
+  }
+  return <XrplOrderBook compact={compact} pollMs={pollMs} symbol={symbol} currency={currency} issuer={issuer} />
+}
+
+function XrplOrderBook({
+  compact = false,
+  pollMs = 8000,
+  symbol,
+  currency,
+  issuer,
+}: Omit<Props, 'external'>) {
   const { networkKey } = useNetwork()
   const [data, setData] = useState<OrderBookData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -147,6 +175,10 @@ export default function OrderBookPanel({
 
   if (!data) return null
 
+  return <BookView data={data} compact={compact} refresh={refresh} />
+}
+
+function BookView({ data, compact, refresh }: { data: OrderBookData; compact: boolean; refresh: () => void }) {
   const bestAsk = data.asks[0]?.price
   const bestBid = data.bids[0]?.price
   const spread = bestAsk && bestBid ? bestAsk - bestBid : null
@@ -194,6 +226,7 @@ export default function OrderBookPanel({
           accent="text-emerald-400"
           empty="No bids"
           tokenSymbol={data.token.symbol}
+          ownerHeader={data.ownerHeader}
         />
         <BookTable
           title={`Asks (sell ${data.token.symbol})`}
@@ -201,6 +234,7 @@ export default function OrderBookPanel({
           accent="text-red-400"
           empty={`No asks — post a sell limit order above`}
           tokenSymbol={data.token.symbol}
+          ownerHeader={data.ownerHeader}
         />
       </div>
     </div>

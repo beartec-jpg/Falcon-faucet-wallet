@@ -634,3 +634,68 @@ export async function signPlSetExternalAddr(opts: {
     falconSecret: opts.falconSecret,
   })
 }
+
+/** v2.10.4 order book: PlaceLimitOrder (serde order: pair, side, price, amount, expiry_height?). */
+export async function signPlPlaceLimitOrder(opts: {
+  account: string
+  /** `<ASSET>-FPL`, e.g. `USDC-FPL`. */
+  pair: string
+  side: 'buy' | 'sell'
+  /** FPL raw per one whole coin. */
+  price: string
+  /** Base asset raw units. */
+  amount: string
+  expiryHeight?: string | null
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  const price = u64Digits(opts.price, 'price')
+  const amount = u64Digits(opts.amount, 'amount')
+  const expiry = opts.expiryHeight ? u64Digits(opts.expiryHeight, 'expiry') : null
+  const bodyJson =
+    `{"kind":"place_limit_order","pair":${JSON.stringify(opts.pair)},"side":${JSON.stringify(opts.side)},` +
+    `"price":${price},"amount":${amount}${expiry ? `,"expiry_height":${expiry}` : ''}}`
+  return signPlExact({
+    account: opts.account,
+    destination: '',
+    amountDigits: '0',
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    bodyJson,
+    body: {
+      kind: 'place_limit_order',
+      pair: opts.pair,
+      side: opts.side,
+      price,
+      amount,
+      ...(expiry ? { expiry_height: expiry } : {}),
+    },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+/** v2.10.4 order book: CancelOrder (own order; unfilled escrow refunded). */
+export async function signPlCancelOrder(opts: {
+  account: string
+  orderId: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  const orderId = u64Digits(opts.orderId, 'order id')
+  return signPlExact({
+    account: opts.account,
+    destination: '',
+    amountDigits: '0',
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    bodyJson: `{"kind":"cancel_order","order_id":${orderId}}`,
+    body: { kind: 'cancel_order', order_id: orderId },
+    falconSecret: opts.falconSecret,
+  })
+}

@@ -9,6 +9,8 @@ import { plAccountId } from '@/lib/pl-names'
 import {
   decimalToBaseUnits,
   signPlAddLiquidity,
+  signPlCancelOrder,
+  signPlPlaceLimitOrder,
   signPlLend,
   signPlPay,
   signPlRemoveLiquidity,
@@ -16,6 +18,8 @@ import {
 } from '@/lib/pl-wallet-sign'
 import { fetchSequenceInfo } from '@/lib/wallet-submit'
 import { explainTxError } from '@/lib/pl-key-commit'
+import OrderBookPanel, { type OrderBookData } from '@/components/OrderBookPanel'
+import { ORDERBOOK_ACTIVATION_HEIGHT, ORDERBOOK_MIN_ORDER_FPL } from '@/config/orderbook'
 
 type Asset = 'FPL' | 'BTC4' | 'ETH' | 'USDC'
 const ASSETS: Asset[] = ['FPL', 'USDC', 'ETH', 'BTC4']
@@ -184,6 +188,69 @@ function evenAdd(
   }
   if (f > fBal) f = fBal
   return { f, fpl }
+}
+
+type ObOrder = {
+  id: string
+  pair: string
+  side: 'buy' | 'sell'
+  price: string
+  amount: string
+  remaining: string
+  escrow: string
+  placed_height: string
+  expiry_height: string | null
+}
+type ObFill = {
+  height: string
+  asset: string
+  side: 'buy' | 'sell'
+  price: string
+  base: string
+  quote: string
+  taker: string
+  maker: string
+}
+type ObState = {
+  active: boolean
+  height: number
+  book: OrderBookData | null
+  openOrders: ObOrder[]
+  fills: ObFill[]
+  error: string | null
+}
+
+function obAsset(a: string): Asset | null {
+  return a === 'USDC' || a === 'ETH' || a === 'BTC4' ? a : null
+}
+
+/** Node depth body -> the shape the reused OrderBookPanel renders (display units). */
+function toBookData(asset: Asset, b: Record<string, unknown>): OrderBookData {
+  const lv = (rows: unknown) =>
+    (Array.isArray(rows) ? (rows as Array<Record<string, unknown>>) : []).map((r) => ({
+      price: Number(r.price ?? 0),
+      amountToken: Number(fromRaw(asset, String(r.amountBase ?? '0')).replace(/,/g, '')),
+      amountXrp: Number(String(r.amountFpl ?? '0')),
+      seq: Number(r.price ?? 0),
+      owner: `${Number(r.orders ?? 0)} order${Number(r.orders ?? 0) === 1 ? '' : 's'}`,
+    }))
+  const amm = b.amm as Record<string, unknown> | null | undefined
+  return {
+    token: { symbol: assetLabel(asset), currency: asset, issuer: '' },
+    amm: amm
+      ? {
+          xrp: Number(String(amm.reserveFpl ?? '0')),
+          usdc: Number(fromRaw(asset, String(amm.reserveBase ?? '0')).replace(/,/g, '')),
+          tradingFeeBps: null,
+          account: amm.pool_id ?? null,
+        }
+      : null,
+    ammEnabled: Boolean(amm),
+    asks: lv(b.asks),
+    bids: lv(b.bids),
+    updatedAt: new Date().toISOString(),
+    ownerHeader: 'Orders',
+  }
 }
 
 function fromRaw(asset: Asset, raw: string): string {
@@ -1019,6 +1086,13 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
   const [stage, setStage] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [orderMode, setOrderMode] = useState<'market' | 'limit'>('market')
+  const [limitSide, setLimitSide] = useState<'buy' | 'sell'>('buy')
+  const [limitPrice, setLimitPrice] = useState('')
+  const [limitAmount, setLimitAmount] = useState('')
+  const [limitExpiry, setLimitExpiry] = useState('')
+  const [cancelId, setCancelId] = useState<string | null>(null)
+  const [ob, setOb] = useState<ObState>({ active: false, height: 0, book: null, openOrders: [], fills: [], error: null })
 
   const load = useCallback(() => {
     const id = wallet ? plAccountId(wallet) : ''
@@ -1094,6 +1168,38 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     if (!choices.some((c) => c.id === marketId)) setMarketId(choices[0].id)
   }, [markets, marketId])
 
+  // Order book pair = the non-FPL side of the swap selection (FPL->X buys X, X->... sells X).
+  const obBase: Asset = sell !== 'FPL' ? sell : buy !== 'FPL' ? buy : 'USDC'
+  const obPair = `${obBase}-FPL`
+  const loadBook = useCallback(() => {
+    if (mode !== 'swap') return
+    const id = wallet ? plAccountId(wallet) : ''
+    const q = `?pair=${encodeURIComponent(obPair)}&levels=15&fills=20${id ? `&account=${encodeURIComponent(id)}` : ''}`
+    fetch(`/api/pl2300/orderbook${q}`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((j: Record<string, unknown>) => {
+        const asset = obAsset(obBase)
+        setOb({
+          active: Boolean(j.active),
+          height: Number(j.height ?? 0),
+          book: j.book && asset ? toBookData(asset, j.book as Record<string, unknown>) : null,
+          openOrders: Array.isArray(j.openOrders) ? (j.openOrders as ObOrder[]) : [],
+          fills: Array.isArray(j.fills) ? (j.fills as ObFill[]) : [],
+          error: typeof j.error === 'string' ? j.error : null,
+        })
+      })
+      .catch(() => setOb((o) => ({ ...o, error: 'Order book unavailable' })))
+  }, [mode, wallet, obPair, obBase])
+  useEffect(() => {
+    loadBook()
+    const t = setInterval(loadBook, 8000)
+    return () => clearInterval(t)
+  }, [loadBook])
+  useEffect(() => {
+    setLimitSide(sell === 'FPL' ? 'buy' : 'sell')
+  }, [sell])
+  const limitLive = ob.active
+
   let quoted = 0n
   if (mode === 'swap' && amount.trim()) {
     try {
@@ -1103,7 +1209,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     }
   }
   async function act(
-    kind: 'swap' | 'add' | 'remove' | 'supply' | 'withdraw' | 'borrow' | 'repay',
+    kind: 'swap' | 'add' | 'remove' | 'supply' | 'withdraw' | 'borrow' | 'repay' | 'limit' | 'cancel',
     lendAmount?: string,
     lendCollateral?: string,
   ) {
@@ -1186,6 +1292,40 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
           }),
         )
         setMsg(`Swap submitted. You receive about ${fromRaw(buy, quoted.toString())} ${assetLabel(buy)} if the pool price holds.`)
+      } else if (kind === 'limit') {
+        if (!limitLive) throw new Error(`Limit orders go live at block ${ORDERBOOK_ACTIVATION_HEIGHT.toLocaleString()}`)
+        const price = decimalToBaseUnits(limitPrice, 0)
+        const amt = toRaw(obBase, limitAmount)
+        const value = (BigInt(amt) * BigInt(price)) / 10n ** BigInt(DECIMALS[obBase])
+        if (value < BigInt(ORDERBOOK_MIN_ORDER_FPL)) {
+          throw new Error(`Order value is ${value} FPL; the ledger minimum is ${ORDERBOOK_MIN_ORDER_FPL} FPL`)
+        }
+        const expiry = limitExpiry.trim() ? decimalToBaseUnits(limitExpiry, 0) : null
+        if (expiry && Number(expiry) <= ob.height) throw new Error('Expiry block is already past')
+        await send((sequence) =>
+          signPlPlaceLimitOrder({
+            account,
+            pair: obPair,
+            side: limitSide,
+            price,
+            amount: amt,
+            expiryHeight: expiry,
+            sequence,
+            networkId: network.networkId,
+            falconSecret,
+          }),
+        )
+        setMsg(
+          `Limit ${limitSide} of ${limitAmount} ${assetLabel(obBase)} at ${price} FPL placed. Any crossing part fills now; the rest rests on the book.`,
+        )
+        setLimitAmount('')
+        setLimitExpiry('')
+      } else if (kind === 'cancel') {
+        const id = lendAmount ?? ''
+        await send((sequence) =>
+          signPlCancelOrder({ account, orderId: id, sequence, networkId: network.networkId, falconSecret }),
+        )
+        setMsg(`Order #${id} cancelled; unfilled escrow returned.`)
       } else if (kind === 'add') {
         const pool = pools.find((p) => p.id === poolId)
         if (!pool) throw new Error('Pool not found')
@@ -1258,6 +1398,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       setAmountB('')
       setLpAmount('')
       load()
+      loadBook()
     }
     try {
       await Promise.race([flow(), cap])
@@ -1267,6 +1408,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       clearTimeout(capTimer)
       setStage(null)
       setBusy(false)
+      setCancelId(null)
     }
   }
 
@@ -1279,6 +1421,21 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       )}
       {mode === 'swap' && (
         <div className="card p-5 space-y-3">
+          <div className="flex rounded-lg bg-slate-900 p-1 text-xs" role="tablist" aria-label="Order type">
+            {(['market', 'limit'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={orderMode === m}
+                disabled={busy}
+                onClick={() => setOrderMode(m)}
+                className={`flex-1 rounded-md py-1.5 font-semibold ${orderMode === m ? 'bg-brand-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                {m === 'market' ? 'Market' : 'Limit'}
+              </button>
+            ))}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-slate-400">
               Sell
@@ -1293,6 +1450,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
               </select>
             </label>
           </div>
+          {orderMode === 'market' && (<>
           <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder={`Amount of ${assetLabel(sell)}`} value={amount} onChange={(e) => setAmount(e.target.value)} />
           <p className="text-xs text-slate-400">
             Quote: {quoted > 0n ? fromRaw(buy, quoted.toString()) : '—'} {assetLabel(buy)}
@@ -1307,7 +1465,47 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
           <button type="button" className="btn-primary w-full" disabled={busy} onClick={() => act('swap')}>
             {busy ? stage || 'Submitting…' : 'Swap on ledger'}
           </button>
+          </>)}
+          {orderMode === 'limit' && (
+            <LimitForm
+              live={limitLive}
+              asset={obBase}
+              side={limitSide}
+              setSide={setLimitSide}
+              price={limitPrice}
+              setPrice={setLimitPrice}
+              amount={limitAmount}
+              setAmount={setLimitAmount}
+              expiry={limitExpiry}
+              setExpiry={setLimitExpiry}
+              height={ob.height}
+              busy={busy}
+              stage={cancelId ? null : stage}
+              walletReady={Boolean(wallet)}
+              onSubmit={() => act('limit')}
+            />
+          )}
+          {busy && stage && (
+            <p className="text-xs text-slate-400" aria-live="polite">{stage}</p>
+          )}
+          {msg && <p className="text-sm text-emerald-300">{msg}</p>}
+          {err && <p className="text-sm text-red-300">{err}</p>}
         </div>
+      )}
+      {mode === 'swap' && (
+        <OrderBookSection
+          ob={ob}
+          asset={obBase}
+          walletReady={Boolean(wallet)}
+          busy={busy}
+          cancelId={cancelId}
+          stage={stage}
+          onRefresh={loadBook}
+          onCancel={(id) => {
+            setCancelId(id)
+            void act('cancel', id)
+          }}
+        />
       )}
       {mode === 'pool' && (
         <PoolAdd
@@ -1352,8 +1550,8 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
           onAct={(kind, coin, col) => act(kind, coin, col)}
         />
       )}
-      {msg && <p className="text-sm text-emerald-300">{msg}</p>}
-      {err && <p className="text-sm text-red-300">{err}</p>}
+      {mode !== 'swap' && msg && <p className="text-sm text-emerald-300">{msg}</p>}
+      {mode !== 'swap' && err && <p className="text-sm text-red-300">{err}</p>}
       {mode === 'swap' && (
         <p className="text-xs text-slate-500">
           Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. fBNB is not a market.
@@ -1386,6 +1584,175 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+function LimitForm(props: {
+  live: boolean
+  asset: Asset
+  side: 'buy' | 'sell'
+  setSide: (s: 'buy' | 'sell') => void
+  price: string
+  setPrice: (v: string) => void
+  amount: string
+  setAmount: (v: string) => void
+  expiry: string
+  setExpiry: (v: string) => void
+  height: number
+  busy: boolean
+  stage: string | null
+  walletReady: boolean
+  onSubmit: () => void
+}) {
+  const { live, asset, side, busy } = props
+  const label = assetLabel(asset)
+  let value: bigint | null = null
+  try {
+    if (props.price.trim() && props.amount.trim()) {
+      value = (BigInt(toRaw(asset, props.amount)) * BigInt(decimalToBaseUnits(props.price, 0))) / 10n ** BigInt(DECIMALS[asset])
+    }
+  } catch {
+    value = null
+  }
+  const inputCls = 'w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white disabled:opacity-50'
+  return (
+    <fieldset className="space-y-3" disabled={!live || busy}>
+      {!live && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+          Limit orders go live at block {ORDERBOOK_ACTIVATION_HEIGHT.toLocaleString()}
+          {props.height > 0 ? ` (now ${props.height.toLocaleString()})` : ''}.
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        {(['buy', 'sell'] as const).map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => props.setSide(s)}
+            className={`rounded-lg border py-1.5 font-semibold ${
+              side === s
+                ? s === 'buy'
+                  ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
+                  : 'border-red-500 bg-red-500/10 text-red-300'
+                : 'border-slate-700 text-slate-400'
+            }`}
+          >
+            {s === 'buy' ? `Buy ${label}` : `Sell ${label}`}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-xs text-slate-400">
+          Price (FPL per {label})
+          <input className={`mt-1 ${inputCls}`} inputMode="numeric" placeholder="whole FPL" value={props.price} onChange={(e) => props.setPrice(e.target.value.replace(/[^0-9]/g, ''))} />
+        </label>
+        <label className="text-xs text-slate-400">
+          Amount ({label})
+          <input className={`mt-1 ${inputCls}`} inputMode="decimal" placeholder={`0.0 ${label}`} value={props.amount} onChange={(e) => props.setAmount(e.target.value)} />
+        </label>
+      </div>
+      <label className="block text-xs text-slate-400">
+        Expires at block (optional)
+        <input className={`mt-1 ${inputCls}`} inputMode="numeric" placeholder="good till cancelled" value={props.expiry} onChange={(e) => props.setExpiry(e.target.value.replace(/[^0-9]/g, ''))} />
+      </label>
+      <p className="text-xs text-slate-400">
+        {value !== null
+          ? side === 'buy'
+            ? `Locks about ${value.toLocaleString()} FPL until filled or cancelled.`
+            : `Locks ${props.amount} ${label}; receives about ${value.toLocaleString()} FPL when filled.`
+          : `Minimum order ${ORDERBOOK_MIN_ORDER_FPL.toLocaleString()} FPL. Crossing orders fill at once against the book and the pool.`}
+      </p>
+      <button type="button" className="btn-primary w-full" disabled={!live || busy || !props.walletReady} onClick={props.onSubmit}>
+        {busy ? props.stage || 'Working…' : !props.walletReady ? 'Open the wallet first' : `Place ${side} order`}
+      </button>
+    </fieldset>
+  )
+}
+
+function OrderBookSection(props: {
+  ob: ObState
+  asset: Asset
+  walletReady: boolean
+  busy: boolean
+  cancelId: string | null
+  stage: string | null
+  onRefresh: () => void
+  onCancel: (id: string) => void
+}) {
+  const { ob, asset } = props
+  const label = assetLabel(asset)
+  if (!ob.active) return null
+  return (
+    <div className="space-y-4">
+      <div className="card p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-white">{label} / FPL order book</h3>
+        <OrderBookPanel compact external={{ data: ob.book, error: ob.error, onRefresh: props.onRefresh }} />
+      </div>
+      {props.walletReady && (
+        <div className="card p-5 space-y-2">
+          <h3 className="text-sm font-semibold text-white">Your open orders</h3>
+          {ob.openOrders.length === 0 ? (
+            <p className="text-xs text-slate-500">No open orders.</p>
+          ) : (
+            <ul className="divide-y divide-slate-800 text-xs">
+              {ob.openOrders.map((o) => {
+                const a = obAsset(o.pair.replace(/-FPL$/, ''))
+                return (
+                  <li key={o.id} className="flex flex-wrap items-center gap-2 py-2">
+                    <span className={o.side === 'buy' ? 'text-emerald-300' : 'text-red-300'}>{o.side.toUpperCase()}</span>
+                    <span className="font-mono text-slate-200">
+                      {a ? fromRaw(a, String(o.remaining)) : String(o.remaining)} / {a ? fromRaw(a, String(o.amount)) : String(o.amount)} {a ? assetLabel(a) : o.pair}
+                    </span>
+                    <span className="text-slate-400">@ {String(o.price)} FPL</span>
+                    <span className="text-slate-500">#{String(o.id)}{o.expiry_height ? ` · exp ${String(o.expiry_height)}` : ''}</span>
+                    <button
+                      type="button"
+                      className="ml-auto rounded-md border border-slate-700 px-2 py-1 text-slate-300 hover:border-red-500 hover:text-red-300 disabled:opacity-50"
+                      disabled={props.busy}
+                      onClick={() => props.onCancel(String(o.id))}
+                    >
+                      {props.busy && props.cancelId === String(o.id) ? props.stage || 'Cancelling…' : 'Cancel'}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+      <div className="card p-5 space-y-2">
+        <h3 className="text-sm font-semibold text-white">Recent fills</h3>
+        {ob.fills.length === 0 ? (
+          <p className="text-xs text-slate-500">No fills yet.</p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-slate-500">
+                <th className="text-left font-medium py-1">Block</th>
+                <th className="text-left font-medium">Taker</th>
+                <th className="text-right font-medium">Price</th>
+                <th className="text-right font-medium">{label}</th>
+                <th className="text-right font-medium hidden sm:table-cell">Maker</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ob.fills.map((f, i) => {
+                const a = obAsset(f.asset) ?? asset
+                return (
+                  <tr key={`${String(f.height)}-${i}`} className="border-t border-slate-800/50">
+                    <td className="py-1 font-mono text-slate-400">{String(f.height)}</td>
+                    <td className={f.side === 'buy' ? 'text-emerald-300' : 'text-red-300'}>{f.side}</td>
+                    <td className="text-right font-mono text-slate-200">{String(f.price)}</td>
+                    <td className="text-right font-mono text-slate-300">{fromRaw(a, String(f.base))}</td>
+                    <td className="text-right font-mono text-slate-500 hidden sm:table-cell">{String(f.maker).startsWith('amm:') ? 'AMM' : String(f.maker)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   )
 }
