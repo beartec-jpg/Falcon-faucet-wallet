@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { redirect } from 'next/navigation'
 
 /** Moved into the Wallet cylinder: /pool → /wallet?tab=pool (other query params kept). */

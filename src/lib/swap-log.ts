@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Swap log for the testnet activity tracker. The node exposes no per-account
 // swap history, so the site records swaps (kind "swap_route") that its wallet
 // submits through /api/wallet/submit and the node accepts. Neon table

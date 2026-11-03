@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { headers } from 'next/headers'
 import ContentPage, { A, Section } from '@/components/content/ContentPage'
 import { pageMeta } from '@/lib/seo'

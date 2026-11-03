@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // POST /api/arcade/score
 // Body: { account, game, score, run_id?, network? }
 // Upserts best single-run score for the UTC day (leaderboard) and accumulates

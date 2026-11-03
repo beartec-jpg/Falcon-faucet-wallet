@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
 import { scanChainLoanRisk } from '@/lib/lend-risk-scan'
 import { brokerSecret } from '@/lib/lend-broker-server'

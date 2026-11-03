@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Native Bitcoin deposit keys for multi-chain wallet.
  * CSPRNG secp256k1 + P2PKH addresses (mainnet 1… / testnet m|n…).

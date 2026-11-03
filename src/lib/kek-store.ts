@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Per-credential record of how wallet keys are wrapped (passkey PRF or password).
  * Holds only public parameters: mode, Argon2id salt/params and an AES-GCM check value

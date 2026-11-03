@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/scan/tracker — testnet activity boards (users + operators). ?format=csv[&board=operators]
 import { NextRequest, NextResponse } from 'next/server'
 import { operatorsCsv, trackerCsv } from '@/lib/tracker'

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * https://falcon-fpl.com/install.sh: serves install-falcon-node.sh from the LATEST PUBLISHED release of
  * beartec-jpg/falcon-pl-releases (the same file that is listed in that release's SHA256SUMS).

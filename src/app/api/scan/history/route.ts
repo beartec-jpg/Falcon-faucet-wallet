@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/scan/history — shared 24h metric time series (Neon / Redis / memory).
 // Network keys: NET_KEYS in src/lib/net-metrics.ts (one per explorer tile).
 // Seat keys: seat.<id>.tip | lag | packs_min | perf.

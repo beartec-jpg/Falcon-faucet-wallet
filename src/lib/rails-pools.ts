@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Rails (bridges) and Pools (AMM) views for the explorer, built only from the
 // PL status_req / account_query the explorer already uses plus the public
 // bridge config in /public/config. Anything the node does not expose is

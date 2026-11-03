@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Persist ETH/USDC dest-lock peg-in so mint progress survives refresh.
  * Multiple jobs (ETH and USDC at once) are stored per account.

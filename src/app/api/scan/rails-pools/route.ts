@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/scan/rails-pools — Rails (USDC / ETH / BTC), Pools and the testnet activity board.
 import { NextResponse } from 'next/server'
 import { getRailsPools } from '@/lib/rails-pools-server'

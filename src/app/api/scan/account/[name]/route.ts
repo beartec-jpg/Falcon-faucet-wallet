@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/scan/account/:name — one account's testnet activity profile.
 import { NextResponse } from 'next/server'
 import { accountPayload } from '@/lib/tracker-server'

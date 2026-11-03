@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Public network health (/network/health) and Discord alerts.
 //
 // Sources (nothing new is exposed on the nodes):

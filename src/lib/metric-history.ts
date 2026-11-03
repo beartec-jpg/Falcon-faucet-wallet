@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // 24h metric history: shared types plus the client-side fallback ring buffer.
 //
 // Sources, in order of preference (merged by the chart):

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * GET /api/wallet/name?name=example
  * POST { action: reserve|activate|set-addrs, name, publicKey, credentialId?, externalAddrs? }

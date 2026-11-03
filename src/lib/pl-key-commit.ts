@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Audit C-1 (Falcon PL 2.9.65): the chain refuses a first key that nothing commits to. */
 export function isKeyBindRefusal(msg: string): boolean {
   return /key bind: account has no key/i.test(msg)

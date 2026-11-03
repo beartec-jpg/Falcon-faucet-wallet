@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Vercel cron — every 5 min, sample the PL status into the shared 24h store.
 
 import { NextRequest, NextResponse } from 'next/server'

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Central 24h metric time series — Neon Postgres (preferred), Upstash Redis, or memory.
 
 import { Redis } from '@upstash/redis'

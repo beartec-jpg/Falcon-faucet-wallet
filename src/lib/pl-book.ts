@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Per-pool LP and per-market lend lines for the Falcon wallet on network 2300. */
 
 export type PlPoolLine = {

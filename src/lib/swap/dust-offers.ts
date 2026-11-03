@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Minimum size shown on the public order book (smaller = partial-fill dust). */
 export const MIN_BOOK_USDC = 0.01
 export const MIN_BOOK_FALCON = 0.01

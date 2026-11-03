@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/feedback/admin/image?id=N — one feedback screenshot. Admin only
 // (Authorization: Bearer $FIRST35_ADMIN_TOKEN). The admin UI fetches it as a blob; there is no public URL.
 import { NextRequest, NextResponse } from 'next/server'

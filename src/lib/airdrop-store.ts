@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { getSql, isDbConfigured } from '@/lib/db'
 import { faucetEngagementScore, AIRDROP_POOL_FALCON, AIRDROP_WINDOW_DAYS } from '@/lib/airdrop-score'
 

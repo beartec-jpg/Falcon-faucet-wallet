@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Client-side Falcon transaction signing for Falcon Ledger.
  * falcon_secret never leaves the device.

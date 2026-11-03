@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // 24h network sampler for the Vercel cron (/api/cron/sample-metrics).
 //
 // One PL status_req per run (the same snapshot /api/scan serves). Rates need two

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Independent Bitcoin Merkle proof checks (W1.3).
  * Uses double-SHA256; siblings in Bitcoin internal byte order (as Falcon expects).

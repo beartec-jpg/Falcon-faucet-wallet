@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Airdrop scoring helpers (mainnet contribution window).
  * Spec: docs/MAINNET_LAUNCH_SPEC.md

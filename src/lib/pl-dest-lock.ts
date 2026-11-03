@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Falcon PL 2300 FalconQcBridge (STATUS SoT). Not Falcon Ledger 1001 collateral lock.
  * dest20 = sha256(lowercase PL account)[:20]

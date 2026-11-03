@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import type { LendOverview } from '@/lib/lend-model'
 import { isRepayableLoan } from '@/lib/lend-borrow-errors'
 

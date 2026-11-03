@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/airdrop/operators — operators pool leaderboard with projected share (proposed model).
 import { NextResponse } from 'next/server'
 import { OPERATORS_CONFIG } from '@/config/operators'

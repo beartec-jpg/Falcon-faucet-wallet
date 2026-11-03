@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 const EVM_ADDRESS_RE = /0x[a-fA-F0-9]{40}/
 
 /** Extract a checksummed or lowercase 0x address from scanned QR text or pasted payloads. */

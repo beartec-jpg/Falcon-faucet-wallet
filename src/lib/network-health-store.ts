@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Carried state for network health alerts. Postgres (same DATABASE_URL as
 // operator_epoch_work) when configured, in-memory otherwise.
 

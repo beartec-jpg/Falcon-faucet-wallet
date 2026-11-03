@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * POST /api/airdrop/snapshot
  * Auth: Authorization: Bearer $AIRDROP_ADMIN_TOKEN

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import ScanExplorer from './ScanExplorer'
 import { buildScanSnapshot } from '@/lib/scan-snapshot'
 import type { ScanData } from '@/lib/scan-types'

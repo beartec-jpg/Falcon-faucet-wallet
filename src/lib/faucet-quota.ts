@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Mainnet-oriented faucet quota:
  * - Max FAUCET_CLAIMS_PER_DAY successful drips per UTC calendar day (default 5)

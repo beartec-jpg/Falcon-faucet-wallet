@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Browser depositor for the testnet4 BitVM2 bridge test. The depositor key is the
 // wallet's own Bitcoin key: it is decrypted in this browser and never sent anywhere.
 import * as btc from '@scure/btc-signer'
