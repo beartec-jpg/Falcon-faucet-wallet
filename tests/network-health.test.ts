@@ -76,7 +76,7 @@ describe('detect + dedupe', () => {
     let m = discordMessages(s, 0, 'https://falcon-fpl.com')
     expect(m).toHaveLength(1)
     expect(m[0].msg.embeds[0].title).toContain('v22 falling behind')
-    expect(m[0].msg.embeds[0].url).toBe('https://falcon-fpl.com/network/health')
+    expect(m[0].msg.embeds[0].url).toBe('https://falcon-fpl.com/scan#network-health')
     s = { ...s, alerts: { ...s.alerts, 'seat:v22:lag': { ...s.alerts['seat:v22:lag'], notified: true } } }
     // still lagging: no new message, since kept
     const s2 = reconcile(advanceState(lag, s, MIN), detect(lag, s, seatRows(lag, s), MIN), MIN)
