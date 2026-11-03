@@ -1916,6 +1916,12 @@ export default function WalletPage() {
         )
         return
       }
+      if (network.networkId === 2300) {
+        // Node AssetPay only allows BTC/ETH/USDC today: a BTC4 send is "accepted" into the
+        // mempool but dropped at pack, so the funds never move. Block until the node enables it.
+        setError('FBTC peer-to-peer send is not enabled on Falcon PL yet — your FBTC was not moved. Use Bridge to withdraw to Testnet4.')
+        return
+      }
       if (amt > fbtcBal) {
         setError('Insufficient FBTC balance'); return
       }
