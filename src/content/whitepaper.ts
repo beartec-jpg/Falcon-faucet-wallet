@@ -209,11 +209,11 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'At each height the eligible set is the bonded, non-jailed seats. The lottery seed is a hash of network id, height, committed tip seed, previous packer, and the eligible set (id and bond). Integer reduction ranks packers: weighted by bond before height 420,000 on 2300, equal weight from 420,000. Honest nodes that share a tip compute the same ranking. Mesh pongs are pack **permission**, not election: an offline seat stays in the draw until it is benched as inactive, and its round is passed by view-change.',
+        text: 'At each height the eligible set is the bonded, non-jailed, non-inactive seats (from 420,000 a v2 seat also needs ≥ 50,000 FPL). The lottery seed is SHA-256 of a tag, the network id, the open height, the committed tip seed, the previous packer, and the eligible set as `id:bond` sorted by id. The tip seed on 2300 is signature-free: SHA-256 of the tip’s parent hash, height and v4 header message (tx root, state root, skips, parent-cert hash, claim root, current-committee root), not the packer’s signature. Skips are not a direct seed input: seat n is drawn from `pick|seed|rank:n` with the seats already drawn excluded. Integer reduction (first 64 bits of the pick hash mod total weight) ranks packers: weighted by bond before height 420,000 on 2300, equal weight from 420,000. Honest nodes that share a tip compute the same ranking. Mesh pongs are pack **permission**, not election: an offline seat stays in the draw until it is benched as inactive, and its round is passed by view-change.',
       },
       {
         type: 'code',
-        text: 'eligible = bonded ∧ ¬jailed\nseed     = H(network_id ‖ height ‖ tip_hash ‖ skips ‖ eligible)\nrank     = lottery(seed, weights)        # same tip ⇒ same #1, #2, …\ncommittee = freeze(first 6 of rank)      # frozen at tip commit\nproposer = committee[round mod 6]\ncommit   = 4 distinct committee signatures in one round\nround++  = 4-of-6 ViewChange after round timeout',
+        text: 'eligible = bonded ∧ ¬jailed ∧ ¬inactive          # sorted by id\ntip_seed = SHA256("fpl-seed-v2|" ‖ tip.parent_hash ‖ tip.height ‖ header_msg_v4(tip))\nseed     = SHA256("lottery|v8|" ‖ network_id ‖ height ‖ tip_seed ‖ "prev:" ‖ prev_packer ‖ "set:" ‖ id:bond,…)\npick_n   = SHA256("pick|" ‖ seed ‖ "|rank:" ‖ n)[0..64 bits] mod Σweight   # earlier picks excluded; weight 1 each from 420,000\ncommittee = freeze(first 6 of rank)      # frozen at tip commit\nproposer = committee[round mod 6]\ncommit   = 4 distinct committee signatures in one round\nround++  = 4-of-6 ViewChange after round timeout',
       },
       {
         type: 'p',
@@ -319,16 +319,17 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'Treasury funds leave only through protocol epoch emission. There is no human withdrawal key. Emission follows Continuous Inflationary Decline: a declining share of remaining treasury (first claimable epoch 30 bps). The epoch is **7 days**. Pre-public testnet **2300** pays from **epoch 1**. Mainnet keeps a bootstrap: epochs 1–7 emit nothing, first claim at epoch 8. Claims are pull-based.',
+        text: 'Treasury funds leave only through protocol epoch emission. There is no human withdrawal key. Emission follows Continuous Inflationary Decline: a declining share of remaining treasury (first claimable epoch 30 bps). The epoch is **7 days**. From the bridge height the operator bucket is carved first; the 55 / 5 / 20 / 20 split applies to the rest, so the effective shares are 5 + 52.25 + 4.75 + 19 + 19 = 100%. Before 692,000 there was no carve and the split was 55 / 5 / 20 / 20. Pre-public testnet **2300** pays from **epoch 1**. Mainnet keeps a bootstrap: epochs 1–7 emit nothing, first claim at epoch 8. Claims are pull-based.',
       },
       {
         type: 'table',
         headers: ['Epoch slice', 'Share', 'Who'],
         rows: [
-          ['Validators', '55% + unfilled remainder', 'Bonded pack / check work'],
-          ['Watchers', '5%', 'Rail work × presence'],
-          ['AMM LPs', '20%', 'Active pool share; 0.5% cap per account'],
-          ['Lending LPs', '20%', 'Active supply share; 0.5% cap per account'],
+          ['Bridge operators (from 692,000)', '5% off the top', 'Liveness, watching, proven payouts; any undistributed part returns to the treasury'],
+          ['Validators', '52.25% (55% of the remaining 95%) + unfilled remainder', 'Bonded pack / check work: 50% proposer, 40% votes, 10% floor'],
+          ['Watchers', '4.75% (5% of 95%)', 'Rail work × presence; cap 0.05% of the post-carve emission per account'],
+          ['AMM LPs', '19% (20% of 95%)', 'Active pool share; cap 0.5% of the post-carve emission per account'],
+          ['Lending LPs', '19% (20% of 95%)', 'Active supply share; same cap'],
           ['Fees (from 420,000)', '50% burned, 30% proposer, 20% pot', 'Validator pot'],
         ],
       },
@@ -379,7 +380,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
           ['Falcon PL', 'Settlement, FPL, lending, AMM, rewards'],
           ['Bitcoin testnet', 'BitVM2 instance + dest-lock Kickoff (FBTC); no FROST'],
           ['Bitcoin testnet4', '`BTC4` rail from 692,000: `Btc4PegIn` mint against operator-bound graphs, BitVM2 withdraw claims refunded after 43,200 ledgers still awaiting peg-out. From 775,000 a competing header branch accumulates and replaces a lighter pending fork. From 800,000 `AssetPay` moves BTC4 and BTC4 lend prices are per 1 BTC4 (1e8 sats)'],
-          ['Ethereum Sepolia', 'FalconDestLock: dest-lock Kickoff + dest take (no live n-of-n). Light client follows Gloas from 409,134. Exec headers kept for a 50,400-block (~7-day) window. From 414,000 `EthV3Deposit` mints within 3 days of LC time or refunds the sender'],
+          ['Ethereum Sepolia', 'Tested non-custodial. FalconQcBridgeV3 (lead): peg-out proven against Falcon-512 committee signatures, plus deposits and refunds; FalconDestLock (dest-lock Kickoff + dest take, no live n-of-n) is legacy: after the V3 cutoff, V1/V2/DestLock deposits no longer mint. Light client follows Gloas from 409,134. Exec headers kept for a 50,400-block (~7-day) window. From 414,000 `EthV3Deposit` mints within 3 days of LC time or refunds the sender'],
           ['BNB', 'Protocol rail exists; not a public dest-lock product'],
           ['XRP', 'Classic XRPL FXRP corridor — not 1001, not dest-lock'],
         ],
@@ -396,7 +397,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'p',
-        text: '**Bridge operators** (BitVM2, `operator_registry.rs`) are outside parties that front BTC withdrawals with their own BTC. They are then reimbursed from the locked deposit through the presigned peg-out graph (Take1/Take2). The bridges are **non-custodial**: Falcon holds no BTC and no keys, and operators have no keys or votes over funds. BTC moves only through presigned graphs. On 2300 the `Operator*` transactions are refused below the bridge height (692,000).',
+        text: '**Bridge operators** (BitVM2, `operator_registry.rs`) are outside parties that front BTC withdrawals with their own BTC. They are then reimbursed from the locked deposit through the presigned peg-out graph (Take1/Take2). The BTC4 rail is **trust-minimised**: Falcon holds no BTC and no keys, and operators have no keys or votes over funds. BTC moves only through presigned graphs. On 2300 the `Operator*` transactions are refused below the bridge height (692,000).',
       },
       {
         type: 'table',
@@ -415,7 +416,7 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
       },
       {
         type: 'p',
-        text: 'The code sets no watcher bond; each submission is a signed, fee-paying transaction. A watcher’s pay weight is `work × slots / 168`. The watcher pot is 5% of epoch emission, with a per-account cap of 0.05% of emission. Watchers cannot credit themselves, and a mint needs a proof against a header the ledger already accepted. A false Kickoff can therefore be aborted or challenged by anyone watching.',
+        text: 'The code sets no watcher bond; each submission is a signed, fee-paying transaction. A watcher’s pay weight is `work × slots / 168`. The watcher pot is 5% of the emission left after the operator carve (4.75% of the total), with a per-account cap of 0.05% of that post-carve emission. Watchers cannot credit themselves, and a mint needs a proof against a header the ledger already accepted. A false Kickoff can therefore be aborted or challenged by anyone watching.',
       },
     ],
   },
@@ -519,24 +520,24 @@ export const WHITEPAPER_SECTIONS: WhitepaperSection[] = [
     blocks: [
       {
         type: 'p',
-        text: 'The pack budget is a **maximum** packing window (4,000 ms on the core seats, 1,000 ms in the public profile), not a fixed close clock. The round-0 packer waits 2.5 s after the height opens unless a full block is waiting, so a busy chain closes a height every few seconds. When there is no work, the chain does not mint empty height. Figures below are measured unless marked projected.',
+        text: 'The pack budget is a **maximum** packing window (4,000 ms on the core seats, 1,000 ms in the public profile), not a fixed close clock. The round-0 packer waits 2.5 s after the height opens unless a full block is waiting, so a busy chain closes a height every few seconds. When there is no work, the chain does not mint empty height. Block time is not a fixed interval. (a) Under load the round-0 proposer waits until 2.5 s after the previous commit, unless its mempool already holds a full block (400 txs) or the height is past a skip or round change; then it seals at once, so busy heights close as fast as pack, gossip and 4-of-6 votes allow. (b) When traffic is quiet a proposer with no applicable transaction does not seal: no clock, timeout or heartbeat makes a block. A lone transaction arriving after the 2.5 s gap is sealed straight away, so one transaction a minute gives roughly one block a minute. The only empty block (from 755,000) is a fallback: a proposer that has just evicted permanently failing transactions at that height and has nothing else applicable may seal it once, so the height closes. (c) The block gaps below are dated examples, not a specification. Figures below are measured unless marked projected.',
       },
       {
         type: 'table',
         headers: ['Bound', 'Value', 'Meaning'],
         rows: [
           ['Pack budget', '4,000 ms core seats; 1,000 ms public profile', 'Upper bound to assemble one body'],
-          ['Progress timeout', '9,000 ms core seats; 3,000 ms public profile', 'Silence before skip / view-change'],
-          ['Min block gap', '2,500 ms', 'Round-0 pacing; waived when a full block is waiting'],
+          ['Progress timeout', '9,000 ms core seats; 3,000 ms public profile', 'Round timeout when the proposer is offline or lagging; ×4 = proposal timeout with a body in hand'],
+          ['Min block gap', '2,500 ms', 'Round-0 pacing from the previous commit; waived when the seat’s mempool holds 400 txs (a full block), after a skip or round change, or once 2.5 s have already passed'],
           ['Transactions / ledger', '400 on every live seat', '`--max-txs 0` = 400-tx safety cap, packer-side, plus ~1 MB body budget. Largest block in heights 706,466–796,393: 330 txs'],
           ['Mempool', '50,000', 'Reject when full'],
           ['Cumulative (3 Nov 2026)', '27,835,801 txs in 796,352 ledgers', 'v1 archive counters at 20:58 GMT, chain age 79 d 22 h: about 4.0 tx/s averaged over the whole chain. Not continuous: the chain nearly halted from 21 Sep to 6 Oct 2026 (about 6,200 heights in 15 days) and stalled for about 4.4 h on 21–22 Oct'],
           ['Measured sustained', '~16.8 tx/s for 10.9 days', '10 Oct 09:51 – 21 Oct 06:56 UTC: 15.81 million txs sealed, from v1/falcon-node snapshot counters. Load came mostly from Falcon’s own load generator offering 20 tx/s; its accepted submissions averaged 19.4 tx/s (median 19.8) on 13–15 Oct'],
           ['After 21 Oct', '~4–11 tx/s', 'Daily averages from 22 Oct to 3 Nov. Blocks still had room (mean 55–81 txs, max 330, cap 400) and the mempool stayed small (median 60–165), but rounds slowed from ~18 to 4–8 blocks a minute. The load generator sat at its own in-flight limit (20 wallets × 16), and from 23 to 29 Oct one of its target seats (v11) refused connections. Since this was client-side throttling plus slower rounds, it is not a full-block limit. The slowdown began on 16 Oct, before the 21 Oct outage'],
           ['Measured soak', '20 tx/s for ~15 h', 'Over 1 million transactions, modest hardware (October 2026)'],
-          ['Measured burst', '98.1 tx/s for 88 s', 'Testnet 2300, 13 Oct 2026 06:55–06:57 UTC, heights 501,209–501,232: 24 blocks, 8,634 txs, 400-tx per-block cap, Falcon-512 sender signatures in Merkle batches. Seven validators/hubs and two lite nodes on 2–12-core hosts; 120 wallets offering 200 tx/s into one hub. Short burst, not a sustained rate (Falcon-PL docs/ops/THROUGHPUT-2300-IMPLEMENTATION.md)'],
-          ['Measured block time', '~5.3 s average', 'Testnet 2300 chain height data, around 3 November 2026'],
-          ['Measured block time', '~7.8 s', 'Live sample, 3 Nov 2026 20:36–20:42 GMT: 40 blocks in 311 s, read from falcon-fpl.com/v1/health'],
+          ['Measured burst', '98.1 tx/s for 88 s', 'Testnet 2300, 13 Oct 2026 06:55–06:57 UTC, heights 501,209–501,232: 24 blocks, 8,634 txs, 400-tx per-block cap, Merkle batches: each body carried every sender’s Falcon-512 signature, verified by receivers, plus the packer’s single signature over `payload_root|sig_root`. This was before 520,000, so keeping those signatures was the packer’s choice, not yet a validity rule (stripped bodies below 520,000 still verify). Seven validators/hubs and two lite nodes on 2–12-core hosts; 120 wallets offering 200 tx/s into one hub. Short burst, not a sustained rate (Falcon-PL docs/ops/THROUGHPUT-2300-IMPLEMENTATION.md)'],
+          ['Block gap, heavy load (example)', '~4.1 s mean, ~3.8 s median', '13 Oct 07:10 – 21 Oct 06:56 UTC, heights 501,458–668,144, load generator offering 20 tx/s; median of 30 s samples. 10 Oct 09:51 – 21 Oct 06:56 by snapshot heights: 4.07 s mean'],
+          ['Block gap, lighter load (example)', '~7.9 s mean, ~7.5 s median', '2 Nov 21:00 – 3 Nov 21:00 UTC, heights 785,465–796,362, about 10 tx/s offered; median of 30 s samples. Live sample 3 Nov 20:36–20:42 GMT: 40 blocks in 311 s (7.8 s)'],
         ],
       },
       {
