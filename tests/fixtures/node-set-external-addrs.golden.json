@@ -1,0 +1,41 @@
+[
+  {
+    "account": "scott.reynolds.123",
+    "address": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+    "amount": 0,
+    "body_json": "{\"kind\":\"set_external_addrs\",\"chain\":\"btc\",\"address\":\"tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx\"}",
+    "chain": "btc",
+    "destination": "",
+    "fee": 2,
+    "network_id": 2300,
+    "payload": "pl-tx:v2|scott.reynolds.123|7||0|2|2300|{\"kind\":\"set_external_addrs\",\"chain\":\"btc\",\"address\":\"tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx\"}",
+    "sequence": 7,
+    "tx_id": "3ea8ddfe379cc8410f70dddbbbde33e8972b095089a6f66d20105a5adea94e59"
+  },
+  {
+    "account": "scott.reynolds.123",
+    "address": "0x52908400098527886E0F7030069857D2E4169EE7",
+    "amount": 0,
+    "body_json": "{\"kind\":\"set_external_addrs\",\"chain\":\"eth\",\"address\":\"0x52908400098527886E0F7030069857D2E4169EE7\"}",
+    "chain": "eth",
+    "destination": "",
+    "fee": 2,
+    "network_id": 2300,
+    "payload": "pl-tx:v2|scott.reynolds.123|7||0|2|2300|{\"kind\":\"set_external_addrs\",\"chain\":\"eth\",\"address\":\"0x52908400098527886E0F7030069857D2E4169EE7\"}",
+    "sequence": 7,
+    "tx_id": "f374edd33a69fa3fba731a36d04486afc4da69f30ef677e3d4090f0d0c2c5638"
+  },
+  {
+    "account": "scott.reynolds.123",
+    "address": "",
+    "amount": 0,
+    "body_json": "{\"kind\":\"set_external_addrs\",\"chain\":\"btc\",\"address\":\"\"}",
+    "chain": "btc",
+    "destination": "",
+    "fee": 2,
+    "network_id": 2300,
+    "payload": "pl-tx:v2|scott.reynolds.123|7||0|2|2300|{\"kind\":\"set_external_addrs\",\"chain\":\"btc\",\"address\":\"\"}",
+    "sequence": 7,
+    "tx_id": "f0ab6e2d8e22f0cad1db8042ff114b4595e5e4eaa00049afc84cc2d5fdccd3c4"
+  }
+]

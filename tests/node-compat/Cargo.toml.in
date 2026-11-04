@@ -1,0 +1,12 @@
+[package]
+name = "wallet-node-compat"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Wallet tx vectors vs the Falcon PL node (fd-pl) Tx parse/verify"
+
+[workspace]
+
+[dependencies]
+fd-pl = { path = "@FD_PL@" }
+serde_json = "1"

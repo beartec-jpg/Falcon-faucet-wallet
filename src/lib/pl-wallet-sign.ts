@@ -608,8 +608,15 @@ export async function signPlPayToKey(opts: {
 }
 
 /**
- * v2.10.0 `TxPayload::SetExternalAddr` — binds a native external chain address
+ * v2.10.0 `TxBody::SetExternalAddrs` — binds a native external chain address
  * (`btc`, `eth`, `xrp`, `bnb`, etc.) to this Falcon PL account on-chain.
+ * An empty `address` removes the binding for `chain`.
+ *
+ * Wire kind must be exactly `set_external_addrs` (fd-pl `TxBody` is
+ * `tag = "kind", rename_all = "snake_case"`). The node also deserializes the
+ * `set_external_addr` alias, but it re-serializes the body as
+ * `set_external_addrs` to rebuild the signed payload, so signing any other
+ * spelling fails verification.
  */
 export async function signPlSetExternalAddr(opts: {
   account: string
@@ -628,7 +635,7 @@ export async function signPlSetExternalAddr(opts: {
     fee: opts.fee ?? 2,
     networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
     body: {
-      kind: 'SetExternalAddr',
+      kind: 'set_external_addrs',
       chain: opts.chain.trim().toLowerCase(),
       address: opts.address.trim(),
     },
