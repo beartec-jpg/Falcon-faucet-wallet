@@ -420,6 +420,8 @@ export default function MarketingHomePage() {
             <Link href="/whitepaper">Whitepaper</Link>
             <Link href="/community">Community</Link>
             <Link href="/terms">Terms</Link>
+            <Link href="/terms-of-use">Terms of Use</Link>
+            <Link href="/privacy">Privacy</Link>
             <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
               Discord
             </a>
