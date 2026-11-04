@@ -85,7 +85,7 @@ export default function TermsOfUsePage() {
         <L items={[
           'Every plan, including Free, needs an API key. One read = 1 unit; one transaction submit = 5 units. Quotas reset at 00:00 UTC on the 1st of each month. Prices are in pounds sterling. BEARTEC is not registered for VAT, so no VAT is charged.',
           'Plans pay for access to BEARTEC-run RPC infrastructure on the testnet. They do not buy, include or earn FPL.',
-          'Paid plans are paid monthly in advance by card online through Stripe, where online payment is available for the plan. We do not issue invoices or offer credit terms. Until online payment is switched on, paid plans are not available to buy; keys for the Free plan are arranged on request.',
+          'Falcon Cloud plans are Free (£0), Builder (£29 a month) and Scale (£199 a month). Builder and Scale are billed monthly in advance by card through Stripe. We do not issue invoices or offer credit terms.',
           'You can cancel at the end of any month by emailing us. If you are a consumer, you also have a 14-day right to cancel a new paid plan. If you asked us to start straight away, we will deduct a proportionate amount for the service already provided.',
           'We aim for good availability but give no uptime guarantee on the testnet. We may suspend keys used for abuse or above quota.',
           'For business customers, our total liability in any year is limited to the fees paid in that year.',

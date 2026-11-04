@@ -83,7 +83,7 @@ export default function PrivacyPage() {
             ['Vercel', 'Hosting of falcon-fpl.com and the arcade', 'USA and global edge network'],
             ['Neon', 'Database for faucet, feedback, First 35, arcade and explorer data', <TBC key="neon">region</TBC>],
             ['Upstash', 'Rate limiting (short-lived IP counters)', <TBC key="upstash">region</TBC>],
-            ['Stripe', 'Card payments for paid Falcon Cloud plans (when online payment is switched on)', 'UK, EU and USA'],
+            ['Stripe', 'Card payments for paid Falcon Cloud plans (Builder and Scale)', 'UK, EU and USA'],
             ['Server providers for validator and archive nodes', 'Running the testnet (node logs may contain peer IP addresses)', <TBC key="nodes">provider names and regions</TBC>],
             ['Discord', 'Internal health alerts only (no user data is intended to be sent)', 'USA'],
           ]}
