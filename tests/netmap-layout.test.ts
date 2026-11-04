@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { NETWORK_MAP_CONFIG } from '@/config/network-map'
 import { bezier, HUB_CORE_TOP_DY, layoutMap, pipePoints, railRoute, segDist, type Vec3 } from '@/lib/netmap-layout'
 
-// Live seat set as of 2026-10-14 (9 online + 6 jailed, which the map hides).
+// Seat set from 2026-10-14 (9 online + 6 offline). Layout follows NETWORK_MAP_CONFIG on main (hub v3; scottdog on falcon2).
 const SEATS = ['falcon-node', 'scottspersonalnode', 'v1', 'v10', 'v11', 'v12', 'v13', 'v3', 'v6'].map((id) => ({ id, online: true }))
   .concat(['v2', 'v4', 'v5', 'v7', 'v8', 'v9'].map((id) => ({ id, online: false })))
 const L = layoutMap(NETWORK_MAP_CONFIG, SEATS)
@@ -20,7 +20,19 @@ const BODY = 0.6
 
 describe('network map layout: nothing overlaps', () => {
   it('places every online seat and wallet services', () => {
-    expect(L.seats.map((s) => s.id).sort()).toEqual(SEATS.filter((s) => s.online && s.id !== 'v11').map((s) => s.id).sort())
+    // The hub seat is drawn as the hub, not as a placed seat.
+    expect(L.hub.id).toBe(NETWORK_MAP_CONFIG.hub.seat)
+    const placed = L.seats.map((s) => s.id).sort()
+    // Every online non-hub seat is placed exactly once.
+    for (const s of SEATS) if (s.online && s.id !== L.hub.id) expect(placed).toContain(s.id)
+    expect(new Set(placed).size).toBe(placed.length)
+    expect(placed).not.toContain(L.hub.id)
+    // Placed = every configured (non-hub) seat, plus online seats not in config.
+    const configured = NETWORK_MAP_CONFIG.locations.flatMap((l) => l.hosts.flatMap((h) => h.seats)).filter((id) => id !== L.hub.id)
+    const unplacedOnline = SEATS.filter((s) => s.online && s.id !== L.hub.id && !configured.includes(s.id)).map((s) => s.id)
+    expect(placed).toEqual([...configured, ...unplacedOnline].sort())
+    // Offline seats missing from config are dropped (showUnplacedOffline = false).
+    for (const s of SEATS) if (!s.online && !configured.includes(s.id)) expect(placed).not.toContain(s.id)
     expect(L.wallet?.label).toBe('Wallet services')
   })
 

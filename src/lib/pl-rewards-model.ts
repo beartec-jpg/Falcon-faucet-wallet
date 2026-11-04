@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Falcon PL (2300) epoch reward model: integer mirror of
  * `falcon-pl-rs/crates/fd-pl/src/economy.rs::settle_epoch` and the equal

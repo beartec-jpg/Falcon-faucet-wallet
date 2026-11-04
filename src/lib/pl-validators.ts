@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Falcon PL 2300 validator onboarding helpers shared by /validator, /validator/apply and
  * /api/pl2300/validators. Designed against the 2.9.62 interfaces (rewards plan A6/A9/A10/A11):

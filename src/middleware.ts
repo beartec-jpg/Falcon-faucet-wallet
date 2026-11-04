@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextResponse, type NextRequest } from 'next/server'
 import { buildCsp, newNonce } from '@/lib/csp'
 
@@ -21,7 +22,7 @@ export const config = {
   matcher: [
     {
       // Pages only: skip API routes, static assets, and prefetches.
-      source: '/((?!api/|_next/static|_next/image|cold-signer|.*\\..*).*)',
+      source: '/((?!api/|v1/|_next/static|_next/image|cold-signer|.*\\..*).*)',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },

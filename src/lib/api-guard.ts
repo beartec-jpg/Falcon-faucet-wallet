@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Guards for public relay/proxy routes (audit pass 2 Lows): origin check, per-IP rate limit,
  * and bounded request bodies. Uses Upstash when configured, else a per-instance memory window.

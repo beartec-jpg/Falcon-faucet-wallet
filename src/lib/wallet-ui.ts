@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Shared wallet UI helpers — token colours, totals, filters */
 
 import type { FalconAssetId } from '@/lib/multi-chain-assets'

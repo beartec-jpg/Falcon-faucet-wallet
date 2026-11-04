@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import dynamic from 'next/dynamic'

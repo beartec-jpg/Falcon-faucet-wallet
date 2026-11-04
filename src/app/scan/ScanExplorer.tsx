@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { PoolsView, RailsView } from '@/components/explorer/RailsPoolsTabs'
@@ -10,6 +11,7 @@ import type { ScanData, LedgerSummary, ValidatorEntry, RailRow } from '@/lib/sca
 import ClickableStatCard from '@/components/explorer/ClickableStatCard'
 import EpochEmissionsCard from '@/components/explorer/EpochEmissionsCard'
 import SeatBoxes from '@/components/explorer/SeatBoxes'
+import NetworkHealthPanel from '@/components/explorer/NetworkHealthPanel'
 import MetricModal, { seatOptions } from '@/components/explorer/MetricModal'
 import { useLiveSamples, type LiveSamples } from '@/hooks/useLiveSamples'
 import { seatKey, seatLag, SERIES_LABELS, windowIntake, type SeatMetric } from '@/lib/net-metrics'
@@ -437,6 +439,8 @@ export default function ScanExplorer({
             />
           </section>
         )}
+
+        {tab === 'network' && <NetworkHealthPanel />}
 
         {tab === 'network' && d && <EpochEmissionsCard epoch={d.epoch} />}
 

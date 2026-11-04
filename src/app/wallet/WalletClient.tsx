@@ -1,18 +1,46 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
+import WalletCylinder from '@/components/WalletCylinder'
+import { EmbeddedFaceContext } from '@/components/EmbeddedFace'
+
+const VaultFace = dynamic(() => import('@/components/wallet-faces/VaultFace'), { ssr: false })
+const SwapFace = dynamic(() => import('@/components/wallet-faces/SwapFace'), { ssr: false })
+const PoolFace = dynamic(() => import('@/components/wallet-faces/PoolFace'), { ssr: false })
+const LendFace = dynamic(() => import('@/components/wallet-faces/LendFace'), { ssr: false })
+
+/** Cylinder order (loops back to Falcon). */
+const WALLET_FACES = [
+  { id: 'falcon', label: 'Falcon' },
+  { id: 'multichain', label: 'Multi-chain' },
+  { id: 'vault', label: 'Vault' },
+  { id: 'bridge', label: 'Bridge' },
+  { id: 'swap', label: 'Swap' },
+  { id: 'pool', label: 'Pool' },
+  { id: 'lend', label: 'Lend' },
+] as const
+type ExtFace = 'vault' | 'swap' | 'pool' | 'lend'
+const EXT_FACES: readonly string[] = ['vault', 'swap', 'pool', 'lend']
+const HIDE_BAL_KEY = 'falcon-wallet-hide-balances-v1'
+const MASK = '****'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
 import {
   isPasskeySupported,
   registerPasskey,
   authenticatePasskey,
+  addWalletPassword,
+  changeWalletPassword,
+  removeWalletPassword,
+  walletKekMode,
 } from '@/lib/passkey'
 import { encryptSeed, decryptSeed } from '@/lib/wallet-crypto'
 import {
@@ -360,12 +388,42 @@ export default function WalletPage() {
   const [bridgeMissing, setBridgeMissing] = useState(false)
   const bridgeAutoProvisioned = useRef(false)
 
+  const [extFace, setExtFace] = useState<ExtFace | null>(null)
+  const [hideBalances, setHideBalances] = useState(false)
+
   useEffect(() => {
+    try { if (localStorage.getItem(HIDE_BAL_KEY) === '1') setHideBalances(true) } catch { /* ignore */ }
+  }, [])
+  const toggleHideBalances = () => {
+    setHideBalances((h) => {
+      try { localStorage.setItem(HIDE_BAL_KEY, h ? '0' : '1') } catch { /* ignore */ }
+      return !h
+    })
+  }
+
+  // Deep links: /wallet?tab=<face> (falcon|multichain|vault|bridge|swap|pool|lend);
+  // legacy /wallet?bridge=1 and ?section=bridge still open Bridge. Re-read on client
+  // navigation too (e.g. an in-face link to /swap redirects back to /wallet?tab=swap).
+  const applyUrlFace = useCallback(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get('bridge') === '1' || params.get('section') === 'bridge') {
+    const tab = params.get('tab')
+    if (params.get('bridge') === '1' || params.get('section') === 'bridge' || tab === 'bridge') {
+      setExtFace(null)
       setWalletSection('bridge')
+    } else if (tab === 'falcon' || tab === 'multichain') {
+      setExtFace(null)
+      setWalletSection(tab)
+    } else if (tab && EXT_FACES.includes(tab)) {
+      setExtFace(tab as ExtFace)
     }
   }, [])
+  useEffect(() => {
+    applyUrlFace()
+    window.addEventListener('popstate', applyUrlFace)
+    return () => window.removeEventListener('popstate', applyUrlFace)
+  }, [applyUrlFace])
+  const urlTab = useSearchParams()?.get('tab') ?? null
+  useEffect(() => { if (urlTab) applyUrlFace() }, [urlTab, applyUrlFace])
 
   useEffect(() => {
     setFalconVisible({ ...loadFalconVisibility(), fbnb: false })
@@ -446,6 +504,14 @@ export default function WalletPage() {
   const [exportPassphrase,   setExportPassphrase]   = useState('')
   const [exportPassConfirm,  setExportPassConfirm]  = useState('')
   const [showExportBackup,   setShowExportBackup]   = useState(false)
+
+  // Optional passkey + password (two-factor KEK)
+  const [kekMode,            setKekMode]            = useState<'prf' | 'password' | 'prf+password' | null>(null)
+  const [showAddPassword,    setShowAddPassword]    = useState(false)
+  const [managePw,           setManagePw]           = useState<'closed' | 'menu' | 'change'>('closed')
+  const [newWalletPw,        setNewWalletPw]        = useState('')
+  const [newWalletPwConfirm, setNewWalletPwConfirm] = useState('')
+  const [walletPwNote,       setWalletPwNote]       = useState<string | null>(null)
   const [destLockHomeJobs, setDestLockHomeJobs] = useState<DestLockPending[]>([])
   const [spvHomePending, setSpvHomePending] = useState<SpvPendingDeposit | null>(null)
 
@@ -925,7 +991,7 @@ export default function WalletPage() {
       })
       const holdJ = (await hold.json()) as { error?: string; reservedUntil?: number; fee?: number }
       if (!hold.ok) throw new Error(holdJ.error ?? 'Could not reserve that name')
-      const { credentialId, keyBytes, hasPrf } = await registerPasskey(picked)
+      const { credentialId, keyBytes, hasPrf } = await registerPasskey(picked, { offerPassword: true })
       const encrypted = await encryptSeed(falcon_secret, keyBytes, hasPrf)
       const { address: evmAddress, privateKeyHex: evmPrivateKeyHex } = createRandomEvmWallet()
       const evmEncrypted = await encryptSeed(evmPrivateKeyHex, keyBytes, hasPrf)
@@ -1127,7 +1193,7 @@ export default function WalletPage() {
     try {
       const { address, publicKey } = await keysFromFalconSecret(falconSecret)
       const walletLabel = label.trim() || 'Restored Wallet'
-      const { credentialId, keyBytes, hasPrf } = await registerPasskey(walletLabel)
+      const { credentialId, keyBytes, hasPrf } = await registerPasskey(walletLabel, { offerPassword: true })
       const encrypted = await encryptSeed(falconSecret, keyBytes, hasPrf)
       const evm = bridgeFromBackup?.evm_private_key && bridgeFromBackup.evm_address
         ? await encryptEvmKeyForPasskey(bridgeFromBackup.evm_private_key, keyBytes, hasPrf)
@@ -1261,6 +1327,59 @@ export default function WalletPage() {
     } finally {
       setBusy(false)
       if (restoreFileRef.current) restoreFileRef.current.value = ''
+    }
+  }
+
+  useEffect(() => {
+    if (!wallet?.credentialId) { setKekMode(null); return }
+    let live = true
+    walletKekMode(wallet.credentialId).then(m => { if (live) setKekMode(m) }).catch(() => {})
+    return () => { live = false }
+  }, [wallet?.credentialId])
+
+  const handleAddWalletPassword = async () => {
+    if (!wallet) return
+    if (newWalletPw !== newWalletPwConfirm) { setError('Passwords do not match'); return }
+    setBusy(true)
+    setError(null)
+    setWalletPwNote(null)
+    try {
+      const changing = kekMode === 'prf+password'
+      if (changing) await changeWalletPassword(wallet.credentialId, newWalletPw)
+      else await addWalletPassword(wallet.credentialId, newWalletPw)
+      const fresh = await loadPrimaryWallet()
+      if (fresh) setWallet(fresh)
+      setKekMode('prf+password')
+      setShowAddPassword(false)
+      setManagePw('closed')
+      setWalletPwNote(changing
+        ? 'Password changed.'
+        : 'Password added. Unlocking now needs your passkey and this password.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to add password')
+    } finally {
+      setNewWalletPw('')
+      setNewWalletPwConfirm('')
+      setBusy(false)
+    }
+  }
+
+  const handleRemoveWalletPassword = async () => {
+    if (!wallet) return
+    setBusy(true)
+    setError(null)
+    setWalletPwNote(null)
+    try {
+      await removeWalletPassword(wallet.credentialId)
+      const fresh = await loadPrimaryWallet()
+      if (fresh) setWallet(fresh)
+      setKekMode('prf')
+      setManagePw('closed')
+      setWalletPwNote('Password removed. This wallet now unlocks with your passkey only.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to remove password')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -1851,6 +1970,12 @@ export default function WalletPage() {
         )
         return
       }
+      if (network.networkId === 2300) {
+        // Node AssetPay only allows BTC/ETH/USDC today: a BTC4 send is "accepted" into the
+        // mempool but dropped at pack, so the funds never move. Block until the node enables it.
+        setError('FBTC peer-to-peer send is not enabled on Falcon PL yet — your FBTC was not moved. Use Bridge to withdraw to Testnet4.')
+        return
+      }
       if (amt > fbtcBal) {
         setError('Insufficient FBTC balance'); return
       }
@@ -2073,7 +2198,7 @@ export default function WalletPage() {
       <Header current="wallet" />
       <NetworkBanner />
 
-      <main className="flex-1 flex items-start justify-center px-4 py-10">
+      <main className={`${extFace && view === 'dashboard' ? '' : 'flex-1 '}flex items-start justify-center px-4 ${extFace && view === 'dashboard' ? 'pt-10 pb-3' : 'py-10'}`}>
         <div className="w-full max-w-lg space-y-4">
 
           {/* ── Loading ── */}
@@ -2460,39 +2585,77 @@ export default function WalletPage() {
                 </div>
               )}
 
-              {view === 'dashboard' && (
-                <div className="wallet-glass p-1.5 flex gap-1">
-                  {(
-                    [
-                      { id: 'falcon' as const, label: 'Falcon' },
-                      { id: 'multichain' as const, label: 'Multi-chain' },
-                      { id: 'bridge' as const, label: 'Bridge' },
-                    ] as const
-                  ).map((tab) => (
+              {view === 'dashboard' && (() => {
+                const fb = parseFalconBalances(account)
+                const fmt = (v: number) => (hideBalances ? MASK : v.toLocaleString(undefined, { maximumFractionDigits: 6 }))
+                const chips: { label: string; v: number }[] = [
+                  { label: 'F-USDC', v: fb.fusdc },
+                  { label: 'F-ETH', v: fb.feth },
+                  { label: 'F-BTC', v: fb.fbtc },
+                ].filter((c) => c.v > 0)
+                return (
+                  <div className="wallet-glass px-4 py-2.5 flex items-center gap-3" aria-label="Falcon balance">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Falcon balance</div>
+                      <div className="flex items-baseline gap-x-3 gap-y-0.5 flex-wrap">
+                        <span className="text-lg font-bold tabular-nums text-white">
+                          {account == null ? <span className="wallet-skeleton inline-block h-5 w-20 align-middle" /> : fmt(fb.falcon)}
+                          <span className="text-xs font-semibold text-brand-400"> FPL</span>
+                        </span>
+                        {chips.map((c) => (
+                          <span key={c.label} className="text-[11px] tabular-nums text-slate-400">
+                            {fmt(c.v)} <span className="text-slate-500">{c.label}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                     <button
-                      key={tab.id}
                       type="button"
-                      onClick={() => {
-                        setWalletSection(tab.id)
-                        setPanelKey((k) => k + 1)
-                        if (tab.id === 'bridge') {
-                          setBridgeInitialMode('deposit')
-                          setBridgeInitialSpvTxid('')
-                        }
-                        refreshBalance(plAccountId(wallet))
-                      }}
-                      className={`wallet-tab-pill ${
-                        walletSection === tab.id
-                          ? 'bg-brand-500/15 text-brand-400 shadow-[inset_0_0_0_1px_rgba(192,120,56,0.35)]'
-                          : 'text-slate-500 hover:text-slate-300'
-                      }`}
+                      onClick={toggleHideBalances}
+                      className="p-2 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800/60"
+                      aria-label={hideBalances ? 'Show balances' : 'Hide balances'}
+                      aria-pressed={hideBalances}
+                      title={hideBalances ? 'Show balances' : 'Hide balances'}
                     >
-                      {tab.label}
+                      {hideBalances ? (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18M10.6 10.6a2 2 0 002.8 2.8M9.9 5.1A9.8 9.8 0 0112 5c4.5 0 8.3 2.9 9.5 7a10 10 0 01-2.6 4.1M6.1 6.1A10 10 0 002.5 12c1.2 4.1 5 7 9.5 7 1.6 0 3.2-.4 4.5-1" /></svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.5 12C3.7 7.9 7.5 5 12 5s8.3 2.9 9.5 7c-1.2 4.1-5 7-9.5 7s-8.3-2.9-9.5-7z" /><circle cx="12" cy="12" r="3" strokeWidth={2} /></svg>
+                      )}
                     </button>
-                  ))}
-                </div>
+                  </div>
+                )
+              })()}
+
+              {view === 'dashboard' && (
+                <WalletCylinder
+                  faces={WALLET_FACES as unknown as { id: string; label: string }[]}
+                  activeId={extFace ?? walletSection}
+                  onSelect={(id) => {
+                    const params = new URLSearchParams(window.location.search)
+                    params.delete('bridge')
+                    params.delete('section')
+                    params.set('tab', id)
+                    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+                    if (EXT_FACES.includes(id)) {
+                      setExtFace(id as ExtFace)
+                      return
+                    }
+                    setExtFace(null)
+                    // Same behaviour as the former Falcon / Multi-chain / Bridge tab pills.
+                    const tabId = id as 'falcon' | 'multichain' | 'bridge'
+                    setWalletSection(tabId)
+                    setPanelKey((k) => k + 1)
+                    if (tabId === 'bridge') {
+                      setBridgeInitialMode('deposit')
+                      setBridgeInitialSpvTxid('')
+                    }
+                    refreshBalance(plAccountId(wallet))
+                  }}
+                />
               )}
 
+              <div className={extFace && view === 'dashboard' ? 'hidden' : 'space-y-4'}>
               {/* Network health */}
               {view === 'dashboard' && (walletSection === 'falcon' || walletSection === 'multichain') && (
                 <div className="flex items-center justify-between gap-2 px-1 text-[11px] text-slate-500">
@@ -3317,7 +3480,7 @@ export default function WalletPage() {
                                     href={`/faucet?asset=btc&address=${encodeURIComponent(wallet.btcAddress || plAccountId(wallet))}`}
                                     className="text-[11px] font-medium text-orange-400 hover:text-orange-300 transition-colors"
                                   >
-                                    Get Testnet4 BTC (0.002 tBTC) →
+                                    Get Testnet4 BTC (0.1 tBTC) →
                                   </Link>
                                 </div>
                               )}
@@ -4620,6 +4783,105 @@ export default function WalletPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* Optional passkey + password (PRF wallets only) */}
+                  {(kekMode === 'prf' || kekMode === 'prf+password') && (() => {
+                    const pwForm = (
+                      <div className="space-y-2">
+                        <input
+                          type="password"
+                          value={newWalletPw}
+                          onChange={e => setNewWalletPw(e.target.value)}
+                          placeholder={kekMode === 'prf+password' ? 'New wallet password' : 'Wallet password'}
+                          className="input-field"
+                          autoComplete="new-password"
+                        />
+                        <input
+                          type="password"
+                          value={newWalletPwConfirm}
+                          onChange={e => setNewWalletPwConfirm(e.target.value)}
+                          placeholder="Confirm wallet password"
+                          className="input-field"
+                          autoComplete="new-password"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setShowAddPassword(false); setManagePw('closed'); setNewWalletPw(''); setNewWalletPwConfirm('') }}
+                            className="flex-1 py-2 text-xs rounded-lg text-slate-500 hover:text-slate-300"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleAddWalletPassword}
+                            disabled={busy || !newWalletPw || !newWalletPwConfirm}
+                            className="flex-1 py-2 text-xs rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50"
+                          >
+                            {busy ? 'Re-encrypting…' : kekMode === 'prf+password' ? 'Change password' : 'Add password'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                    if (kekMode === 'prf') {
+                      return !showAddPassword ? (
+                        <button
+                          type="button"
+                          onClick={() => { setShowAddPassword(true); setError(null); setWalletPwNote(null) }}
+                          disabled={busy}
+                          className="w-full py-2 text-sm rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition disabled:opacity-50"
+                        >
+                          Add password
+                        </button>
+                      ) : pwForm
+                    }
+                    if (managePw === 'change') return pwForm
+                    if (managePw === 'menu') {
+                      return (
+                        <div className="space-y-2">
+                          <div className="text-xs text-slate-500">
+                            Both options ask for your passkey and current password first.
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setManagePw('closed')}
+                              className="flex-1 py-2 text-xs rounded-lg text-slate-500 hover:text-slate-300"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setManagePw('change'); setError(null) }}
+                              disabled={busy}
+                              className="flex-1 py-2 text-xs rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50"
+                            >
+                              Change password
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleRemoveWalletPassword}
+                              disabled={busy}
+                              className="flex-1 py-2 text-xs rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                            >
+                              {busy ? 'Re-encrypting…' : 'Turn off password'}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    }
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => { setManagePw('menu'); setError(null); setWalletPwNote(null) }}
+                        disabled={busy}
+                        className="w-full py-2 text-sm rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition disabled:opacity-50"
+                      >
+                        Manage password
+                      </button>
+                    )
+                  })()}
+                  {walletPwNote && <div className="text-xs text-emerald-400">{walletPwNote}</div>}
                 </div>
               )}
 
@@ -4633,6 +4895,7 @@ export default function WalletPage() {
                   Remove wallet from this device
                 </button>
               )}
+              </div>
             </>
           )}
 
@@ -4647,7 +4910,7 @@ export default function WalletPage() {
           )}
 
           {/* ── Footer note ── */}
-          <p className="text-center text-xs text-slate-700">
+          <p hidden={Boolean(extFace && view === 'dashboard')} className="text-center text-xs text-slate-700">
             {network.badge === 'testnet' ? 'Testnet tokens · No real value' : `${network.name} · Network ID ${network.networkId}`}
             {' · '}
             <a
@@ -4661,6 +4924,18 @@ export default function WalletPage() {
           </p>
         </div>
       </main>
+
+      {/* Vault / Swap / Pool / Lend faces: existing page components, unchanged, full width. */}
+      {view === 'dashboard' && extFace && (
+        <EmbeddedFaceContext.Provider value={true}>
+          <div key={extFace} className="wallet-panel-enter">
+            {extFace === 'vault' && <VaultFace />}
+            {extFace === 'swap' && <SwapFace />}
+            {extFace === 'pool' && <PoolFace />}
+            {extFace === 'lend' && <LendFace />}
+          </div>
+        </EmbeddedFaceContext.Provider>
+      )}
     </ProductShell>
   )
 }

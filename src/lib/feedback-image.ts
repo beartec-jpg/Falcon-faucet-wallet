@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Screenshot handling for testnet feedback: type sniffing by magic bytes, structural
 // checks, and metadata stripping (EXIF/XMP/ICC text, comments) without native deps.
 // The client re-encodes to JPEG already; this is the server-side guarantee.

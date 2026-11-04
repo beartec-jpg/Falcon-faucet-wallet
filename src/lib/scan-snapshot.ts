@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { emissionPctPerEpoch, emissionPctPerYear } from '@/lib/pl-rewards-model'
 import { meshHeadFromStatus, num, str } from '@/lib/pl-mesh'
 import { plStatus } from '@/lib/pl-rpc'

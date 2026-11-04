@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Per-credential record of how wallet keys are wrapped (passkey PRF or password).
  * Holds only public parameters: mode, Argon2id salt/params and an AES-GCM check value
@@ -13,7 +14,8 @@ const STORE = 'keks'
 
 export interface KekRecord {
   credentialId: string
-  mode: 'prf' | 'password'
+  /** 'prf+password': KEK = HKDF(PRF || Argon2id(password)); kdf + check are set. */
+  mode: 'prf' | 'password' | 'prf+password'
   kdf?: PasswordKdfParams
   /** encryptSeed(KEK_CHECK_PLAINTEXT) under the key: detects a wrong password early. */
   check?: EncryptedSeed

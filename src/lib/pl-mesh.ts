@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import type { MeshHead } from '@/lib/scan-types'
 
 export function num(v: unknown, fallback = 0): number {

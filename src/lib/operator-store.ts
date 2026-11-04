@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Per-epoch operator work, sampled by the metrics cron. Postgres when configured,
 // in-memory otherwise (same pattern as activity-index.ts).
 

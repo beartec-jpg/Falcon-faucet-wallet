@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET /api/arcade/leaderboard?network=testnet&game=falcon-flight&limit=25
 
 import { NextRequest, NextResponse } from 'next/server'

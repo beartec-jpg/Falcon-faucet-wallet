@@ -23,7 +23,8 @@
     "verify:v3-claims": "node scripts/verify-v3-claims.mjs",
     "verify:pl-rewards": "node scripts/verify-pl-rewards-model.mjs",
     "verify:explorer-metrics": "node scripts/verify-explorer-metrics.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:all": "tsc --noEmit && vitest run && next build"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -54,6 +55,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/three": "0.180.0",
+    "ajv": "^8.17.1",
     "autoprefixer": "^10.4.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^15.5.28",

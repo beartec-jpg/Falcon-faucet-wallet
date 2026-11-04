@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 // Unified Operators view on /airdrop: 100M Operators Pool rules (from config/operators.ts)

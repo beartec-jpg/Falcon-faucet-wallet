@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -364,6 +365,18 @@ export default function ArcadePage() {
             className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
           >
             Feedback
+          </Link>
+          <Link
+            href="/terms"
+            className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
+          >
+            Terms
+          </Link>
+          <Link
+            href="/privacy"
+            className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
+          >
+            Privacy
           </Link>
           {walletAddress ? (
             <span className="hidden sm:inline text-xs font-mono text-slate-400 truncate max-w-[10rem]">

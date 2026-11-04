@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import Image from 'next/image'
@@ -6,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNetwork } from '@/components/NetworkProvider'
 import NetworkSwitcher from '@/components/NetworkSwitcher'
+import { useEmbeddedFace } from '@/components/EmbeddedFace'
 
 type NavItem =
   | 'faucet'
@@ -32,15 +34,18 @@ interface HeaderProps {
   sticky?: boolean
 }
 
+/** Vault / Swap / Pool / Lend live inside the Wallet cylinder, so they highlight Wallet. */
+function navKeyFor(current: NavItem): NavItem {
+  if (current === 'first35') return 'airdrop'
+  if (current === 'vault' || current === 'swap' || current === 'pool' || current === 'lend') return 'wallet'
+  return current
+}
+
 const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'faucet', label: 'Faucet', href: '/faucet' },
   { key: 'scan', label: 'Explorer', href: '/scan' },
   { key: 'wallet', label: 'Wallet', href: '/wallet' },
-  { key: 'vault', label: 'Vault', href: '/vault' },
   { key: 'arcade', label: 'Arcade', href: '/arcade' },
-  { key: 'swap', label: 'Swap', href: '/swap' },
-  { key: 'pool', label: 'Pool', href: '/pool' },
-  { key: 'lend', label: 'Lend', href: '/lend' },
   { key: 'airdrop', label: 'Airdrop', href: '/airdrop' },
   { key: 'community', label: 'Community', href: '/community' },
   { key: 'whitepaper', label: 'Whitepaper', href: '/whitepaper' },
@@ -52,7 +57,8 @@ const COMMUNITY_SUB_ITEMS: { label: string; href: string }[] = [
   { label: 'Feedback', href: '/feedback' },
   { label: 'Learn', href: '/community/learn' },
   { label: 'Validators', href: '/validator' },
-  { label: 'Network health', href: '/network/health' },
+  { label: 'Network health', href: '/scan#network-health' },
+  { label: 'Developers', href: '/developers' },
 ]
 
 function NavLinks({
@@ -113,7 +119,7 @@ function NavLinks({
   )
 
   function navItem(item: (typeof NAV_ITEMS)[number]) {
-        const activeKey = current === 'first35' ? 'airdrop' : current
+        const activeKey = navKeyFor(current)
         const isActive = item.key === activeKey
         const itemClass = 'px-2.5 sm:px-3 py-1.5 rounded-lg whitespace-nowrap scroll-mx-4'
         if (isActive) {
@@ -141,7 +147,13 @@ function NavLinks({
   }
 }
 
-export default function Header({
+export default function Header(props: HeaderProps) {
+  // Inside the Wallet cylinder the wallet page already renders the site header.
+  if (useEmbeddedFace()) return null
+  return <HeaderInner {...props} />
+}
+
+function HeaderInner({
   current,
   subtitle,
   children,
@@ -178,7 +190,7 @@ export default function Header({
     setCommunityLeft(Math.max(8, Math.min(r.left - (h?.left ?? 0), maxLeft)))
   }
   useEffect(() => {
-    const el = document.getElementById(`nav-item-${current}`)
+    const el = document.getElementById(`nav-item-${navKeyFor(current)}`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
   }, [current])
 

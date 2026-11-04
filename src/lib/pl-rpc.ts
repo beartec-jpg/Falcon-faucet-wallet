@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Falcon PL (network 2300) wire client.
  *
@@ -269,8 +270,17 @@ export async function plAccount(account: string): Promise<Record<string, unknown
   return (r.body ?? {}) as Record<string, unknown>
 }
 
+// A seat 1–2 blocks behind answers submit_tx with Err "deferred-until-catchup" and DROPS the tx
+// (falcon_pl_node.rs SubmitTx). Safe to resend the same signed tx: wait briefly, then try the next seat.
+const isDeferred = (m: unknown) => String(m ?? '').includes('deferred-until-catchup')
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
 export async function plSubmit(tx: PlTx): Promise<{ ok: boolean; msg: string }> {
-  const r = await plRpc({ type: 'submit_tx', tx })
+  let r = await plRpc({ type: 'submit_tx', tx })
+  for (let i = 0; i < 4 && r.type === 'err' && isDeferred(r.msg); i++) {
+    await sleep(700)
+    r = await plRpc({ type: 'submit_tx', tx })
+  }
   if (r.type === 'err') return { ok: false, msg: String(r.msg ?? 'rejected') }
   return { ok: true, msg: String(r.msg ?? 'accepted') }
 }
@@ -284,7 +294,15 @@ export async function plSubmitRaw(txJson: string): Promise<{ ok: boolean; msg: s
   let last: Error | null = null
   for (const addr of addrs) {
     try {
-      const r = await plRpcOnce(`{"type":"submit_tx","tx":${tx}}`, addr, timeoutMs)
+      let r = await plRpcOnce(`{"type":"submit_tx","tx":${tx}}`, addr, timeoutMs)
+      for (let i = 0; i < 4 && r.type === 'err' && isDeferred(r.msg); i++) {
+        await sleep(700)
+        r = await plRpcOnce(`{"type":"submit_tx","tx":${tx}}`, addr, timeoutMs)
+      }
+      if (r.type === 'err' && isDeferred(r.msg) && addr !== addrs[addrs.length - 1]) {
+        last = new Error(String(r.msg))
+        continue
+      }
       if (r.type === 'err') return { ok: false, msg: String(r.msg ?? 'rejected') }
       return { ok: true, msg: String(r.msg ?? 'accepted') }
     } catch (e) {

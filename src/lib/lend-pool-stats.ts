@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { collateralFromLoanObject } from '@/lib/lend-loan-onchain'
 import { serverRpcCall, type resolveNetworkKey } from '@/lib/network-server'
 

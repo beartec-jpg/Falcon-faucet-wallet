@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { recordSwap } from '@/lib/swap-log'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireBrowserOrigin } from '@/lib/origin'

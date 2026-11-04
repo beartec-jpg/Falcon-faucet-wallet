@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextResponse } from 'next/server'
 import { meshHeadFromStatus } from '@/lib/pl-mesh'
 import { plRpc } from '@/lib/pl-rpc'

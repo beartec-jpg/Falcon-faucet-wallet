@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // POST /api/first35/apply — First 35 application. Requires a registered testnet account.
 import { NextRequest, NextResponse } from 'next/server'
 import { accountExists, first35Store, isIneligibleAccount, validateApplication } from '@/lib/first35-store'

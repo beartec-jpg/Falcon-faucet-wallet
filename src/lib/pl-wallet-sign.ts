@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Browser Falcon-512 signing for Falcon PL (2300) Pay txs.
  * falcon_secret never leaves the device. No Node builtins — wallet is a client component.

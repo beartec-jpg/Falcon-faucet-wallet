@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Falcon PL named accounts — the name is the account.
  * Short / obvious names cost more to activate. Unpaid reserves expire.

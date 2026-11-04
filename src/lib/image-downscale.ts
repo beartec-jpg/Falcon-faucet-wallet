@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Browser-only: re-encode a picked photo/screenshot as JPEG, at most `maxSide` px on the long
 // edge, under `maxBytes`. Re-encoding through a canvas drops EXIF/GPS and other metadata.
 // createImageBitmap with imageOrientation 'from-image' applies the camera rotation first.

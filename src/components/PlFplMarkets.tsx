@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
@@ -561,6 +562,9 @@ function PoolAdd({
   walletReady,
   onAdd,
   onRemove,
+  stage,
+  msg,
+  err,
 }: {
   pools: Pool[]
   poolId: string
@@ -577,6 +581,9 @@ function PoolAdd({
   walletReady: boolean
   onAdd: () => void
   onRemove: () => void
+  stage?: string | null
+  msg?: string | null
+  err?: string | null
 }) {
   const choices = poolChoices(pools)
   const pool = pools.find((p) => p.id === poolId) ?? null
@@ -692,7 +699,10 @@ function PoolAdd({
           <p className="text-[11px] leading-relaxed text-slate-500">
             Max uses the smaller side so the add matches the pool. 2 FPL stays back for the fee.
           </p>
-          <button type="button" className="btn-primary" disabled={busy} onClick={onAdd}>Add</button>
+          <button type="button" className="btn-primary" disabled={busy} onClick={onAdd}>{busy ? stage || 'Working…' : 'Add'}</button>
+          {busy && stage && <p className="text-xs text-slate-400" aria-live="polite">{stage}</p>}
+          {!busy && msg && <p className="text-sm text-emerald-300" aria-live="polite">{msg}</p>}
+          {!busy && err && <p className="text-sm text-red-300" aria-live="assertive">{err}</p>}
         </section>
         <section className="space-y-3 border-t border-slate-800/80 pt-5">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Remove</h3>
@@ -1007,6 +1017,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     USDC: '0',
   })
   const [busy, setBusy] = useState(false)
+  const [stage, setStage] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
@@ -1046,6 +1057,26 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     void loadPrimaryWallet().then(setWallet)
   }, [])
 
+  // 24h volume per pool (Explorer's inferred-from-reserve-samples figure; lower bound).
+  const [poolVolume, setPoolVolume] = useState<Record<string, number | null>>({})
+  useEffect(() => {
+    if (mode !== 'swap') return
+    let live = true
+    const get = () =>
+      fetch('/api/scan/rails-pools', { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((j) => {
+          if (!live) return
+          const out: Record<string, number | null> = {}
+          for (const p of (j?.pools ?? []) as { id: string; volume_24h_fpl: number | null }[]) out[p.id] = p.volume_24h_fpl
+          setPoolVolume(out)
+        })
+        .catch(() => {})
+    void get()
+    const t = setInterval(get, 60_000)
+    return () => { live = false; clearInterval(t) }
+  }, [mode])
+
   useEffect(() => {
     load()
     const t = setInterval(load, 8000)
@@ -1084,17 +1115,44 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     setBusy(true)
     setErr(null)
     setMsg(null)
-    try {
-      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+    setStage('Confirm with your passkey…')
+    // Hard cap so the button can never stay grey forever: any hung step ends in a visible error.
+    let capTimer: ReturnType<typeof setTimeout> | undefined
+    const cap = new Promise<never>((_, reject) => {
+      capTimer = setTimeout(
+        () => reject(new Error('No final answer after 3 minutes. Check your balance before retrying: it may still land.')),
+        180_000,
+      )
+    })
+    const flow = async () => {
+      const { keyBytes } = await withTimeout(
+        authenticatePasskey(wallet.credentialId, wallet.hasPrf),
+        90_000,
+        'Passkey confirmation',
+      )
+      setStage('Preparing…')
       const falconSecret = await decryptSeed(wallet.encrypted, keyBytes)
       const account = plAccountId(wallet)
       const seq = await withTimeout(fetchSequenceInfo(account, network.key), 20_000, 'Loading your account')
       // Seats keep user keys in memory and only re-learn them from enroll txs (Pay, claim, vault…).
       // After a seat restart a DeFi tx alone is refused with 'unknown key'; re-enroll with a
       // zero self-Pay (fee only, same passkey session), then submit the action at the next sequence.
+      // Mempool "accepted" is not inclusion: wait for the account sequence to move.
+      const included = async (after: number) => {
+        for (let i = 0; i < 12; i++) {
+          setStage(`Waiting for inclusion… ${(i + 1) * 2.5 | 0}s`)
+          await new Promise((r) => setTimeout(r, 2500))
+          const s = await fetchSequenceInfo(account, network.key).catch(() => null)
+          if (s && s.sequence > after) return
+        }
+        throw new Error('Accepted by the node but not included after 30 s, so nothing moved yet. An earlier stuck transaction on your account may be blocking it.')
+      }
       const send = async (build: (sequence: number) => Promise<{ rawJson?: string }>) => {
         try {
-          return await submitSigned(await build(seq.sequence), network.key)
+          setStage('Submitting…')
+          const out = await submitSigned(await build(seq.sequence), network.key)
+          await included(seq.sequence)
+          return out
         } catch (e) {
           if (!/unknown key/i.test(e instanceof Error ? e.message : String(e))) throw e
           const enroll = await signPlPay({
@@ -1107,7 +1165,9 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
             falconSecret,
           })
           await submitSigned(enroll, network.key)
-          return await submitSigned(await build(seq.sequence + 1), network.key)
+          const out = await submitSigned(await build(seq.sequence + 1), network.key)
+          await included(seq.sequence + 1)
+          return out
         }
       }
       if (kind === 'swap') {
@@ -1199,18 +1259,25 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       setAmountB('')
       setLpAmount('')
       load()
+    }
+    try {
+      await Promise.race([flow(), cap])
     } catch (e: unknown) {
       setErr(e instanceof Error ? explainTxError(e.message) : 'Failed')
     } finally {
+      clearTimeout(capTimer)
+      setStage(null)
       setBusy(false)
     }
   }
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-slate-500">
-        Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. fBNB is not a market.
-      </p>
+      {mode !== 'swap' && (
+        <p className="text-xs text-slate-500">
+          Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. fBNB is not a market.
+        </p>
+      )}
       {mode === 'swap' && (
         <div className="card p-5 space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -1239,7 +1306,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
               : ''}
           </p>
           <button type="button" className="btn-primary w-full" disabled={busy} onClick={() => act('swap')}>
-            {busy ? 'Submitting…' : 'Swap on ledger'}
+            {busy ? stage || 'Submitting…' : 'Swap on ledger'}
           </button>
         </div>
       )}
@@ -1267,6 +1334,9 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
           walletReady={Boolean(wallet)}
           onAdd={() => act('add')}
           onRemove={() => act('remove')}
+          stage={stage}
+          msg={msg}
+          err={err}
         />
       )}
       {mode === 'lend' && (
@@ -1286,13 +1356,32 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       {msg && <p className="text-sm text-emerald-300">{msg}</p>}
       {err && <p className="text-sm text-red-300">{err}</p>}
       {mode === 'swap' && (
-        <div className="space-y-2">
+        <p className="text-xs text-slate-500">
+          Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. fBNB is not a market.
+        </p>
+      )}
+      {mode === 'swap' && (
+        <div className="grid gap-3 sm:grid-cols-3">
           {pools.filter((p) => p.id !== 'fpl-btc' && p.id !== 'btc-fpl' && poolPair(p) !== null).map((p) => {
             const px = poolPrice(p)
+            const pair = poolPair(p)!
+            const vol = poolVolume[p.id]
             return (
-              <div key={p.id} className="rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-400">
-                {assetLabel(p.asset_a as Asset)}/{assetLabel(p.asset_b as Asset)}: {fromRaw(p.asset_a as Asset, p.reserve_a)} {assetLabel(p.asset_a as Asset)} / {fromRaw(p.asset_b as Asset, p.reserve_b)} {assetLabel(p.asset_b as Asset)}
-                {px ? ` · ${fromRaw('FPL', px.price)} FPL per ${assetLabel(px.asset as Asset)}` : ''}
+              <div key={p.id} className="card p-4 space-y-2 text-xs">
+                <div className="flex items-baseline justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-white">{assetLabel(pair.fAsset)} / FPL</h3>
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500">AMM pool</span>
+                </div>
+                <div className="text-lg font-bold tabular-nums text-brand-300">
+                  {px ? `${fromRaw('FPL', px.price)} FPL` : '—'}
+                  <span className="block text-[10px] font-normal text-slate-500">per {assetLabel(pair.fAsset)}</span>
+                </div>
+                <dl className="space-y-1 text-slate-400">
+                  <div className="flex justify-between gap-2"><dt>Reserve {assetLabel(pair.fAsset)}</dt><dd className="font-mono text-slate-200">{fromRaw(pair.fAsset, pair.fReserve)}</dd></div>
+                  <div className="flex justify-between gap-2"><dt>Reserve FPL</dt><dd className="font-mono text-slate-200">{fromRaw('FPL', pair.fplReserve)}</dd></div>
+                  <div className="flex justify-between gap-2"><dt>LP supply</dt><dd className="font-mono text-slate-200">{BigInt(p.lp_supply || '0').toLocaleString()}</dd></div>
+                  <div className="flex justify-between gap-2"><dt>24h volume</dt><dd className="font-mono text-slate-200">{vol == null ? 'collecting' : `${Math.round(vol).toLocaleString()} FPL`}</dd></div>
+                </dl>
               </div>
             )
           })}

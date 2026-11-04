@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextResponse } from 'next/server'
 
 /** Retired: legacy network 1001 custodial FBTC relay. */

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Mainnet-oriented faucet quota:
  * - Max FAUCET_CLAIMS_PER_DAY successful drips per UTC calendar day (default 5)
@@ -65,7 +66,13 @@ const mem = new Map<string, MemEntry>()
 export const GAME_IP_CLAIMS_PER_DAY = envInt('GAME_IP_CLAIMS_PER_DAY', 16)
 export const GAME_IP_COOLDOWN_SECONDS = envInt('GAME_IP_COOLDOWN_SECONDS', 15)
 
+/** Testnet4 tBTC faucet: 6 hours between claims (matches the intake backend). */
+export const TBTC4_FAUCET_COOLDOWN_SECONDS = envInt('TBTC4_FAUCET_COOLDOWN_SECONDS', 21600)
+
 export function limitsFromKey(key: string): { dayCap: number; cooldown: number } {
+  if (key.startsWith('tbtc4:')) {
+    return { dayCap: claimsPerDayForNetwork('testnet'), cooldown: TBTC4_FAUCET_COOLDOWN_SECONDS }
+  }
   if (key.startsWith('game:')) {
     return { dayCap: GAME_IP_CLAIMS_PER_DAY, cooldown: GAME_IP_COOLDOWN_SECONDS }
   }

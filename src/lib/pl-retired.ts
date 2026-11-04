@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * XRPL-era API routes that have no meaning on Falcon PL 2300 answer 410 Gone there
  * (instead of 502 from a dead XRPL RPC). Other networks keep the old handlers.

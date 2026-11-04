@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { useState, useEffect, useCallback, Suspense } from 'react'
@@ -256,7 +257,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                   </span>
                 </h1>
                 <p className="text-slate-400 text-sm">
-                  0.002 tBTC (200,000 sats) for BitVM2 BTC4 bridge testing
+                  0.1 tBTC (10,000,000 sats) for BitVM2 BTC4 bridge testing
                 </p>
               </>
             )}
@@ -294,7 +295,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Testnet4 BTC (0.002 tBTC)
+                Testnet4 BTC (0.1 tBTC)
               </button>
             </div>
 
@@ -344,7 +345,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                     Sending…
                   </span>
                 ) : faucetAsset === 'tbtc' ? (
-                  'Request 0.002 tBTC'
+                  'Request 0.1 tBTC'
                 ) : (
                   `Request ${PL_DRIP} FPL`
                 )}
@@ -369,7 +370,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                   {result.asset === 'tBTC'
-                    ? `${result.amountBtc ?? '0.002'} tBTC sent!`
+                    ? `${result.amountBtc ?? '0.1'} tBTC sent!`
                     : `${result.amount} FPL sent!`}
                 </div>
                 {result.resolvedFrom && (
@@ -388,7 +389,7 @@ function FaucetPageInner({ initialWatcher }: { initialWatcher?: WatcherSnap | nu
                 </div>
                 {result.asset === 'tBTC' ? (
                   <Link
-                    href="/wallet?section=bridge"
+                    href="/wallet?bridge=1"
                     className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-colors"
                   >
                     Open BTC4 Bridge →

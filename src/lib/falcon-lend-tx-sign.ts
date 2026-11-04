@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Lending transaction signing — isolated from wallet bundle (uses ripple-binary-codec decode).
  */

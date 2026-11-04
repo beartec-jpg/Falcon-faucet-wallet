@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Classic r-address helpers without ripple-address-codec.
  * That package is ESM-only and Next 14 collect (`require()`) throws ERR_REQUIRE_ESM.

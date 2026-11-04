@@ -1,5 +1,6 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
- * First 35: first-adopter prize seats paid at mainnet launch (proposed; nothing guaranteed).
+ * First 35: first-adopter prize seats we intend to reward at mainnet launch (proposed; nothing guaranteed).
  * Social links: set here or via the NEXT_PUBLIC_* env vars. A link that is not set is hidden.
  */
 export const FIRST35_LINKS = {

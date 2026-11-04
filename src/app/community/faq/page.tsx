@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { headers } from 'next/headers'
 import ContentPage, { A, Section } from '@/components/content/ContentPage'
 import { pageMeta } from '@/lib/seo'
@@ -42,7 +43,7 @@ const AIRDROP: { q: string; a: string }[] = [
   },
   {
     q: 'What is the First 35?',
-    a: 'First 35 is a set of 35 first-adopter prize seats, 12M FPL in total, paid at mainnet launch.',
+    a: 'First 35 is a set of 35 first-adopter prize seats, 12M FPL in total, that we intend to reward at mainnet launch. No guarantees. See the Terms.',
   },
   {
     q: 'Are there arcade prizes?',
@@ -79,7 +80,7 @@ export default async function AirdropFaqPage() {
       <h2 id="airdrop" className="text-lg font-semibold pt-4" style={{ color: '#E0DBCA' }}>
         Airdrop
       </h2>
-      <p className="text-slate-400">No guarantees. Everything here is subject to change.</p>
+      <p className="text-slate-400">No guarantees. Everything here is subject to change. <A href="/terms">See the Terms</A>.</p>
       {AIRDROP.map(({ q, a }) => (
         <Section key={q} title={q}>
           <p>{a}</p>

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Operators pool rules (decided 2026-10-21). Proposed model; nothing is promised and
  * every figure is subject to change until the mainnet parameter sheet is published.

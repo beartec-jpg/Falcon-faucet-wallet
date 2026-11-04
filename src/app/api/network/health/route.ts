@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Public network health JSON for /network/health. Read-only; built from the
 // brief status the site already fetches plus the cron's stored state.
 

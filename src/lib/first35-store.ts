@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // First 35 applications (Neon). Admin access is via FIRST35_ADMIN_TOKEN (env only).
 
 import { createHash, timingSafeEqual } from 'crypto'

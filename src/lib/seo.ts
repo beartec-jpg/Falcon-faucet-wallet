@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import type { Metadata } from 'next'
 
 export const SITE_URL = 'https://falcon-fpl.com'

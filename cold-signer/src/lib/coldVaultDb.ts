@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Cold-device vault store.
  * Secret re-encrypted under cold password OR passkey-derived key material.

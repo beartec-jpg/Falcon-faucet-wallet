@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Pure network-metric helpers shared by the explorer UI, the network map and the
 // 24h sampler cron. Everything here derives from the PL `status_req` body that
 // /api/scan already exposes: cumulative counters (txs_sealed, ledgers_sealed),

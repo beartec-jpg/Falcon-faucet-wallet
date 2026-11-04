@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import type { WalletKey } from '@/lib/wallet-key'
 import { Wallet, hexlify } from 'ethers'
 import { authenticatePasskey } from '@/lib/passkey'

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * BitVM-class vault helpers (CSV + hashlock + user CHECKSIG).
  * Matches scripts/btc-spv/bitvm/vault.py and Falcon btcParseBitvmVaultScript.

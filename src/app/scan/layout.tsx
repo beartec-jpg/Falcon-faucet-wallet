@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import SrOnlyH1 from '@/components/SrOnlyH1'
 import { pageMeta } from '@/lib/seo'
 

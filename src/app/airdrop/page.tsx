@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -203,7 +204,7 @@ export default function AirdropPage() {
                   .
                 </li>
                 <li>
-                  No distribution is live yet and final figures are only fixed when the snapshot is frozen. Numbers and rules below are proposals and may change before mainnet.
+                  No distribution is live yet and final figures are only fixed when the snapshot is frozen. Numbers and rules below are proposals and may change before mainnet. No guarantees. <Link href="/terms" className="hover:underline" style={{ color: '#D4922A' }}>See the Terms</Link>.
                 </li>
               </ul>
             </div>
@@ -385,7 +386,7 @@ export default function AirdropPage() {
                   The First {FIRST35_SEATS}
                 </h2>
                 <p className="text-sm text-slate-300 max-w-2xl">
-                  {FIRST35_SEATS} prize seats for the people who test Falcon PL before mainnet. Seats are paid at mainnet launch, separate from the community airdrop.
+                  {FIRST35_SEATS} prize seats for the people who test Falcon PL before mainnet. We intend to reward seats at mainnet launch, separate from the community airdrop. No guarantees. See the Terms.
                 </p>
               </header>
 
@@ -489,7 +490,7 @@ export default function AirdropPage() {
                 To keep your seat, stay active on testnet (at least one transaction every 14 days) and stay in the community channels until mainnet launch. Inactive, duplicate, sybil or bot seats are revoked and given to the next person in line.
               </p>
               <p>
-                Testnet FPL has no cash value. Mainnet FPL prizes are paid at mainnet launch from the builder pot and do not reduce the{' '}
+                Testnet FPL has no cash value. Any mainnet FPL prizes we intend to reward at mainnet launch come from the builder pot and do not reduce the{' '}
                 <button
                   type="button"
                   onClick={() => selectTab('activity')}

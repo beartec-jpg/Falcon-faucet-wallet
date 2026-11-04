@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // GET/POST /api/first35/admin — First 35 admin. Authorization: Bearer $FIRST35_ADMIN_TOKEN (env only; never in the URL).
 // GET            → { applications } with tier + last active day (from the activity tracker). ?format=csv for a CSV file.
 // POST {action}  → add | update | status | seat | delete
