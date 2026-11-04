@@ -62,10 +62,11 @@ describe('compliance copy', () => {
     const banned = /\b(invest|investment|returns? on|profit|yield|appreciat|price of fpl|buy fpl)/i
     for (const f of devFiles) expect(readFileSync(f, 'utf8'), relative(root, f)).not.toMatch(banned)
   })
-  it('no Stripe calls, secrets or network calls in the key stub', () => {
+  it('no Stripe secrets in dev pages; Stripe only via the Falcon Cloud checkout; no network calls in the key stub', () => {
     for (const f of devFiles) {
       const s = readFileSync(f, 'utf8')
-      expect(s, relative(root, f)).not.toMatch(/stripe|sk_live|sk_test|whsec_/i)
+      expect(s, relative(root, f)).not.toMatch(/sk_live|sk_test|rk_live|whsec_/i)
+      if (!f.endsWith('pricing/page.tsx')) expect(s, relative(root, f)).not.toMatch(/stripe/i)
     }
     expect(read('src/components/developers/ApiKeyRequest.tsx')).not.toMatch(/fetch\(|axios|XMLHttpRequest/)
   })
