@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 export interface ValidatorEntry {
   account: string
   pubkey: string
@@ -8,6 +9,10 @@ export interface ValidatorEntry {
   jailed?: boolean
   lottery_ready?: boolean
   pack_count?: number
+  /** Seat performance score from status (0..1). */
+  perf?: number
+  /** ms since this seat's last pong seen by the serving node. */
+  pong_age_ms?: number
 }
 
 export interface LedgerSummary {
@@ -90,6 +95,9 @@ export interface ScanData extends MeshHead {
     lpProviderCount: number | null
     cidEmissionPct: number | null
     cidYearlyAvgPct: number | null
+    emissionBps?: number | null
+    emissionPctPerYear?: number | null
+    epochMs?: number | null
     firstClaimEpoch: number
     epochClaimable: boolean
     lastSettledEpoch: number
@@ -100,11 +108,52 @@ export interface ScanData extends MeshHead {
     txs: number
   }
   lottery_winner: string
+  /** Per-height committee / lottery fields from status_req (absent on older nodes). */
+  committee?: ConsensusInfo
+  /** Activated wallets = accounts that exist on the ledger (status.accounts_count). */
+  wallets?: { activated: number; source: 'status.accounts_count' }
+  watchers?: WatcherSummary
   rails: RailRow[]
+  /** Node clock (status.now_ms) at snapshot time, when the node reports it. */
+  node_time_ms?: number
+  /** False when status carried no cumulative counters (metrics are fallbacks, not data). */
+  metrics_ok?: boolean
   metrics: {
     ledgers_sealed: number
     txs_sealed: number
     submit_accepted: number
     fees_burned: number
   }
+}
+
+export interface WatcherSummary {
+  /** Accounts with slots this epoch (keys of status.watcher_slots). */
+  epoch_accounts: string[]
+  /** Accounts that heartbeated in the current slot. */
+  live: string[]
+  /** Cumulative watcher_work per epoch account (bumps = heartbeat landed). */
+  work: Record<string, number>
+  /** watcher_slots count per epoch account. */
+  slots: Record<string, number>
+  current_slot: number
+  slot_ms: number
+  slots_per_epoch: number
+  /** 'status' = node field watchers_active_slot; 'slot_counts' = watcher_slots rose this slot. */
+  source: 'status' | 'slot_counts'
+  checked_at: number
+}
+
+export interface ConsensusInfo {
+  /** Committee that voted the tip block (status.sealed_committee). */
+  sealed_committee: string[]
+  /** Committee drawn for the next height (status.next_committee). */
+  next_committee: string[]
+  /** Round-0 packer for the next height (status.lottery_winner_next). */
+  next_packer: string
+  /** Backup packer for the next height (status.lottery_standby_next). */
+  standby: string
+  /** Votes in the tip's cert (status.tip_cert_voters); the node does not say which seats. */
+  cert_voters: number | null
+  /** Current view-change round at the next height (0 = round-0 packer). */
+  view_round: number
 }

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // xrpld JSON-RPC client — pure fetch, no WebSocket needed
 // Resilient version with multiple public nodes + timeouts.
 

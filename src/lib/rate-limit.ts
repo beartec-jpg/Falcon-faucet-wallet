@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Rate limiting — only counts SUCCESSFUL faucet drips.
 // Failed attempts (signing errors, node down, tx rejected) do not consume quota.
 

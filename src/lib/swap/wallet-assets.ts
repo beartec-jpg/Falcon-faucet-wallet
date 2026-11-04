@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import type { NetworkKey } from '@/lib/networks'
 import { serverRpcCall } from '@/lib/network-server'
 import { loadStableToken, loadStableTokens } from '@/lib/swap/token-config'

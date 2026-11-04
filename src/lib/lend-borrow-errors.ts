@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import type { LendOverview } from '@/lib/lend-model'
 
 /** Minimum broker first-loss cover required for a principal (CoverRateMinimum is tenth-bips / 1000 = %). */
@@ -17,8 +18,8 @@ export function borrowBlockedReason(
   if (!data?.protocol.txSigningReady) return 'Lending protocol is not active on this network.'
   const permissionless =
     data.protocol.lendingPermissionless && data.protocol.lendingCollateral
-  if (!permissionless && !data.lending.cosignReady) {
-    return 'Borrow co-sign is not configured on the server (TESTNET_LENDING_BROKER_SECRET).'
+  if (!permissionless) {
+    return 'Borrow requires LendingPermissionless + LendingCollateral on-chain (broker co-sign removed).'
   }
   const vault = data.vaults?.[0]
   if (!vault) return 'Lend vault is not configured.'

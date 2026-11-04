@@ -1,4 +1,7 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
+
+import { PoolsView, RailsView } from '@/components/explorer/RailsPoolsTabs'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Header from '@/components/Header'
@@ -7,6 +10,11 @@ import Logo from '@/components/Logo'
 import type { ScanData, LedgerSummary, ValidatorEntry, RailRow } from '@/lib/scan-types'
 import ClickableStatCard from '@/components/explorer/ClickableStatCard'
 import EpochEmissionsCard from '@/components/explorer/EpochEmissionsCard'
+import SeatBoxes from '@/components/explorer/SeatBoxes'
+import NetworkHealthPanel from '@/components/explorer/NetworkHealthPanel'
+import MetricModal, { seatOptions } from '@/components/explorer/MetricModal'
+import { useLiveSamples, type LiveSamples } from '@/hooks/useLiveSamples'
+import { seatKey, seatLag, SERIES_LABELS, windowIntake, type SeatMetric } from '@/lib/net-metrics'
 
 const FETCH_TIMEOUT_MS = 10_000
 const POLL_MS = 4_000
@@ -194,53 +202,9 @@ function Row({ k, v }: { k: string; v: string }) {
   )
 }
 
-function RailsTable({ rails }: { rails: RailRow[] }) {
-  return (
-    <section>
-      <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">
-        Protocol rails
-      </h2>
-      <p className="text-[10px] text-slate-600 mb-4">
-        Live dest-lock rails. Minted/burned counts start at the public zero-point;
-        new peg-ins add from here.
-      </p>
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-800 text-xs text-slate-500">
-              <th className="text-left px-4 py-2.5 font-medium">Rail</th>
-              <th className="text-right px-4 py-2.5 font-medium">Header tip</th>
-              <th className="text-right px-4 py-2.5 font-medium">Minted</th>
-              <th className="text-right px-4 py-2.5 font-medium">Burned</th>
-              <th className="text-right px-4 py-2.5 font-medium hidden sm:table-cell">Confirms</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rails.map((r) => (
-              <tr key={r.asset} className="border-b border-slate-800/50">
-                <td className="px-4 py-2.5 font-medium text-slate-200">{r.asset}</td>
-                <td className="px-4 py-2.5 text-right font-mono text-slate-300">
-                  {fmtNum(r.tip_height)}
-                </td>
-                <td className="px-4 py-2.5 text-right font-mono text-slate-400">
-                  {fmtNum(r.total_minted)}
-                </td>
-                <td className="px-4 py-2.5 text-right font-mono text-slate-400">
-                  {fmtNum(r.total_burned)}
-                </td>
-                <td className="px-4 py-2.5 text-right font-mono text-slate-500 hidden sm:table-cell">
-                  {r.min_confirmations}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  )
-}
 
-type ScanTab = 'network' | 'rails'
+type ScanTab = 'network' | 'rails' | 'pools'
+type ChartTarget = { kind: 'net'; key: string } | { kind: 'seat'; id: string; metric: SeatMetric }
 
 export default function ScanExplorer({
   initialData,
@@ -253,8 +217,13 @@ export default function ScanExplorer({
   const [error, setError] = useState<string | null>(initialError)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [tab, setTab] = useState<ScanTab>('network')
+  const [seatTab, setSeatTab] = useState<'active' | 'jailed'>('active')
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const inflightRef = useRef(false)
+  const live = useLiveSamples(data)
+  const [chart, setChart] = useState<ChartTarget | null>(null)
+  const closeChart = useCallback(() => setChart(null), [])
+  const openNet = useCallback((key: string) => setChart({ kind: 'net', key }), [])
 
   const fetchData = useCallback(async () => {
     if (inflightRef.current) return
@@ -293,6 +262,17 @@ export default function ScanExplorer({
   }, [])
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const q = new URLSearchParams(window.location.search).get('tab')
+      if (q === 'activity' || q === 'leaderboard') {
+        window.location.replace('/airdrop')
+        return
+      }
+      if (q === 'operators') {
+        window.location.replace('/airdrop?tab=operators')
+        return
+      }
+    }
     if (initialData) setLastUpdate(new Date())
     if (!initialData) void fetchData()
     timerRef.current = setInterval(fetchData, POLL_MS)
@@ -303,6 +283,7 @@ export default function ScanExplorer({
 
   const d = data
   const mesh = d ? meshOf(d) : null
+  const intake = mempoolIntake(live)
 
   return (
     <ProductShell intensity={0.4} className="bg-slate-950 text-slate-100">
@@ -325,6 +306,7 @@ export default function ScanExplorer({
             [
               { id: 'network' as const, label: 'Network' },
               { id: 'rails' as const, label: 'Rails' },
+              { id: 'pools' as const, label: 'Pools' },
             ] as const
           ).map((t) => (
             <button
@@ -340,6 +322,18 @@ export default function ScanExplorer({
               {t.label}
             </button>
           ))}
+          <a
+            href="/scan/map"
+            className="px-4 py-2 rounded-lg text-sm font-medium border border-brand-500/30 text-brand-300 hover:bg-brand-500/10 transition-colors"
+          >
+            Live network map ↗
+          </a>
+          <a
+            href="/airdrop"
+            className="px-4 py-2 rounded-lg text-sm font-medium border border-[#D4922A]/40 text-[#D4922A] hover:bg-[#D4922A]/10 transition-colors"
+          >
+            Airdrop &amp; Leaderboards →
+          </a>
           {lastUpdate && tab === 'network' && (
             <span className="ml-auto self-center text-[10px] text-slate-600 font-mono">
               live · {lastUpdate.toLocaleTimeString()}
@@ -347,15 +341,8 @@ export default function ScanExplorer({
           )}
         </div>
 
-        {tab === 'rails' && d && <RailsTable rails={d.rails} />}
-        {tab === 'rails' && !d && !error && (
-          <div className="text-center text-slate-600 py-20 text-sm">Loading rails…</div>
-        )}
-        {tab === 'rails' && !d && error && (
-          <div className="card p-4 border-red-900 bg-red-950/30 text-red-400 text-sm">
-            Node unavailable: {error}
-          </div>
-        )}
+        {tab === 'rails' && <RailsView />}
+        {tab === 'pools' && <PoolsView />}
 
         {tab === 'network' && error && (
           <div className="card p-4 border-red-900 bg-red-950/30 text-red-400 text-sm">
@@ -379,50 +366,81 @@ export default function ScanExplorer({
               Falcon PL 2300 · Falcon Consensus · Falcon-512
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              <ClickableStatCard label="Height" value={`#${fmtNum(mesh.height)}`} accent="text-brand-500" chartKey="height" onChart={openNet} />
               <ClickableStatCard
-                label="Height"
-                value={`#${fmtNum(mesh.height)}`}
-                accent="text-brand-500"
+                label="tx/s (est.)"
+                value={live.rate60s ? live.rate60s.tps.toFixed(1) : '—'}
+                sub={live.rate60s ? 'sealed · 60s avg' : 'measuring'}
+                accent="text-brand-400"
+                chartKey="tps"
+                onChart={openNet}
+              />
+              <ClickableStatCard
+                label="Blocks / min"
+                value={live.rate60s ? live.rate60s.blocks_min.toFixed(1) : '—'}
+                sub={live.rate60s ? '60s avg' : 'measuring'}
+                chartKey="blocks_min"
+                onChart={openNet}
+              />
+              <ClickableStatCard
+                label="Txs / block"
+                value={live.rate60s && live.rate60s.blocks_min > 0 ? live.rate60s.txs_per_block.toFixed(1) : '—'}
+                sub={`last ${d.last_pack.txs} tx`}
+                chartKey="txs_per_block"
+                onChart={openNet}
               />
               <ClickableStatCard
                 label="Peers"
                 value={fmtNum(mesh.peers)}
                 sub={`${d.online_seats?.length ?? 0} online seats`}
                 accent={(d.online_seats?.length ?? 0) >= 4 ? 'text-emerald-400' : 'text-amber-400'}
+                chartKey="peers"
+                onChart={openNet}
+              />
+              <ClickableStatCard label="Mempool" value={d.mempool} sub={`max ${fmtNum(d.max_mempool)}`} chartKey="mempool" onChart={openNet} />
+              <ClickableStatCard
+                label="Mempool intake"
+                value={intake == null ? '—' : `${intake.toFixed(1)}/s`}
+                sub="sealed + Δmempool · 60s"
+                chartKey="mempool_in"
+                onChart={openNet}
               />
               <ClickableStatCard
-                label="Commit"
-                value={mesh.commit}
-                sub={`next pack ${d.lottery_winner || '—'}`}
+                label="Watchers"
+                value={d.watchers ? `${d.watchers.live.length} / ${d.watchers.epoch_accounts.length}` : '—'}
+                sub="live this slot / this epoch"
+                chartKey="watchers_live"
+                onChart={openNet}
               />
+              <ClickableStatCard label="Commit" value={mesh.commit} sub={`next pack ${d.lottery_winner || '—'}`} />
               <ClickableStatCard
                 label="Last pack"
                 value={d.last_pack.packer || '—'}
                 sub={`${d.last_pack.txs} tx @ #${fmtNum(d.last_pack.height)}`}
               />
-              <ClickableStatCard
-                label="Mempool"
-                value={d.mempool}
-                sub={`max ${fmtNum(d.max_mempool)}`}
-              />
-              <ClickableStatCard label="Min fee" value={`${d.current_fee_drops} FPL`} />
-              <ClickableStatCard
-                label="Fee tier"
-                value={`${d.fee_multiplier}×`}
-                sub="congestion multiplier"
-              />
-              <ClickableStatCard
-                label="Ledgers sealed"
-                value={fmtNum(d.metrics?.ledgers_sealed)}
-              />
-              <ClickableStatCard
-                label="Txs sealed"
-                value={fmtNum(d.metrics?.txs_sealed)}
-              />
+              <ClickableStatCard label="Min fee" value={`${d.current_fee_drops} FPL`} chartKey="min_fee" onChart={openNet} />
+              <ClickableStatCard label="Fee tier" value={`${d.fee_multiplier}×`} sub="congestion multiplier" chartKey="fee_multiplier" onChart={openNet} />
+              <ClickableStatCard label="Ledgers sealed" value={fmtNum(d.metrics?.ledgers_sealed)} chartKey="height" onChart={openNet} />
+              <ClickableStatCard label="Txs sealed" value={fmtNum(d.metrics?.txs_sealed)} chartKey="txs_sealed" onChart={openNet} />
               <ClickableStatCard label="Age" value={fmtUptime(d.uptime_seconds)} />
             </div>
           </section>
         )}
+
+        {tab === 'network' && d && (
+          <section>
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Seats</h2>
+            <p className="text-[10px] text-slate-600 mb-3">
+              Lag = network tip minus the seat&apos;s last advertised tip. Click any stat in a box for its 24h chart.
+            </p>
+            <SeatBoxes
+              sample={live.samples[live.samples.length - 1] ?? null}
+              onOpen={(id, metric) => setChart({ kind: 'seat', id, metric })}
+            />
+          </section>
+        )}
+
+        {tab === 'network' && <NetworkHealthPanel />}
 
         {tab === 'network' && d && <EpochEmissionsCard epoch={d.epoch} />}
 
@@ -465,9 +483,15 @@ export default function ScanExplorer({
 
             <div>
               <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-                Bonded seats
+                <button type="button" onClick={() => setSeatTab('active')} className={seatTab === 'active' ? 'text-slate-300' : 'hover:text-slate-400'}>
+                  Bonded seats
+                </button>
+                <span className="mx-2 text-slate-700">|</span>
+                <button type="button" onClick={() => setSeatTab('jailed')} className={seatTab === 'jailed' ? 'text-slate-300' : 'hover:text-slate-400'}>
+                  Jailed ({d.validators.filter((v: ValidatorEntry) => v.jailed).length})
+                </button>
                 <span className="ml-2 font-normal normal-case tracking-normal text-slate-600">
-                  · {d.validators.length} bonded · {d.online_seats.length} online
+                  · {d.validators.filter((v: ValidatorEntry) => !v.jailed).length} bonded · {d.online_seats.length} online
                 </span>
               </h2>
               <div className="card overflow-hidden overflow-x-auto">
@@ -481,7 +505,7 @@ export default function ScanExplorer({
                     </tr>
                   </thead>
                   <tbody>
-                    {d.validators.map((v: ValidatorEntry) => {
+                    {d.validators.filter((v: ValidatorEntry) => (seatTab === 'jailed') === Boolean(v.jailed)).map((v: ValidatorEntry) => {
                       const on = d.online_seats.includes(v.account)
                       return (
                         <tr key={v.account} className="border-b border-slate-800/50">
@@ -561,17 +585,96 @@ export default function ScanExplorer({
         )}
       </main>
 
-      <footer className="border-t border-slate-800 py-4 px-4 text-center text-xs text-slate-600">
-        Falcon PL 2300 · test tokens · no cash value ·{' '}
-        <a
-          href="https://github.com/beartec-jpg/Falcon-faucet-wallet"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:text-slate-400 underline underline-offset-2"
-        >
-          GitHub
-        </a>
-      </footer>
+      {chart && d && <ChartModal chart={chart} d={d} live={live} onClose={closeChart} />}
     </ProductShell>
   )
+}
+
+function mempoolIntake(live: LiveSamples): number | null {
+  return windowIntake(live.samples, live.rate60s)
+}
+
+function ChartModal({
+  chart,
+  d,
+  live,
+  onClose,
+}: {
+  chart: ChartTarget
+  d: ScanData
+  live: LiveSamples
+  onClose: () => void
+}) {
+  if (chart.kind === 'seat') {
+    const last = live.samples[live.samples.length - 1]
+    const seat = last?.seats.find((x) => x.id === chart.id)
+    const lag = last && seat ? seatLag(last.height, seat) : null
+    return (
+      <MetricModal
+        metric={seatKey(chart.id, chart.metric)}
+        options={seatOptions(chart.id, {
+          tip: seat?.tip ? `#${seat.tip.toLocaleString()}` : 'not advertised',
+          lag: lag == null ? 'not advertised' : String(lag),
+          packs: seat ? `${seat.packs.toLocaleString()} total` : undefined,
+          perf: seat?.perf == null ? undefined : seat.perf.toFixed(3),
+        })}
+        onClose={onClose}
+      />
+    )
+  }
+  const r = live.rate60s
+  const cur: Record<string, string | undefined> = {
+    height: `#${fmtNum(d.height)}`,
+    tps: r ? r.tps.toFixed(1) : undefined,
+    blocks_min: r ? r.blocks_min.toFixed(1) : undefined,
+    txs_per_block: r && r.blocks_min > 0 ? r.txs_per_block.toFixed(1) : undefined,
+    peers: String(d.peers),
+    mempool: String(d.mempool),
+    mempool_in: mempoolIntake(live)?.toFixed(1),
+    min_fee: `${d.current_fee_drops} FPL`,
+    fee_multiplier: `${d.fee_multiplier}×`,
+    txs_sealed: fmtNum(d.metrics?.txs_sealed),
+    watchers_live: d.watchers ? String(d.watchers.live.length) : undefined,
+    watchers_epoch: d.watchers ? String(d.watchers.epoch_accounts.length) : undefined,
+  }
+  if (chart.key === 'watchers_live' || chart.key === 'watchers_epoch') {
+    return (
+      <MetricModal
+        metric={chart.key}
+        options={[
+          { key: 'watchers_live', label: SERIES_LABELS.watchers_live, current: cur.watchers_live },
+          { key: 'watchers_epoch', label: SERIES_LABELS.watchers_epoch, current: cur.watchers_epoch },
+        ]}
+        extra={
+          <p className="text-[10px] text-slate-500 mt-3">
+            Live = accounts that heartbeated in watcher slot {d.watchers?.current_slot ?? '—'} (
+            {d.watchers?.source === 'status' ? 'node watchers_active_slot' : 'watcher_slots rose this slot, checked every 30s'}).
+          </p>
+        }
+        onClose={onClose}
+      />
+    )
+  }
+  const extra =
+    chart.key === 'tps' ? (
+      <div className="grid grid-cols-3 gap-3 mt-3 text-center">
+        {(
+          [
+            ['10s', live.rate10s],
+            ['60s', live.rate60s],
+            ['5 min', live.rate5m],
+          ] as const
+        ).map(([k, w]) => (
+          <div key={k} className="rounded-lg border border-[#C07838]/30 py-2">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">live · {k}</div>
+            <div className="font-mono text-sm text-[#D4922A]">{w ? w.tps.toFixed(1) : '—'}</div>
+          </div>
+        ))}
+      </div>
+    ) : chart.key === 'mempool_in' ? (
+      <p className="text-[10px] text-slate-500 mt-3">
+        Intake = sealed tx/s + growth of the mempool per second. Txs rejected or evicted before sealing are not counted.
+      </p>
+    ) : null
+  return <MetricModal metric={chart.key} current={cur[chart.key]} extra={extra} onClose={onClose} />
 }

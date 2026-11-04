@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** UTF-8 string → uppercase hex for XRPL MemoType / MemoData fields. */
 export function utf8ToMemoHex(text: string): string {
   const bytes = new TextEncoder().encode(text)

@@ -1,11 +1,14 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import { useNetwork } from '@/components/NetworkProvider'
 import { loadPrimaryWallet } from '@/lib/wallet-store'
+import { plAccountId } from '@/lib/pl-names'
 
 const PROD_ARCADE_URL = 'https://falcon-arcade-lake.vercel.app'
 
@@ -46,19 +49,22 @@ const ARCADE_ORIGIN = (() => {
 
 type ArcadeOutbound =
   | { type: 'GAME_READY' }
-  | { type: 'SCORE_UPDATE'; game: string; score: number }
-  | { type: 'CLAIM_REQUEST'; game: string; score: number }
+  /** runId (newer arcade builds): one id per run, so the server can add runs up. */
+  | { type: 'SCORE_UPDATE'; game: string; score: number; runId?: string }
+  | { type: 'CLAIM_REQUEST'; game: string; score: number; runId?: string }
+  | { type: 'CONNECT_WALLET_REQUEST' }
 
 function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
   if (!data || typeof data !== 'object') return false
   const r = data as Record<string, unknown>
-  if (r.type === 'GAME_READY') return true
+  if (r.type === 'GAME_READY' || r.type === 'CONNECT_WALLET_REQUEST') return true
   if (r.type === 'SCORE_UPDATE' || r.type === 'CLAIM_REQUEST') {
     return (
       typeof r.game === 'string' &&
       r.game.length > 0 &&
       typeof r.score === 'number' &&
-      Number.isFinite(r.score)
+      Number.isFinite(r.score) &&
+      (r.runId === undefined || typeof r.runId === 'string')
     )
   }
   return false
@@ -67,6 +73,8 @@ function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
 export default function ArcadePage() {
   const { networkKey, setNetworkKey } = useNetwork()
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const router = useRouter()
+  const [plAccount, setPlAccount] = useState<string>('')
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [claimBusy, setClaimBusy] = useState(false)
@@ -77,12 +85,16 @@ export default function ArcadePage() {
     if (networkKey !== ARCADE_NETWORK) setNetworkKey(ARCADE_NETWORK)
   }, [networkKey, setNetworkKey])
 
-  // Load passkey wallet address if present
+  // Load passkey wallet; use the FPL account id (on-chain name) shown on /wallet,
+  // not the key-derived r… backup id (StoredWallet.address), which is not an on-chain account.
   useEffect(() => {
     let cancelled = false
     loadPrimaryWallet()
       .then((w) => {
-        if (!cancelled && w?.address) setWalletAddress(w.address)
+        if (!cancelled && w?.address) {
+          setWalletAddress(plAccountId(w))
+          setPlAccount(plAccountId(w))
+        }
       })
       .catch(() => {
         /* no wallet */
@@ -98,45 +110,124 @@ export default function ArcadePage() {
     win.postMessage(msg, ARCADE_ORIGIN)
   }, [])
 
+  /** Tell the arcade the server-side claim progress (sum of today's runs since last claim). */
+  const postProgress = useCallback(
+    (game: string, progress: unknown, minScore: unknown) => {
+      if (typeof progress !== 'number' || !Number.isFinite(progress)) return
+      postToArcade({
+        type: 'PROGRESS_UPDATE',
+        game,
+        progress: Math.max(0, Math.floor(progress)),
+        minScore: typeof minScore === 'number' ? minScore : undefined,
+      })
+    },
+    [postToArcade],
+  )
+
   const pushWallet = useCallback(() => {
     if (!walletAddress) return
     postToArcade({ type: 'WALLET_CONNECTED', address: walletAddress })
-  }, [walletAddress, postToArcade])
+    fetch(
+      `/api/arcade/status?account=${encodeURIComponent(walletAddress)}&network=${ARCADE_NETWORK}`,
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { minScore?: number; games?: { game: string; progress?: number }[] } | null) => {
+        for (const g of d?.games ?? []) postProgress(g.game, g.progress, d?.minScore)
+      })
+      .catch(() => {})
+  }, [walletAddress, postToArcade, postProgress])
 
-  // Debounced score POST
-  const scoreTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  /** Arcade "Connect wallet": re-read the stored wallet and send it, or open the wallet page to create/unlock one. */
+  const connectWallet = useCallback(async () => {
+    const w = await loadPrimaryWallet().catch(() => null)
+    if (w?.address) {
+      setWalletAddress(plAccountId(w))
+      setPlAccount(plAccountId(w))
+      postToArcade({ type: 'WALLET_CONNECTED', address: plAccountId(w) })
+      return
+    }
+    setError(null)
+    setStatus('No wallet on this device yet. Opening Wallet: create or restore one, then come back to the Arcade.')
+    window.setTimeout(() => router.push('/wallet'), 1200)
+  }, [postToArcade, router])
 
-  const handleScoreUpdate = useCallback(
-    (game: string, score: number) => {
-      if (!walletAddress) return
-      const key = `${ARCADE_NETWORK}:${game}`
-      const prev = scoreTimers.current.get(key)
-      if (prev) clearTimeout(prev)
-      scoreTimers.current.set(
-        key,
-        setTimeout(async () => {
-          try {
-            await fetch('/api/arcade/score', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                account: walletAddress,
-                game,
-                score,
-                network: ARCADE_NETWORK,
-              }),
-            })
-          } catch {
-            /* best-effort */
+  // Pick up a wallet created or restored in another tab when the user comes back.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || walletAddress) return
+      loadPrimaryWallet()
+        .then((w) => {
+          if (w?.address) {
+            setWalletAddress(plAccountId(w))
+            setPlAccount(plAccountId(w))
           }
-        }, 800),
-      )
+        })
+        .catch(() => {})
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [walletAddress])
+
+  // Debounced score POST, keyed per run so a new run never swallows the
+  // previous run's final score (the server adds runs up for claim progress).
+  const scoreTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const pendingScores = useRef<Map<string, () => Promise<void>>>(new Map())
+
+  const postScore = useCallback(
+    async (game: string, score: number, runId?: string) => {
+      if (!walletAddress) return
+      try {
+        const res = await fetch('/api/arcade/score', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            account: walletAddress,
+            pl_account: plAccount || undefined,
+            game,
+            score,
+            run_id: runId || undefined,
+            network: ARCADE_NETWORK,
+          }),
+        })
+        const data = await res.json().catch(() => null)
+        if (res.ok && data) postProgress(game, data.progress, data.minScore)
+      } catch {
+        /* best-effort */
+      }
     },
-    [walletAddress],
+    [walletAddress, plAccount, postProgress],
   )
 
+  const handleScoreUpdate = useCallback(
+    (game: string, score: number, runId?: string) => {
+      if (!walletAddress) return
+      const key = `${ARCADE_NETWORK}:${game}:${runId ?? ''}`
+      const prev = scoreTimers.current.get(key)
+      if (prev) clearTimeout(prev)
+      const send = () => {
+        scoreTimers.current.delete(key)
+        pendingScores.current.delete(key)
+        return postScore(game, score, runId)
+      }
+      pendingScores.current.set(key, send)
+      scoreTimers.current.set(key, setTimeout(() => void send(), 800))
+    },
+    [walletAddress, postScore],
+  )
+
+  /** Send any debounced score posts now (before a claim). */
+  const flushScores = useCallback(async () => {
+    const sends = [...pendingScores.current.entries()]
+    for (const [key] of sends) {
+      const t = scoreTimers.current.get(key)
+      if (t) clearTimeout(t)
+    }
+    // Sequential: keeps run order on the server.
+    for (const [, send] of sends) await send()
+  }, [])
+
   const handleClaimRequest = useCallback(
-    async (game: string, score: number) => {
+    async (game: string) => {
       if (!walletAddress) {
         setError('Open Wallet and create/unlock a wallet first, then return here.')
         postToArcade({
@@ -152,17 +243,9 @@ export default function ArcadePage() {
       setError(null)
       setStatus(`Claiming Game Faucet for ${game}…`)
       try {
-        // Ensure latest score is stored
-        await fetch('/api/arcade/score', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            account: walletAddress,
-            game,
-            score,
-            network: ARCADE_NETWORK,
-          }),
-        })
+        // Ensure the latest run scores are stored. The claim-request score is
+        // not re-posted: eligibility is the server's accumulated progress.
+        await flushScores()
 
         const res = await fetch('/api/arcade/claim', {
           method: 'POST',
@@ -170,11 +253,11 @@ export default function ArcadePage() {
           body: JSON.stringify({
             account: walletAddress,
             game,
-            score,
             network: ARCADE_NETWORK,
           }),
         })
         const data = await res.json()
+        postProgress(game, data.progress, data.minScore)
         if (!res.ok) {
           setError(data.error ?? 'Claim failed')
           setStatus(null)
@@ -209,7 +292,7 @@ export default function ArcadePage() {
         setClaimBusy(false)
       }
     },
-    [walletAddress, claimBusy, postToArcade],
+    [walletAddress, claimBusy, postToArcade, flushScores, postProgress],
   )
 
   useEffect(() => {
@@ -228,17 +311,21 @@ export default function ArcadePage() {
         pushWallet()
         return
       }
+      if (event.data.type === 'CONNECT_WALLET_REQUEST') {
+        void connectWallet()
+        return
+      }
       if (event.data.type === 'SCORE_UPDATE') {
-        handleScoreUpdate(event.data.game, event.data.score)
+        handleScoreUpdate(event.data.game, event.data.score, event.data.runId)
         return
       }
       if (event.data.type === 'CLAIM_REQUEST') {
-        void handleClaimRequest(event.data.game, event.data.score)
+        void handleClaimRequest(event.data.game)
       }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [pushWallet, handleScoreUpdate, handleClaimRequest])
+  }, [pushWallet, connectWallet, handleScoreUpdate, handleClaimRequest])
 
   // Re-push wallet when it loads
   useEffect(() => {
@@ -273,6 +360,24 @@ export default function ArcadePage() {
           >
             Leaderboard
           </Link>
+          <Link
+            href="/feedback"
+            className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
+          >
+            Feedback
+          </Link>
+          <Link
+            href="/terms"
+            className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
+          >
+            Terms
+          </Link>
+          <Link
+            href="/privacy"
+            className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
+          >
+            Privacy
+          </Link>
           {walletAddress ? (
             <span className="hidden sm:inline text-xs font-mono text-slate-400 truncate max-w-[10rem]">
               {walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}
@@ -292,6 +397,7 @@ export default function ArcadePage() {
           <span className="font-medium">Falcon PL</span>
           {' · '}Network ID 2300
           {' · '}FPL testnet — no real value
+          {' · '}Game Faucet: your run scores add up — 500 pts today unlocks a claim
         </div>
       </div>
 

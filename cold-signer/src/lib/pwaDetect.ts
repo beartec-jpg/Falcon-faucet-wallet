@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Detect whether Cold Signer is running as an installed PWA (standalone),
  * not a normal browser tab. Vault import is only allowed when installed.

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
 import { isOriginAllowed } from '@/lib/origin'
 import { loadLendingManifestServer } from '@/lib/lending-config'
@@ -5,6 +6,7 @@ import { iouAmount, isActiveVaultLp, mptScaled } from '@/lib/lend-pool-stats'
 import { normalizeVaultWithdrawAmount, fusdcFromShareBalance } from '@/lib/lend-vault-withdraw'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { loadStableToken } from '@/lib/swap/token-config'
+import { retiredOnPl } from '@/lib/pl-retired'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
@@ -65,6 +67,8 @@ async function fetchShareBalance(
 }
 
 export async function POST(req: NextRequest) {
+  const retired = retiredOnPl(req)
+  if (retired) return retired
   if (!isOriginAllowed(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }

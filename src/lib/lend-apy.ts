@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** LP yield model: PoPL emissions floor + borrower interest upside. */
 
 export const EPOCH_LP_START_PCT = 50
