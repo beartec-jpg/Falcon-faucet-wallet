@@ -1,10 +1,10 @@
 # Falcon PL portal — Roadmap
 
-**Last updated:** 2026-08-26  
-**Current testnet:** Falcon PL network ID **2300** (Falcon Consensus + Falcon-512, live `product_version` 2.9.36).  
+**Last updated:** 2026-09-19  
+**Current testnet:** Falcon PL network ID **2300** (Falcon Consensus + Falcon-512, live `product_version` 2.9.60; Release B 2.9.61 activates at height 414000).  
 **Falcon Ledger / XRPL fork 1001 is shut down.**
 
-Bridge status (testnet dest-lock **live** for ETH, USDC, and BTC): [BRIDGES-2300.md](./BRIDGES-2300.md). Protocol living report: Falcon-PL `docs/BRIDGES_2300_STATUS.md`.
+Bridge status (testnet **live** ETH/USDC FalconQcBridge + BTC even-Y / BitVM2 A1 operator-fronting): [BRIDGES-2300.md](./BRIDGES-2300.md). Protocol living report: Falcon-PL `docs/BRIDGES_2300_STATUS.md`.
 
 This roadmap covers the **web portal** (`Falcon-faucet-wallet`). Protocol papers: in-app [whitepaper](/whitepaper) (v5.1).
 
@@ -53,7 +53,7 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`). Protocol papers
 - [x] Passkey-encrypted Sepolia EVM wallet (no MetaMask)
 - [x] ETH/USDC dest-lock in: `depositEth` / `depositUsdc` + auto-mint (`pl-2300-bridge.json` live)
 - [x] ETH/USDC dest-lock out: burn → sampled LC header → `openClaim` / `take`
-- [x] BTC dest-lock in/out: FROST P2TR + Kickoff + CSV take (`BTC_RAIL_LIVE = true`)
+- [x] BTC dest-lock in/out: BitVM2 instance Kickoff + CSV take (`BTC_RAIL_LIVE = true`; no FROST)
 - [x] Send Out: Sepolia ETH / USDC to external `0x` addresses
 - [x] Encrypted EVM wallet backup export/import
 - [x] Retired 1001 `usdc-bridge.json` lock kept as notes only
@@ -103,7 +103,7 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`). Protocol papers
 
 ### Portal
 - [x] Portal lend UI: permissionless borrow, duration picker (1–52 epochs), Positions add-collateral (`LoanCollateralDeposit`)
-- [ ] Retire `TESTNET_LENDING_BROKER_SECRET` if legacy co-sign fully unused
+- [x] Retire `TESTNET_LENDING_BROKER_SECRET` / `/api/lend/cosign` (audit residual)
 - [ ] Live APY from epoch `EmissionRate` in overview (currently fixed APR display)
 - [ ] Post-genesis E2E PDF report regeneration
 - [ ] Mainnet network config and go-live toggle (`NEXT_PUBLIC_MAINNET_LIVE`)
@@ -146,11 +146,11 @@ This roadmap covers the **web portal** (`Falcon-faucet-wallet`). Protocol papers
 |------|------------|----------|
 | AMM | High slippage on thin pool | Add LP before large swaps |
 | Bridge | LC prover needs Sepolia ETH; BTC headers must follow testnet reorgs | Operator liveness, not a drain key |
-| Bridge | BTC Kickoff is 4-of-6 FROST | Honest dest-lock only after Kickoff |
+| Bridge | BTC Kickoff is dest-lock (claimer CHECKSIG); CSV take | Honest dest after Kickoff; setup keys wiped |
 | DEX | Partial-fill dust remainders | Cancel manually; hidden from book |
 | F-USDC | Requires trust line before receive / bridge mint | Explicit TrustSet step on Bridge tab (and Swap tab for P2P) |
 | Lend | `LendingPermissionless` not yet enabled on all validators | Fleet docker rebuild + amendment vote in progress |
-| Lend | Broker co-sign path legacy only | Remove `TESTNET_LENDING_BROKER_SECRET` once permissionless live |
+| Lend | Broker co-sign removed | Delete `TESTNET_LENDING_BROKER_SECRET` from Vercel |
 | Passkeys | rawId fallback weaker than PRF | Testnet only — see `src/lib/passkey.ts` |
 | Signing | Server routes need signer proxy on node1 | Documented in `.env.example` |
 

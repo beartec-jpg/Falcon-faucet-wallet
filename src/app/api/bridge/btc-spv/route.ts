@@ -1,3 +1,5 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
+import { BTC_DEPOSITS_ENABLED, BTC_DEPOSITS_OFF_ERROR } from '@/lib/btc-withdrawals'
 import { NextRequest, NextResponse } from 'next/server'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -6,9 +8,17 @@ import { getNetwork } from '@/lib/networks'
 import { verifyBitcoinMerkleProof } from '@/lib/btc-merkle'
 import {
   assertLiveWatchAddress,
+  BITVM2_CLAIM_CSV,
+  BITVM2_INSTANCE_ADDRESS,
+  BITVM2_INSTANCE_SPK,
+  BITVM2_KICKOFF_FEE_SATS,
+  BITVM2_MIN_PEGOUT_SATS,
   claimAllowedForDeposit,
   isRetiredWatchAddress,
+  liveBtcWatchAddresses,
 } from '@/lib/btc-spv-policy'
+import { isDeadSpvTxid } from '@/lib/btc-spv-pending'
+import { walletApiAuthHeaders, walletApiUrl } from '@/lib/walletd'
 
 /**
  * Bitcoin SPV light-client bridge status + claim proof helper.
@@ -18,7 +28,7 @@ import {
  */
 
 const FEATURE = 'BitcoinSPVBridge'
-const DEFAULT_RPC = process.env.XRPLD_RPC_URL?.trim() || 'http://46.224.0.140:6005'
+const DEFAULT_RPC = process.env.XRPLD_RPC_URL?.trim() || '' // legacy network 1001 RPC retired; env override only
 
 function errorMessage(e: unknown, fallback: string): string {
   if (e instanceof Error) return e.message
@@ -155,25 +165,58 @@ function isPl2300Request(req: NextRequest, bodyNetwork?: string | null): boolean
   )
 }
 
-async function fetchPlBtcRailTip(): Promise<{ height: number; spv: string }> {
-  const { plRpc } = await import('@/lib/pl-rpc')
+async function fetchPlBtcRailTip(): Promise<{ height: number; spv: string; floor: number }> {
+  // Take the *highest* BTC tip across configured peers so a wedged archive
+  // (e.g. falcon1 left on a dead tip) cannot false-trigger critical lag.
+  const { plRpc, plRpcAddrs } = await import('@/lib/pl-rpc')
   let lastErr: unknown
-  for (let i = 0; i < 3; i++) {
-    try {
-      const r = await plRpc({ type: 'status_req', include_accounts: false }, { timeoutMs: 15_000 })
-      if (r.type === 'err') throw new Error(String(r.msg ?? 'status error'))
-      const st = (r.body ?? r) as Record<string, unknown>
-      const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
-      const btcRail = rails.find((row) => String(row.asset) === 'BTC') ?? {}
-      const height = Number(btcRail.tip_height ?? 0) || 0
-      const spv = String(btcRail.spv ?? '')
-      if (height > 0) return { height, spv }
-      lastErr = new Error('PL BTC rail tip_height missing')
-    } catch (e) {
-      lastErr = e
+  let best: { height: number; spv: string; floor: number } | null = null
+  for (const addr of plRpcAddrs()) {
+    for (let i = 0; i < 2; i++) {
+      try {
+        const r = await plRpc(
+          { type: 'status_req', include_accounts: false },
+          { addr, timeoutMs: 12_000 },
+        )
+        if (r.type === 'err') throw new Error(String(r.msg ?? 'status error'))
+        const st = (r.body ?? r) as Record<string, unknown>
+        const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
+        const btcRail = rails.find((row) => String(row.asset) === 'BTC') ?? {}
+        const height = Number(btcRail.tip_height ?? 0) || 0
+        const spv = String(btcRail.spv ?? '')
+        const floor = Number(btcRail.header_floor ?? 0) || 0
+        if (height > 0 && (!best || height > best.height)) best = { height, spv, floor }
+        break
+      } catch (e) {
+        lastErr = e
+      }
     }
   }
+  if (best) return best
   throw lastErr instanceof Error ? lastErr : new Error('PL BTC rail tip unavailable')
+}
+
+/** Falcon-minted BTC peg-ins. Bitcoin vault UTXO remains unspent after mint. */
+async function falconSpentBtcTxids(): Promise<Set<string>> {
+  const out = new Set<string>()
+  try {
+    const { plStatus } = await import('@/lib/pl-rpc')
+    const st = await plStatus(false)
+    const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
+    const btc = rails.find((r) => String(r.asset) === 'BTC') ?? {}
+    const spent = btc.spent_deposits
+    if (Array.isArray(spent)) {
+      for (const x of spent) {
+        const id = String(x || '')
+          .toLowerCase()
+          .replace(/^0x/, '')
+        if (/^[0-9a-f]{64}$/.test(id)) out.add(id)
+      }
+    }
+  } catch {
+    /* status may omit spent_deposits until the node is rolled */
+  }
+  return out
 }
 
 /** FALC dest id: classic AccountID or sha256(lowercase name)[:20]. */
@@ -202,33 +245,37 @@ export async function GET(req: NextRequest) {
       const st = await plStatus(false)
       const rails = (st.rails as Array<Record<string, unknown>> | undefined) ?? []
       const btc = rails.find((r) => String(r.asset) === 'BTC') ?? {}
-      const vp = (btc.vault_pub as Record<string, unknown> | undefined) ?? {}
-      const watchAddress = String(
-        btc.vault_address ||
-          vp.address ||
+      let watchAddress = String(
+        process.env.BITVM2_INSTANCE_ADDRESS ||
           (fileCfg.watch_address as string | undefined) ||
-          '',
+          BITVM2_INSTANCE_ADDRESS,
       ).trim()
-      const paymentScriptHex = String(
-        vp.spk_hex || (fileCfg.payment_script_hex as string | undefined) || '',
+      let paymentScriptHex = String(
+        process.env.BITVM2_INSTANCE_SPK ||
+          (fileCfg.payment_script_hex as string | undefined) ||
+          BITVM2_INSTANCE_SPK,
       )
         .trim()
         .replace(/^0x/i, '')
-      if (
-        !watchAddress ||
-        /tb1q7dnl/i.test(watchAddress) ||
-        /tb1qesum/i.test(watchAddress) ||
-        /tb1pq9mgl/i.test(watchAddress)
-      ) {
-        return NextResponse.json(
-          {
-            ready: false,
-            error: 'BTC vault is not the live NUMS dest+watch pool — refusing retired holds',
-            watchAddress: '',
-            retired: true,
-          },
-          { status: 503 },
-        )
+      try {
+        const dep = await fetch(`${walletApiUrl()}/btc-deposit`, {
+          cache: 'no-store',
+          headers: walletApiAuthHeaders(),
+          signal: AbortSignal.timeout(4_000),
+        })
+        if (dep.ok) {
+          const d = (await dep.json()) as { address?: string; spk?: string }
+          if (d.address && !isRetiredWatchAddress(d.address)) {
+            watchAddress = d.address.trim()
+          }
+          if (d.spk) paymentScriptHex = String(d.spk).trim().replace(/^0x/i, '')
+        }
+      } catch {
+        /* overlay from env/config */
+      }
+      if (!watchAddress || isRetiredWatchAddress(watchAddress)) {
+        watchAddress = BITVM2_INSTANCE_ADDRESS
+        paymentScriptHex = BITVM2_INSTANCE_SPK
       }
       const { loadZeroPoint, offsetRail } = await import('@/lib/pl-zero-point')
       const zp = await loadZeroPoint()
@@ -239,14 +286,16 @@ export async function GET(req: NextRequest) {
         Number(btc.total_burned ?? 0),
       )
       const tipHeight = Number(btc.tip_height ?? 0)
-      const minConf = Number(btc.min_confirmations ?? 6) || 6
+      const minConf = Number(btc.min_confirmations ?? fileCfg.min_confirmations ?? 1) || 1
       const spv = String(btc.spv ?? 'protocol') === 'bitcoin' ? 'bitcoin' : 'protocol'
       let btcTipHeight: number | null = null
       let btcTipHash: string | null = null
       try {
-        const tipH = await explorerGet('/blocks/tip/height', 'testnet')
+        const [tipH, tipHashR] = await Promise.all([
+          explorerGet('/blocks/tip/height', 'testnet'),
+          explorerGet('/blocks/tip/hash', 'testnet'),
+        ])
         if (tipH.ok) btcTipHeight = parseInt(await tipH.text(), 10) || null
-        const tipHashR = await explorerGet('/blocks/tip/hash', 'testnet')
         if (tipHashR.ok) btcTipHash = (await tipHashR.text()).trim() || null
       } catch {
         /* explorer lag */
@@ -255,19 +304,52 @@ export async function GET(req: NextRequest) {
         tipHeight > 0 && btcTipHeight != null ? Math.max(0, btcTipHeight - tipHeight) : null
       const lagLevel =
         lagBlocks == null ? 'unknown' : lagBlocks >= 100 ? 'critical' : lagBlocks >= 20 ? 'warn' : 'ok'
+      let instanceSats: number | null = null
+      let pegOutLargest: number | null = null
+      try {
+        const utxoR = await explorerGet(`/address/${watchAddress}/utxo`, 'testnet')
+        if (utxoR.ok) {
+          const utxos = (await utxoR.json()) as Array<{ value?: number; status?: { confirmed?: boolean } }>
+          const confirmed = utxos.filter((u) => u.status?.confirmed)
+          instanceSats = confirmed.reduce((n, u) => n + Math.floor(Number(u.value ?? 0)), 0)
+          // Kickoff spends one output, the largest confirmed coin, not the sum.
+          const largest = confirmed.reduce(
+            (n, u) => Math.max(n, Math.floor(Number(u.value ?? 0))),
+            0,
+          )
+          pegOutLargest = largest
+        }
+      } catch {
+        /* explorer lag */
+      }
+      const pegOutMaxSats =
+        pegOutLargest != null
+          ? Math.max(0, pegOutLargest - BITVM2_KICKOFF_FEE_SATS)
+          : null
       return NextResponse.json({
         amendment: { supported: true, enabled: true, majority: true },
         activated: true,
-        ready: spv === 'bitcoin',
+        ready: !!(watchAddress && paymentScriptHex),
         mode: spv === 'bitcoin' ? 'bitcoin-spv' : 'pl-rail',
         spv,
-        message:
-          spv === 'bitcoin'
-            ? 'Falcon PL Bitcoin SPV — send testnet BTC to the hold + FALC memo, then mint after 6 confirmations'
-            : 'Header submitter has not reanchored onto Bitcoin yet',
+        holdKind: 'bitvm2-instance',
+        depositsEnabled: BTC_DEPOSITS_ENABLED,
+        message: !BTC_DEPOSITS_ENABLED
+          ? BTC_DEPOSITS_OFF_ERROR
+          : spv === 'bitcoin'
+            ? 'Falcon PL Bitcoin SPV — send testnet BTC to the BitVM2 instance + FALC memo, then mint. Peg-out is dest-lock Kickoff + your key after CSV. No FROST.'
+            : 'BitVM2 dest-lock rail (custodial today). Mint waits until Bitcoin headers are on Falcon.',
         btcNetwork: 'testnet',
         watchAddress,
         paymentScriptHex,
+        pegOut: {
+          mode: 'bitvm2-dest-lock',
+          csv: BITVM2_CLAIM_CSV,
+          minSats: BITVM2_MIN_PEGOUT_SATS,
+          kickoffFeeSats: BITVM2_KICKOFF_FEE_SATS,
+          instanceSats,
+          maxSats: pegOutMaxSats,
+        },
         rail: {
           asset: 'BTC',
           tip_height: tipHeight,
@@ -301,7 +383,7 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json(
       {
-        error: 'Falcon Ledger (network 1001) is shut down. Use Falcon PL 2300.',
+        error: 'Legacy network 1001 is shut down. Use Falcon PL 2300.',
         retired: true,
       },
       { status: 410 },
@@ -319,6 +401,7 @@ export async function POST(req: NextRequest) {
   let body: {
     action?: string
     btc_txid?: string
+    txid?: string
     network?: BtcNetwork
     vout?: number
     account?: string
@@ -340,9 +423,21 @@ export async function POST(req: NextRequest) {
     action !== 'withdraw_status' &&
     action !== 'withdraw_list' &&
     action !== 'find_redeem' &&
-    action !== 'list_deposits'
+    action !== 'list_deposits' &&
+    action !== 'deposit_spent'
   ) {
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+  }
+
+  if (action === 'deposit_spent') {
+    const txid = String(body.txid || '')
+      .toLowerCase()
+      .replace(/^0x/, '')
+    if (!/^[0-9a-f]{64}$/.test(txid)) {
+      return NextResponse.json({ error: 'txid must be 32-byte hex' }, { status: 400 })
+    }
+    const spent = await falconSpentBtcTxids()
+    return NextResponse.json({ txid, spent: spent.has(txid) || isDeadSpvTxid(txid) })
   }
 
   // Open FALC peg-ins for an account (restore tracker if browser storage was lost)
@@ -359,20 +454,21 @@ export async function POST(req: NextRequest) {
       }
       const want = Buffer.concat([Buffer.from('FALC'), acc20])
       const fileCfg = await loadFileConfig()
-      const hold =
+      // Proof accepts the live BitVM2 instance and the NUMS vault. Listing only
+      // the config vault hid instance deposits and left the Recover box up.
+      const holds = liveBtcWatchAddresses(
         (fileCfg.watch_address as string | undefined)?.trim() ||
-        process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
-        ''
-      if (!hold) {
+          process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
+          process.env.BITVM2_INSTANCE_ADDRESS?.trim() ||
+          '',
+      )
+      if (!holds.length) {
         return NextResponse.json({ deposits: [], error: 'No hold address configured' })
       }
+      const spentOnFalcon = await falconSpentBtcTxids()
       const tipR = await explorerGet('/blocks/tip/height', network)
       const tip = tipR.ok ? parseInt(await tipR.text(), 10) || 0 : 0
-      const txsR = await explorerGet(`/address/${hold}/txs`, network)
-      if (!txsR.ok) {
-        return NextResponse.json({ deposits: [] })
-      }
-      const txs = (await txsR.json()) as Array<{
+      const txs: Array<{
         txid: string
         status?: { confirmed?: boolean; block_height?: number }
         vout?: Array<{
@@ -380,12 +476,30 @@ export async function POST(req: NextRequest) {
           scriptpubkey?: string
           scriptpubkey_address?: string
         }>
-      }>
+      }> = []
+      const seenTx = new Set<string>()
+      for (const hold of holds) {
+        const txsR = await explorerGet(`/address/${hold}/txs`, network)
+        if (!txsR.ok) continue
+        const batch = (await txsR.json()) as typeof txs
+        for (const t of batch) {
+          const id = String(t.txid || '').toLowerCase()
+          if (!id || seenTx.has(id)) continue
+          seenTx.add(id)
+          txs.push(t)
+        }
+      }
+      if (!txs.length) {
+        return NextResponse.json({ deposits: [], hold: holds[0] })
+      }
+      const holdSet = new Set(holds.map((h) => h.toLowerCase()))
       const deposits: Array<{
         txid: string
         vout: number
         amountSats: number
         confirmations: number
+        blockHeight?: number
+        blockTime?: number
       }> = []
       for (const t of txs.slice(0, 40)) {
         const st = t.status || {}
@@ -414,13 +528,15 @@ export async function POST(req: NextRequest) {
               /* ignore */
             }
           }
-          if (o.scriptpubkey_address === hold) {
+          if (holdSet.has((o.scriptpubkey_address || '').trim().toLowerCase())) {
             holdVout = i
             holdVal = Math.floor(Number(o.value || 0))
           }
         }
         if (!falcMatch || holdVout < 0 || holdVal < 546) continue
-        // only unspent on Bitcoin (hold keeps the UTXO after claim — that alone ≠ open claim)
+        const txid = String(t.txid || '').toLowerCase()
+        // Vault UTXO stays unspent after FBTC mint — Bitcoin unspent ≠ open claim.
+        if (isDeadSpvTxid(txid) || spentOnFalcon.has(txid)) continue
         try {
           const osR = await explorerGet(`/tx/${t.txid}/outspend/${holdVout}`, network)
           if (osR.ok) {
@@ -430,15 +546,16 @@ export async function POST(req: NextRequest) {
         } catch {
           /* include if outspend check fails */
         }
-        // Old Falcon Ledger deposit objects are gone with network 1001.
         deposits.push({
           txid: t.txid,
           vout: holdVout,
           amountSats: holdVal,
           confirmations: confs,
+          blockHeight: h || undefined,
+          blockTime: Number((st as { block_time?: number }).block_time || 0) || undefined,
         })
       }
-      return NextResponse.json({ deposits, hold, account })
+      return NextResponse.json({ deposits, hold: holds[0], account })
     } catch (e) {
       return NextResponse.json(
         { error: e instanceof Error ? e.message : 'list_deposits failed', deposits: [] },
@@ -449,7 +566,7 @@ export async function POST(req: NextRequest) {
 
   if (action === 'find_redeem') {
     return NextResponse.json(
-      { error: 'Falcon Ledger redeem is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Legacy network 1001 redeem is retired. Use Falcon PL 2300.', retired: true },
       { status: 410 },
     )
   }
@@ -610,7 +727,7 @@ export async function POST(req: NextRequest) {
       }
     }
     return NextResponse.json(
-      { error: 'Falcon Ledger withdraw list is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Legacy network 1001 withdraw list is retired. Use Falcon PL 2300.', retired: true },
       { status: 410 },
     )
     if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account)) {
@@ -659,7 +776,7 @@ export async function POST(req: NextRequest) {
   // SPV peg-out: poll BtcWithdrawal challenge window
   if (action === 'withdraw_status') {
     return NextResponse.json(
-      { error: 'Falcon Ledger withdraw status is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Legacy network 1001 withdraw status is retired. Use Falcon PL 2300.', retired: true },
       { status: 410 },
     )
     const account = (body.account || '').trim()
@@ -789,10 +906,26 @@ export async function POST(req: NextRequest) {
     }
     if (purpose === 'deposit') {
       const fileCfg = await loadFileConfig()
-      const watchAddress =
+      // Same resolution as GET status: env → config → walletd overlay → defaults.
+      let watchAddress =
+        process.env.BITVM2_INSTANCE_ADDRESS?.trim() ||
         (fileCfg.watch_address as string | undefined)?.trim() ||
-        process.env.BTC_SPV_WATCH_ADDRESS?.trim() ||
-        null
+        BITVM2_INSTANCE_ADDRESS
+      try {
+        const dep = await fetch(`${walletApiUrl()}/btc-deposit`, {
+          cache: 'no-store',
+          headers: walletApiAuthHeaders(),
+          signal: AbortSignal.timeout(4_000),
+        })
+        if (dep.ok) {
+          const d = (await dep.json()) as { address?: string }
+          if (d.address && !isRetiredWatchAddress(d.address)) {
+            watchAddress = d.address.trim()
+          }
+        }
+      } catch {
+        /* keep env/config */
+      }
       const outAddr = status.vout?.[vout]?.scriptpubkey_address?.trim()
       if (outAddr && isRetiredWatchAddress(outAddr)) {
         return NextResponse.json(
@@ -805,6 +938,7 @@ export async function POST(req: NextRequest) {
           { status: 400 },
         )
       }
+      // Accept BitVM2 instance and NUMS vault (node mint dests).
       const watchErr = assertLiveWatchAddress(outAddr, watchAddress)
       if (watchErr) {
         return NextResponse.json(
@@ -813,6 +947,7 @@ export async function POST(req: NextRequest) {
             wrongWatchAddress: true,
             paidTo: outAddr,
             expectedWatch: watchAddress,
+            allowedWatch: liveBtcWatchAddresses(watchAddress),
           },
           { status: 400 },
         )
@@ -827,10 +962,12 @@ export async function POST(req: NextRequest) {
     const rpcUrl = process.env.XRPLD_RPC_URL?.trim() || net.rpcUrl || DEFAULT_RPC
     let falconTipHeight = 0
     let headerReady = isPl2300Request(req, body.network)
+    let headerFloor = 0
     if (headerReady) {
       try {
         const rail = await fetchPlBtcRailTip()
         falconTipHeight = rail.height
+        headerFloor = rail.floor
         headerReady = rail.spv === 'bitcoin' || falconTipHeight > 0
       } catch {
         // Proof can still return; do not 409 "tip unknown" on a healthy 2300 rail.
@@ -858,6 +995,47 @@ export async function POST(req: NextRequest) {
     } catch {
       /* RPC flaky — still return proof; claim may fail with tecNO_ENTRY */
     }
+    }
+
+    // Deposit block was pruned out of the kept window. Ask the header
+    // feeder to pull it back. The claim retries; do not re-send BTC.
+    if (
+      headerFloor > 0 &&
+      blockHeight > 0 &&
+      blockHeight < headerFloor &&
+      purpose === 'deposit'
+    ) {
+      try {
+        const fs = await import('fs')
+        const wantPath =
+          process.env.FPL_BTC_HEADER_WANT ||
+          '/home/falcon/falcon-pl-public-testnet-2300/run/btc-header-want'
+        let cur = 0
+        try {
+          cur = parseInt(fs.readFileSync(wantPath, 'utf8').trim(), 10) || 0
+        } catch {
+          cur = 0
+        }
+        const next = cur > 0 ? Math.min(cur, blockHeight) : blockHeight
+        fs.writeFileSync(wantPath, String(next))
+      } catch {
+        /* feeder host may differ; the error still tells the user to wait */
+      }
+      return NextResponse.json(
+        {
+          error:
+            `Falcon no longer has Bitcoin block ${blockHeight} in memory (kept headers start at ${headerFloor}). ` +
+            'It is loading that older block now. Wait, then Claim FBTC again — do not re-send BTC.',
+          waiting: true,
+          headerReady: false,
+          falconTipHeight: falconTipHeight || undefined,
+          headerFloor,
+          depositHeight: blockHeight,
+          confirmations,
+          confirmed: true,
+        },
+        { status: 409 },
+      )
     }
 
     if (!headerReady) {
@@ -947,7 +1125,9 @@ export async function POST(req: NextRequest) {
         btcTip: tip || null,
         confirmations,
         amountSats,
-        protocolMinConf: undefined,
+        protocolMinConf: Number(
+          (await loadFileConfig()).min_confirmations ?? 1,
+        ) || 1,
       })
       if (!gate.ok) {
         return NextResponse.json(
@@ -966,6 +1146,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const amountSatsOut = Math.floor(Number(status.vout?.[vout]?.value ?? 0))
     return NextResponse.json({
       rawTxHex,
       merkleProofHex,
@@ -974,6 +1155,7 @@ export async function POST(req: NextRequest) {
       vout,
       confirmations,
       blockHeight,
+      amountSats: amountSatsOut > 0 ? amountSatsOut : undefined,
       confirmed: true,
       headerReady: true,
       falconTipHeight: falconTipHeight || undefined,

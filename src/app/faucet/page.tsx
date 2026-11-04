@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import FaucetClient from './FaucetClient'
 import { watcherSnapshot } from '@/lib/pl-watcher'
 

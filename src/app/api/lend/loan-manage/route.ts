@@ -1,8 +1,10 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
 import { brokerSecret, signAndSubmitLoanManage } from '@/lib/lend-broker-server'
 import type { LoanManageAction } from '@/lib/lend-loan-manage'
 import { resolveNetworkKey } from '@/lib/network-server'
 import { bearerToken, timingSafeEqualString } from '@/lib/security'
+import { retiredOnPl } from '@/lib/pl-retired'
 
 const ACTIONS = new Set<LoanManageAction>(['impair', 'unimpair', 'default'])
 
@@ -11,6 +13,8 @@ const ACTIONS = new Set<LoanManageAction>(['impair', 'unimpair', 'default'])
  * Daemon-only: requires LEND_HF_MONITOR_TOKEN. Browser origin path removed.
  */
 export async function POST(req: NextRequest) {
+  const retired = retiredOnPl(req)
+  if (retired) return retired
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
   const daemonToken = process.env.LEND_HF_MONITOR_TOKEN?.trim()
   if (!daemonToken) {
@@ -37,7 +41,7 @@ export async function POST(req: NextRequest) {
   }
   if (!brokerSecret()) {
     return NextResponse.json(
-      { error: 'Broker secret not configured' },
+      { error: 'Broker owner signing retired (co-sign removed); delete TESTNET_LENDING_BROKER_SECRET from Vercel' },
       { status: 503 },
     )
   }

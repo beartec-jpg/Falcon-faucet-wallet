@@ -1,9 +1,14 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Falcon PL (network 2300) wire client.
  *
  * Nodes speak newline-JSON `WireMsg` on TCP, not XRPL JSON-RPC.
- * Local seats use 127.0.0.1:19301. Vercel / public deploys fall through to
- * the droplet TCP proxy (forwards to the falcon1 archive over Tailscale).
+ * Local seats use 127.0.0.1:19301. Vercel / public deploys set
+ * FALCON_PL_RPC to the authenticated HTTPS wire gateway on falcon1
+ * (`https://…/wire`, Bearer FALCON_PL_RPC_KEY or FALCON_PL_WALLET_API_KEY);
+ * it forwards status_req / account_query / submit_tx only. Plain `host:port`
+ * entries still use raw TCP. There is no public fallback: the old droplet
+ * proxy was retired on 2026-10-09.
  */
 
 import net from 'net'
@@ -11,8 +16,6 @@ import { createHash, createHmac } from 'crypto'
 
 const _plNid = Number(process.env.FALCON_PL_NETWORK_ID ?? '2300')
 export const PL_NETWORK_ID = _plNid === 1001 || _plNid === 2200 || !Number.isFinite(_plNid) ? 2300 : _plNid
-/** Public TCP proxy on the droplet → falcon1 :19301 archive. */
-export const PL_PUBLIC_PROXY = '192.241.247.158:19311'
 
 function isServerlessRuntime(): boolean {
   return (
@@ -22,7 +25,12 @@ function isServerlessRuntime(): boolean {
   )
 }
 
+function isHttpAddr(addr: string): boolean {
+  return /^https?:\/\//i.test(addr)
+}
+
 function isLoopbackAddr(addr: string): boolean {
+  if (isHttpAddr(addr)) return false
   const host =
     addr
       .replace(/^tcp:\/\//i, '')
@@ -42,17 +50,17 @@ export function plRpcAddrs(): string[] {
     .map((s) => s.trim())
     .filter(Boolean)
   const serverless = isServerlessRuntime()
-  const fallbacks = serverless ? [PL_PUBLIC_PROXY] : ['127.0.0.1:19301', PL_PUBLIC_PROXY]
+  // Local dev / on-host builds talk to the seat directly; serverless needs FALCON_PL_RPC.
+  const fallbacks = serverless ? [] : ['127.0.0.1:19301']
   const out: string[] = []
   for (const a of [...fromEnv, ...fallbacks]) {
     if (serverless && isLoopbackAddr(a)) continue
     if (!out.includes(a)) out.push(a)
   }
-  if (out.length === 0) out.push(PL_PUBLIC_PROXY)
   return out
 }
 
-export const PL_DEFAULT_ADDR = plRpcAddrs()[0]
+export const PL_DEFAULT_ADDR = plRpcAddrs()[0] ?? ''
 export const PL_WATCHER_ACCOUNT =
   process.env.FALCON_PL_WATCHER_ACCOUNT?.trim() || 'watcher-browser'
 export const PL_FAUCET_ACCOUNT = process.env.FALCON_PL_FAUCET_ACCOUNT?.trim() || 'faucet'
@@ -144,13 +152,49 @@ export function signPlTx(opts: {
   }
 }
 
+function wireGatewayKey(): string {
+  return (
+    process.env.FALCON_PL_RPC_KEY?.trim() || process.env.FALCON_PL_WALLET_API_KEY?.trim() || ''
+  )
+}
+
+/** One wire message over the HTTPS wire gateway (POST body = one JSON line). */
+async function plRpcHttpOnce(line: string, url: string, timeoutMs: number): Promise<PlWire> {
+  const key = wireGatewayKey()
+  const r = await fetch(url, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Wire-Timeout-Ms': String(timeoutMs),
+      ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    },
+    body: line,
+    signal: AbortSignal.timeout(timeoutMs + 5_000),
+  })
+  const text = (await r.text()).trim()
+  let parsed: PlWire | null = null
+  try {
+    parsed = JSON.parse(text) as PlWire
+  } catch {
+    parsed = null
+  }
+  // A filtered message comes back as a wire `err` (403): surface it like a node reply.
+  if (parsed && typeof parsed === 'object' && parsed.type && (r.ok || parsed.type === 'err')) {
+    parsed.raw = text
+    return parsed
+  }
+  throw new Error(`pl wire gateway ${r.status}`)
+}
+
 function plRpcOnce(
   msg: Record<string, unknown> | string,
   addr: string,
   timeoutMs: number,
 ): Promise<PlWire> {
-  const { host, port } = parseAddr(addr)
   const line = typeof msg === 'string' ? msg.replace(/\s+$/, '') : JSON.stringify(msg)
+  if (isHttpAddr(addr)) return plRpcHttpOnce(line, addr, timeoutMs)
+  const { host, port } = parseAddr(addr)
 
   return new Promise((resolve, reject) => {
     const sock = net.connect({ host, port })
@@ -188,6 +232,7 @@ function plRpcOnce(
         }
         const t = String(parsed.type ?? '')
         if (GOSSIP.has(t)) continue
+        parsed.raw = line
         finish(undefined, parsed)
         return
       }
@@ -200,7 +245,7 @@ export async function plRpc(
   msg: Record<string, unknown>,
   opts?: { addr?: string; timeoutMs?: number },
 ): Promise<PlWire> {
-  const timeoutMs = opts?.timeoutMs ?? 8_000
+  const timeoutMs = opts?.timeoutMs ?? 20_000
   const addrs = opts?.addr ? [opts.addr] : plRpcAddrs()
   let last: Error | null = null
   for (const addr of addrs) {
@@ -210,11 +255,11 @@ export async function plRpc(
       last = e instanceof Error ? e : new Error(String(e))
     }
   }
-  throw last ?? new Error('pl rpc: no endpoints')
+  throw last ?? new Error('pl rpc: no endpoints (set FALCON_PL_RPC)')
 }
 
 export async function plStatus(includeAccounts = false): Promise<Record<string, unknown>> {
-  const r = await plRpc({ type: 'status_req', include_accounts: includeAccounts })
+  const r = await plRpc({ type: 'status_req', include_accounts: includeAccounts, brief: true })
   if (r.type === 'err') throw new Error(String(r.msg ?? 'status error'))
   return (r.body ?? {}) as Record<string, unknown>
 }
@@ -225,8 +270,17 @@ export async function plAccount(account: string): Promise<Record<string, unknown
   return (r.body ?? {}) as Record<string, unknown>
 }
 
+// A seat 1–2 blocks behind answers submit_tx with Err "deferred-until-catchup" and DROPS the tx
+// (falcon_pl_node.rs SubmitTx). Safe to resend the same signed tx: wait briefly, then try the next seat.
+const isDeferred = (m: unknown) => String(m ?? '').includes('deferred-until-catchup')
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
 export async function plSubmit(tx: PlTx): Promise<{ ok: boolean; msg: string }> {
-  const r = await plRpc({ type: 'submit_tx', tx })
+  let r = await plRpc({ type: 'submit_tx', tx })
+  for (let i = 0; i < 4 && r.type === 'err' && isDeferred(r.msg); i++) {
+    await sleep(700)
+    r = await plRpc({ type: 'submit_tx', tx })
+  }
   if (r.type === 'err') return { ok: false, msg: String(r.msg ?? 'rejected') }
   return { ok: true, msg: String(r.msg ?? 'accepted') }
 }
@@ -235,17 +289,25 @@ export async function plSubmit(tx: PlTx): Promise<{ ok: boolean; msg: string }> 
 export async function plSubmitRaw(txJson: string): Promise<{ ok: boolean; msg: string }> {
   const tx = txJson.trim()
   if (!tx.startsWith('{')) throw new Error('tx_json must be an object')
-  const timeoutMs = 8_000
+  const timeoutMs = 20_000
   const addrs = plRpcAddrs()
   let last: Error | null = null
   for (const addr of addrs) {
     try {
-      const r = await plRpcOnce(`{"type":"submit_tx","tx":${tx}}`, addr, timeoutMs)
+      let r = await plRpcOnce(`{"type":"submit_tx","tx":${tx}}`, addr, timeoutMs)
+      for (let i = 0; i < 4 && r.type === 'err' && isDeferred(r.msg); i++) {
+        await sleep(700)
+        r = await plRpcOnce(`{"type":"submit_tx","tx":${tx}}`, addr, timeoutMs)
+      }
+      if (r.type === 'err' && isDeferred(r.msg) && addr !== addrs[addrs.length - 1]) {
+        last = new Error(String(r.msg))
+        continue
+      }
       if (r.type === 'err') return { ok: false, msg: String(r.msg ?? 'rejected') }
       return { ok: true, msg: String(r.msg ?? 'accepted') }
     } catch (e) {
       last = e instanceof Error ? e : new Error(String(e))
     }
   }
-  throw last ?? new Error('pl rpc: no endpoints')
+  throw last ?? new Error('pl rpc: no endpoints (set FALCON_PL_RPC)')
 }

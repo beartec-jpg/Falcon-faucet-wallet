@@ -2,7 +2,7 @@
 
 Official public portal for **Falcon PL** testnet (network ID **2300**) — Falcon Consensus + Falcon-512. The old Falcon Ledger / XRPL fork (network **1001**) is shut down; those balances are lost.
 
-**Live:** [falcon-ledger.com](https://falcon-ledger.com) · **Repo:** [Falcon-faucet-wallet](https://github.com/beartec-jpg/Falcon-faucet-wallet)
+**Live:** [falcon-fpl.com](https://falcon-fpl.com) · **Repo:** [Falcon-faucet-wallet](https://github.com/beartec-jpg/Falcon-faucet-wallet)
 
 ---
 
@@ -32,9 +32,9 @@ Official public portal for **Falcon PL** testnet (network ID **2300**) — Falco
 
 Paperwork: [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md).
 
-- **Dest-lock ETH/USDC** — `FalconBridge` `depositEth(bytes20)` / `depositUsdc` auto-mints on Falcon PL. Bridge out: burn → LC header → `openClaim` / `take` dest-locked to your 0x. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: live`).
-- **Live contract:** `0x7eB72974F2d2a4AaDFabAf0975a29470fcd163E4` (Sepolia). Groth16 verifier `0x7db9b1862AE7D04cE9ff85447390bDdfa972a9d0`.
-- **BTC** — BitVM dest-lock + FROST P2TR vault on 2300. Wallet flag `BTC_RAIL_LIVE = true` (operator e2e 2026-08-21). Kickoff is still 4-of-6 FROST; after Kickoff only the dest key takes.
+- **ETH/USDC (FalconQcBridge)** — `depositEth(bytes20)` / `depositUsdc` on `0xf8F1471643792eb1cD5d0C31061629777E55bc48`; Groth16 verifier `0x9992cD8e45A2b7983E2b7f8fC725308a0E4845EC`. Peg-out: burn → Falcon-512 proofs → `openClaim` / `take`. `dest20 = sha256(lowercase PL account)[:20]`. Config: `public/config/pl-2300-bridge.json` (`status: live`).
+- **Legacy DestLock (Kickoff only):** `0xdBF6855b00B78c047A729A21E13bfE5f4C991C05` — not the live peg-in.
+- **BTC** — even-Y NUMS pool `tb1pd6ltq2yu89h37zkwn9jsqcq0svf4pk2upnyf7sfw6rk2v59tkw8sfsdq34` (primary). Peg-out live: BitVM2 A1 operator-fronting (`BTC_EXIT_MODE=bitvm2`) — **not** custodialess. `BTC_RAIL_LIVE = true`. Prior instance `tb1p2xuekx55w9llxe023y070lf32kk0z873nv6pse0awg75ll7l930suzcgn5` is historical.
 - **Classic XRPL FXRP** — separate corridor; not the 1001 Falcon Ledger fork.
 - **Passkey Sepolia wallet** — no MetaMask; EVM keys encrypted on-device.
 - **Send Out** — move Sepolia ETH or USDC to any external `0x` address.
@@ -95,10 +95,10 @@ F-USDC and Sepolia USDC are **not** the same token — the bridge converts betwe
 |------|-------|
 | Name | Falcon PL public testnet |
 | Network ID | **`2300`** |
-| Product | Falcon PL · Falcon Consensus · Falcon-512 (`product_version` 2.9.36) |
-| Public RPC | operator hub on falcon1 port **19301** (Tailscale mesh; not the retired 1001 `:6005`) |
+| Product | Falcon PL · Falcon Consensus · Falcon-512 (live `product_version` 2.9.66) |
+| Public RPC | public seed relay `5.78.142.246:19301` (listed in the release `network-2300.env`; not the retired 1001 `:6005`) |
 | Epoch | 7 days; first claimable epoch **1** on testnet |
-| Min validator bond | 1,000 FPL |
+| Min validator bond | **50,000 FPL** for new seats (2.9.62+, `MIN_BOND_V2`, admission approval required); pre-2.9.62 seats grandfathered at 1,000 |
 | Bridges | Dest-lock ETH/USDC + BTC — [docs/BRIDGES-2300.md](docs/BRIDGES-2300.md) |
 
 Network **1001** (Falcon Ledger / XRPL fork) is shut down. Do not use `:6005`, `r…` issuers, or `FalconCollateralLock`. Admin is a unix `--admin-sock`, not a public TCP admin port.
@@ -156,7 +156,7 @@ See [.env.example](.env.example) for the full list. Key variables:
 
 | Variable | Purpose |
 |----------|---------|
-| `XRPLD_RPC_URL` | Public node on port 6005 |
+| `XRPLD_RPC_URL` | Testnet 2300 node RPC used by server routes (legacy variable name; fallback for `TESTNET_RPC_URL`) |
 | `TESTNET_FAUCET_ACCOUNT` / `TESTNET_FAUCET_SECRET` | Falcon faucet (`falcon_secret` hex) |
 | `SIGNER_PROXY_URL` / `SIGNER_PROXY_TOKEN` | Falcon signing proxy on node1 |
 | `NEXT_PUBLIC_TESTNET_USDC_ISSUER` | F-USDC issuer (or auto from `testnet-stables.json`) |

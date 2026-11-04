@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Read FALCON collateral locked on-chain on Loan ledger objects. */
 
 const DROPS_PER_FALCON = 1_000_000

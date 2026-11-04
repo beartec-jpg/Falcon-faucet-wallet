@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Browser-side Sepolia USDC → Falcon bridge (approve + lock deposit).
  */
@@ -62,6 +63,7 @@ async function waitForTx(
 
 /** Public Sepolia RPC fallbacks — rpc.sepolia.org often returns 404 from browsers/serverless. */
 export const SEPOLIA_RPC_FALLBACKS = [
+  'https://sepolia.gateway.tenderly.co',
   'https://ethereum-sepolia-rpc.publicnode.com',
   'https://1rpc.io/sepolia',
   'https://sepolia.drpc.org',
@@ -75,7 +77,7 @@ export const BSC_TESTNET_RPC_FALLBACKS = [
 ] as const
 
 function provider(rpcUrl: string, chainId = 11155111): JsonRpcProvider {
-  return new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true })
+  return new JsonRpcProvider(rpcUrl, chainId, { staticNetwork: true, batchMaxCount: 20 })
 }
 
 /** Same-origin BSC proxy — works under Vercel CSP where public RPCs fail with "Failed to fetch". */

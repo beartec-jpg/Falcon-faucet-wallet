@@ -1,16 +1,16 @@
-// Shared origin allow-list check for state-changing API routes (CSRF defence).
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
+// Shared origin allow-list for state-changing / browser-only API routes (CSRF defence).
 //
-// Configure ALLOWED_ORIGINS as a comma-separated list of allowed site origins,
-// e.g. "https://wallet.example.com,https://preview.example.com".
+// ALLOWED_ORIGINS: comma-separated origins, e.g. "https://wallet.example.com".
+// When unset, the request Origin/Referer must match this deployment's own origin.
 //
-// When ALLOWED_ORIGINS is not set the check falls back to same-host matching:
-// requests whose Origin/Referer origin equals https://<Host> are allowed.
-// In development (no NODE_ENV=production / VERCEL) all requests are allowed to
-// keep local dev simple.
+// Browser-only routes should use requireBrowserOrigin (audit R-3): a matching Origin
+// (or Referer) or Sec-Fetch-Site: same-origin. Bare requests with neither are refused
+// in production. Cron and other server-to-server routes keep using their own secrets
+// and must not call requireBrowserOrigin.
 
 import type { NextRequest } from 'next/server'
 
-/** Normalise a URL string to its origin (scheme://host[:port]), or null. */
 function toOrigin(value: string): string | null {
   try {
     return new URL(value).origin
@@ -30,46 +30,50 @@ function isProduction(): boolean {
   return process.env.NODE_ENV === 'production' || process.env.VERCEL === '1'
 }
 
-export function isOriginAllowed(req: NextRequest): boolean {
-  // Prefer the Origin header; fall back to the Referer parsed down to its origin.
-  // We compare the exact origin (not a prefix) to avoid suffix-based bypasses
-  // such as https://wallet.example.com.attacker.com.
-  const rawOrigin = req.headers.get('origin')
-  const rawReferer = req.headers.get('referer')
-  const requestOrigin =
-    (rawOrigin && toOrigin(rawOrigin)) ||
-    (rawReferer && toOrigin(rawReferer)) ||
-    null
-
-  if (ALLOWED_ORIGINS.length > 0) {
-    if (!requestOrigin) return false
-    return ALLOWED_ORIGINS.includes(requestOrigin)
-  }
-
-  // No explicit allow-list configured.
-  if (!isProduction()) {
-    // Development: allow everything to keep local dev simple.
-    return true
-  }
-
-  // Mobile / form POST sometimes omits Origin. Same-origin navigations still
-  // send Sec-Fetch-Site.
-  if (!requestOrigin) {
-    const site = req.headers.get('sec-fetch-site')
-    if (site === 'same-origin' || site === 'none') return true
-  }
-
-  // Production fallback: allow same-host requests so the faucet keeps working
-  // even when ALLOWED_ORIGINS has not been set after a deployment/restart.
-  if (!requestOrigin) return false
-  const host = req.headers.get('host')
-  if (!host) return false
-  // Derive the scheme from x-forwarded-proto (set by Vercel/proxies), or fall
-  // back to the scheme already present in the request URL.
+function siteOrigin(req: NextRequest): string | null {
+  const host = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim() || req.headers.get('host')
+  if (!host) return null
   const proto =
     req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() ||
     toOrigin(req.url)?.split(':')[0] ||
     'https'
-  const siteOrigin = `${proto}://${host}`
-  return requestOrigin === siteOrigin
+  return `${proto}://${host}`
+}
+
+function requestOrigin(req: NextRequest): string | null {
+  const rawOrigin = req.headers.get('origin')
+  const rawReferer = req.headers.get('referer')
+  return (rawOrigin && toOrigin(rawOrigin)) || (rawReferer && toOrigin(rawReferer)) || null
+}
+
+/** True when Origin/Referer matches this site or ALLOWED_ORIGINS. */
+export function isOriginAllowed(req: NextRequest): boolean {
+  const origin = requestOrigin(req)
+  const self = siteOrigin(req)
+
+  if (origin && self && origin === self) return true
+  if (ALLOWED_ORIGINS.length > 0 && origin && ALLOWED_ORIGINS.includes(origin)) return true
+
+  // Mobile / PWA: Origin omitted but Sec-Fetch-Site says same-origin.
+  if (!origin && req.headers.get('sec-fetch-site') === 'same-origin') return true
+
+  if (!isProduction() && ALLOWED_ORIGINS.length === 0) return true
+  return false
+}
+
+/**
+ * Stricter check for browser-only routes (rpc proxies, submit, board, faucet).
+ * Refuses production requests that have neither a matching Origin/Referer nor
+ * Sec-Fetch-Site: same-origin. Does not accept bare scripted POSTs.
+ */
+export function requireBrowserOrigin(req: NextRequest): boolean {
+  if (!isProduction() && ALLOWED_ORIGINS.length === 0) return true
+
+  const origin = requestOrigin(req)
+  const self = siteOrigin(req)
+  if (origin && self && origin === self) return true
+  if (ALLOWED_ORIGINS.length > 0 && origin && ALLOWED_ORIGINS.includes(origin)) return true
+
+  if (!origin && req.headers.get('sec-fetch-site') === 'same-origin') return true
+  return false
 }

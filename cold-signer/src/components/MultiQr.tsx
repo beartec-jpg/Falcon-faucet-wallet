@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import jsQR from 'jsqr'
 import QRCode from 'qrcode'

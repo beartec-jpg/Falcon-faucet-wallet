@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Per-wallet-tab asset row visibility (localStorage).
  * Falcon tab: FPL / F-USDC / FETH / FBTC / FBNB
@@ -14,6 +15,9 @@ const MULTI_KEY = 'falcon-wallet-visible-multi-v2'
 
 export const FALCON_ROW_IDS: FalconAssetId[] = ['falcon', 'fusdc', 'feth', 'fbtc', 'fbnb']
 export const MULTI_ROW_IDS: MultiChainRowId[] = ['eth', 'usdc', 'btc', 'bnb', 'xrp']
+/** Public product rows — FBNB/BNB is not a dest-lock corridor. */
+export const PUBLIC_FALCON_ROW_IDS: FalconAssetId[] = ['falcon', 'fusdc', 'feth', 'fbtc']
+export const PUBLIC_MULTI_ROW_IDS: MultiChainRowId[] = ['eth', 'usdc', 'btc', 'xrp']
 
 export const FALCON_ROW_LABELS: Record<FalconAssetId, string> = {
   falcon: 'FPL',

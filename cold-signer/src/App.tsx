@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { useCallback, useEffect, useState } from 'react'
 import { AnimatedQr, MultiQrScan } from './components/MultiQr'
 import {
@@ -22,11 +23,13 @@ import {
   saveColdVaultWithPasskey,
   unlockColdVaultWithPassword,
   unlockColdVaultWithPasskey,
+  migrateLegacyPasskeyVault,
+  isLegacyWeakPasskeyRecord,
   updateLastAccount,
   wipeColdVault,
 } from './lib/coldVaultDb'
 import {
-  authenticateColdPasskey,
+  assertColdPasskey,
   isPasskeySupported,
   registerColdPasskey,
 } from './lib/coldPasskey'
@@ -44,6 +47,7 @@ import {
 } from '@/lib/vault-protocol'
 import { encodeMultiQr, type EncodedMultiQr, b64uEncode } from '@/lib/multi-qr'
 import { signTxJson } from '@/lib/falcon-tx-sign'
+import { reviewUnsignedTx, currencyLabel, type ReviewedTx } from '@/lib/vault-review'
 import { decodeFalconSecret, zeroize } from '@/lib/falcon-keys'
 import { getFalcon512 } from '@/lib/falcon-wasm'
 
@@ -88,7 +92,7 @@ export default function App() {
 
   // Unlock / sign QR
   const [respEnc, setRespEnc] = useState<EncodedMultiQr | null>(null)
-  const [preview, setPreview] = useState<ReturnType<typeof parseUnsignedPayment> | null>(null)
+  const [preview, setPreview] = useState<ReviewedTx | null>(null)
   const [signedEnc, setSignedEnc] = useState<EncodedMultiQr | null>(null)
 
   const [canNativeInstall, setCanNativeInstall] = useState(
@@ -209,19 +213,13 @@ export default function App() {
         }
         try {
           const reg = await registerColdPasskey(inner.label || 'Falcon Cold Vault')
-          await saveColdVaultWithPasskey(
-            metaBase,
-            inner.falcon_secret,
-            reg.credentialId,
-            reg.keyBytes,
-            reg.hasPrf,
-          )
+          await saveColdVaultWithPasskey(metaBase, inner.falcon_secret, reg.credentialId, reg.prfOutput)
           setMeta({
             id: 'main',
             ...metaBase,
             unlockMethod: 'passkey',
             credentialId: reg.credentialId,
-            hasPrf: reg.hasPrf,
+            hasPrf: true,
           })
         } catch (pkErr) {
           // Keep vault file loaded; user can switch to password without re-picking file
@@ -277,8 +275,29 @@ export default function App() {
     try {
       if (!meta?.credentialId) throw new Error('No passkey registered for this vault')
       setBusy(true)
-      const auth = await authenticateColdPasskey(meta.credentialId, !!meta.hasPrf)
-      const keys = await unlockColdVaultWithPasskey(auth.keyBytes)
+      const auth = await assertColdPasskey(meta.credentialId)
+      let keys
+      if (isLegacyWeakPasskeyRecord(meta)) {
+        // Audit H-3: re-wrap the pre-fix vault (PRF if available, else a new cold password).
+        if (!auth.prfOutput) {
+          if (coldPass.length < 12) {
+            throw new Error(
+              'Security upgrade: this passkey has no PRF. Enter a new cold password (12+ characters) above and unlock again.',
+            )
+          }
+          if (coldPass !== coldPass2) throw new Error('Cold passwords do not match')
+        }
+        const res = await migrateLegacyPasskeyVault({
+          assertedRawId: auth.rawId,
+          prfOutput: auth.prfOutput,
+          newPassword: auth.prfOutput ? undefined : coldPass,
+        })
+        keys = res.session
+        setColdPass('')
+        setColdPass2('')
+      } else {
+        keys = await unlockColdVaultWithPasskey(auth.prfOutput)
+      }
       setSession(keys)
       const m = await loadColdVaultMeta()
       setMeta(m)
@@ -367,11 +386,10 @@ export default function App() {
     setError('')
     try {
       assertOfflineForVaultOps(true)
+      if (!session) throw new Error('Unlock the vault first')
       const pkg = parseUnsignedPayment(payload)
-      if (session && pkg.display.account !== session.address) {
-        throw new Error('Transaction account does not match this vault')
-      }
-      setPreview(pkg)
+      // Audit H-4: review and sign only what tx_json says; `display` is ignored.
+      setPreview(reviewUnsignedTx(pkg, session.address))
       setStep('sign-preview')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Invalid unsigned tx')
@@ -385,7 +403,9 @@ export default function App() {
     setBusy(true)
     try {
       assertOfflineForVaultOps(true)
-      const tx_blob = await signTxJson(preview.tx_json, session.falcon_secret)
+      // Re-validate and sign the canonical tx rebuilt from the reviewed fields.
+      const reviewed = reviewUnsignedTx({ networkId: preview.networkId, tx_json: preview.tx }, session.address)
+      const tx_blob = await signTxJson(reviewed.tx, session.falcon_secret)
       setSignedEnc(
         encodeMultiQr(
           encodeSignedTx({ type: 'falcon-signed-tx', v: 1, tx_blob }),
@@ -727,6 +747,29 @@ export default function App() {
             </div>
           )}
           {meta?.unlockMethod === 'passkey' ? (
+            <>
+            {isLegacyWeakPasskeyRecord(meta) && (
+              <div className="space-y-2 rounded-xl border border-amber-700/50 bg-amber-950/30 p-3">
+                <p className="text-[11px] text-amber-300">
+                  Security upgrade required. If your passkey supports PRF it will be used automatically;
+                  otherwise set a new cold password (12+ characters) here.
+                </p>
+                <input
+                  type="password"
+                  placeholder="New cold password (only if asked)"
+                  value={coldPass}
+                  onChange={(e) => setColdPass(e.target.value)}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm"
+                />
+                <input
+                  type="password"
+                  placeholder="Confirm new cold password"
+                  value={coldPass2}
+                  onChange={(e) => setColdPass2(e.target.value)}
+                  className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm"
+                />
+              </div>
+            )}
             <button
               type="button"
               disabled={busy}
@@ -735,6 +778,7 @@ export default function App() {
             >
               {busy ? '…' : 'Unlock with passkey'}
             </button>
+            </>
           ) : (
             <>
               <label className="block text-xs text-slate-400">
@@ -866,28 +910,33 @@ export default function App() {
   }
 
   if (step === 'sign-preview' && preview) {
-    const d = preview.display
+    const d = preview
     const isTrust = d.transactionType === 'TrustSet'
-    const amountLabel = isTrust
-      ? undefined
-      : d.asset === 'F-USDC'
-        ? `${d.amountDrops ?? ''} F-USDC`
-        : `${(Number(d.amountDrops ?? 0) / 1_000_000).toLocaleString()} FALCON`
+    const amountLabel =
+      d.transactionType === 'Payment'
+        ? d.amount.kind === 'native'
+          ? `${(Number(d.amount.drops) / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 6 })} FPL`
+          : `${d.amount.value} ${currencyLabel(d.amount.currency)}`
+        : undefined
     return (
       <div className="min-h-screen flex flex-col bg-slate-950">
         {header}
         <main className="flex-1 max-w-md mx-auto w-full px-4 py-6 space-y-4">
           <h2 className="text-lg font-bold text-white">Review carefully</h2>
+          <p className="text-[11px] text-slate-500">Shown from the transaction being signed.</p>
           <div className="rounded-2xl border border-amber-600/30 bg-amber-950/20 p-4 space-y-2 text-sm">
             <Row k="Type" v={d.transactionType} />
             <Row k="Account" v={d.account} mono />
-            {!isTrust && d.destination && <Row k="To" v={d.destination} mono />}
-            {!isTrust && amountLabel && <Row k="Amount" v={amountLabel} />}
-            {isTrust && (
+            {d.transactionType === 'Payment' && <Row k="To" v={d.destination} mono />}
+            {amountLabel && <Row k="Amount" v={amountLabel} />}
+            {d.transactionType === 'Payment' && d.amount.kind === 'iou' && (
+              <Row k="Issuer" v={d.amount.issuer} mono />
+            )}
+            {d.transactionType === 'TrustSet' && (
               <>
-                <Row k="Trust asset" v={d.limitCurrency === 'QUC' ? 'F-USDC' : (d.limitCurrency ?? '—')} />
-                <Row k="Issuer" v={d.limitIssuer ?? '—'} mono />
-                <Row k="Limit" v={d.limitValue ?? '—'} />
+                <Row k="Trust asset" v={currencyLabel(d.limit.currency)} />
+                <Row k="Issuer" v={d.limit.issuer} mono />
+                <Row k="Limit" v={d.limit.value} />
               </>
             )}
             <Row k="Fee" v={`${d.fee} drops`} />

@@ -1,8 +1,8 @@
-// Falcon Ledger Wallet — Service Worker
-// Network-first for API + WASM; stale-while-revalidate for static assets
+// Falcon PL Wallet — Service Worker
+// Network-first for GET API + WASM; never intercept POST (Claim / submit).
 
-const CACHE = 'falcon-wallet-v10'
-const API_TIMEOUT_MS = 10_000
+const CACHE = 'falcon-wallet-v18'
+const API_TIMEOUT_MS = 30_000
 
 const PRECACHE_URLS = [
   '/',
@@ -42,12 +42,18 @@ self.addEventListener('fetch', event => {
 
   if (url.origin !== self.location.origin) return
 
-  // API + Falcon WASM bundle: network-first, bounded so explorer cannot spin forever
+  // Mutations must hit the live Next process. A down :3040 is not "offline",
+  // and a fake 503 here used to abort Claim FBTC with "You are offline".
+  if (request.method !== 'GET' && request.method !== 'HEAD') return
+
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/wasm/') || url.pathname.includes('.wasm')) {
     event.respondWith(
       fetchWithTimeout(request, API_TIMEOUT_MS).catch(() =>
         new Response(
-          JSON.stringify({ error: 'You are offline' }),
+          JSON.stringify({
+            error: 'Wallet server unreachable — retry. If you already sent BTC, do not re-send.',
+            unreachable: true,
+          }),
           { status: 503, headers: { 'Content-Type': 'application/json' } }
         )
       )
@@ -55,7 +61,24 @@ self.addEventListener('fetch', event => {
     return
   }
 
-  // App shell + static: stale-while-revalidate
+  // HTML navigations: network-first so new pages/cards (e.g. /community
+  // Feedback card) are never hidden behind a stale cached shell. Cache is
+  // only an offline fallback.
+  if (request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html')) {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(CACHE).then(cache => cache.put(request, clone))
+          }
+          return response
+        })
+        .catch(() => caches.match(request).then(c => c || caches.match('/')))
+    )
+    return
+  }
+
   event.respondWith(
     caches.match(request).then(cached => {
       const fetchPromise = fetch(request).then(response => {

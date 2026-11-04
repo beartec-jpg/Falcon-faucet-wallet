@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Falcon PL 2300 BTC rail — Bitcoin SPV only.
  *
@@ -6,11 +7,15 @@
  */
 
 import { signPlPay, signRailDeposit, signRailWithdraw } from './pl-wallet-sign'
+import {
+  BITVM2_CLAIM_CSV,
+  BITVM2_MIN_PEGOUT_SATS,
+} from './btc-spv-policy'
 
 const RAIL = 'BTC'
 const FEE = 2
 const NETWORK_ID = 2300
-/** Dest-lock mint + Kickoff + CSV take e2e passed. Kickoff coordinator uses Bitcoin UTXOs. */
+/** BitVM2 dest-lock Kickoff + CSV take. No FROST. */
 export const BTC_RAIL_LIVE = true
 
 export type PlBtcRail = {
@@ -25,16 +30,41 @@ export type PlBtcRail = {
   spv: 'bitcoin' | 'protocol'
 }
 
-async function postTx(tx: unknown, network: string): Promise<void> {
-  const res = await fetch('/api/wallet/submit', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tx, network }),
-  })
-  const out = (await res.json()) as { success?: boolean; error?: string; message?: string }
-  if (!res.ok || out.success === false) {
-    throw new Error(out.error || out.message || 'Submit failed')
+function isTransientFetch(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e)
+  return /failed to fetch|networkerror|load failed|timeout|econnreset|etimedout|aborterror|502|503|504/i.test(
+    m,
+  )
+}
+
+async function withFetchRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
+  let last: unknown
+  for (let i = 1; i <= tries; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      last = e
+      if (!isTransientFetch(e) || i === tries) throw e
+      await new Promise((r) => setTimeout(r, 2000 * i))
+    }
   }
+  throw last instanceof Error ? last : new Error(String(last))
+}
+
+async function postTx(tx: unknown, network: string): Promise<void> {
+  await withFetchRetry(async () => {
+    const res = await fetch('/api/wallet/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tx, network }),
+    })
+    const out = (await res.json()) as { success?: boolean; error?: string; message?: string }
+    if (!res.ok || out.success === false) {
+      const err = new Error(out.error || out.message || 'Submit failed')
+      if ([502, 503, 504].includes(res.status)) throw err
+      throw err
+    }
+  })
 }
 
 async function accountSnap(account: string, network: string): Promise<{
@@ -42,15 +72,21 @@ async function accountSnap(account: string, network: string): Promise<{
   balance: number
   btcSats: number
 }> {
-  const res = await fetch(
-    `/api/wallet/account?address=${encodeURIComponent(account)}&network=${encodeURIComponent(network)}`,
-  )
-  const j = (await res.json()) as {
-    sequence?: number
-    balance?: number
-    assets?: { BTC?: number; btc?: number; fbtc?: { balance?: number } }
-    error?: string
-  }
+  const { res, j } = await withFetchRetry(async () => {
+    const res = await fetch(
+      `/api/wallet/account?address=${encodeURIComponent(account)}&network=${encodeURIComponent(network)}`,
+    )
+    const j = (await res.json()) as {
+      sequence?: number
+      balance?: number
+      assets?: { BTC?: number; btc?: number; fbtc?: { balance?: number } }
+      error?: string
+    }
+    if (!res.ok && [502, 503, 504].includes(res.status)) {
+      throw new Error(j.error || `account lookup ${res.status}`)
+    }
+    return { res, j }
+  })
   if (!res.ok) throw new Error(j.error || 'account lookup failed')
   const raw = j.assets?.BTC ?? j.assets?.btc
   const fbtc = j.assets?.fbtc?.balance
@@ -65,24 +101,32 @@ async function accountSnap(account: string, network: string): Promise<{
   return { sequence: Number(j.sequence ?? 0), balance: Number(j.balance ?? 0), btcSats }
 }
 
-async function waitSeq(account: string, network: string, want: number, timeoutMs = 60_000): Promise<void> {
+async function waitSeq(account: string, network: string, want: number, timeoutMs = 180_000): Promise<void> {
   const t0 = Date.now()
   while (Date.now() - t0 < timeoutMs) {
     const s = await accountSnap(account, network)
     if (s.sequence >= want) return
-    await new Promise((r) => setTimeout(r, 300))
+    await new Promise((r) => setTimeout(r, 600))
   }
-  throw new Error('Ledger did not commit the rail tx — wait and retry')
+  throw new Error(
+    'Ledger did not commit the rail tx — wait and retry Claim FBTC. Deposit is still on Bitcoin; do not re-send BTC.',
+  )
 }
 
 export async function fetchPlBtcRail(): Promise<PlBtcRail> {
-  const res = await fetch('/api/bridge/btc-spv?network=testnet', { cache: 'no-store' })
-  const j = (await res.json()) as {
-    error?: string
-    rail?: PlBtcRail
-    spv?: string
-    bridge?: { tipHeight?: number; tipHash?: string; minConfirmations?: number; lockId?: string }
-  }
+  const { res, j } = await withFetchRetry(async () => {
+    const res = await fetch('/api/bridge/btc-spv?network=testnet', { cache: 'no-store' })
+    const parsed = (await res.json()) as {
+      error?: string
+      rail?: PlBtcRail
+      spv?: string
+      bridge?: { tipHeight?: number; tipHash?: string; minConfirmations?: number; lockId?: string }
+    }
+    if (!res.ok && [502, 503, 504].includes(res.status)) {
+      throw new Error(String(parsed.error || `rail status ${res.status}`))
+    }
+    return { res, j: parsed }
+  })
   if (!res.ok) throw new Error(j.error || 'rail status failed')
   const rail = j.rail
     ? { ...j.rail, spv: (j.rail.spv === 'bitcoin' || j.spv === 'bitcoin' ? 'bitcoin' : 'protocol') as PlBtcRail['spv'] }
@@ -115,6 +159,7 @@ async function pegInBitcoinSpv(opts: {
   txid: string
   rail0: PlBtcRail
   snap: { sequence: number; balance: number; btcSats: number }
+  watchVout?: number
   onStep?: (msg: string) => void
 }): Promise<{ depositTxId: string; headerHeight: number }> {
   opts.onStep?.('Fetching Bitcoin merkle proof…')
@@ -122,10 +167,11 @@ async function pegInBitcoinSpv(opts: {
   const { verifyBitcoinMerkleProof } = await import('@/lib/btc-merkle')
   let materials: Awaited<ReturnType<typeof fetchSpvClaimMaterials>> | null = null
   const needConfs = Math.max(1, opts.rail0.min_confirmations)
+  const watchVout = Number.isFinite(Number(opts.watchVout)) ? Math.max(0, Math.floor(Number(opts.watchVout))) : 0
   const proofT0 = Date.now()
   while (!materials) {
     try {
-      const got = await fetchSpvClaimMaterials(opts.txid, 'testnet', 0, 'deposit')
+      const got = await fetchSpvClaimMaterials(opts.txid, 'testnet', watchVout, 'deposit')
       if (got.confirmations < needConfs) {
         opts.onStep?.(
           `Bitcoin confirmations ${got.confirmations} / ${needConfs}…`,
@@ -136,7 +182,11 @@ async function pegInBitcoinSpv(opts: {
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      if (!/not confirmed|wait|indexing|header|mempool|unavailable|404|409/i.test(msg)) {
+      if (
+        !/not confirmed|wait|indexing|header|mempool|unavailable|404|409|failed to fetch|networkerror|timeout|502|503|504/i.test(
+          msg,
+        )
+      ) {
         throw e
       }
       opts.onStep?.(msg)
@@ -176,7 +226,7 @@ async function pegInBitcoinSpv(opts: {
     await new Promise((r) => setTimeout(r, 8_000))
   }
 
-  opts.onStep?.('Minting FBTC from Bitcoin SPV proof…')
+  opts.onStep?.('Submitting RailDeposit to Falcon…')
   const snap = await accountSnap(opts.account, opts.network)
   const dep = await signRailDeposit({
     account: opts.account,
@@ -201,8 +251,23 @@ async function pegInBitcoinSpv(opts: {
     falconSecret: opts.falconSecret,
   })
   await postTx(dep, opts.network)
-  await waitSeq(opts.account, opts.network, snap.sequence + 1)
-  return { depositTxId: dep.tx_id, headerHeight: materials.blockHeight }
+  opts.onStep?.('Waiting for Falcon packers to mint FBTC (can take up to a few minutes)…')
+  const want = snap.sequence + 1
+  const tWait = Date.now()
+  while (Date.now() - tWait < 180_000) {
+    const s = await accountSnap(opts.account, opts.network)
+    if (s.sequence >= want) {
+      return { depositTxId: dep.tx_id, headerHeight: materials.blockHeight }
+    }
+    const sec = Math.floor((Date.now() - tWait) / 1000)
+    opts.onStep?.(
+      `Waiting for Falcon packers to mint FBTC… ${sec}s (do not re-send BTC)`,
+    )
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+  throw new Error(
+    'Ledger did not commit the rail tx — wait and retry Claim FBTC. Deposit is still on Bitcoin; do not re-send BTC.',
+  )
 }
 
 export async function pegInPlBtc(opts: {
@@ -211,6 +276,8 @@ export async function pegInPlBtc(opts: {
   network: string
   externalTxid: string
   amountSats: number
+  /** Bitcoin vout that paid the Falcon watch script (default 0). */
+  watchVout?: number
   onStep?: (msg: string) => void
 }): Promise<{ depositTxId: string; headerHeight: number }> {
   if (!BTC_RAIL_LIVE) {
@@ -249,7 +316,14 @@ export async function pegInPlBtc(opts: {
   if (rail0.spv !== 'bitcoin') {
     throw new Error('BTC rail is not in Bitcoin SPV mode — header submitter has not reanchored yet')
   }
-  return pegInBitcoinSpv({ ...opts, amount, txid, rail0, snap })
+  return pegInBitcoinSpv({
+    ...opts,
+    amount,
+    txid,
+    rail0,
+    snap,
+    watchVout: opts.watchVout ?? 0,
+  })
 }
 
 export async function pegOutPlBtc(opts: {
@@ -265,7 +339,9 @@ export async function pegOutPlBtc(opts: {
     throw new Error('BTC rail is not live — e2e not passed (BTC_RAIL_LIVE=false)')
   }
   const amount = Math.floor(opts.amountSats)
-  if (amount < 10_000) throw new Error('Amount too small (min 10000 sats)')
+  if (amount < BITVM2_MIN_PEGOUT_SATS) {
+    throw new Error(`Amount too small (min ${BITVM2_MIN_PEGOUT_SATS} sats)`)
+  }
   const dest = opts.btcAddress.trim()
   if (dest.length < 26) throw new Error('Need a Bitcoin payout address')
   const destSecret = opts.destSecretHex.replace(/^0x/i, '').toLowerCase()
@@ -277,7 +353,20 @@ export async function pegOutPlBtc(opts: {
     throw new Error(`Insufficient FBTC (have ${(snap.btcSats / 1e8).toFixed(8)})`)
   }
   if (snap.balance < FEE) throw new Error(`Need ${FEE} FPL for the withdraw fee`)
-  opts.onStep?.('Building dest+watch Kickoff…')
+
+  opts.onStep?.('Burning FBTC (no FROST Kickoff)…')
+  const tx = await signRailWithdraw({
+    account: opts.account,
+    sequence: snap.sequence,
+    asset: RAIL,
+    amount,
+    externalTo: dest,
+    falconSecret: opts.falconSecret,
+  })
+  await postTx(tx, opts.network)
+  await waitSeq(opts.account, opts.network, snap.sequence + 1)
+
+  opts.onStep?.('Signing dest-lock Kickoff (claimer CHECKSIG)…')
   const kick = await fetch('/api/wallet/pl', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -286,7 +375,6 @@ export async function pegOutPlBtc(opts: {
       account: opts.account,
       amount,
       dest,
-      destSecret,
     }),
   })
   const kickJ = (await kick.json()) as {
@@ -296,22 +384,11 @@ export async function pegOutPlBtc(opts: {
     utxo?: string
   }
   if (!kick.ok || !kickJ.signed_btc_tx) {
-    throw new Error(kickJ.error || 'Kickoff coordinator failed')
+    throw new Error(kickJ.error || 'Dest-lock Kickoff failed')
   }
-  const tx = await signRailWithdraw({
-    account: opts.account,
-    sequence: snap.sequence,
-    asset: RAIL,
-    amount,
-    externalTo: dest,
-    falconSecret: opts.falconSecret,
-    signedBtcTx: kickJ.signed_btc_tx,
-  })
-  await postTx(tx, opts.network)
-  await waitSeq(opts.account, opts.network, snap.sequence + 1)
 
   const { broadcastBtcTx } = await import('@/lib/btc-client')
-  opts.onStep?.('Broadcasting Kickoff to Bitcoin testnet…')
+  opts.onStep?.('Broadcasting dest-lock Kickoff to Bitcoin testnet…')
   let kickoffTxid = ''
   try {
     kickoffTxid = (await broadcastBtcTx(kickJ.signed_btc_tx, 'testnet')).trim()
@@ -325,8 +402,8 @@ export async function pegOutPlBtc(opts: {
   }
 
   const { pollSpvConfirmations } = await import('@/lib/btc-spv-pending')
-  const csv = 6
-  const need = csv + 1
+  const csv = BITVM2_CLAIM_CSV
+  const need = csv
   const t0 = Date.now()
   let confs = 0
   while (Date.now() - t0 < 45 * 60_000) {
@@ -342,7 +419,7 @@ export async function pegOutPlBtc(opts: {
   }
   if (confs < need || !kickoffTxid) {
     throw new Error(
-      `FBTC burned and Kickoff posted. Wait for ${need} Bitcoin confirmations then retry take (txid ${kickoffTxid || 'pending'}).`,
+      `FBTC burned and dest-lock Kickoff posted. Wait for ${need} Bitcoin confirmations then retry take (txid ${kickoffTxid || 'pending'}).`,
     )
   }
 

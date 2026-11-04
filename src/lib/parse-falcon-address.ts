@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { isValidClassicAddress } from '@/lib/classic-address'
 
 /** Full r-address only (anchored). Classic codec check when possible. */

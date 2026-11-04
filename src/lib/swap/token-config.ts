@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { NetworkKey } from '@/lib/networks'
@@ -18,8 +19,8 @@ export interface StableTokenRef {
   decimals?: number
 }
 
-/** Canonical pool tab order on /pool */
-export const POOL_PAIR_ORDER = ['F-USDC', 'FETH', 'FBNB', 'FBTC'] as const
+/** Public FPL pools: F-USDC/FPL, FETH/FPL, FBTC/FPL. FBNB is not a public product. */
+export const POOL_PAIR_ORDER = ['F-USDC', 'FETH', 'FBTC'] as const
 export type PoolPairSymbol = (typeof POOL_PAIR_ORDER)[number]
 
 function mapToken(t: {
@@ -54,7 +55,13 @@ export async function loadStableTokens(): Promise<StableTokenRef[]> {
     const m = JSON.parse(raw) as {
       tokens?: Array<{ symbol: string; currency: string; issuer: string }>
     }
-    const list = (m.tokens ?? []).filter((t) => t?.issuer && t?.currency)
+    const list = (m.tokens ?? []).filter(
+      (t) =>
+        t?.issuer &&
+        t?.currency &&
+        t.symbol !== 'FBNB' &&
+        t.currency.toUpperCase() !== 'BNB',
+    )
     if (list.length) return list.map(mapToken)
   } catch {
     /* ignore */
@@ -117,6 +124,12 @@ export async function resolveStableToken(opts?: {
 }): Promise<StableTokenRef> {
   const symbol = opts?.symbol?.trim()
   const currency = opts?.currency?.trim()
+  if (
+    (symbol && /fbnb|bnb/i.test(symbol)) ||
+    (currency && currency.toUpperCase() === 'BNB')
+  ) {
+    return { symbol: 'F-USDC', displaySymbol: 'F-USDC', currency: 'QUC', issuer: '' }
+  }
   const issuer = opts?.issuer?.trim()
   const networkKey = opts?.networkKey || 'testnet'
 

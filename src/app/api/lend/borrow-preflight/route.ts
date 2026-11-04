@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
 import { isOriginAllowed } from '@/lib/origin'
 import { borrowBlockedReason } from '@/lib/lend-borrow-errors'
@@ -8,10 +9,13 @@ import { loadLendingManifestServer } from '@/lib/lending-config'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { loadStableToken } from '@/lib/swap/token-config'
 import { getUsdcMarket } from '@/lib/swap/quote'
+import { retiredOnPl } from '@/lib/pl-retired'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 
 export async function POST(req: NextRequest) {
+  const retired = retiredOnPl(req)
+  if (retired) return retired
   if (!isOriginAllowed(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
@@ -61,8 +65,11 @@ export async function POST(req: NextRequest) {
     /* optional */
   }
   const permissionless = lendingPermissionless && lendingCollateral
-  if (!permissionless && !process.env.TESTNET_LENDING_BROKER_SECRET?.trim()) {
-    return NextResponse.json({ error: 'Broker co-sign not configured on server' }, { status: 503 })
+  if (!permissionless) {
+    return NextResponse.json(
+      { error: 'Borrow requires LendingPermissionless + LendingCollateral (broker co-sign removed)' },
+      { status: 503 },
+    )
   }
 
   const stable = await loadStableToken()

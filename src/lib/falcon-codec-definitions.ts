@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Extended ripple-binary-codec definitions for qXRP transaction types absent from
  * upstream definitions.json (ClaimLPReward, ClaimReward, validator txs, …).

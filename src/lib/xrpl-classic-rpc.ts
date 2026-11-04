@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Classic XRPL HTTP/JSON-RPC helpers with no `xrpl` package import.
  * Next 14 collect page data `require()`s API routes; `xrpl` is ESM-only.
