@@ -5,7 +5,6 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
-import { useNetwork } from '@/components/NetworkProvider'
 
 const GAMES = [
   { slug: 'falcon-flight', label: 'Flight' },
@@ -25,7 +24,6 @@ interface Entry {
 }
 
 export default function ArcadeLeaderboardPage() {
-  const { networkKey, setNetworkKey } = useNetwork()
   const [game, setGame] = useState<string>('falcon-flight')
   const [entries, setEntries] = useState<Entry[]>([])
   const [loading, setLoading] = useState(true)
@@ -49,10 +47,6 @@ export default function ArcadeLeaderboardPage() {
       setLoading(false)
     }
   }, [game])
-
-  useEffect(() => {
-    if (networkKey !== ARCADE_NETWORK) setNetworkKey(ARCADE_NETWORK)
-  }, [networkKey, setNetworkKey])
 
   useEffect(() => {
     void load()

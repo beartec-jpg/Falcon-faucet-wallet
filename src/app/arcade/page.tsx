@@ -6,7 +6,6 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
-import { useNetwork } from '@/components/NetworkProvider'
 import { loadPrimaryWallet } from '@/lib/wallet-store'
 import { plAccountId } from '@/lib/pl-names'
 
@@ -71,7 +70,6 @@ function isArcadeOutbound(data: unknown): data is ArcadeOutbound {
 }
 
 export default function ArcadePage() {
-  const { networkKey, setNetworkKey } = useNetwork()
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const router = useRouter()
   const [plAccount, setPlAccount] = useState<string>('')
@@ -80,10 +78,6 @@ export default function ArcadePage() {
   const [claimBusy, setClaimBusy] = useState(false)
   const [lastTx, setLastTx] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (networkKey !== ARCADE_NETWORK) setNetworkKey(ARCADE_NETWORK)
-  }, [networkKey, setNetworkKey])
 
   // Load passkey wallet; use the FPL account id (on-chain name) shown on /wallet,
   // not the key-derived r… backup id (StoredWallet.address), which is not an on-chain account.
