@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Wallet catalogs:
  * - Falcon Wallet = native FPL + Falcon IOUs (F-USDC, FETH, FBTC, FBNB)

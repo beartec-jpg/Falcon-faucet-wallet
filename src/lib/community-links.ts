@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Public community destinations — labels only in the UI; never show raw URLs. */
 
 /** Canonical Discord invite (PR #46). Do not substitute expired codes. */

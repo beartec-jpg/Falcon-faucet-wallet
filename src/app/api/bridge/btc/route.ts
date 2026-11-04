@@ -1,10 +1,11 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextResponse } from 'next/server'
 
-/** Retired: Falcon Ledger custodial FBTC relay (network 1001). */
+/** Retired: legacy network 1001 custodial FBTC relay. */
 export async function GET() {
   return NextResponse.json(
     {
-      error: 'Falcon Ledger custodial BTC bridge is shut down. Use Falcon PL 2300.',
+      error: 'Legacy network 1001 custodial BTC bridge is shut down. Use Falcon PL 2300.',
       retired: true,
     },
     { status: 410 },

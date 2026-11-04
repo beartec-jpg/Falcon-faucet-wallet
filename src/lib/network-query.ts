@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import type { NetworkKey } from '@/lib/networks'
 
 export function withNetworkQuery(path: string, networkKey: NetworkKey): string {

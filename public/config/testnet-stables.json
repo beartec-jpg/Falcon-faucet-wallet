@@ -5,7 +5,7 @@
   "genesis": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
   "bridge_only": true,
   "bootstrap_liquidity": false,
-  "note": "F-USDC, FETH, FBNB, FBTC minted ONLY by bridge relays. No free bootstrap mint.",
+  "note": "Public FPL pools: F-USDC, FETH, FBTC. FBNB is not a public product. No free bootstrap mint.",
   "liquidity_provider": "rfSB7uTdtZsXEEupKSLuCwoH96SsMdXgCa",
   "tokens": [
     {
@@ -21,12 +21,6 @@
       "liquidity": "bridge_user_lp"
     },
     {
-      "symbol": "FBNB",
-      "currency": "BNB",
-      "issuer": "rf8NZLdcwxrXAnPppttTeenQcAJW75uj7E",
-      "liquidity": "bridge_user_lp"
-    },
-    {
       "symbol": "FBTC",
       "currency": "BTC",
       "issuer": "rnvzCKcBU7G8Kb9JXHwEKTHiK9aTrZAqWT",
@@ -38,8 +32,6 @@
     "NEXT_PUBLIC_TESTNET_USDC_ISSUER": "rPh77fAAmvbVuMQQP9H9JKtyTFuhRjp3Fk",
     "NEXT_PUBLIC_TESTNET_FETH_CURRENCY": "ETH",
     "NEXT_PUBLIC_TESTNET_FETH_ISSUER": "rNn8xd3hbeTEAcEmRQae8xVaKshAj7HrED",
-    "NEXT_PUBLIC_TESTNET_FBNB_CURRENCY": "BNB",
-    "NEXT_PUBLIC_TESTNET_FBNB_ISSUER": "rf8NZLdcwxrXAnPppttTeenQcAJW75uj7E",
     "NEXT_PUBLIC_TESTNET_FBTC_CURRENCY": "BTC",
     "NEXT_PUBLIC_TESTNET_FBTC_ISSUER": "rnvzCKcBU7G8Kb9JXHwEKTHiK9aTrZAqWT"
   }

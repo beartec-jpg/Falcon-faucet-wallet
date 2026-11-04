@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Browser Falcon-512 signing for Falcon PL (2300) Pay txs.
  * falcon_secret never leaves the device. No Node builtins — wallet is a client component.
@@ -33,6 +34,68 @@ async function sha256HexBrowser(data: string): Promise<string> {
 
 /** Matches Rust `serde_json::{tag:kind, rename_all:snake_case}` for TxBody::Pay. */
 const PAY_BODY_JSON = '{"kind":"pay"}'
+
+/** Decimal string to exact base-unit digits. 0.02 ETH is 2×10^16 wei, which is not a safe JS integer. */
+export function decimalToBaseUnits(raw: string, decimals: number): string {
+  const s = raw.trim()
+  if (!/^\d+(\.\d+)?$/.test(s)) throw new Error('Invalid amount')
+  const [whole, frac = ''] = s.split('.')
+  if (frac.length > decimals) throw new Error('Too many decimal places')
+  const digits = (whole + (frac + '0'.repeat(decimals)).slice(0, decimals)).replace(/^0+/, '')
+  if (!digits) throw new Error('Amount must be greater than zero')
+  return digits
+}
+
+function u64Digits(s: string, label: string): string {
+  if (!/^(0|[1-9][0-9]*)$/.test(s)) throw new Error(`${label} must be an integer`)
+  return s
+}
+
+/** Sign a body whose u64 fields are already exact digit strings. serde field order is fixed. */
+async function signPlExact(opts: {
+  account: string
+  destination: string
+  amountDigits: string
+  sequence: number
+  fee: number
+  networkId: number
+  bodyJson: string
+  body: Record<string, unknown>
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  const amountDigits = u64Digits(opts.amountDigits, 'amount')
+  const decoded = decodeFalconSecret(opts.falconSecret)
+  const payload = `pl-tx:v2|${opts.account}|${opts.sequence}|${opts.destination}|${amountDigits}|${opts.fee}|${opts.networkId}|${opts.bodyJson}`
+  const publicKey = bytesToHex(decoded.pubBlob.slice(1))
+  const falcon = await getFalcon512()
+  const msg = new TextEncoder().encode(payload)
+  let signature: Uint8Array
+  try {
+    signature = falcon.sign(msg, decoded.secretKey)
+  } finally {
+    zeroize(decoded.secretKey)
+  }
+  const sigHex = bytesToHex(signature)
+  const txId = await sha256HexBrowser(payload)
+  const rawJson =
+    `{"account":${JSON.stringify(opts.account)},"sequence":${opts.sequence},` +
+    `"destination":${JSON.stringify(opts.destination)},"amount":${amountDigits},"fee":${opts.fee},` +
+    `"network_id":${opts.networkId},"public_key":${JSON.stringify(publicKey)},` +
+    `"signature":${JSON.stringify(sigHex)},"tx_id":${JSON.stringify(txId)},"body":${opts.bodyJson}}`
+  return {
+    account: opts.account,
+    sequence: opts.sequence,
+    destination: opts.destination,
+    amount: Number(amountDigits),
+    fee: opts.fee,
+    network_id: opts.networkId,
+    public_key: publicKey,
+    signature: sigHex,
+    tx_id: txId,
+    body: opts.body,
+    rawJson,
+  }
+}
 
 export function plPayPayload(opts: {
   account: string
@@ -102,6 +165,184 @@ export async function signPlPay(opts: {
   })
 }
 
+export async function signPlSwapRoute(opts: {
+  account: string
+  tokenIn: 'FPL' | 'BTC' | 'BTC4' | 'ETH' | 'USDC'
+  tokenOut: 'FPL' | 'BTC' | 'BTC4' | 'ETH' | 'USDC'
+  amountIn: string
+  minOut: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  const amountIn = u64Digits(opts.amountIn, 'amount')
+  const minOut = u64Digits(opts.minOut, 'min out')
+  const bodyJson =
+    `{"kind":"swap_route","token_in":${JSON.stringify(opts.tokenIn)},` +
+    `"token_out":${JSON.stringify(opts.tokenOut)},"amount_in":${amountIn},"min_out":${minOut}}`
+  return signPlExact({
+    account: opts.account,
+    destination: '',
+    amountDigits: '0',
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    bodyJson,
+    body: {
+      kind: 'swap_route',
+      token_in: opts.tokenIn,
+      token_out: opts.tokenOut,
+      amount_in: amountIn,
+      min_out: minOut,
+    },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+export async function signPlAddLiquidity(opts: {
+  account: string
+  poolId: string
+  amtA: string
+  amtB: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  const amtA = u64Digits(opts.amtA, 'amount')
+  const amtB = u64Digits(opts.amtB, 'amount')
+  const bodyJson =
+    `{"kind":"add_liquidity","pool_id":${JSON.stringify(opts.poolId)},"amt_a":${amtA},"amt_b":${amtB}}`
+  return signPlExact({
+    account: opts.account,
+    destination: '',
+    amountDigits: '0',
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    bodyJson,
+    body: { kind: 'add_liquidity', pool_id: opts.poolId, amt_a: amtA, amt_b: amtB },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+export async function signPlRemoveLiquidity(opts: {
+  account: string
+  poolId: string
+  lpBurn: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  const lpBurn = u64Digits(opts.lpBurn, 'LP')
+  const bodyJson =
+    `{"kind":"remove_liquidity","pool_id":${JSON.stringify(opts.poolId)},"lp_burn":${lpBurn}}`
+  return signPlExact({
+    account: opts.account,
+    destination: '',
+    amountDigits: '0',
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    bodyJson,
+    body: { kind: 'remove_liquidity', pool_id: opts.poolId, lp_burn: lpBurn },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+export async function signPlLend(opts: {
+  account: string
+  kind: 'lend_supply' | 'lend_withdraw' | 'lend_borrow' | 'lend_repay'
+  marketId: string
+  amount: string
+  collateralFpl?: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  const amount = u64Digits(opts.amount, 'amount')
+  const id = JSON.stringify(opts.marketId)
+  let bodyJson: string
+  let body: Record<string, unknown>
+  if (opts.kind === 'lend_withdraw') {
+    bodyJson = `{"kind":"lend_withdraw","market_id":${id},"shares":${amount}}`
+    body = { kind: opts.kind, market_id: opts.marketId, shares: amount }
+  } else if (opts.kind === 'lend_borrow') {
+    const col = u64Digits(opts.collateralFpl ?? '0', 'collateral')
+    bodyJson = `{"kind":"lend_borrow","market_id":${id},"amount":${amount},"collateral_fpl":${col}}`
+    body = { kind: opts.kind, market_id: opts.marketId, amount, collateral_fpl: col }
+  } else {
+    bodyJson = `{"kind":"${opts.kind}","market_id":${id},"amount":${amount}}`
+    body = { kind: opts.kind, market_id: opts.marketId, amount }
+  }
+  return signPlExact({
+    account: opts.account,
+    destination: '',
+    amountDigits: '0',
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    bodyJson,
+    body,
+    falconSecret: opts.falconSecret,
+  })
+}
+
+/** Send bridged BTC, ETH, or USDC. Amount is the exact ledger integer as digits (sats, wei, or 6-dp USDC). */
+export async function signPlAssetPay(opts: {
+  account: string
+  destination: string
+  asset: 'BTC' | 'BTC4' | 'ETH' | 'USDC'
+  amount: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  const amountExact = opts.amount.trim()
+  if (!/^[1-9][0-9]*$/.test(amountExact)) {
+    throw new Error('Amount must be a positive integer')
+  }
+  const networkId = opts.networkId ?? DEFAULT_NETWORK_ID
+  const fee = opts.fee ?? 2
+  const dest = opts.destination
+  const bodyJson = `{"kind":"asset_pay","asset":${JSON.stringify(opts.asset)}}`
+  const payload = `pl-tx:v2|${opts.account}|${opts.sequence}|${dest}|${amountExact}|${fee}|${networkId}|${bodyJson}`
+  const decoded = decodeFalconSecret(opts.falconSecret)
+  const publicKey = bytesToHex(decoded.pubBlob.slice(1))
+  const falcon = await getFalcon512()
+  const msg = new TextEncoder().encode(payload)
+  let signature: Uint8Array
+  try {
+    signature = falcon.sign(msg, decoded.secretKey)
+  } finally {
+    zeroize(decoded.secretKey)
+  }
+  const sigHex = bytesToHex(signature)
+  const txId = await sha256HexBrowser(payload)
+  const rawJson =
+    `{"account":${JSON.stringify(opts.account)},"sequence":${opts.sequence},` +
+    `"destination":${JSON.stringify(dest)},"amount":${amountExact},"fee":${fee},` +
+    `"network_id":${networkId},"public_key":${JSON.stringify(publicKey)},` +
+    `"signature":${JSON.stringify(sigHex)},"tx_id":${JSON.stringify(txId)},"body":${bodyJson}}`
+  return {
+    account: opts.account,
+    sequence: opts.sequence,
+    destination: dest,
+    amount: Number(amountExact),
+    fee,
+    network_id: networkId,
+    public_key: publicKey,
+    signature: sigHex,
+    tx_id: txId,
+    body: { kind: 'asset_pay', asset: opts.asset },
+    rawJson,
+  }
+}
+
 /** Convert this account to a vault locked to `destination`. */
 export async function signVaultOpen(opts: {
   account: string
@@ -138,6 +379,46 @@ export async function signVaultLock(opts: {
     fee: opts.fee ?? 2,
     networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
     body: { kind: 'vault_lock' },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+/** `TxBody::Claim` — moves this account's settled `claimable` FPL into its balance. */
+export async function signPlClaim(opts: {
+  account: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'claim' },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+/** `TxBody::WatcherHeartbeat` — marks the current hour slot for this account (no work). */
+export async function signPlWatcherHeartbeat(opts: {
+  account: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'watcher_heartbeat' },
     falconSecret: opts.falconSecret,
   })
 }
@@ -296,4 +577,61 @@ export async function signRailWithdraw(opts: {
     },
     rawJson,
   }
+}
+
+/**
+ * v2.9.65 `TxBody::PayToKey` — a Pay that also commits the recipient's Falcon
+ * key (`key_hash` = sha256 hex of the raw public key). Only for a recipient
+ * with no bound key; from then on only that key can bind the account.
+ */
+export async function signPlPayToKey(opts: {
+  account: string
+  destination: string
+  amount: number
+  keyHash: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  if (!/^[0-9a-f]{64}$/.test(opts.keyHash)) throw new Error('key_hash must be 64 lowercase hex')
+  return signPlBody({
+    account: opts.account,
+    destination: opts.destination,
+    amount: Math.floor(opts.amount),
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'pay_to_key', key_hash: opts.keyHash },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+/**
+ * v2.10.0 `TxPayload::SetExternalAddr` — binds a native external chain address
+ * (`btc`, `eth`, `xrp`, `bnb`, etc.) to this Falcon PL account on-chain.
+ */
+export async function signPlSetExternalAddr(opts: {
+  account: string
+  chain: string
+  address: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: {
+      kind: 'SetExternalAddr',
+      chain: opts.chain.trim().toLowerCase(),
+      address: opts.address.trim(),
+    },
+    falconSecret: opts.falconSecret,
+  })
 }

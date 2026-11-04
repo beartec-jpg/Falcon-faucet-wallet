@@ -20,6 +20,8 @@
   "exclude": [
     "node_modules",
     "cold-signer",
-    "cold-signer/**"
+    "cold-signer/**",
+    "tests",
+    "vitest.config.ts"
   ]
 }

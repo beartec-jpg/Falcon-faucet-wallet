@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Falcon vault QR protocol payloads (UTF-8 JSON inside multi-QR bodies).
  *
@@ -162,7 +163,9 @@ export function parseUnsignedPayment(payload: string): VaultUnsignedPayment {
   if (obj.codecVersion !== CODEC_VERSION) {
     throw new Error(`Codec version mismatch: ${obj.codecVersion} (need ${CODEC_VERSION})`)
   }
-  const tt = obj.display?.transactionType
+  // `display` is informational only; the cold signer derives its review from tx_json
+  // (vault-review.ts, audit H-4).
+  const tt = (obj.tx_json as Record<string, unknown> | undefined)?.TransactionType
   if (!obj.tx_json || (tt !== 'Payment' && tt !== 'TrustSet')) {
     throw new Error('Invalid unsigned package (Payment or TrustSet)')
   }

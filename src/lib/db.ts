@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless'
 
 let sql: NeonQueryFunction<false, false> | null = null

@@ -1,6 +1,7 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * GET /api/wallet/name?name=example
- * POST { action: reserve|activate, name, publicKey, credentialId? }
+ * POST { action: reserve|activate|set-addrs, name, publicKey, credentialId?, externalAddrs? }
  *
  * On Falcon PL 2300 the name *is* the account. Short names cost more.
  */
@@ -15,18 +16,19 @@ import {
 } from '@/lib/account-name'
 import { isClassicAddress } from '@/lib/classic-address'
 import { isOriginAllowed } from '@/lib/origin'
-import { activateName, reserveName, viewName } from '@/lib/pl-name-store'
-import { activationFeeFpl, normalizePlName } from '@/lib/pl-names'
+import { activateName, reserveName, setNameAddrs, viewName } from '@/lib/pl-name-store'
+import { activationFeeFpl, normalizePlName, reserveNameError } from '@/lib/pl-names'
 import { plAccount } from '@/lib/pl-rpc'
+import { walletApiHeaders, walletApiUrl } from '@/lib/walletd'
+import { isSeatName, SEAT_NAME_ERROR } from '@/lib/seat-names'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
-const WALLET_API =
-  process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
+const WALLET_API = walletApiUrl()
 
-function useLocalStore() {
+function shouldUseLocalStore() {
   return existsSync(
     process.env.FALCON_PL_NAME_STORE?.trim() ||
       `${process.env.HOME || ''}/falcon-pl-public-testnet-2300/run`,
@@ -36,7 +38,7 @@ function useLocalStore() {
 async function remoteName(action: string, body: Record<string, unknown>) {
   const r = await fetch(WALLET_API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: walletApiHeaders(),
     body: JSON.stringify({ action, ...body }),
   })
   const d = (await r.json()) as Record<string, unknown>
@@ -50,22 +52,52 @@ export async function GET(req: NextRequest) {
   const nameQ = (req.nextUrl.searchParams.get('name') ?? '').trim()
   const addressQ = (req.nextUrl.searchParams.get('address') ?? '').trim()
 
+  if (cfg.networkId === 2300 && nameQ && (await isSeatName(normalizePlName(nameQ) ?? nameQ))) {
+    return NextResponse.json({
+      name: normalizePlName(nameQ) ?? nameQ,
+      available: false,
+      status: 'seat',
+      error: SEAT_NAME_ERROR,
+      network: networkKey,
+    })
+  }
+
   if (cfg.networkId === 2300 && nameQ) {
     try {
-      const view = useLocalStore()
+      const view = shouldUseLocalStore()
         ? viewName(nameQ)
         : ((await remoteName('name-status', { name: nameQ })) as ReturnType<typeof viewName>)
       let onChainTaken = false
+      let onChainExternalAddrs: Record<string, string> | undefined
       try {
         const acct = await plAccount(view.name)
-        onChainTaken = Boolean(acct.exists) && String(acct.name_status ?? '') === 'activated'
+        onChainTaken =
+          Boolean(acct.exists) &&
+          (String(acct.name_status ?? '') === 'activated' ||
+            Boolean(acct.key_fp) ||
+            Number(acct.sequence ?? 0) > 0 ||
+            Number(acct.balance ?? 0) > 0)
+        if (acct.external_addrs && typeof acct.external_addrs === 'object') {
+          const map: Record<string, string> = {}
+          for (const [k, v] of Object.entries(acct.external_addrs as Record<string, unknown>)) {
+            if (typeof v === 'string' && v.trim()) {
+              map[k.toLowerCase()] = v.trim()
+            }
+          }
+          if (Object.keys(map).length > 0) onChainExternalAddrs = map
+        }
       } catch {
         /* node may not speak name_status yet */
+      }
+      const mergedAddrs = {
+        ...(view.externalAddrs ?? {}),
+        ...(onChainExternalAddrs ?? {}),
       }
       return NextResponse.json({
         ...view,
         available: view.available && !onChainTaken,
         status: onChainTaken ? 'activated' : view.status,
+        externalAddrs: Object.keys(mergedAddrs).length > 0 ? mergedAddrs : view.externalAddrs,
         network: networkKey,
       })
     } catch (e) {
@@ -256,6 +288,9 @@ export async function POST(req: NextRequest) {
     name?: string
     publicKey?: string
     credentialId?: string
+    /** 'vault' for a vault account name; anything else is a hot-wallet name. */
+    purpose?: string
+    externalAddrs?: Record<string, string>
   }
   try {
     body = (await req.json()) as typeof body
@@ -265,22 +300,46 @@ export async function POST(req: NextRequest) {
   const action = String(body.action ?? 'reserve')
   const name = String(body.name ?? '').trim()
   const publicKey = String(body.publicKey ?? '').trim()
+  const externalAddrs =
+    body.externalAddrs && typeof body.externalAddrs === 'object' ? body.externalAddrs : undefined
   const credentialHash = body.credentialId
-    ? String(body.credentialId).slice(0, 64)
+    ? String(body.credentialId).endsWith(':vault')
+      ? `${String(body.credentialId).slice(0, -6).slice(0, 58)}:vault`
+      : String(body.credentialId).slice(0, 64)
     : undefined
+  if (action !== 'activate' && action !== 'set-addrs') {
+    const err = reserveNameError(name, String(body.purpose ?? 'wallet'))
+    if (err) return NextResponse.json({ error: err, code: 'name_vault_suffix' }, { status: 400 })
+    if (await isSeatName(normalizePlName(name) ?? name)) {
+      return NextResponse.json({ error: SEAT_NAME_ERROR, code: 'name_is_seat' }, { status: 400 })
+    }
+  }
   try {
-    if (useLocalStore()) {
-      if (action === 'activate') {
-        const rec = activateName(name, publicKey)
+    if (shouldUseLocalStore()) {
+      if (action === 'set-addrs') {
+        const rec = setNameAddrs(name, publicKey, externalAddrs ?? {})
         return NextResponse.json({ ok: true, ...rec })
       }
-      const rec = reserveName({ name, publicKey, credentialHash })
+      if (action === 'activate') {
+        const rec = activateName(name, publicKey, Date.now(), externalAddrs)
+        return NextResponse.json({ ok: true, ...rec })
+      }
+      const rec = reserveName({ name, publicKey, credentialHash, externalAddrs })
       return NextResponse.json({ ok: true, ...rec })
+    }
+    if (action === 'set-addrs') {
+      const d = await remoteName('name-set-addrs', {
+        name,
+        publicKey,
+        externalAddrs: externalAddrs ?? {},
+      })
+      return NextResponse.json(d)
     }
     const d = await remoteName(action === 'activate' ? 'name-activate' : 'name-reserve', {
       name,
       publicKey,
       credentialId: credentialHash,
+      ...(externalAddrs ? { externalAddrs } : {}),
     })
     return NextResponse.json(d)
   } catch (e) {

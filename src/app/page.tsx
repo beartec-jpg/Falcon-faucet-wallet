@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { useEffect } from 'react'
@@ -6,7 +7,7 @@ import Image from 'next/image'
 import { DISCORD_INVITE_URL } from '@/lib/community-links'
 
 /**
- * Marketing homepage for Falcon PL (falcon-ledger.com root).
+ * Marketing homepage for Falcon PL (falcon-fpl.com root).
  * Faucet lives at /faucet; wallet at /wallet.
  */
 export default function MarketingHomePage() {
@@ -170,12 +171,12 @@ export default function MarketingHomePage() {
                 },
                 {
                   src: '/assets/images/icons/icon-validators.jpg',
-                  title: 'Validators Get Paid',
+                  title: 'Validators Earn Testnet Rewards',
                   text: 'On this testnet, those who secure the network earn from the protocol. Test tokens have no cash value.',
                 },
                 {
                   src: '/assets/images/icons/icon-liquidity.jpg',
-                  title: 'Liquidity Providers Get Paid',
+                  title: 'Liquidity Providers Earn Testnet Rewards',
                   text: 'On this testnet, providing liquidity is recognised by the protocol. Testnet rewards only — not mainnet yield. Test tokens have no cash value.',
                 },
               ].map((card, i) => (
@@ -260,7 +261,7 @@ export default function MarketingHomePage() {
               {
                 n: '01',
                 title: 'Testnet wallet',
-                p1: 'Hold FPL on Falcon PL 2300. ETH/USDC: Groth16 FalconQcBridge (STATUS). BTC peg-out live today is BitVM2 A1 operator-fronting — not custodialess. Testnet 2300 (test tokens, no cash value).',
+                p1: 'Hold FPL on Falcon PL 2300. ETH/USDC: Groth16 FalconQcBridge (STATUS). BTC: the old testnet3 rail is a legacy test rail (retiring); deposits and withdrawals there are paused. The BTC bridge is the testnet4 BTC4 BitVM2 bridge, activating at ledger height 730,000 (~27–28 Oct 2026). Testnet 2300 (test tokens, no cash value).',
                 p2: 'Passkey wallet on this testnet. Test tokens have no cash value.',
                 img: '/assets/images/features/feature-wallet.jpg',
                 reverse: false,
@@ -269,7 +270,7 @@ export default function MarketingHomePage() {
                 n: '02',
                 title: 'Testnet dest-lock',
                 badge: 'Experimental',
-                p1: 'ETH/USDC: Groth16 FalconQcBridge (STATUS). BTC: BitVM2 A1 operator-fronting (not custodialess BitVM2 Disprove). Testnet 2300 only.',
+                p1: 'ETH/USDC: Groth16 FalconQcBridge (STATUS). BTC: deposits and withdrawals paused (custodial today; BitVM2 rebuild). Testnet 2300 only.',
                 p2: 'Experimental testnet corridor — not a finished bridge product.',
                 img: '/assets/images/features/feature-bridge.jpg',
                 reverse: true,
@@ -278,7 +279,7 @@ export default function MarketingHomePage() {
                 n: '03',
                 title: 'Liquidity pools',
                 badge: 'Experimental AMM',
-                p1: 'Testnet AMM for providing liquidity on Falcon PL 2300.',
+                p1: 'Three testnet pools: F-USDC/FPL, FETH/FPL, and FBTC/FPL. FBNB is not listed.',
                 p2: 'Experimental. Not a production market-maker.',
                 img: '/assets/images/features/feature-pools.jpg',
                 reverse: false,
@@ -287,7 +288,7 @@ export default function MarketingHomePage() {
                 n: '04',
                 title: 'Lending',
                 badge: 'Experimental',
-                p1: 'Testnet collateralized lend and borrow on Falcon PL 2300.',
+                p1: 'F-USDC vault only. FETH and FBTC are pool pairs with FPL, not lend assets.',
                 p2: 'Experimental. Not a production lending market.',
                 img: '/assets/images/features/feature-lending.jpg',
                 reverse: true,
@@ -348,7 +349,7 @@ export default function MarketingHomePage() {
                 },
                 {
                   n: '03',
-                  title: 'Real rewards for the people who secure and use the network',
+                  title: 'Testnet rewards for the people who secure and use the network',
                   text: 'On testnet 2300, validators, liquidity providers, and participants earn from the protocol. Testnet rewards only — test tokens have no cash value.',
                 },
                 {
@@ -418,6 +419,9 @@ export default function MarketingHomePage() {
             <Link href="/arcade">Arcade</Link>
             <Link href="/whitepaper">Whitepaper</Link>
             <Link href="/community">Community</Link>
+            <Link href="/terms">Terms</Link>
+            <Link href="/terms-of-use">Terms of Use</Link>
+            <Link href="/privacy">Privacy</Link>
             <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
               Discord
             </a>

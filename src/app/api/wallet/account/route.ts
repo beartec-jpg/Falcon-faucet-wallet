@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
 import {
   resolveNetworkKey,
@@ -31,7 +32,7 @@ function plAssets(
     }
     return 0
   }
-  const btc = offsetAsset(zp, account, 'BTC', sats('BTC'))
+  const btc = offsetAsset(zp, account, 'BTC4', sats('BTC4'))
   const eth = offsetAsset(zp, account, 'ETH', sats('ETH'))
   const usdc = offsetAsset(zp, account, 'USDC', sats('USDC'))
   const bnb = offsetAsset(zp, account, 'BNB', sats('BNB'))
@@ -39,7 +40,7 @@ function plAssets(
   if (btc) {
     tokens.push({
       symbol: 'FBTC',
-      currency: 'BTC',
+      currency: 'BTC4',
       issuer: '',
       balance: btc / 1e8,
       hasTrustLine: true,
@@ -61,14 +62,15 @@ function plAssets(
     fbtc: {
       symbol: 'FBTC',
       balance: btc / 1e8,
-      currency: 'BTC',
+      currency: 'BTC4',
       issuer: '',
       hasTrustLine: true,
       sats: btc,
     },
     feth: { symbol: 'FETH', balance: eth / 1e18, currency: 'ETH', issuer: '', hasTrustLine: true },
     fbnb: { symbol: 'FBNB', balance: bnb / 1e18, currency: 'BNB', issuer: '', hasTrustLine: true },
-    BTC: btc,
+    BTC: 0,
+    BTC4: btc,
     ETH: eth,
     USDC: usdc,
     tokens,
@@ -117,17 +119,43 @@ export async function GET(req: NextRequest) {
 
   try {
     if (isPl) {
-      const [st, acct, zp] = await Promise.all([plStatus(false), plAccount(address), loadZeroPoint()])
+      // Account query is one small RPC. Full chain status is several seconds and
+      // was timing out the FBTC claim poll, which the wallet showed as a network blip.
+      const [acct, zp] = await Promise.all([plAccount(address), loadZeroPoint()])
       const exists = Boolean(acct.exists)
+      const tip = await Promise.race([
+        plStatus(false).then((st) => num(st.tip_height)).catch(() => 0),
+        new Promise<number>((resolve) => setTimeout(() => resolve(0), 400)),
+      ])
+      const rippleEpoch = 946684800
+      const recent = Array.isArray(acct.recent_txs) ? acct.recent_txs as Array<Record<string, unknown>> : []
+      const transactions = recent.map((t) => {
+        const kind = String(t.kind ?? 'tx')
+        const ms = Number(t.sealed_at_ms ?? 0)
+        const type = kind === 'pay' ? 'Payment' : kind === 'claim' ? 'Claim' : kind === 'asset_pay' ? 'AssetPay' : 'Tx'
+        return {
+          hash: String(t.tx_id ?? ''),
+          type,
+          amount: t.amount != null ? String(t.amount) : undefined,
+          amountAsset: kind === 'asset_pay' || kind === 'rail_deposit' || kind === 'rail_withdraw' ? (String(t.asset ?? '') === 'BTC4' ? 'FBTC' : String(t.asset ?? '')) : 'FPL',
+          destination: t.destination != null ? String(t.destination) : undefined,
+          account: String(t.account ?? ''),
+          result: 'tesSUCCESS',
+          date: ms > 0 ? Math.floor(ms / 1000) - rippleEpoch : undefined,
+        }
+      }).filter((t) => t.hash)
       return NextResponse.json({
         address,
         balance: num(acct.balance),
         sequence: num(acct.sequence),
+        claimable: num(acct.claimable),
         exists,
-        transactions: [],
-        currentLedger: num(st.tip_height),
+        transactions,
+        currentLedger: tip,
         network: networkKey,
         accountType: String(acct.account_type ?? 'hot'),
+        nameStatus: String(acct.name_status ?? 'none'),
+        keyFp: String(acct.key_fp ?? ''),
         allowlist: Array.isArray(acct.allowlist) ? acct.allowlist : [],
         vaultLocked: Boolean(acct.vault_locked),
         assets: plAssets(acct.assets, address, zp),
@@ -167,7 +195,6 @@ export async function GET(req: NextRequest) {
     const balance:  number = parseInt(infoR.account_data!.Balance, 10) / 1_000_000
     const sequence: number = infoR.account_data!.Sequence
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rawTxs: TxRecord[] = ((txR?.transactions ?? []) as any[])
       .map(t => {
         const tx = (t.tx ?? t.tx_json ?? {}) as Record<string, unknown>

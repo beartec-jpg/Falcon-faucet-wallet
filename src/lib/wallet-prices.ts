@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Simple USD spot prices for multi-chain portfolio total (best-effort). */
 
 export type SpotPrices = {

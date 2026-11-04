@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Transaction signing via the node1 signing proxy (Falcon or classic seed).
 
 import { proxySign } from '@/lib/signer-proxy'

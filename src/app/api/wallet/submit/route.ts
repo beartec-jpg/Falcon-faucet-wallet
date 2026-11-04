@@ -1,19 +1,23 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
+import { recordSwap } from '@/lib/swap-log'
 import { NextRequest, NextResponse } from 'next/server'
-import { isOriginAllowed } from '@/lib/origin'
+import { requireBrowserOrigin } from '@/lib/origin'
 import { resolveNetworkKey, serverNetworkConfig, serverRpcCall } from '@/lib/network-server'
+import { clientIp } from '@/lib/security'
+import { BodyTooLarge, readBodyCapped, tooLarge } from '@/lib/api-guard'
 import { peekSubmitRateLimit, consumeSubmitRateLimit } from '@/lib/rate-limit'
 import { plSubmit, plSubmitRaw, type PlTx } from '@/lib/pl-rpc'
+import {
+  BTC_WITHDRAWALS_ENABLED,
+  btcWithdrawalsOffResponse,
+  isBtcPegOutPlTx,
+} from '@/lib/btc-withdrawals'
 
-function clientIp(req: NextRequest): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    req.headers.get('x-real-ip') ??
-    'unknown'
-  )
-}
+/** Falcon-512 signed txs are a few kB; 64 kB leaves ample headroom. */
+const MAX_BODY = 65_536
 
 export async function POST(req: NextRequest) {
-  if (!isOriginAllowed(req)) {
+  if (!requireBrowserOrigin(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
 
@@ -29,18 +33,31 @@ export async function POST(req: NextRequest) {
 
   let body: { tx_blob?: unknown; tx?: unknown; tx_json?: unknown; network?: string }
   try {
-    body = await req.json()
-  } catch {
+    body = JSON.parse(await readBodyCapped(req, MAX_BODY))
+  } catch (e) {
+    if (e instanceof BodyTooLarge) return tooLarge(MAX_BODY)
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
   const networkKey = resolveNetworkKey(body.network)
   const cfg = serverNetworkConfig(networkKey)
 
+  // FBTC burn (BTC rail_withdraw) starts a BTC withdrawal: refused while the
+  // btc_withdrawals_enabled flag is off. Other assets are unaffected.
+  if (
+    cfg.networkId === 2300 &&
+    !BTC_WITHDRAWALS_ENABLED &&
+    (isBtcPegOutPlTx(body.tx_json) || isBtcPegOutPlTx(body.tx))
+  ) {
+    const off = btcWithdrawalsOffResponse()
+    return NextResponse.json(off.body, { status: off.status })
+  }
+
   if (cfg.networkId === 2300 && typeof body.tx_json === 'string' && body.tx_json.trim().startsWith('{')) {
     try {
       await consumeSubmitRateLimit(rlKey)
       const result = await plSubmitRaw(body.tx_json)
+      if (result.ok && body.tx_json.includes('"swap_route"')) await recordSwap(body.tx_json).catch(() => false)
       let hash = ''
       try {
         const m = body.tx_json.match(/"tx_id"\s*:\s*"([0-9a-fA-F]+)"/)

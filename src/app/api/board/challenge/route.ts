@@ -1,5 +1,6 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
-import { isOriginAllowed } from '@/lib/origin'
+import { requireBrowserOrigin } from '@/lib/origin'
 import { getSql, isDbConfigured } from '@/lib/db'
 import {
   BOARD_BODY_MAX,
@@ -7,6 +8,8 @@ import {
   BOARD_POSTS_PER_HOUR,
 } from '@/lib/board-constants'
 import { isClassicAddress } from '@/lib/classic-address'
+import { BUCKETS, hit } from '@/lib/api-guard'
+import { clientIp } from '@/lib/security'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,7 +19,7 @@ function err(msg: string, status = 400) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isOriginAllowed(req)) {
+  if (!requireBrowserOrigin(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
   if (!isDbConfigured()) {
@@ -40,6 +43,14 @@ export async function POST(req: NextRequest) {
 
   if (!isClassicAddress(authorAddress)) {
     return err('Invalid Falcon address')
+  }
+
+  // Challenge rows are unauthenticated writes: bound them per IP and per address.
+  if (
+    !(await hit(BUCKETS.boardChallengeIp, `ip:${clientIp(req)}`)) ||
+    !(await hit(BUCKETS.boardChallengeAddr, `addr:${authorAddress}`))
+  ) {
+    return err('Too many challenge requests; try again later', 429)
   }
 
   const { buildBoardSignMessage, normalizeBoardBody } = await import('@/lib/board-auth')

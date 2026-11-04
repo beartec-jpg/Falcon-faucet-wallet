@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Persist open SPV peg-in jobs so confirmations survive page refresh.
  *
@@ -28,6 +29,9 @@ export interface SpvPendingDeposit {
   explorerUrl: string
   status: SpvPendingStatus
   confirmations: number
+  /** Bitcoin block time in unix milliseconds, when the explorer knows it. */
+  blockTime?: number
+  blockHeight?: number
   claimHash?: string
   lastError?: string
   createdAt: number
@@ -497,6 +501,8 @@ export function createSpvPending(input: {
   btcNetwork?: 'testnet' | 'mainnet'
   status?: SpvPendingStatus
   confirmations?: number
+  blockTime?: number
+  blockHeight?: number
 }): SpvPendingDeposit {
   const btcNetwork = input.btcNetwork ?? 'testnet'
   const txid = normTxid(input.txid)
@@ -521,6 +527,8 @@ export function createSpvPending(input: {
     explorerUrl: explorerUrlFor(txid, btcNetwork),
     status: input.status ?? 'waiting_confs',
     confirmations: input.confirmations ?? 0,
+    blockTime: input.blockTime,
+    blockHeight: input.blockHeight,
     createdAt: now,
     updatedAt: now,
   }
@@ -564,6 +572,14 @@ export function ensureSpvPendingTracked(
 
 export function isSpvWaitMessage(msg: string): boolean {
   const m = msg.toLowerCase()
+  // Hard claim/config errors must never look like a soft "network blip"
+  if (
+    /wrong watch|retired watch|already minted|already spent|tecduplicate|amount too small|merkle verify|client bitcoin merkle|btc rail is not/i.test(
+      m,
+    )
+  ) {
+    return false
+  }
   return (
     /failed to fetch|networkerror|load failed|fetch failed|econnreset|etimedout|aborterror|timeout|offline|unreachable/i.test(
       m,
@@ -571,15 +587,20 @@ export function isSpvWaitMessage(msg: string): boolean {
     /tx not found|not found yet|not confirmed yet|wait for|mempool|indexer|unavailable|raw tx not found|merkle proof unavailable|status \d+|502|503|504|404|409/i.test(
       m,
     ) ||
-    /headers have not|header submitter|falcon tip|blocks behind|still catching up/i.test(m)
+    /headers have not|header submitter|falcon tip|blocks behind|still catching up|did not commit the rail|no header at height|older block|no longer has bitcoin block/i.test(
+      m,
+    )
   )
 }
 
 export function spvWaitUserMessage(msg?: string): string {
   if (!msg) return 'Waiting for Bitcoin explorers to index your deposit…'
   const m = msg.toLowerCase()
-  if (/headers have not|header submitter|falcon tip|blocks behind/i.test(m)) {
-    return 'Bitcoin confirmations are OK, but Falcon has not imported this block header yet. Wait, then Claim FBTC again — do not re-send BTC.'
+  if (/no header at height|headers have not|header submitter|falcon tip|blocks behind|older block|no longer has bitcoin block/i.test(m)) {
+    return 'Bitcoin confirmations are OK. Falcon is loading the older block this deposit is in. Wait, then Claim FBTC again — do not re-send BTC.'
+  }
+  if (/did not commit the rail/i.test(m)) {
+    return 'Waiting for Falcon packers to mint FBTC. Deposit is still on Bitcoin — do not re-send BTC.'
   }
   if (/not confirmed|wait for a block|need \d+ confirmation|reserve payout|redeem/i.test(m)) {
     if (/reserve|redeem|payout|prove/i.test(m)) {
@@ -695,11 +716,30 @@ export async function pollSpvConfirmations(
 /**
  * Find open FALC deposits for this Falcon account on the hold (chain-side restore).
  */
+/** True when Falcon has already minted FBTC for this Bitcoin tx. */
+export async function btcDepositAlreadyMinted(txid: string): Promise<boolean> {
+  const id = normTxid(txid)
+  if (!/^[0-9a-f]{64}$/.test(id) || !isBrowser()) return false
+  if (isDeadSpvTxid(id)) return true
+  try {
+    const r = await fetch('/api/bridge/btc-spv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'deposit_spent', txid: id }),
+      cache: 'no-store',
+    })
+    const j = (await r.json().catch(() => ({}))) as { spent?: boolean }
+    return r.ok && j.spent === true
+  } catch {
+    return false
+  }
+}
+
 export async function fetchOpenDepositsForAccount(opts: {
   falconAccount: string
   holdAddress: string
   btcNetwork?: 'testnet' | 'mainnet'
-}): Promise<Array<{ txid: string; vout: number; amountSats: number; confirmations: number }>> {
+}): Promise<Array<{ txid: string; vout: number; amountSats: number; confirmations: number; blockTime?: number; blockHeight?: number }>> {
   try {
     const r = await fetch('/api/bridge/btc-spv', {
       method: 'POST',
@@ -717,6 +757,8 @@ export async function fetchOpenDepositsForAccount(opts: {
         vout: number
         amountSats: number
         confirmations: number
+        blockTime?: number
+        blockHeight?: number
       }>
       error?: string
     }

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * AMM constant-product swap math (XLS-30).
  * tradingFee units: 1/100_000 of input (e.g. 500 = 0.5%).
