@@ -23,7 +23,7 @@ const CONFIG = path.join(root, 'public/config/btc-spv-bridge.json')
 // Placeholder only: fetch is stubbed below, nothing is ever contacted.
 process.env.FALCON_PL_WALLET_API = 'http://walletd.invalid'
 process.env.VERCEL = '1' // origin check runs in production mode
-const MSG = 'BTC withdrawals are in final testing'
+const MSG = 'BTC withdrawals are paused'
 
 let failures = 0
 async function check(name, fn) {
@@ -81,7 +81,13 @@ function makeEnv() {
     'next/server': {
       NextResponse: { json: (body, init) => ({ body, status: init?.status ?? 200 }) },
     },
-    '@/lib/origin': { isOriginAllowed: () => true },
+    '@/lib/origin': { isOriginAllowed: () => true, requireBrowserOrigin: () => true },
+    '@/lib/swap-log': { recordSwap: async () => {} },
+    '@/lib/api-guard': {
+      BodyTooLarge: class BodyTooLarge extends Error {},
+      readBodyCapped: async (r) => JSON.stringify(await r.json()),
+      tooLarge: () => ({ body: { error: "too large" }, status: 413 }),
+    },
     '@/lib/pl-rpc': {
       plAccount: async () => ({}),
       plStatus: async () => ({}),
@@ -99,6 +105,7 @@ function makeEnv() {
       consumeSubmitRateLimit: async () => ({ success: true }),
     },
     fs: { existsSync: () => false },
+    crypto: require('node:crypto'),
   }
   return { calls, mocks }
 }
@@ -134,7 +141,7 @@ await check('config: btc_withdrawals_enabled is false (BTC withdrawals off)', ()
   assert.equal(
     baseConfig.btc_withdrawals_enabled,
     false,
-    'btc_withdrawals_enabled must be false while BTC withdrawals are in final testing',
+    'btc_withdrawals_enabled must be false while BTC withdrawals are paused',
   )
 })
 
@@ -149,6 +156,7 @@ await check('lib: flag follows config; error text', () => {
   assert.ok(off.btcWithdrawalsOffResponse().body.error.includes(MSG))
   assert.ok(off.isBtcPegOutPlTx(plTx('BTC')))
   assert.ok(off.isBtcPegOutPlTx(JSON.stringify(plTx('btc'))))
+  assert.ok(!off.isBtcPegOutPlTx(plTx('BTC4')))
   assert.ok(!off.isBtcPegOutPlTx(plTx('ETH')))
   assert.ok(!off.isBtcPegOutPlTx(plTx('USDC')))
   for (const a of ['btc-kickoff', 'btc-take', 'btc_kickoff', 'BTC-Take', ' btc-kickoff ', 'resume-btc-kickoff', 'kickoff-btc', 'fbtc-take']) {
@@ -224,6 +232,13 @@ await check('API submit: BTC rail_withdraw (exact tx_json) refused with flag off
   assert.equal(res.status, 503)
   assert.ok(String(res.body.error).includes(MSG))
   assert.equal(calls.plSubmit.length + calls.plSubmitRaw.length, 0)
+})
+await check('API submit: BTC4 (Testnet4 BitVM2) rail_withdraw submitted with legacy BTC flag off', async () => {
+  const { calls, mocks } = makeEnv()
+  const route = loadTs(SUBMIT, { mocks, config: OFF })
+  const a = await route.POST(req({ tx_json: JSON.stringify(plTx('BTC4')), network: 'pl2300' }))
+  assert.equal(a.status, 200)
+  assert.equal(calls.plSubmitRaw.length, 1)
 })
 await check('API submit: ETH/USDC rail_withdraw still submitted with flag off', async () => {
   const { calls, mocks } = makeEnv()

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { withNetworkQuery } from '@/lib/network-query'
 import type { NetworkKey } from '@/lib/networks'
 

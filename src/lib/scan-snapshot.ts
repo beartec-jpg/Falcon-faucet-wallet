@@ -1,8 +1,10 @@
-import { cidEmissionPct, cidYearlyAvgPct } from '@/lib/epoch-model'
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
+import { emissionPctPerEpoch, emissionPctPerYear } from '@/lib/pl-rewards-model'
 import { meshHeadFromStatus, num, str } from '@/lib/pl-mesh'
 import { plStatus } from '@/lib/pl-rpc'
+import { watcherSummary } from '@/lib/scan-watchers'
 import { loadZeroPoint, offsetRail } from '@/lib/pl-zero-point'
-import type { LedgerSummary, RailRow, ScanData, ValidatorEntry } from '@/lib/scan-types'
+import type { ConsensusInfo, LedgerSummary, RailRow, ScanData, ValidatorEntry } from '@/lib/scan-types'
 
 type TipRing = LedgerSummary
 const tipRing: TipRing[] = []
@@ -46,6 +48,8 @@ export async function buildScanSnapshot(): Promise<ScanData> {
     jailed: Boolean(v.jailed),
     lottery_ready: Boolean(v.lottery_ready),
     pack_count: num(v.pack_count),
+    ...(Number.isFinite(num(v.perf, Number.NaN)) ? { perf: num(v.perf) } : {}),
+    ...(Number.isFinite(num(v.pong_age_ms, Number.NaN)) ? { pong_age_ms: num(v.pong_age_ms) } : {}),
   }))
 
   const railsRaw = Array.isArray(st.rails) ? (st.rails as Array<Record<string, unknown>>) : []
@@ -73,6 +77,8 @@ export async function buildScanSnapshot(): Promise<ScanData> {
       open_withdrawals: 0,
     })
   }
+
+  const watchers = await watcherSummary(st).catch(() => undefined)
 
   const metrics = (st.metrics ?? {}) as Record<string, unknown>
   const feeMkt = (metrics.fee_market ?? {}) as Record<string, unknown>
@@ -119,8 +125,12 @@ export async function buildScanSnapshot(): Promise<ScanData> {
       emissionRateFalcon: emission,
       lpAllocationPct: 40,
       lpProviderCount: 0,
-      cidEmissionPct: cidEmissionPct(epochN),
-      cidYearlyAvgPct: cidYearlyAvgPct(epochN),
+      // Falcon PL: flat emission_bps of the treasury per epoch (no CID schedule).
+      cidEmissionPct: emissionPctPerEpoch(emissionBps),
+      cidYearlyAvgPct: emissionPctPerYear(emissionBps, num(st.epoch_ms, 604_800_000)),
+      emissionBps,
+      emissionPctPerYear: emissionPctPerYear(emissionBps, num(st.epoch_ms, 604_800_000)),
+      epochMs: num(st.epoch_ms, 604_800_000),
       firstClaimEpoch: num(st.first_claim_epoch, 1),
       epochClaimable,
       lastSettledEpoch: num(st.last_settled_epoch),
@@ -131,7 +141,14 @@ export async function buildScanSnapshot(): Promise<ScanData> {
       txs,
     },
     lottery_winner: str(st.lottery_winner_next),
+    ...consensusFromStatus(st),
+    ...walletsFromStatus(st),
+    ...(watchers ? { watchers } : {}),
     rails,
+    // Node clock + whether the cumulative counters were really present, so rate
+    // windows never treat a missing counter (num() → 0) as a baseline.
+    node_time_ms: num(st.now_ms) || undefined,
+    metrics_ok: Number.isFinite(num(metrics.txs_sealed, Number.NaN)) && Number.isFinite(num(metrics.ledgers_sealed, Number.NaN)),
     metrics: {
       ledgers_sealed: num(metrics.ledgers_sealed, tip),
       txs_sealed: num(metrics.txs_sealed),
@@ -139,4 +156,43 @@ export async function buildScanSnapshot(): Promise<ScanData> {
       fees_burned: num(metrics.fees_burned_total),
     },
   }
+}
+
+const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : [])
+
+/** Committee / lottery fields, passed through only when the node exposes them. */
+export function consensusFromStatus(st: Record<string, unknown>): { committee?: ConsensusInfo } {
+  const sealed = strList(st.sealed_committee)
+  const next = strList(st.next_committee)
+  if (!sealed.length && !next.length) return {}
+  const cv = num(st.tip_cert_voters, Number.NaN)
+  return {
+    committee: {
+      sealed_committee: sealed,
+      next_committee: next,
+      next_packer: str(st.lottery_winner_next),
+      standby: str(st.lottery_standby_next),
+      cert_voters: Number.isFinite(cv) ? cv : null,
+      view_round: num(st.height_view_round),
+    },
+  }
+}
+
+/**
+ * Activated wallets: the node's count of accounts on the ledger (an account
+ * only exists once it has been funded/activated). Comes in the same brief
+ * status_req as everything else, so it is cached with the snapshot.
+ */
+let lastWallets: { n: number; at: number } | null = null
+const WALLETS_KEEP_MS = 5 * 60_000
+
+export function walletsFromStatus(
+  st: Record<string, unknown>,
+  now = Date.now(),
+): { wallets?: { activated: number; source: 'status.accounts_count' } } {
+  const n = num(st.accounts_count, Number.NaN)
+  if (Number.isFinite(n) && n >= 0) lastWallets = { n: Math.round(n), at: now }
+  // A seat that omits the field briefly keeps the last real value (≤ 5 min), never a guess.
+  else if (lastWallets && now - lastWallets.at > WALLETS_KEEP_MS) lastWallets = null
+  return lastWallets ? { wallets: { activated: lastWallets.n, source: 'status.accounts_count' } } : {}
 }

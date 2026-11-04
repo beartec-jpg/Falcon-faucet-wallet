@@ -1,17 +1,18 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { existsSync } from 'fs'
 import { NextRequest, NextResponse } from 'next/server'
 import { btcWithdrawalsPausedResponse, isBtcWithdrawWalletdAction } from '@/lib/btc-withdrawals'
 import { isOriginAllowed } from '@/lib/origin'
 import { plAccount, plStatus } from '@/lib/pl-rpc'
 import { ctlPay, ctlVaultLock, ctlVaultOpen, PL_CTL } from '@/lib/pl-ctl'
+import { walletApiHeaders, walletApiUrl } from '@/lib/walletd'
 
-const WALLET_API =
-  process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
+const WALLET_API = walletApiUrl()
 
 async function payViaHttp(from: string, to: string, amount: number) {
   const r = await fetch(WALLET_API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: walletApiHeaders(),
     body: JSON.stringify({ action: 'pay', from, to, amount }),
   })
   const d = (await r.json()) as { error?: string; raw?: string }
@@ -25,6 +26,22 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 const NAME_RE = /^[A-Za-z0-9._-]{2,64}$/
+const DEPOSIT_ID_RE = /^(0[xX])?[a-fA-F0-9]{64}$/
+
+/** Per-instance throttle for unauthenticated V3 refund opens (same depositId at most every 8 s). */
+const REFUND_OPEN_MIN_MS = 8_000
+const lastRefundOpen = new Map<string, number>()
+function refundOpenThrottled(depositId: string): boolean {
+  const now = Date.now()
+  const key = depositId.toLowerCase()
+  const last = lastRefundOpen.get(key) ?? 0
+  if (now - last < REFUND_OPEN_MIN_MS) return true
+  lastRefundOpen.set(key, now)
+  if (lastRefundOpen.size > 1000) {
+    for (const [k, v] of lastRefundOpen) if (now - v > REFUND_OPEN_MIN_MS) lastRefundOpen.delete(k)
+  }
+  return false
+}
 const TEST_HINTS = ['alice', 'bob', 'carol', 'dave'] as const
 
 function num(v: unknown, fallback = 0): number {
@@ -88,6 +105,7 @@ export async function POST(req: NextRequest) {
     asset?: string
     dest?: string
     noteId?: string
+    depositId?: string
     externalTo?: string
     height?: number | string
     destSecret?: string
@@ -156,7 +174,7 @@ export async function POST(req: NextRequest) {
       }
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify({ action: 'vault-activate', account, destination }),
       })
       const d = await r.json()
@@ -201,7 +219,7 @@ export async function POST(req: NextRequest) {
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify({ action: 'eth-kickoff', noteId, dest, amount, asset }),
       })
       const d = await r.json()
@@ -221,21 +239,37 @@ export async function POST(req: NextRequest) {
     const amount = String(body.amount ?? '').trim()
     const asset = String(body.asset ?? 'ETH').trim().toUpperCase()
     const account = String(body.account ?? '').trim()
-    if (!account) {
+    // V3 refund: named by depositId + asset only (no PL account; walletd takes dest/amount
+    // from the node's refund note, so caller-supplied noteId/dest/amount are not forwarded).
+    const depositId = String(body.depositId ?? '').trim()
+    if (depositId && !DEPOSIT_ID_RE.test(depositId)) {
+      return NextResponse.json({ error: 'depositId must be 32-byte hex' }, { status: 400 })
+    }
+    if (asset !== 'ETH' && asset !== 'USDC') {
+      return NextResponse.json({ error: 'asset must be ETH or USDC' }, { status: 400 })
+    }
+    if (!account && !depositId) {
       return NextResponse.json({ error: 'account required' }, { status: 400 })
+    }
+    // Unauthenticated refund opens: anyone may open a refund (it can only pay the deposit
+    // sender), but each open costs operator gas. walletd already serialises opens (write lock,
+    // proof slots -> 409 busy) and re-opening an open claim sends nothing; this per-instance
+    // throttle also drops rapid repeats of the same depositId.
+    if (depositId && refundOpenThrottled(depositId)) {
+      return NextResponse.json(
+        { ok: false, waiting: true, retryable: true, status: 'throttled', error: 'retry shortly' },
+        { status: 409 },
+      )
     }
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'eth-open-claim',
-          noteId,
-          dest,
-          amount,
-          asset,
-          account,
-        }),
+        headers: walletApiHeaders(),
+        body: JSON.stringify(
+          depositId
+            ? { action: 'eth-open-claim', depositId, asset }
+            : { action: 'eth-open-claim', noteId, dest, amount, asset, account },
+        ),
       })
       const d = await r.json()
       if (r.status === 409 || d.waiting) {
@@ -259,7 +293,7 @@ export async function POST(req: NextRequest) {
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify({ action: 'header-proof', height }),
       })
       const d = await r.json()
@@ -279,6 +313,31 @@ export async function POST(req: NextRequest) {
     const asset = String(body.asset ?? 'ETH').trim().toUpperCase()
     const noteId = String(body.noteId ?? '').trim()
     const amount = String(body.amount ?? '').trim()
+    const depositId = String(body.depositId ?? '').trim()
+    if (depositId) {
+      // V3 refund note lookup: the note has no PL account; walletd derives it from depositId.
+      if (!DEPOSIT_ID_RE.test(depositId)) {
+        return NextResponse.json({ error: 'depositId must be 32-byte hex' }, { status: 400 })
+      }
+      if (asset !== 'ETH' && asset !== 'USDC') {
+        return NextResponse.json({ error: 'asset must be ETH or USDC' }, { status: 400 })
+      }
+      try {
+        const r = await fetch(WALLET_API, {
+          method: 'POST',
+          headers: walletApiHeaders(),
+          body: JSON.stringify({ action: 'claim-proof', depositId, asset }),
+        })
+        const d = await r.json()
+        if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
+        return NextResponse.json(d)
+      } catch (e) {
+        return NextResponse.json(
+          { error: String(e instanceof Error ? e.message : e) },
+          { status: 503 },
+        )
+      }
+    }
     if (!NAME_RE.test(account)) {
       return NextResponse.json({ error: 'account must be a PL name' }, { status: 400 })
     }
@@ -294,7 +353,7 @@ export async function POST(req: NextRequest) {
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify({ action: 'claim-proof', account, dest, asset, amount, noteId }),
       })
       const d = await r.json()
@@ -324,7 +383,7 @@ export async function POST(req: NextRequest) {
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify({ action, account, txHash, asset: asset || undefined }),
       })
       const d = await r.json()
@@ -370,7 +429,7 @@ export async function POST(req: NextRequest) {
     try {
       const r = await fetch(WALLET_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: walletApiHeaders(),
         body: JSON.stringify(payload),
       })
       const d = await r.json()

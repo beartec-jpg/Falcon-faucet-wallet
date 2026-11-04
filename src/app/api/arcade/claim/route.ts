@@ -1,22 +1,36 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // POST /api/arcade/claim
 // Body: { account, game, network? }  — score in body is IGNORED for eligibility
-// Eligibility uses server-stored best score only (from prior SCORE_UPDATE posts).
+// Eligibility uses server-stored accumulated progress only (sum of today's run
+// scores since the last claim, built from prior /api/arcade/score posts).
+// Each successful claim consumes GAME_FAUCET_MIN_SCORE points of progress.
 // Same faucet pool as /api/faucet — separate game rate limits + score threshold.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { isClassicAddress } from '@/lib/classic-address'
+
+/** FPL account id: r… or an on-chain name (same rule as /api/faucet). */
+function isPlAccount(name: string): boolean {
+  if (isClassicAddress(name)) return true
+  return /^[A-Za-z0-9._-]{2,64}$/.test(name)
+}
 import {
   GAME_FAUCET_MIN_SCORE,
   GAME_GLOBAL_CLAIMS_PER_DAY,
   arcadeUtcDay,
   countGlobalGameClaimsToday,
   finalizeGameClaim,
+  consumeClaimProgress,
   getBestScore,
+  getClaimProgress,
   isGameSlug,
+  refundClaimProgress,
   releaseGameClaim,
   reserveGameClaim,
 } from '@/lib/arcade-store'
 import { sendFaucetDrip } from '@/lib/faucet-pay'
+import { plFaucetDrip, PL_DRIP } from '@/lib/pl-faucet-drip'
+import { serverNetworkConfig } from '@/lib/network-server'
 import {
   faucetUtcDay,
   hashIp,
@@ -55,29 +69,29 @@ export async function POST(req: NextRequest) {
     return err('Invalid JSON body')
   }
 
-  if (!account || !isClassicAddress(account)) {
+  if (!account || !isPlAccount(account)) {
     return err('Invalid Falcon address')
   }
   if (!isGameSlug(game)) {
     return err('Invalid game slug')
   }
 
-  // Server-stored best only — never trust claim-body score
-  const best = await getBestScore({
-    network: networkKey,
-    address: account,
-    game,
-  })
+  // Server-stored progress only — never trust claim-body score or client totals
+  const who = { network: networkKey, address: account, game }
+  const [{ progress }, best] = await Promise.all([
+    getClaimProgress(who),
+    getBestScore(who),
+  ])
 
-  if (best < GAME_FAUCET_MIN_SCORE) {
+  if (progress < GAME_FAUCET_MIN_SCORE) {
     return err(
-      `Score too low. Reach ${GAME_FAUCET_MIN_SCORE} points in a real run first (best on record today: ${best}). Keep playing — scores sync as you play.`,
+      `Not enough points yet: ${Math.floor(progress)} / ${GAME_FAUCET_MIN_SCORE} today. Your run scores add up — keep playing, scores sync as you play.`,
       403,
-      { best, minScore: GAME_FAUCET_MIN_SCORE, game },
+      { progress, best, minScore: GAME_FAUCET_MIN_SCORE, game },
     )
   }
 
-  // IP budget shared with main faucet pattern (harder multi-wallet farming)
+  // Game-only IP bucket (`game:` prefix → GAME_IP_* limits, not the main faucet's 1h cooldown)
   const ip = clientIp(req)
   const ratePrefix = `game:${networkKey}:`
   const ipLimit = await peekFaucetQuota(`${ratePrefix}ip:${ip}`)
@@ -87,7 +101,7 @@ export async function POST(req: NextRequest) {
         ? 'Game faucet IP cooldown active. Try again later.'
         : 'Daily game faucet limit reached for your network. Try again tomorrow (UTC).',
       429,
-      { reason: ipLimit.reason, limitType: 'ip' },
+      { reason: ipLimit.reason, limitType: 'ip', retryAt: ipLimit.reset },
     )
   }
 
@@ -106,13 +120,13 @@ export async function POST(req: NextRequest) {
     network: networkKey,
     address: account,
     game,
-    scoreAtClaim: best,
+    scoreAtClaim: progress,
   })
 
   if (!reserved.ok) {
     const why =
       reserved.reason === 'game_claimed'
-        ? `Already claimed the Game Faucet for ${game} today (UTC). Come back tomorrow.`
+        ? `Game Faucet claim limit for ${game} reached today (UTC). Come back tomorrow.`
         : `Daily game claim limit reached (${reserved.quota.claimsTotalToday} claims). Try again tomorrow (UTC).`
     return err(why, 429, {
       reason: reserved.reason,
@@ -121,30 +135,57 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const faucet = resolveFaucet(networkKey)
-  const gameDrip = envNumberFirst(
-    ['GAME_DRIP_AMOUNT_FPL', 'GAME_DRIP_AMOUNT_QXRP'],
-    faucet?.dripAmountFpl ?? faucet?.dripAmountQxrp ?? NaN,
-  )
-  const amountFpl = Number.isFinite(gameDrip) ? gameDrip : undefined
+  // Atomically spend the threshold (guards concurrent claims on the same progress).
+  const spent = await consumeClaimProgress({ ...who, amount: GAME_FAUCET_MIN_SCORE })
+  if (!spent.ok) {
+    await releaseGameClaim(reserved.reservationId)
+    return err(
+      `Not enough points yet: ${Math.floor(spent.progress)} / ${GAME_FAUCET_MIN_SCORE} today.`,
+      403,
+      { progress: spent.progress, minScore: GAME_FAUCET_MIN_SCORE, game },
+    )
+  }
 
-  const paid = await sendFaucetDrip({
-    networkKey,
-    toAccount: account,
-    amountQxrp: amountFpl,
-  })
+  // Falcon PL 2300 has no xrpld JSON-RPC: pay through the same PL drip as
+  // /api/faucet (pl-ctl / walletd). The legacy xrpld path is only for others.
+  let paid:
+    | { ok: true; amount: number; txHash: string }
+    | { ok: false; status: number; error: string; reason?: string; extra?: unknown }
+  if (serverNetworkConfig(networkKey).networkId === 2300) {
+    const plAmount = envNumberFirst(['GAME_DRIP_AMOUNT_FPL', 'GAME_DRIP_AMOUNT_QXRP'], PL_DRIP)
+    const r = await plFaucetDrip(account, Number.isFinite(plAmount) && plAmount > 0 ? plAmount : PL_DRIP)
+    paid = r.ok
+      ? { ok: true, amount: r.amount, txHash: r.txId || 'pl' }
+      : { ok: false, status: r.status, error: r.error, reason: r.reason }
+  } else {
+    const faucet = resolveFaucet(networkKey)
+    const gameDrip = envNumberFirst(
+      ['GAME_DRIP_AMOUNT_FPL', 'GAME_DRIP_AMOUNT_QXRP'],
+      faucet?.dripAmountFpl ?? faucet?.dripAmountQxrp ?? NaN,
+    )
+    const amountFpl = Number.isFinite(gameDrip) ? gameDrip : undefined
+    const r = await sendFaucetDrip({ networkKey, toAccount: account, amountQxrp: amountFpl })
+    paid = r.ok
+      ? { ok: true, amount: r.amount, txHash: r.txHash }
+      : { ok: false, status: r.status, error: r.error, extra: r.extra }
+  }
 
   if (!paid.ok) {
+    await refundClaimProgress({ ...who, amount: GAME_FAUCET_MIN_SCORE })
     await releaseGameClaim(reserved.reservationId)
-    console.error('[arcade/claim] pay failed:', paid.error, paid.extra)
-    return err('Claim failed. Try again shortly.', paid.status >= 400 ? paid.status : 502)
+    console.error('[arcade/claim] pay failed:', paid.error, paid.reason ?? paid.extra ?? '')
+    // Points were refunded; tell the player the specific reason.
+    return err(paid.error || 'Claim failed. Try again shortly.', paid.status >= 400 ? paid.status : 502, {
+      reason: paid.reason ?? 'payout_failed',
+      refunded: true,
+    })
   }
 
   await finalizeGameClaim({
     reservationId: reserved.reservationId,
     amountQxrp: paid.amount,
     txHash: paid.txHash,
-    scoreAtClaim: best,
+    scoreAtClaim: progress,
   })
 
   await consumeFaucetQuota(`${ratePrefix}ip:${ip}`)
@@ -184,7 +225,9 @@ export async function POST(req: NextRequest) {
     amountFpl: paid.amount,
     account,
     network: networkKey,
-    scoreAtClaim: best,
+    scoreAtClaim: progress,
+    progress: spent.progress,
+    best,
     minScore: GAME_FAUCET_MIN_SCORE,
     remainingGameClaimsToday: Math.max(0, reserved.quota.remainingGame - 1),
     remainingTotalGameClaimsToday: Math.max(0, reserved.quota.remainingTotal - 1),

@@ -1,18 +1,46 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
+import WalletCylinder from '@/components/WalletCylinder'
+import { EmbeddedFaceContext } from '@/components/EmbeddedFace'
+
+const VaultFace = dynamic(() => import('@/components/wallet-faces/VaultFace'), { ssr: false })
+const SwapFace = dynamic(() => import('@/components/wallet-faces/SwapFace'), { ssr: false })
+const PoolFace = dynamic(() => import('@/components/wallet-faces/PoolFace'), { ssr: false })
+const LendFace = dynamic(() => import('@/components/wallet-faces/LendFace'), { ssr: false })
+
+/** Cylinder order (loops back to Falcon). */
+const WALLET_FACES = [
+  { id: 'falcon', label: 'Falcon' },
+  { id: 'multichain', label: 'Multi-chain' },
+  { id: 'vault', label: 'Vault' },
+  { id: 'bridge', label: 'Bridge' },
+  { id: 'swap', label: 'Swap' },
+  { id: 'pool', label: 'Pool' },
+  { id: 'lend', label: 'Lend' },
+] as const
+type ExtFace = 'vault' | 'swap' | 'pool' | 'lend'
+const EXT_FACES: readonly string[] = ['vault', 'swap', 'pool', 'lend']
+const HIDE_BAL_KEY = 'falcon-wallet-hide-balances-v1'
+const MASK = '****'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
 import {
   isPasskeySupported,
   registerPasskey,
   authenticatePasskey,
+  addWalletPassword,
+  changeWalletPassword,
+  removeWalletPassword,
+  walletKekMode,
 } from '@/lib/passkey'
 import { encryptSeed, decryptSeed } from '@/lib/wallet-crypto'
 import {
@@ -30,14 +58,26 @@ import {
   signFusdcPayment,
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
-import { signPlAssetPay, signPlPay } from '@/lib/pl-wallet-sign'
+import { signPlAssetPay, signPlClaim, signPlPay, signPlPayToKey } from '@/lib/pl-wallet-sign'
+import { isDestinationKeyBound, isOwnLinkedVault, isPayToKeyUnsupported, keyCommitHash } from '@/lib/vault-activation'
+import { loadPrimaryVault } from '@/lib/vault-store'
 import {
   normalizeAccountName,
   cacheAccountName,
   readCachedAccountName,
 } from '@/lib/account-name'
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
-import { activationFeeFpl, normalizePlName, plAccountId, plNameHint } from '@/lib/pl-names'
+import { explainTxError } from '@/lib/pl-key-commit'
+import {
+  activationFeeFpl,
+  canonicalNameInput,
+  hotWalletNameError,
+  isVaultSuffixName,
+  linkedVaultName,
+  normalizePlName,
+  plAccountId,
+  plNameHint,
+} from '@/lib/pl-names'
 import { parsePlBook, type PlLendLine, type PlPoolLine } from '@/lib/pl-book'
 import {
   backupHasBridgeKeys,
@@ -48,6 +88,8 @@ import {
   shareBackup,
   validateBackupPassphrase,
   type BackupPayload,
+  backupText,
+  canShareBackupFiles,
 } from '@/lib/wallet-backup'
 import {
   isValidFalconAddress,
@@ -65,6 +107,7 @@ import BridgeDepositPanel from '@/components/BridgeDepositPanel'
 import { fetchDestLockMintStatus } from '@/lib/pl-dest-lock'
 import {
   clearDestLockPending,
+  destLockLcWaitText,
   listDestLockPending,
   type DestLockPending,
 } from '@/lib/dest-lock-pending'
@@ -127,6 +170,7 @@ import {
 } from '@/lib/create-xrpl-classic-wallet'
 import {
   isValidBtcP2pkh,
+  isValidBtcAddress,
   sendBtcP2pkh,
   type BtcBalance,
 } from '@/lib/btc-client'
@@ -151,6 +195,13 @@ interface TxRecord {
 }
 
 interface WalletAssets {
+  fbtc?: {
+    symbol?: string
+    balance: number
+    currency?: string
+    issuer?: string
+    hasTrustLine?: boolean
+  }
   fusdc: {
     symbol: string
     balance: number
@@ -183,12 +234,15 @@ interface WalletAssets {
 interface AccountData {
   balance:      number
   sequence:     number
+  claimable?:   number
   exists:       boolean
   transactions: TxRecord[]
   currentLedger: number
   assets?:      WalletAssets
   accountName?: string | null
   accountNameStatus?: 'active' | 'releasing' | null
+  nameStatus?:  string
+  keyFp?:       string
   names?: Record<string, string>
 }
 
@@ -334,12 +388,42 @@ export default function WalletPage() {
   const [bridgeMissing, setBridgeMissing] = useState(false)
   const bridgeAutoProvisioned = useRef(false)
 
+  const [extFace, setExtFace] = useState<ExtFace | null>(null)
+  const [hideBalances, setHideBalances] = useState(false)
+
   useEffect(() => {
+    try { if (localStorage.getItem(HIDE_BAL_KEY) === '1') setHideBalances(true) } catch { /* ignore */ }
+  }, [])
+  const toggleHideBalances = () => {
+    setHideBalances((h) => {
+      try { localStorage.setItem(HIDE_BAL_KEY, h ? '0' : '1') } catch { /* ignore */ }
+      return !h
+    })
+  }
+
+  // Deep links: /wallet?tab=<face> (falcon|multichain|vault|bridge|swap|pool|lend);
+  // legacy /wallet?bridge=1 and ?section=bridge still open Bridge. Re-read on client
+  // navigation too (e.g. an in-face link to /swap redirects back to /wallet?tab=swap).
+  const applyUrlFace = useCallback(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get('bridge') === '1' || params.get('section') === 'bridge') {
+    const tab = params.get('tab')
+    if (params.get('bridge') === '1' || params.get('section') === 'bridge' || tab === 'bridge') {
+      setExtFace(null)
       setWalletSection('bridge')
+    } else if (tab === 'falcon' || tab === 'multichain') {
+      setExtFace(null)
+      setWalletSection(tab)
+    } else if (tab && EXT_FACES.includes(tab)) {
+      setExtFace(tab as ExtFace)
     }
   }, [])
+  useEffect(() => {
+    applyUrlFace()
+    window.addEventListener('popstate', applyUrlFace)
+    return () => window.removeEventListener('popstate', applyUrlFace)
+  }, [applyUrlFace])
+  const urlTab = useSearchParams()?.get('tab') ?? null
+  useEffect(() => { if (urlTab) applyUrlFace() }, [urlTab, applyUrlFace])
 
   useEffect(() => {
     setFalconVisible({ ...loadFalconVisibility(), fbnb: false })
@@ -365,7 +449,7 @@ export default function WalletPage() {
   const [createLabel, setCreateLabel] = useState('')
   const [createName, setCreateName] = useState('')
   const [createNameStatus, setCreateNameStatus] = useState<
-    'idle' | 'checking' | 'available' | 'taken' | 'invalid'
+    'idle' | 'checking' | 'available' | 'taken' | 'invalid' | 'seat'
   >('idle')
 
   // Send form (Falcon IOUs + native multi-chain)
@@ -376,6 +460,13 @@ export default function WalletPage() {
     success: boolean; hash?: string; message: string; explorerUrl?: string
   } | null>(null)
   const [showSendScanner, setShowSendScanner] = useState(false)
+  const [nativeNameLookup, setNativeNameLookup] = useState<{
+    status: 'idle' | 'checking' | 'found' | 'missing'
+    name: string
+    chainKey: 'btc' | 'eth' | 'xrp'
+    address?: string
+  }>({ status: 'idle', name: '', chainKey: 'btc' })
+  const syncedExternalAddrsRef = useRef<string>('')
 
   // Account name (AccountNames amendment)
   const [accountName, setAccountName] = useState<string | null>(null)
@@ -391,10 +482,16 @@ export default function WalletPage() {
   const [backupPassphrase,   setBackupPassphrase]   = useState('')
   const [backupPassConfirm,  setBackupPassConfirm]  = useState('')
   const [backupDownloaded,   setBackupDownloaded]   = useState(false)
+  /** Encrypted backup built from the current password; each save option below is its own tap (keeps user activation for share/download). */
+  const [backupFile, setBackupFile] = useState<Awaited<ReturnType<typeof createEncryptedBackup>> | null>(null)
+  const [backupShowText, setBackupShowText] = useState(false)
+  const [backupNote, setBackupNote] = useState<string | null>(null)
+  useEffect(() => {
+    setBackupFile(null)
+    setBackupShowText(false)
+    setBackupNote(null)
+  }, [backupPassphrase, backupPassConfirm, pendingSave])
   const [backupAcknowledged, setBackupAcknowledged] = useState(false)
-  // F-01: explicit, non-dismissable acknowledgment required before saving a
-  // wallet that fell back to weaker (non-PRF) at-rest encryption.
-  const [weakEncryptionAck,  setWeakEncryptionAck]  = useState(false)
   const [showRawSecret,      setShowRawSecret]      = useState(false)
   const [secretCopied,       setSecretCopied]       = useState(false)
 
@@ -407,6 +504,14 @@ export default function WalletPage() {
   const [exportPassphrase,   setExportPassphrase]   = useState('')
   const [exportPassConfirm,  setExportPassConfirm]  = useState('')
   const [showExportBackup,   setShowExportBackup]   = useState(false)
+
+  // Optional passkey + password (two-factor KEK)
+  const [kekMode,            setKekMode]            = useState<'prf' | 'password' | 'prf+password' | null>(null)
+  const [showAddPassword,    setShowAddPassword]    = useState(false)
+  const [managePw,           setManagePw]           = useState<'closed' | 'menu' | 'change'>('closed')
+  const [newWalletPw,        setNewWalletPw]        = useState('')
+  const [newWalletPwConfirm, setNewWalletPwConfirm] = useState('')
+  const [walletPwNote,       setWalletPwNote]       = useState<string | null>(null)
   const [destLockHomeJobs, setDestLockHomeJobs] = useState<DestLockPending[]>([])
   const [spvHomePending, setSpvHomePending] = useState<SpvPendingDeposit | null>(null)
 
@@ -418,7 +523,10 @@ export default function WalletPage() {
       const [accR, assetsR, lendR] = await Promise.all([
         fetch(withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(address)}`, networkKey), fetchOpts),
         fetch(withNetworkQuery(`/api/wallet/assets?address=${encodeURIComponent(address)}`, networkKey), fetchOpts),
-        fetch(withNetworkQuery(`/api/lend/overview?address=${encodeURIComponent(address)}`, networkKey), fetchOpts),
+        // XRPL-era lending overview is retired (410) on Falcon PL 2300; PL lend reads come from /api/pl2300/defi.
+        network.networkId === 2300
+          ? Promise.resolve(new Response(null, { status: 410 }))
+          : fetch(withNetworkQuery(`/api/lend/overview?address=${encodeURIComponent(address)}`, networkKey), fetchOpts),
       ])
       if (!accR.ok) return
       const data: AccountData = await accR.json()
@@ -518,6 +626,106 @@ export default function WalletPage() {
       refreshBalance(plAccountId(wallet))
     }
   }, [networkKey, wallet, refreshBalance])
+
+  useEffect(() => {
+    if (
+      wallet?.accountName &&
+      !wallet.nameActivated &&
+      account &&
+      ((account.sequence ?? 0) > 0 || Boolean(account.keyFp) || account.nameStatus === 'activated')
+    ) {
+      const next = { ...wallet, nameActivated: true }
+      void saveWallet(next)
+      setWallet(next)
+      const externalAddrs: Record<string, string> = {
+        ...(wallet.btcAddress ? { btc: wallet.btcAddress } : {}),
+        ...(wallet.evmAddress ? { eth: wallet.evmAddress, bnb: wallet.evmAddress } : {}),
+        ...(wallet.xrplClassicAddress ? { xrp: wallet.xrplClassicAddress } : {}),
+      }
+      void fetch('/api/wallet/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'activate',
+          name: wallet.accountName,
+          publicKey: wallet.publicKey,
+          ...(Object.keys(externalAddrs).length > 0 ? { externalAddrs } : {}),
+        }),
+      }).catch(() => {
+        /* best-effort sync to reservation store */
+      })
+    }
+  }, [wallet, account])
+
+  // Sync linked Multi-chain addresses (BTC, ETH/BNB, XRP) to the Falcon PL account name
+  useEffect(() => {
+    if (!wallet?.accountName || !wallet?.publicKey) return
+    const externalAddrs: Record<string, string> = {
+      ...(wallet.btcAddress ? { btc: wallet.btcAddress } : {}),
+      ...(wallet.evmAddress ? { eth: wallet.evmAddress, bnb: wallet.evmAddress } : {}),
+      ...(wallet.xrplClassicAddress ? { xrp: wallet.xrplClassicAddress } : {}),
+    }
+    if (Object.keys(externalAddrs).length === 0) return
+    const syncKey = `${wallet.accountName}|${wallet.btcAddress || ''}|${wallet.evmAddress || ''}|${wallet.xrplClassicAddress || ''}`
+    if (syncedExternalAddrsRef.current === syncKey) return
+    syncedExternalAddrsRef.current = syncKey
+    void fetch('/api/wallet/name', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'set-addrs',
+        name: wallet.accountName,
+        publicKey: wallet.publicKey,
+        externalAddrs,
+      }),
+    }).catch(() => {
+      /* best-effort multi-chain address link */
+    })
+  }, [wallet?.accountName, wallet?.publicKey, wallet?.btcAddress, wallet?.evmAddress, wallet?.xrplClassicAddress])
+
+  // Debounced lookup when sending native BTC/ETH/USDC/BNB/XRP to a Falcon PL account name
+  useEffect(() => {
+    const isNativeSend =
+      sendAsset === 'btc' ||
+      sendAsset === 'eth' ||
+      sendAsset === 'usdc' ||
+      sendAsset === 'bnb' ||
+      sendAsset === 'xrp'
+    const raw = sendTo.trim()
+    const chainKey: 'btc' | 'eth' | 'xrp' =
+      sendAsset === 'btc' ? 'btc' : sendAsset === 'xrp' ? 'xrp' : 'eth'
+    const isAlreadyNative =
+      raw.startsWith('0x') ||
+      isValidBtcAddress(raw, 'testnet') ||
+      isValidFalconAddress(raw)
+    if (!isNativeSend || !raw || isAlreadyNative || !/^[a-z0-9][a-z0-9._-]{1,63}$/i.test(raw)) {
+      setNativeNameLookup({ status: 'idle', name: '', chainKey })
+      return
+    }
+    const norm = raw.toLowerCase()
+    setNativeNameLookup({ status: 'checking', name: norm, chainKey })
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void fetch(`/api/wallet/name?name=${encodeURIComponent(norm)}`, { cache: 'no-store' })
+        .then(async (r) => {
+          const d = (await r.json()) as { externalAddrs?: Record<string, string> }
+          if (cancelled) return
+          const linked = d.externalAddrs?.[chainKey]?.trim()
+          if (linked) {
+            setNativeNameLookup({ status: 'found', name: norm, chainKey, address: linked })
+          } else {
+            setNativeNameLookup({ status: 'missing', name: norm, chainKey })
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setNativeNameLookup({ status: 'missing', name: norm, chainKey })
+        })
+    }, 280)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [sendAsset, sendTo])
 
   useEffect(() => {
     if (!wallet || network.networkId !== 2300) return
@@ -707,7 +915,7 @@ export default function WalletPage() {
       setCreateNameStatus('idle')
       return
     }
-    if (!n) {
+    if (!n || isVaultSuffixName(createName)) {
       setCreateNameStatus('invalid')
       return
     }
@@ -716,6 +924,10 @@ export default function WalletPage() {
       void fetch(`/api/wallet/name?name=${encodeURIComponent(n)}`, { cache: 'no-store' })
         .then(async (r) => {
           const d = (await r.json()) as { available?: boolean; status?: string }
+          if (d.status === 'seat') {
+            setCreateNameStatus('seat')
+            return
+          }
           if (d.status === 'blocked' || d.status === 'invalid') {
             setCreateNameStatus('invalid')
             return
@@ -729,14 +941,21 @@ export default function WalletPage() {
 
   // ── Create wallet ─────────────────────────────────────────────────────────
 
+  const pendingKeyRef = useRef<{ name: string; key: Awaited<ReturnType<typeof generateWallet>> } | null>(null)
+
   const handleCreate = async () => {
     if (!isPasskeySupported()) {
       setError('Passkeys need a secure context (HTTPS or localhost). Please use the live site.')
       return
     }
-    const picked = normalizePlName(createName)
-    if (!picked) {
-      setError(plNameHint(createName) || 'Pick a valid account name')
+    const nameErr = hotWalletNameError(createName)
+    const picked = nameErr ? null : normalizePlName(canonicalNameInput(createName))
+    if (nameErr || !picked) {
+      setError(nameErr || plNameHint(createName) || 'Pick a valid account name')
+      return
+    }
+    if (createNameStatus === 'seat') {
+      setError(`“${picked}” is a validator seat name — pick a different account name`)
       return
     }
     if (createNameStatus === 'taken') {
@@ -749,25 +968,30 @@ export default function WalletPage() {
     setBackupPassConfirm('')
     setBackupDownloaded(false)
     setBackupAcknowledged(false)
-    setWeakEncryptionAck(false)
     setShowRawSecret(false)
     setSecretCopied(false)
     try {
       const label = createLabel.trim() || 'My Falcon Wallet'
 
-      const { falcon_secret, address, publicKey } = await generateWallet()
+      // Reuse the key generated for this name earlier in the session, so a cancelled passkey
+      // prompt can be retried: the server reservation is tied to that public key (30 min TTL).
+      const prior = pendingKeyRef.current
+      const gen = prior && prior.name === picked ? prior.key : await generateWallet()
+      pendingKeyRef.current = { name: picked, key: gen }
+      const { falcon_secret, address, publicKey } = gen
       const hold = await fetch('/api/wallet/name', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'reserve',
+          purpose: 'wallet',
           name: picked,
           publicKey,
         }),
       })
       const holdJ = (await hold.json()) as { error?: string; reservedUntil?: number; fee?: number }
       if (!hold.ok) throw new Error(holdJ.error ?? 'Could not reserve that name')
-      const { credentialId, keyBytes, hasPrf } = await registerPasskey(picked)
+      const { credentialId, keyBytes, hasPrf } = await registerPasskey(picked, { offerPassword: true })
       const encrypted = await encryptSeed(falcon_secret, keyBytes, hasPrf)
       const { address: evmAddress, privateKeyHex: evmPrivateKeyHex } = createRandomEvmWallet()
       const evmEncrypted = await encryptSeed(evmPrivateKeyHex, keyBytes, hasPrf)
@@ -810,9 +1034,6 @@ export default function WalletPage() {
 
   const handleConfirmBackup = async () => {
     if (!pendingSave || !backupDownloaded || !backupAcknowledged) return
-    // F-01: a non-PRF (weaker-encryption) wallet may only be saved after the
-    // user explicitly acknowledges the reduced protection.
-    if (!pendingSave.hasPrf && !weakEncryptionAck) return
     setBusy(true)
     setError(null)
     try {
@@ -862,8 +1083,7 @@ export default function WalletPage() {
       setBackupPassConfirm('')
       setBackupDownloaded(false)
       setBackupAcknowledged(false)
-      setWeakEncryptionAck(false)
-      setView('dashboard')
+        setView('dashboard')
       setWalletSection('falcon')
       refreshBalance(plAccountId(verified))
     } catch (e: unknown) {
@@ -879,7 +1099,6 @@ export default function WalletPage() {
     setBackupPassConfirm('')
     setBackupDownloaded(false)
     setBackupAcknowledged(false)
-    setWeakEncryptionAck(false)
     setShowRawSecret(false)
     setSecretCopied(false)
     setView('no-wallet')
@@ -912,14 +1131,16 @@ export default function WalletPage() {
         xrpl_classic_address: pendingSave.xrplClassicAddress,
         xrpl_classic_public_key: pendingSave.xrplClassicPublicKey,
       }, backupPassphrase)
+      setBackupFile(file)
+      setBackupNote(null)
       const mobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-      if (mobile) {
-        const shared = await shareBackup(file).catch(() => false)
-        if (!shared) downloadBackup(file)
-      } else {
+      if (!mobile) {
         downloadBackup(file)
+        setBackupDownloaded(true)
+      } else {
+        // Encryption is async, so the tap's user activation may be gone; mobile users pick Save/Share/Copy below.
+        setBackupNote('Backup ready. Save it with one of the options below.')
       }
-      setBackupDownloaded(true)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to create backup file')
     }
@@ -972,7 +1193,7 @@ export default function WalletPage() {
     try {
       const { address, publicKey } = await keysFromFalconSecret(falconSecret)
       const walletLabel = label.trim() || 'Restored Wallet'
-      const { credentialId, keyBytes, hasPrf } = await registerPasskey(walletLabel)
+      const { credentialId, keyBytes, hasPrf } = await registerPasskey(walletLabel, { offerPassword: true })
       const encrypted = await encryptSeed(falconSecret, keyBytes, hasPrf)
       const evm = bridgeFromBackup?.evm_private_key && bridgeFromBackup.evm_address
         ? await encryptEvmKeyForPasskey(bridgeFromBackup.evm_private_key, keyBytes, hasPrf)
@@ -1059,14 +1280,18 @@ export default function WalletPage() {
   const handleRestore = async () => {
     const falconSecret = restoreSeed.trim()
     if (!falconSecret) { setError('Upload a backup file or paste your Falcon secret'); return }
+    // Pasted encrypted backup text (Copy / Show backup text): same path as the file.
+    if (falconSecret.startsWith('{')) { await handleRestoreText(falconSecret); return }
     await finishRestore(falconSecret, restoreLabel)
   }
 
-  const handleRestoreFile = async (file: File) => {
+  const handleRestoreFile = async (file: File) => handleRestoreText(await file.text())
+
+  const handleRestoreText = async (text: string) => {
     setBusy(true)
     setError(null)
     try {
-      const parsed = parseBackupFile(JSON.parse(await file.text()))
+      const parsed = parseBackupFile(JSON.parse(text))
       // Only passphrase-encrypted backups are accepted (see wallet-backup.ts, F-04).
       if (!restorePassphrase) {
         setError('Enter the backup password for this file')
@@ -1102,6 +1327,59 @@ export default function WalletPage() {
     } finally {
       setBusy(false)
       if (restoreFileRef.current) restoreFileRef.current.value = ''
+    }
+  }
+
+  useEffect(() => {
+    if (!wallet?.credentialId) { setKekMode(null); return }
+    let live = true
+    walletKekMode(wallet.credentialId).then(m => { if (live) setKekMode(m) }).catch(() => {})
+    return () => { live = false }
+  }, [wallet?.credentialId])
+
+  const handleAddWalletPassword = async () => {
+    if (!wallet) return
+    if (newWalletPw !== newWalletPwConfirm) { setError('Passwords do not match'); return }
+    setBusy(true)
+    setError(null)
+    setWalletPwNote(null)
+    try {
+      const changing = kekMode === 'prf+password'
+      if (changing) await changeWalletPassword(wallet.credentialId, newWalletPw)
+      else await addWalletPassword(wallet.credentialId, newWalletPw)
+      const fresh = await loadPrimaryWallet()
+      if (fresh) setWallet(fresh)
+      setKekMode('prf+password')
+      setShowAddPassword(false)
+      setManagePw('closed')
+      setWalletPwNote(changing
+        ? 'Password changed.'
+        : 'Password added. Unlocking now needs your passkey and this password.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to add password')
+    } finally {
+      setNewWalletPw('')
+      setNewWalletPwConfirm('')
+      setBusy(false)
+    }
+  }
+
+  const handleRemoveWalletPassword = async () => {
+    if (!wallet) return
+    setBusy(true)
+    setError(null)
+    setWalletPwNote(null)
+    try {
+      await removeWalletPassword(wallet.credentialId)
+      const fresh = await loadPrimaryWallet()
+      if (fresh) setWallet(fresh)
+      setKekMode('prf')
+      setManagePw('closed')
+      setWalletPwNote('Password removed. This wallet now unlocks with your passkey only.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to remove password')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -1213,6 +1491,63 @@ export default function WalletPage() {
     }
   }
 
+  const [claimMsg, setClaimMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
+
+  const claimPlRewards = async () => {
+    if (!wallet || !account || network.networkId !== 2300) return
+    if (!account.claimable) {
+      setClaimMsg({ kind: 'err', text: 'Nothing to claim on this account.' })
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setClaimMsg(null)
+    const id = plAccountId(wallet)
+    const before = account.claimable
+    try {
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+      const seq = await fetchSequenceInfo(id, networkKey)
+      const tx = await signPlClaim({
+        account: id,
+        sequence: seq.sequence,
+        fee: 2,
+        networkId: network.networkId,
+        falconSecret: falcon_secret,
+      })
+      const res = await fetch('/api/wallet/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // signPlClaim returns a signed tx object (no rawJson): send it as `tx`, like the /rewards page does.
+        body: JSON.stringify(tx.rawJson ? { tx_json: tx.rawJson, network: networkKey } : { tx, network: networkKey }),
+      })
+      const out = (await res.json().catch(() => ({}))) as { error?: string; message?: string; success?: boolean }
+      if (!res.ok || out.error || out.success === false) {
+        const msg = out.error || out.message || `Claim failed (HTTP ${res.status})`
+        throw new Error(explainTxError(msg))
+      }
+      // Submit only means "accepted into the mempool". Wait for the claim to be packed
+      // (sequence advances) before refreshing, otherwise the old claimable is shown again.
+      setClaimMsg({ kind: 'info', text: 'Claim accepted, waiting for it to be included…' })
+      let packed = false
+      for (let i = 0; i < 30 && !packed; i++) {
+        await new Promise((r) => setTimeout(r, 1000))
+        const s = await fetchSequenceInfo(id, networkKey).catch(() => null)
+        if (s && s.sequence > seq.sequence) packed = true
+      }
+      await refreshBalance(id)
+      setClaimMsg(
+        packed
+          ? { kind: 'ok', text: `Claimed ${before.toLocaleString('en-US')} FPL into your balance.` }
+          : { kind: 'info', text: 'Claim submitted but not included yet. Refresh in a minute; if the amount is still claimable, try again.' },
+      )
+    } catch (e) {
+      setClaimMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Claim failed' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // ── Send transaction ──────────────────────────────────────────────────────
 
   const handleSend = async (e: React.FormEvent) => {
@@ -1235,10 +1570,47 @@ export default function WalletPage() {
     // ── Native multi-chain send (BTC / BNB / ETH / classic XRPL XRP) ─────────
     if (isNative) {
       let to = sendTo.trim()
+      let resolvedPlName: string | null = null
       const amt = parseFloat(sendAmount)
       if (isNaN(amt) || amt <= 0) {
         setError('Invalid amount')
         return
+      }
+
+      const chainKey: 'btc' | 'eth' | 'xrp' =
+        sendAsset === 'btc' ? 'btc' : sendAsset === 'xrp' ? 'xrp' : 'eth'
+      const isAlreadyNative =
+        sendAsset === 'btc'
+          ? isValidBtcAddress(to, 'testnet')
+          : sendAsset === 'xrp'
+            ? isValidFalconAddress(to)
+            : /^0x[a-fA-F0-9]{40}$/.test(parseEvmAddressFromScan(to) || to)
+
+      if (!isAlreadyNative && /^[a-z0-9][a-z0-9._-]{1,63}$/i.test(to)) {
+        const lookupName = to.toLowerCase()
+        let resolvedAddr =
+          nativeNameLookup.status === 'found' &&
+          nativeNameLookup.name === lookupName &&
+          nativeNameLookup.chainKey === chainKey
+            ? nativeNameLookup.address
+            : undefined
+        if (!resolvedAddr) {
+          try {
+            const r = await fetch(`/api/wallet/name?name=${encodeURIComponent(lookupName)}`, {
+              cache: 'no-store',
+            })
+            const d = (await r.json()) as { externalAddrs?: Record<string, string> }
+            resolvedAddr = d.externalAddrs?.[chainKey]?.trim()
+          } catch {
+            /* handled below */
+          }
+        }
+        if (!resolvedAddr) {
+          setError(`No ${chainKey.toUpperCase()} address is linked to "${lookupName}" yet.`)
+          return
+        }
+        resolvedPlName = lookupName
+        to = resolvedAddr
       }
 
       if (sendAsset === 'xrp') {
@@ -1247,7 +1619,7 @@ export default function WalletPage() {
           return
         }
         if (!isValidFalconAddress(to)) {
-          setError('Invalid classic XRPL destination (expect r… address)')
+          setError('Invalid classic XRPL destination (expect r… address or linked Falcon name)')
           return
         }
         if (to === wallet.xrplClassicAddress) {
@@ -1277,7 +1649,9 @@ export default function WalletPage() {
           setSendResult({
             success: true,
             hash: result.hash,
-            message: `Classic XRPL: ${result.engine_result}`,
+            message: resolvedPlName
+              ? `Sent ${amt} XRP to ${resolvedPlName} (${to.slice(0, 8)}…) · ${result.engine_result}`
+              : `Classic XRPL: ${result.engine_result}`,
             explorerUrl: result.hash
               ? `https://testnet.xrpl.org/transactions/${result.hash}`
               : undefined,
@@ -1301,8 +1675,8 @@ export default function WalletPage() {
           setError('Bitcoin wallet not set up — open Multi-chain to provision keys')
           return
         }
-        if (!isValidBtcP2pkh(to, 'testnet')) {
-          setError('Invalid Bitcoin testnet address (expect m… or n… P2PKH)')
+        if (!isValidBtcAddress(to, 'testnet')) {
+          setError('Invalid Bitcoin Testnet4 address (expect tb1… or m… / n…)')
           return
         }
         if (to === wallet.btcAddress) {
@@ -1359,10 +1733,11 @@ export default function WalletPage() {
             amountBtc: sendAmount.trim(),
             network: 'testnet',
           })
+          const recipientSuffix = resolvedPlName ? ` to ${resolvedPlName} (${to.slice(0, 8)}…)` : ''
           setSendResult({
             success: true,
             hash: result.txid,
-            message: `Broadcast ${sendAmount} BTC (fee ~${(result.feeSats / 1e8).toFixed(8)} BTC)`,
+            message: `Broadcast ${sendAmount} BTC${recipientSuffix} (fee ~${(result.feeSats / 1e8).toFixed(8)} BTC)`,
             explorerUrl: result.explorerUrl,
           })
           setSendTo('')
@@ -1372,6 +1747,7 @@ export default function WalletPage() {
             void fetchBtcTestnetBalance(wallet.btcAddress).then(setBtcNativeBal)
           }
         } else {
+          const recipientSuffix = resolvedPlName ? ` to ${resolvedPlName} (${to.slice(0, 8)}…)` : ''
           const evmPk = await decryptSeed(wallet.evmEncrypted!, keyBytes)
           const pk = evmPk.startsWith('0x') ? evmPk : `0x${evmPk}`
           if (sendAsset === 'bnb') {
@@ -1383,7 +1759,7 @@ export default function WalletPage() {
             setSendResult({
               success: true,
               hash,
-              message: `Sent ${sendAmount} BNB on BSC testnet`,
+              message: `Sent ${sendAmount} BNB${recipientSuffix} on BSC testnet`,
               explorerUrl: `https://testnet.bscscan.com/tx/${hash}`,
             })
             if (wallet.evmAddress) {
@@ -1399,7 +1775,7 @@ export default function WalletPage() {
             setSendResult({
               success: true,
               hash,
-              message: `Sent ${sendAmount} USDC on Sepolia`,
+              message: `Sent ${sendAmount} USDC${recipientSuffix} on Sepolia`,
               explorerUrl: `${bridgeCfg!.sepolia.explorer_url}/tx/${hash}`,
             })
             if (wallet.evmAddress && bridgeCfg?.sepolia) {
@@ -1418,7 +1794,7 @@ export default function WalletPage() {
             setSendResult({
               success: true,
               hash,
-              message: `Sent ${sendAmount} ETH on Sepolia`,
+              message: `Sent ${sendAmount} ETH${recipientSuffix} on Sepolia`,
               explorerUrl: `${bridgeCfg!.sepolia.explorer_url}/tx/${hash}`,
             })
             if (wallet.evmAddress && bridgeCfg?.sepolia) {
@@ -1447,6 +1823,7 @@ export default function WalletPage() {
     const extracted = parseFalconAddressFromScan(to)
     if (extracted) to = extracted
 
+    let ownVaultKeyHash: string | null = null
     // On 2300 the name is the account. Do not run it through the signup
     // block list — dave, alice, and the other test seats are real accounts.
     if (network.networkId === 2300) {
@@ -1467,10 +1844,34 @@ export default function WalletPage() {
         const r = await fetch(
           withNetworkQuery(`/api/wallet/account?address=${encodeURIComponent(name)}`, networkKey),
         )
-        const j = (await r.json()) as { exists?: boolean }
-        if (r.ok && j.exists === false) {
-          setError(`No Falcon account named “${name}”`)
-          return
+        const j = (await r.json()) as {
+          exists?: boolean
+          keyFp?: string | null
+          sequence?: number
+          accountType?: string
+          vaultLocked?: boolean
+        }
+        if (r.ok) {
+          const alreadyBound =
+            Boolean(j.exists) ||
+            Boolean(j.keyFp) ||
+            Number(j.sequence ?? 0) > 0 ||
+            j.accountType === 'vault' ||
+            Boolean(j.vaultLocked)
+          if (!alreadyBound) {
+            // This wallet's own not-yet-activated `.vault`: fund it with
+            // pay_to_key so the commit binds the vault key (2.9.65+).
+            const own = await loadPrimaryVault().catch(() => null)
+            const hotAcct = plAccountId(wallet)
+            if (own && isOwnLinkedVault(name, hotAcct, own, linkedVaultName(hotAcct))) {
+              if (sendAsset === 'falcon') {
+                ownVaultKeyHash = await keyCommitHash(own.publicKey)
+              }
+            } else {
+              setError(`No Falcon account named “${name}”`)
+              return
+            }
+          }
         }
       } catch {
         /* a status blip should not block a send to a real name */
@@ -1522,9 +1923,9 @@ export default function WalletPage() {
     )
     const fbnbBal = fbnbTok?.balance ?? 0
     const fbtcTok = account!.assets?.tokens?.find(
-      (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+      (t) => t.currency === 'BTC4' || t.currency === 'BTC' || t.symbol === 'FBTC',
     )
-    const fbtcBal = fbtcTok?.balance ?? 0
+    const fbtcBal = account!.assets?.fbtc?.balance ?? fbtcTok?.balance ?? 0
 
     const isPlDest = /^[A-Za-z0-9._-]{2,64}$/.test(to)
     if (!isValidFalconAddress(to) && !(network.networkId === 2300 && isPlDest)) {
@@ -1567,6 +1968,12 @@ export default function WalletPage() {
             ? 'Add a FBTC trust line on Bridge before sending'
             : 'No FBTC yet — bridge BTC → FBTC first (SPV, no trust line)',
         )
+        return
+      }
+      if (network.networkId === 2300) {
+        // Node AssetPay only allows BTC/ETH/USDC today: a BTC4 send is "accepted" into the
+        // mempool but dropped at pack, so the funds never move. Block until the node enables it.
+        setError('FBTC peer-to-peer send is not enabled on Falcon PL yet — your FBTC was not moved. Use Bridge to withdraw to Testnet4.')
         return
       }
       if (amt > fbtcBal) {
@@ -1616,12 +2023,48 @@ export default function WalletPage() {
               const seq = await fetchSequence()
               const rail =
                 sendAsset === 'fbtc'
-                  ? { asset: 'BTC' as const, amount: decimalToBaseUnits(sendAmount, 8) }
+                  ? { asset: 'BTC4' as const, amount: decimalToBaseUnits(sendAmount, 8) }
                   : sendAsset === 'feth'
                     ? { asset: 'ETH' as const, amount: decimalToBaseUnits(sendAmount, 18) }
                     : sendAsset === 'fusdc'
                       ? { asset: 'USDC' as const, amount: decimalToBaseUnits(sendAmount, 6) }
                       : null
+              const submitTx = async (tx: { rawJson?: string }) => {
+                const res = await fetch('/api/wallet/submit', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(
+                    tx.rawJson
+                      ? { tx_json: tx.rawJson, network: networkKey }
+                      : { tx, network: networkKey },
+                  ),
+                })
+                const out = (await res.json().catch(() => ({}))) as SubmitResult
+                if (out.error) throw new Error(out.error)
+                return out
+              }
+              if (!rail && ownVaultKeyHash) {
+                const ptk = await signPlPayToKey({
+                  account: plAccountId(wallet),
+                  destination: to,
+                  amount: amt,
+                  keyHash: ownVaultKeyHash,
+                  sequence: seq.sequence,
+                  fee: 2,
+                  networkId: network.networkId,
+                  falconSecret: falcon_secret,
+                })
+                try {
+                  const out = await submitTx(ptk)
+                  if (out.success !== false) return out
+                  const msg = String(out.message ?? '')
+                  if (!isPayToKeyUnsupported(msg) && !isDestinationKeyBound(msg)) return out
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : String(e)
+                  if (!isPayToKeyUnsupported(msg) && !isDestinationKeyBound(msg)) throw e
+                }
+                // pay_to_key not live yet or destination already key-bound: fall through to plain Pay.
+              }
               const tx = rail
                 ? await signPlAssetPay({
                     account: plAccountId(wallet),
@@ -1652,7 +2095,7 @@ export default function WalletPage() {
                 ),
               })
               const out = (await res.json().catch(() => ({}))) as SubmitResult
-              if (out.error) throw new Error(out.error)
+              if (out.error) throw new Error(explainTxError(out.error))
               return out
             })().catch((e: unknown): SubmitResult => ({
               success: false,
@@ -1742,13 +2185,12 @@ export default function WalletPage() {
   // ─────────────────────────────────────────────────────────────────────────
 
   // Backup gate: a wallet may only be saved once the encrypted backup is
-  // downloaded and acknowledged; non-PRF (weaker-encryption) wallets also
-  // require the explicit weak-encryption acknowledgment (F-01).
+  // downloaded and acknowledged. Non-PRF wallets are password-protected (H-1),
+  // so there is no weaker mode left to acknowledge.
   const canConfirmBackup =
     !busy &&
     backupDownloaded &&
-    backupAcknowledged &&
-    (!!pendingSave?.hasPrf || weakEncryptionAck)
+    backupAcknowledged
 
   return (
     <ProductShell intensity={0.4}>
@@ -1756,7 +2198,7 @@ export default function WalletPage() {
       <Header current="wallet" />
       <NetworkBanner />
 
-      <main className="flex-1 flex items-start justify-center px-4 py-10">
+      <main className={`${extFace && view === 'dashboard' ? '' : 'flex-1 '}flex items-start justify-center px-4 ${extFace && view === 'dashboard' ? 'pt-10 pb-3' : 'py-10'}`}>
         <div className="w-full max-w-lg space-y-4">
 
           {/* ── Loading ── */}
@@ -1861,19 +2303,10 @@ export default function WalletPage() {
               </div>
 
               {!pendingSave.hasPrf && (
-                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 space-y-3">
+                <div className="rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-sm text-sky-200">
                   <p>
-                    <strong>Weaker device encryption:</strong> this device/browser does not support the passkey PRF extension, so the wallet on this device is encrypted with lower-strength key material. Keep your encrypted backup file safe and do not store significant value on this wallet.
+                    <strong>Password-protected on this device:</strong> this browser&apos;s passkey has no PRF support, so your wallet keys are encrypted with the wallet password you just set (Argon2id). You will need your passkey and that password to unlock on this device. The password cannot be recovered; keep your backup file safe.
                   </p>
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={weakEncryptionAck}
-                      onChange={e => setWeakEncryptionAck(e.target.checked)}
-                      className="mt-1 rounded border-amber-500/60"
-                    />
-                    <span>I understand this device uses weaker encryption and I will not store significant value on this wallet.</span>
-                  </label>
                 </div>
               )}
 
@@ -1940,11 +2373,38 @@ export default function WalletPage() {
                   disabled={!backupPassphrase || !backupPassConfirm}
                   className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm transition disabled:opacity-50"
                 >
-                  {backupDownloaded ? 'Download again ✓' : 'Download Falcon & multi wallet backup'}
+                  {backupFile ? 'Rebuild backup' : 'Download Falcon & multi wallet backup'}
                 </button>
+                {backupFile && (
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button type="button" onClick={() => { downloadBackup(backupFile); setBackupDownloaded(true); setBackupNote('If no file appeared (some mobile browsers such as DuckDuckGo block downloads), use Share or Copy.') }}
+                        className="py-2 text-xs rounded-lg border border-slate-700 text-slate-300 hover:text-white">Save file</button>
+                      <button type="button" disabled={!canShareBackupFiles()} onClick={() => { void shareBackup(backupFile).then((ok) => { if (ok) { setBackupDownloaded(true); setBackupNote('Shared. Make sure you saved it to Files or a safe place.') } }).catch(() => setBackupNote('Share cancelled or blocked. Try Save file or Copy.')) }}
+                        className="py-2 text-xs rounded-lg border border-slate-700 text-slate-300 hover:text-white disabled:opacity-40">Share…</button>
+                      <button type="button" onClick={() => { void navigator.clipboard.writeText(backupText(backupFile)).then(() => { setBackupDownloaded(true); setBackupNote('Encrypted backup copied. Paste it into a note or file you keep safe, then clear your clipboard.') }).catch(() => { setBackupShowText(true); setBackupNote('Copy blocked: select the text below and copy it manually.') }) }}
+                        className="py-2 text-xs rounded-lg border border-slate-700 text-slate-300 hover:text-white">Copy</button>
+                    </div>
+                    <button type="button" onClick={() => setBackupShowText((v) => !v)} className="text-[11px] text-slate-500 hover:text-slate-300 w-full text-center">
+                      {backupShowText ? 'Hide backup text' : 'Show backup text (encrypted)'}
+                    </button>
+                    {backupShowText && (
+                      <textarea readOnly value={backupText(backupFile)} rows={5} onFocus={(e) => e.currentTarget.select()}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[10px] text-slate-300 font-mono leading-snug resize-none" />
+                    )}
+                    {backupShowText && !backupDownloaded && (
+                      <button type="button" onClick={() => setBackupDownloaded(true)} className="text-[11px] text-slate-500 hover:text-slate-300 w-full text-center">I saved the text above</button>
+                    )}
+                    {backupNote && <p className="text-[11px] text-slate-400 text-center">{backupNote}</p>}
+                  </div>
+                )}
                 {backupDownloaded && (
-                  <p className="text-xs text-emerald-400 text-center">
-                    Backup saved — keep the file and password somewhere safe
+                  <p className="text-xs text-emerald-400 text-center space-y-1">
+                    <span className="block">Backup saved — keep the file and password somewhere safe.</span>
+                    <span className="block text-amber-200/90">
+                      Strongly recommended: download a second copy to a different device or offline location.
+                      Falcon keys are not recoverable from a BIP-39 phrase (see wallet backup docs).
+                    </span>
                   </p>
                 )}
 
@@ -1980,7 +2440,7 @@ export default function WalletPage() {
                     onChange={e => setBackupAcknowledged(e.target.checked)}
                     className="mt-1 rounded border-slate-600"
                   />
-                  <span>I saved the backup file and remember my backup password</span>
+                  <span>I saved the backup file (ideally two copies in different places) and remember my backup password</span>
                 </label>
 
                 <button
@@ -2074,7 +2534,7 @@ export default function WalletPage() {
                   onClick={() => setShowManualRestore(v => !v)}
                   className="text-xs text-slate-600 hover:text-slate-400 transition-colors w-full text-center"
                 >
-                  {showManualRestore ? 'Hide manual hex entry' : 'Advanced: paste raw hex instead'}
+                  {showManualRestore ? 'Hide paste box' : 'Paste backup text or raw hex instead'}
                 </button>
 
                 {showManualRestore && (
@@ -2082,7 +2542,7 @@ export default function WalletPage() {
                     <textarea
                       value={restoreSeed}
                       onChange={e => setRestoreSeed(e.target.value)}
-                      placeholder="fb… (4,000+ characters)"
+                      placeholder="Paste backup text ({…}, uses the backup password above) or raw hex fb…"
                       rows={3}
                       className="input-field font-mono text-xs resize-none"
                       disabled={busy}
@@ -2125,39 +2585,77 @@ export default function WalletPage() {
                 </div>
               )}
 
-              {view === 'dashboard' && (
-                <div className="wallet-glass p-1.5 flex gap-1">
-                  {(
-                    [
-                      { id: 'falcon' as const, label: 'Falcon' },
-                      { id: 'multichain' as const, label: 'Multi-chain' },
-                      { id: 'bridge' as const, label: 'Bridge' },
-                    ] as const
-                  ).map((tab) => (
+              {view === 'dashboard' && (() => {
+                const fb = parseFalconBalances(account)
+                const fmt = (v: number) => (hideBalances ? MASK : v.toLocaleString(undefined, { maximumFractionDigits: 6 }))
+                const chips: { label: string; v: number }[] = [
+                  { label: 'F-USDC', v: fb.fusdc },
+                  { label: 'F-ETH', v: fb.feth },
+                  { label: 'F-BTC', v: fb.fbtc },
+                ].filter((c) => c.v > 0)
+                return (
+                  <div className="wallet-glass px-4 py-2.5 flex items-center gap-3" aria-label="Falcon balance">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Falcon balance</div>
+                      <div className="flex items-baseline gap-x-3 gap-y-0.5 flex-wrap">
+                        <span className="text-lg font-bold tabular-nums text-white">
+                          {account == null ? <span className="wallet-skeleton inline-block h-5 w-20 align-middle" /> : fmt(fb.falcon)}
+                          <span className="text-xs font-semibold text-brand-400"> FPL</span>
+                        </span>
+                        {chips.map((c) => (
+                          <span key={c.label} className="text-[11px] tabular-nums text-slate-400">
+                            {fmt(c.v)} <span className="text-slate-500">{c.label}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                     <button
-                      key={tab.id}
                       type="button"
-                      onClick={() => {
-                        setWalletSection(tab.id)
-                        setPanelKey((k) => k + 1)
-                        if (tab.id === 'bridge') {
-                          setBridgeInitialMode('deposit')
-                          setBridgeInitialSpvTxid('')
-                        }
-                        refreshBalance(plAccountId(wallet))
-                      }}
-                      className={`wallet-tab-pill ${
-                        walletSection === tab.id
-                          ? 'bg-brand-500/15 text-brand-400 shadow-[inset_0_0_0_1px_rgba(192,120,56,0.35)]'
-                          : 'text-slate-500 hover:text-slate-300'
-                      }`}
+                      onClick={toggleHideBalances}
+                      className="p-2 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800/60"
+                      aria-label={hideBalances ? 'Show balances' : 'Hide balances'}
+                      aria-pressed={hideBalances}
+                      title={hideBalances ? 'Show balances' : 'Hide balances'}
                     >
-                      {tab.label}
+                      {hideBalances ? (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18M10.6 10.6a2 2 0 002.8 2.8M9.9 5.1A9.8 9.8 0 0112 5c4.5 0 8.3 2.9 9.5 7a10 10 0 01-2.6 4.1M6.1 6.1A10 10 0 002.5 12c1.2 4.1 5 7 9.5 7 1.6 0 3.2-.4 4.5-1" /></svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.5 12C3.7 7.9 7.5 5 12 5s8.3 2.9 9.5 7c-1.2 4.1-5 7-9.5 7s-8.3-2.9-9.5-7z" /><circle cx="12" cy="12" r="3" strokeWidth={2} /></svg>
+                      )}
                     </button>
-                  ))}
-                </div>
+                  </div>
+                )
+              })()}
+
+              {view === 'dashboard' && (
+                <WalletCylinder
+                  faces={WALLET_FACES as unknown as { id: string; label: string }[]}
+                  activeId={extFace ?? walletSection}
+                  onSelect={(id) => {
+                    const params = new URLSearchParams(window.location.search)
+                    params.delete('bridge')
+                    params.delete('section')
+                    params.set('tab', id)
+                    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+                    if (EXT_FACES.includes(id)) {
+                      setExtFace(id as ExtFace)
+                      return
+                    }
+                    setExtFace(null)
+                    // Same behaviour as the former Falcon / Multi-chain / Bridge tab pills.
+                    const tabId = id as 'falcon' | 'multichain' | 'bridge'
+                    setWalletSection(tabId)
+                    setPanelKey((k) => k + 1)
+                    if (tabId === 'bridge') {
+                      setBridgeInitialMode('deposit')
+                      setBridgeInitialSpvTxid('')
+                    }
+                    refreshBalance(plAccountId(wallet))
+                  }}
+                />
               )}
 
+              <div className={extFace && view === 'dashboard' ? 'hidden' : 'space-y-4'}>
               {/* Network health */}
               {view === 'dashboard' && (walletSection === 'falcon' || walletSection === 'multichain') && (
                 <div className="flex items-center justify-between gap-2 px-1 text-[11px] text-slate-500">
@@ -2425,10 +2923,8 @@ export default function WalletPage() {
                                   <p className="text-xs text-slate-400 leading-relaxed">
                                     {job.status === 'error'
                                       ? job.lastError || 'Mint failed'
-                                      : job.depositBlock &&
-                                          job.lcExecution != null &&
-                                          job.lcExecution < job.depositBlock
-                                        ? `Locked on Sepolia. Waiting for Ethereum finality (light client ${job.lcExecution} / deposit ${job.depositBlock}). Not lost — you can still bridge another asset.`
+                                      : destLockLcWaitText(job)
+                                        ? `Locked on Sepolia. ${destLockLcWaitText(job)} Not lost — you can still bridge another asset.`
                                         : 'Locked on Sepolia — minting on Falcon PL. BTC, ETH, and USDC can run at the same time.'}
                                   </p>
                                   <div className="flex items-center gap-3">
@@ -2563,6 +3059,11 @@ export default function WalletPage() {
                                   action: 'activate',
                                   name: wallet.accountName,
                                   publicKey: wallet.publicKey,
+                                  externalAddrs: {
+                                    ...(wallet.btcAddress ? { btc: wallet.btcAddress } : {}),
+                                    ...(wallet.evmAddress ? { eth: wallet.evmAddress, bnb: wallet.evmAddress } : {}),
+                                    ...(wallet.xrplClassicAddress ? { xrp: wallet.xrplClassicAddress } : {}),
+                                  },
                                 }),
                               })
                               const d = (await r.json()) as { error?: string }
@@ -2781,9 +3282,9 @@ export default function WalletPage() {
                         }
                       } else if (asset.id === 'fbtc') {
                         const fbtcTok = account?.assets?.tokens?.find(
-                          (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+                          (t) => t.currency === 'BTC4' || t.currency === 'BTC' || t.symbol === 'FBTC',
                         )
-                        balanceLabel = (fbtcTok?.balance ?? 0).toLocaleString(undefined, {
+                        balanceLabel = (account?.assets?.fbtc?.balance ?? fbtcTok?.balance ?? 0).toLocaleString(undefined, {
                           maximumFractionDigits: 8,
                         })
                         if (fbtcTok?.spvMpt) {
@@ -2973,6 +3474,16 @@ export default function WalletPage() {
                                   {btcNativeBal.totalSats.toLocaleString()} sats
                                 </div>
                               )}
+                              {chain.id === 'btc' && hasBtc && (
+                                <div className="mt-1 font-sans">
+                                  <Link
+                                    href={`/faucet?asset=btc&address=${encodeURIComponent(wallet.btcAddress || plAccountId(wallet))}`}
+                                    className="text-[11px] font-medium text-orange-400 hover:text-orange-300 transition-colors"
+                                  >
+                                    Get Testnet4 BTC (0.1 tBTC) →
+                                  </Link>
+                                </div>
+                              )}
                               {chain.id === 'bnb' && bnbNativeBal == null && !nativeBalLoading && hasEvmKey && (
                                 <div className="text-[10px] text-amber-400/80 mt-0.5 font-sans">
                                   Balance unavailable
@@ -2998,6 +3509,33 @@ export default function WalletPage() {
 
                   {walletSection === 'falcon' && account?.exists && network.networkId === 2300 && (
                     <div className="space-y-2 pt-1">
+                      <div className="bg-slate-800/40 rounded-xl px-3 py-2.5 border border-slate-800 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] text-slate-500">Rewards</div>
+                          <div className="font-mono text-sm text-slate-100">{(account.claimable ?? 0).toLocaleString('en-US')} FPL claimable</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void claimPlRewards()}
+                          disabled={busy || !(account.claimable && account.claimable > 0)}
+                          className="text-sm font-semibold text-emerald-200 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 rounded-lg px-3 py-2 disabled:opacity-40"
+                        >
+                          {busy ? 'Claiming…' : 'Claim'}
+                        </button>
+                      </div>
+                      {claimMsg && (
+                        <div
+                          className={`text-xs rounded-lg px-3 py-2 border ${
+                            claimMsg.kind === 'err'
+                              ? 'text-red-300 bg-red-500/10 border-red-500/30'
+                              : claimMsg.kind === 'ok'
+                                ? 'text-emerald-200 bg-emerald-500/10 border-emerald-500/30'
+                                : 'text-slate-300 bg-slate-800/60 border-slate-700'
+                          }`}
+                        >
+                          {claimMsg.text}
+                        </div>
+                      )}
                       <div className="text-[11px] text-slate-500">Your pools</div>
                       {plBook == null ? (
                         <p className="text-xs text-slate-500">Loading your pools…</p>
@@ -3290,7 +3828,7 @@ export default function WalletPage() {
                       : receiveAssetId === 'bnb'
                         ? 'Same 0x as ETH. On BSC testnet this receives BNB. There is no public Falcon dest-lock for BNB.'
                       : receiveAssetId === 'btc'
-                        ? 'Native Bitcoin testnet P2PKH address. Only send testnet BTC. Bridge → FBTC.'
+                        ? 'Native Bitcoin Testnet4 address (mempool.space/testnet4). Send Testnet4 BTC here to hold, send, or bridge to FBTC (BTC4 BitVM2).'
                       : receiveAssetId === 'xrp'
                         ? 'Classic XRP Ledger (today’s XRPL). Separate r… from Falcon. Fund via XRPL testnet faucet.'
                         : 'Native multi-chain deposit address.'}
@@ -3370,8 +3908,8 @@ export default function WalletPage() {
                     setShowSendScanner(false)
                     if (sendAsset === 'btc') {
                       const t = raw.trim()
-                      if (!isValidBtcP2pkh(t, 'testnet')) {
-                        setError('QR does not contain a valid Bitcoin testnet address (m…/n…)')
+                      if (!isValidBtcAddress(t, 'testnet')) {
+                        setError('QR does not contain a valid Bitcoin Testnet4 address (tb1… or m…/n…)')
                         return
                       }
                       setSendTo(t)
@@ -3398,9 +3936,17 @@ export default function WalletPage() {
                       setError(null)
                       return
                     }
-                    const addr = parseFalconAddressFromScan(raw)
+                    const addr =
+                      parseFalconAddressFromScan(raw) ??
+                      (network.networkId === 2300
+                        ? normalizePlName(raw.trim().replace(/^falcon:/i, '').split('?')[0])
+                        : null)
                     if (!addr) {
-                      setError('QR code does not contain a valid Falcon r-address')
+                      setError(
+                        network.networkId === 2300
+                          ? 'QR code does not contain a valid Falcon account name or r-address'
+                          : 'QR code does not contain a valid Falcon r-address',
+                      )
                       return
                     }
                     setSendTo(addr)
@@ -3431,7 +3977,7 @@ export default function WalletPage() {
                     </button>
                     <h3 className="font-semibold text-white text-sm">
                       {sendAsset === 'btc'
-                        ? 'Send Bitcoin (testnet)'
+                        ? 'Send Bitcoin (Testnet4)'
                         : sendAsset === 'bnb'
                           ? 'Send BNB (BSC testnet)'
                           : sendAsset === 'eth'
@@ -3486,7 +4032,7 @@ export default function WalletPage() {
                   {(sendAsset === 'btc' || sendAsset === 'bnb' || sendAsset === 'eth' || sendAsset === 'usdc') && (
                     <p className="text-[11px] text-slate-500 leading-snug">
                       {sendAsset === 'btc'
-                        ? 'Signed in-browser · broadcast via Blockstream/Mempool testnet API. Keys never leave this device.'
+                        ? 'Signed in-browser · broadcast via Mempool Testnet4 API. Keys never leave this device.'
                         : sendAsset === 'bnb'
                           ? 'Same 0x key as ETH · BSC testnet. Keys stay encrypted under your passkey.'
                           : sendAsset === 'usdc'
@@ -3551,11 +4097,11 @@ export default function WalletPage() {
                       <div className="space-y-1.5">
                         <label className="text-xs text-slate-400">
                           {sendAsset === 'btc'
-                            ? 'Destination (testnet m… / n…)'
+                            ? 'Destination (Testnet4 tb1… / m… or Falcon name)'
                             : sendAsset === 'eth' || sendAsset === 'bnb' || sendAsset === 'usdc'
-                              ? 'Destination (0x…)'
+                              ? 'Destination (0x… or Falcon name)'
                               : sendAsset === 'xrp'
-                                ? 'Destination (classic XRPL r…)'
+                                ? 'Destination (classic XRPL r… or Falcon name)'
                               : 'Destination (r… or name)'}
                         </label>
                         <div className="flex items-stretch gap-2">
@@ -3565,11 +4111,11 @@ export default function WalletPage() {
                             onChange={e => { setSendTo(e.target.value); setError(null) }}
                             placeholder={
                               sendAsset === 'btc'
-                                ? 'm… or n…'
+                                ? 'tb1… / m… or Falcon name (scott.reynolds.123)'
                                 : sendAsset === 'eth' || sendAsset === 'bnb' || sendAsset === 'usdc'
-                                  ? '0x…'
+                                  ? '0x… or Falcon name (scott.reynolds.123)'
                                   : sendAsset === 'xrp'
-                                    ? 'rXXX… (classic XRPL)'
+                                    ? 'r… or Falcon name (scott.reynolds.123)'
                                   : 'rXXX… or alice.bob'
                             }
                             className="input-field flex-1 min-w-0 w-0"
@@ -3592,6 +4138,43 @@ export default function WalletPage() {
                             <span className="text-[10px] font-semibold leading-none">Scan</span>
                           </button>
                         </div>
+                        {nativeNameLookup.status === 'checking' && (
+                          <div className="text-[11px] text-slate-400 font-mono">
+                            Looking up {nativeNameLookup.chainKey.toUpperCase()} address for {nativeNameLookup.name}…
+                          </div>
+                        )}
+                        {nativeNameLookup.status === 'found' && nativeNameLookup.address && (
+                          <div className="text-[11px] text-emerald-400 font-mono">
+                            ✓ Linked {nativeNameLookup.chainKey.toUpperCase()} address for {nativeNameLookup.name}:{' '}
+                            {nativeNameLookup.address.slice(0, 10)}…{nativeNameLookup.address.slice(-6)}
+                          </div>
+                        )}
+                        {nativeNameLookup.status === 'missing' && (
+                          <div className="text-[11px] text-amber-400 font-mono">
+                            No {nativeNameLookup.chainKey.toUpperCase()} address linked to {nativeNameLookup.name} yet
+                          </div>
+                        )}
+                        {network.networkId === 2300 &&
+                          (sendAsset === 'falcon' ||
+                            sendAsset === 'fusdc' ||
+                            sendAsset === 'feth' ||
+                            sendAsset === 'fbtc' ||
+                            sendAsset === 'fbnb') &&
+                          !plAccountId(wallet).startsWith('r') &&
+                          !plAccountId(wallet).toLowerCase().endsWith('.vault') &&
+                          linkedVaultName(plAccountId(wallet)) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSendTo(linkedVaultName(plAccountId(wallet))!)
+                                setError(null)
+                              }}
+                              disabled={busy}
+                              className="text-[11px] font-medium text-brand-400 hover:text-brand-300 transition-colors"
+                            >
+                              Send to my vault ({linkedVaultName(plAccountId(wallet))})
+                            </button>
+                          )}
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-xs text-slate-400">
@@ -3687,15 +4270,17 @@ export default function WalletPage() {
                             <span>
                               Available:{' '}
                               {(
+                                account.assets?.fbtc?.balance ??
                                 account.assets?.tokens?.find(
-                                  (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+                                  (t) => t.currency === 'BTC4' || t.currency === 'BTC' || t.symbol === 'FBTC',
                                 )?.balance ?? 0
                               ).toLocaleString(undefined, { maximumFractionDigits: 8 })}{' '}
                               FBTC
                             </span>
                             {(
+                              account.assets?.fbtc?.balance ??
                               account.assets?.tokens?.find(
-                                (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
+                                (t) => t.currency === 'BTC4' || t.currency === 'BTC' || t.symbol === 'FBTC',
                               )?.balance ?? 0
                             ) > 0 && (
                               <button
@@ -3703,9 +4288,10 @@ export default function WalletPage() {
                                 onClick={() =>
                                   setSendAmount(
                                     String(
+                                      account.assets?.fbtc?.balance ??
                                       account.assets!.tokens!.find(
-                                        (t) => t.currency === 'BTC' || t.symbol === 'FBTC',
-                                      )!.balance,
+                                        (t) => t.currency === 'BTC4' || t.currency === 'BTC' || t.symbol === 'FBTC',
+                                      )?.balance ?? 0,
                                     ),
                                   )
                                 }
@@ -3869,7 +4455,7 @@ export default function WalletPage() {
                       <p className="text-xs text-slate-500">
                         {network.networkId === 2300
                           ? 'Peer-to-peer on Falcon PL — not a bridge.'
-                          : 'Peer-to-peer transfer on Falcon Ledger — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.'}
+                          : 'Peer-to-peer transfer on Falcon PL — not a bridge. Recipient needs a F-USDC trust line to receive F-USDC.'}
                       </p>
                       <button
                         type="submit"
@@ -4021,20 +4607,25 @@ export default function WalletPage() {
               })()}
 
               {/* ── Transaction history ── */}
-              {view === 'dashboard' && account && account.transactions.length > 0 && (
+              {view === 'dashboard' && account && (walletSection === 'falcon' || walletSection === 'multichain') && (
                 <div className="wallet-glass divide-y divide-slate-800/60 wallet-panel-enter">
                   <div className="px-4 py-3 flex items-center justify-between">
                     <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">
                       Activity
                     </div>
-                    <span className="text-[10px] text-slate-600">Latest {Math.min(5, account.transactions.length)}</span>
+                    <span className="text-[10px] text-slate-600">Latest {Math.min(8, account.transactions.length)}</span>
                   </div>
-                  {account.transactions.slice(0, 5).map((tx, i) => {
+                  {account.transactions.length === 0 && (
+                    <div className="px-4 py-3 text-xs text-slate-500">No transactions in the recent chain tail.</div>
+                  )}
+                  {account.transactions.slice(0, 8).map((tx, i) => {
                     const isDepositClaim = tx.type === 'BTCDepositClaim'
                     const isBridgeBurn = tx.type === 'BTCBridgeBurn' || tx.type === 'BTCWithdrawFinalize'
+                    const selfId = plAccountId(wallet)
                     const incoming =
                       isDepositClaim ||
-                      (tx.type === 'Payment' && tx.destination === wallet.address)
+                      tx.type === 'Claim' ||
+                      (tx.type === 'Payment' && (tx.destination === wallet.address || tx.destination === selfId))
                     const outgoing =
                       isBridgeBurn ||
                       (tx.type === 'Payment' && tx.account === wallet.address && !incoming)
@@ -4192,6 +4783,105 @@ export default function WalletPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* Optional passkey + password (PRF wallets only) */}
+                  {(kekMode === 'prf' || kekMode === 'prf+password') && (() => {
+                    const pwForm = (
+                      <div className="space-y-2">
+                        <input
+                          type="password"
+                          value={newWalletPw}
+                          onChange={e => setNewWalletPw(e.target.value)}
+                          placeholder={kekMode === 'prf+password' ? 'New wallet password' : 'Wallet password'}
+                          className="input-field"
+                          autoComplete="new-password"
+                        />
+                        <input
+                          type="password"
+                          value={newWalletPwConfirm}
+                          onChange={e => setNewWalletPwConfirm(e.target.value)}
+                          placeholder="Confirm wallet password"
+                          className="input-field"
+                          autoComplete="new-password"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setShowAddPassword(false); setManagePw('closed'); setNewWalletPw(''); setNewWalletPwConfirm('') }}
+                            className="flex-1 py-2 text-xs rounded-lg text-slate-500 hover:text-slate-300"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleAddWalletPassword}
+                            disabled={busy || !newWalletPw || !newWalletPwConfirm}
+                            className="flex-1 py-2 text-xs rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50"
+                          >
+                            {busy ? 'Re-encrypting…' : kekMode === 'prf+password' ? 'Change password' : 'Add password'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                    if (kekMode === 'prf') {
+                      return !showAddPassword ? (
+                        <button
+                          type="button"
+                          onClick={() => { setShowAddPassword(true); setError(null); setWalletPwNote(null) }}
+                          disabled={busy}
+                          className="w-full py-2 text-sm rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition disabled:opacity-50"
+                        >
+                          Add password
+                        </button>
+                      ) : pwForm
+                    }
+                    if (managePw === 'change') return pwForm
+                    if (managePw === 'menu') {
+                      return (
+                        <div className="space-y-2">
+                          <div className="text-xs text-slate-500">
+                            Both options ask for your passkey and current password first.
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setManagePw('closed')}
+                              className="flex-1 py-2 text-xs rounded-lg text-slate-500 hover:text-slate-300"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setManagePw('change'); setError(null) }}
+                              disabled={busy}
+                              className="flex-1 py-2 text-xs rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50"
+                            >
+                              Change password
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleRemoveWalletPassword}
+                              disabled={busy}
+                              className="flex-1 py-2 text-xs rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                            >
+                              {busy ? 'Re-encrypting…' : 'Turn off password'}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    }
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => { setManagePw('menu'); setError(null); setWalletPwNote(null) }}
+                        disabled={busy}
+                        className="w-full py-2 text-sm rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 transition disabled:opacity-50"
+                      >
+                        Manage password
+                      </button>
+                    )
+                  })()}
+                  {walletPwNote && <div className="text-xs text-emerald-400">{walletPwNote}</div>}
                 </div>
               )}
 
@@ -4205,6 +4895,7 @@ export default function WalletPage() {
                   Remove wallet from this device
                 </button>
               )}
+              </div>
             </>
           )}
 
@@ -4219,20 +4910,32 @@ export default function WalletPage() {
           )}
 
           {/* ── Footer note ── */}
-          <p className="text-center text-xs text-slate-700">
+          <p hidden={Boolean(extFace && view === 'dashboard')} className="text-center text-xs text-slate-700">
             {network.badge === 'testnet' ? 'Testnet tokens · No real value' : `${network.name} · Network ID ${network.networkId}`}
             {' · '}
             <a
-              href="https://github.com/beartec-jpg/qXRP"
+              href="https://github.com/beartec-jpg/falcon-pl-releases"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-slate-500 underline underline-offset-2 transition-colors"
             >
-              Falcon Ledger on GitHub
+              Falcon PL on GitHub
             </a>
           </p>
         </div>
       </main>
+
+      {/* Vault / Swap / Pool / Lend faces: existing page components, unchanged, full width. */}
+      {view === 'dashboard' && extFace && (
+        <EmbeddedFaceContext.Provider value={true}>
+          <div key={extFace} className="wallet-panel-enter">
+            {extFace === 'vault' && <VaultFace />}
+            {extFace === 'swap' && <SwapFace />}
+            {extFace === 'pool' && <PoolFace />}
+            {extFace === 'lend' && <LendFace />}
+          </div>
+        </EmbeddedFaceContext.Provider>
+      )}
     </ProductShell>
   )
 }
@@ -4242,7 +4945,7 @@ function NameCostMeter({
   status,
 }: {
   raw: string
-  status: 'idle' | 'checking' | 'available' | 'taken' | 'invalid'
+  status: 'idle' | 'checking' | 'available' | 'taken' | 'invalid' | 'seat'
 }) {
   const typed = raw.trim().toLowerCase()
   const letters = typed.replace(/[^a-z0-9]/g, '').length
@@ -4255,7 +4958,9 @@ function NameCostMeter({
       ? 'Type a name to see the activation cost. Shorter names cost more.'
       : status === 'checking'
         ? 'Checking availability…'
-        : status === 'taken'
+        : status === 'seat'
+          ? 'Validator seat name — pick a different account name'
+          : status === 'taken'
           ? 'Taken — try another name'
           : status === 'invalid'
             ? hint || 'Invalid name'
@@ -4291,7 +4996,7 @@ function NameCostMeter({
       </div>
       <p
         className={`text-[11px] ${
-          status === 'taken' || status === 'invalid'
+          status === 'taken' || status === 'invalid' || status === 'seat'
             ? 'text-red-400'
             : status === 'available'
               ? 'text-emerald-400'
@@ -4335,8 +5040,10 @@ function NameActivateCard({
         {fee.toLocaleString()} FPL to activate
       </p>
       {expired ? (
-        <p className="text-xs text-red-400">
-          Reservation expired — this name is back in the pool. Create a new wallet to reserve again.
+        <p className={`text-xs ${funded ? 'text-amber-300' : 'text-red-400'}`}>
+          {funded
+            ? 'Hold timer elapsed — click Activate to lock in this name if still free.'
+            : 'Hold timer elapsed — fund and click Activate to claim this name if still free.'}
         </p>
       ) : (
         <p className="text-xs text-slate-500">
@@ -4353,7 +5060,7 @@ function NameActivateCard({
         </Link>
         <button
           type="button"
-          disabled={busy || expired || !funded}
+          disabled={busy || !funded}
           onClick={onActivate}
           className="flex-1 py-2 rounded-lg text-sm font-semibold bg-brand-500 text-slate-950 hover:bg-brand-400 disabled:opacity-40"
         >

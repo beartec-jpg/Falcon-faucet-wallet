@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
 import { getAirdropOverview } from '@/lib/airdrop-store'
 import { resolveNetworkKey } from '@/lib/network-server'
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
     testnetActivityCounts: false,
     note:
       networkKey === 'testnet'
-        ? 'Preview only: airdrop scores mainnet activity after genesis. Testnet does not earn mainnet FPL.'
+        ? 'Preview only: this pool scores mainnet activity in epochs 1-7. Testnet activity is measured separately for the proposed pre-mainnet airdrop. Nothing promised; subject to change.'
         : overview.notes,
   })
 }

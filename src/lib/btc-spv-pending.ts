@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Persist open SPV peg-in jobs so confirmations survive page refresh.
  *

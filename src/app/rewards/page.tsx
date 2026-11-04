@@ -1,12 +1,15 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import ProductShell from '@/components/ProductShell'
 import NetworkBanner from '@/components/NetworkBanner'
 import { useNetwork } from '@/components/NetworkProvider'
 import { withNetworkQuery } from '@/lib/network-query'
+import { explainTxError } from '@/lib/pl-key-commit'
 import {
   isPasskeySupported,
   authenticatePasskey,
@@ -35,6 +38,7 @@ import {
 } from '@/lib/validator-credentials-store'
 import { resolveNetworkTokens } from '@/lib/stables-config'
 import { submitWithSequenceRetry, fetchSequenceInfo } from '@/lib/wallet-submit'
+import PlRewards from '@/components/PlRewards'
 
 interface BondInfo {
   registered: boolean
@@ -124,7 +128,7 @@ function fmt(n: number | null | undefined, digits = 4): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
-export default function RewardsPage() {
+function LegacyRewardsPage() {
   const { networkKey, network } = useNetwork()
   const [payoutWallet, setPayoutWallet] = useState<StoredWallet | null>(null)
   const [valCreds, setValCreds] = useState<StoredValidatorCredentials | null>(null)
@@ -175,6 +179,8 @@ export default function RewardsPage() {
       setTokens(configured)
       if (configured.length > 0) setSwapToken(configured[0])
       try {
+        // Falcon PL 2300 renders <PlRewards /> from chain data; the XRPL bond/LP routes are retired (410) there.
+        if (network.networkId === 2300) return
         if (creds?.address) await refreshBond(creds.address)
         const lpAddr = primary?.address ?? creds?.address
         if (lpAddr) await refreshLpOverview(lpAddr)
@@ -182,7 +188,7 @@ export default function RewardsPage() {
         setLoading(false)
       }
     }).catch(() => setLoading(false))
-  }, [networkKey, refreshBond, refreshLpOverview])
+  }, [networkKey, network.networkId, refreshBond, refreshLpOverview])
 
   const submitSequenced = async (
     account: string,
@@ -212,8 +218,7 @@ export default function RewardsPage() {
     setError(null)
     try {
       const { address, publicKey } = keysFromFalconSecret(secret)
-      const { credentialId, hasPrf } = await registerPasskey(address.slice(0, 16))
-      const { keyBytes } = await authenticatePasskey(credentialId, hasPrf)
+      const { credentialId, hasPrf, keyBytes } = await registerPasskey(address.slice(0, 16))
       const encrypted = await encryptSeed(secret, keyBytes, hasPrf)
       const entry: StoredValidatorCredentials = {
         address,
@@ -281,7 +286,7 @@ export default function RewardsPage() {
         setTimeout(() => refreshBond(valCreds.address), 4000)
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Claim failed')
+      setError(e instanceof Error ? explainTxError(e.message) : 'Claim failed')
     } finally {
       setBusy(false)
     }
@@ -1010,4 +1015,27 @@ export default function RewardsPage() {
       </main>
     </ProductShell>
   )
+}
+
+/** Falcon PL 2300 redirects to the unified Airdrop hub (/airdrop?tab=claim); other networks keep the legacy XRPL view. */
+export default function RewardsPage() {
+  const { network } = useNetwork()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (network.networkId === 2300) {
+      router.replace('/airdrop?tab=claim')
+    }
+  }, [network.networkId, router])
+
+  if (network.networkId === 2300) {
+    return (
+      <ProductShell intensity={0.4}>
+        <Header current="airdrop" subtitle="Airdrop · Community" />
+        <NetworkBanner />
+        <PlRewards />
+      </ProductShell>
+    )
+  }
+  return <LegacyRewardsPage />
 }

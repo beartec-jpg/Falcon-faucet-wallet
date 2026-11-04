@@ -1,5 +1,6 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
-import { isOriginAllowed } from '@/lib/origin'
+import { requireBrowserOrigin } from '@/lib/origin'
 import { getSql, isDbConfigured } from '@/lib/db'
 import { isClassicAddress } from '@/lib/classic-address'
 
@@ -91,7 +92,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isOriginAllowed(req)) {
+  if (!requireBrowserOrigin(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
   if (!isDbConfigured()) {
@@ -150,17 +151,20 @@ export async function POST(req: NextRequest) {
   const valid = await verifyBoardSignature(message, signature, publicKey, authorAddress)
   if (!valid) return err('Invalid Falcon signature', 401)
 
+  // Single statement: consume the challenge only if still unused and unexpired, and insert
+  // the post from it. Concurrent requests with the same signature cannot both succeed.
   const inserted = await sql`
+    WITH c AS (
+      UPDATE board_challenges
+      SET consumed_at = now()
+      WHERE id = ${challengeId}::uuid AND consumed_at IS NULL AND expires_at > now()
+      RETURNING parent_id, author_address, body
+    )
     INSERT INTO board_posts (parent_id, author_address, body)
-    VALUES (${ch.parent_id}::uuid, ${ch.author_address}, ${ch.body})
+    SELECT parent_id, author_address, body FROM c
     RETURNING id, parent_id, author_address, body, created_at
   `
-
-  await sql`
-    UPDATE board_challenges
-    SET consumed_at = now()
-    WHERE id = ${challengeId}::uuid
-  `
+  if (!inserted.length) return err('Challenge already used', 409)
 
   const post = inserted[0]
   return NextResponse.json({

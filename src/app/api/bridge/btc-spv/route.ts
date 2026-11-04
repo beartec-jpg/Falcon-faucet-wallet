@@ -1,3 +1,5 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
+import { BTC_DEPOSITS_ENABLED, BTC_DEPOSITS_OFF_ERROR } from '@/lib/btc-withdrawals'
 import { NextRequest, NextResponse } from 'next/server'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -16,6 +18,7 @@ import {
   liveBtcWatchAddresses,
 } from '@/lib/btc-spv-policy'
 import { isDeadSpvTxid } from '@/lib/btc-spv-pending'
+import { walletApiAuthHeaders, walletApiUrl } from '@/lib/walletd'
 
 /**
  * Bitcoin SPV light-client bridge status + claim proof helper.
@@ -25,7 +28,7 @@ import { isDeadSpvTxid } from '@/lib/btc-spv-pending'
  */
 
 const FEATURE = 'BitcoinSPVBridge'
-const DEFAULT_RPC = process.env.XRPLD_RPC_URL?.trim() || 'http://46.224.0.140:6005'
+const DEFAULT_RPC = process.env.XRPLD_RPC_URL?.trim() || '' // legacy network 1001 RPC retired; env override only
 
 function errorMessage(e: unknown, fallback: string): string {
   if (e instanceof Error) return e.message
@@ -255,10 +258,9 @@ export async function GET(req: NextRequest) {
         .trim()
         .replace(/^0x/i, '')
       try {
-        const walletApi =
-          process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
-        const dep = await fetch(`${walletApi.replace(/\/$/, '')}/btc-deposit`, {
+        const dep = await fetch(`${walletApiUrl()}/btc-deposit`, {
           cache: 'no-store',
+          headers: walletApiAuthHeaders(),
           signal: AbortSignal.timeout(4_000),
         })
         if (dep.ok) {
@@ -331,10 +333,12 @@ export async function GET(req: NextRequest) {
         mode: spv === 'bitcoin' ? 'bitcoin-spv' : 'pl-rail',
         spv,
         holdKind: 'bitvm2-instance',
-        message:
-          spv === 'bitcoin'
+        depositsEnabled: BTC_DEPOSITS_ENABLED,
+        message: !BTC_DEPOSITS_ENABLED
+          ? BTC_DEPOSITS_OFF_ERROR
+          : spv === 'bitcoin'
             ? 'Falcon PL Bitcoin SPV — send testnet BTC to the BitVM2 instance + FALC memo, then mint. Peg-out is dest-lock Kickoff + your key after CSV. No FROST.'
-            : 'BitVM2 dest-lock is live. You can send testnet BTC now; mint waits until Bitcoin headers are on Falcon.',
+            : 'BitVM2 dest-lock rail (custodial today). Mint waits until Bitcoin headers are on Falcon.',
         btcNetwork: 'testnet',
         watchAddress,
         paymentScriptHex,
@@ -379,7 +383,7 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json(
       {
-        error: 'Falcon Ledger (network 1001) is shut down. Use Falcon PL 2300.',
+        error: 'Legacy network 1001 is shut down. Use Falcon PL 2300.',
         retired: true,
       },
       { status: 410 },
@@ -562,7 +566,7 @@ export async function POST(req: NextRequest) {
 
   if (action === 'find_redeem') {
     return NextResponse.json(
-      { error: 'Falcon Ledger redeem is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Legacy network 1001 redeem is retired. Use Falcon PL 2300.', retired: true },
       { status: 410 },
     )
   }
@@ -723,7 +727,7 @@ export async function POST(req: NextRequest) {
       }
     }
     return NextResponse.json(
-      { error: 'Falcon Ledger withdraw list is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Legacy network 1001 withdraw list is retired. Use Falcon PL 2300.', retired: true },
       { status: 410 },
     )
     if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(account)) {
@@ -772,7 +776,7 @@ export async function POST(req: NextRequest) {
   // SPV peg-out: poll BtcWithdrawal challenge window
   if (action === 'withdraw_status') {
     return NextResponse.json(
-      { error: 'Falcon Ledger withdraw status is retired. Use Falcon PL 2300.', retired: true },
+      { error: 'Legacy network 1001 withdraw status is retired. Use Falcon PL 2300.', retired: true },
       { status: 410 },
     )
     const account = (body.account || '').trim()
@@ -912,10 +916,9 @@ export async function POST(req: NextRequest) {
         (fileCfg.watch_address as string | undefined)?.trim() ||
         BITVM2_INSTANCE_ADDRESS
       try {
-        const walletApi =
-          process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
-        const dep = await fetch(`${walletApi.replace(/\/$/, '')}/btc-deposit`, {
+        const dep = await fetch(`${walletApiUrl()}/btc-deposit`, {
           cache: 'no-store',
+          headers: walletApiAuthHeaders(),
           signal: AbortSignal.timeout(4_000),
         })
         if (dep.ok) {

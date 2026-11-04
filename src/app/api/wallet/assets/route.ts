@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverNetworkConfig } from '@/lib/network-server'
 import { fetchWalletAssets } from '@/lib/swap/wallet-assets'
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
     try {
       const acct = await plAccount(address)
       const zp = await loadZeroPoint()
-      const btc = offsetAsset(zp, address, 'BTC', satsOf(acct.assets, 'BTC'))
+      const btc = offsetAsset(zp, address, 'BTC4', satsOf(acct.assets, 'BTC4'))
       const eth = offsetAsset(zp, address, 'ETH', satsOf(acct.assets, 'ETH'))
       const usdc = offsetAsset(zp, address, 'USDC', satsOf(acct.assets, 'USDC'))
       const bnb = offsetAsset(zp, address, 'BNB', satsOf(acct.assets, 'BNB'))
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
       if (btc) {
         tokens.push({
           symbol: 'FBTC',
-          currency: 'BTC',
+          currency: 'BTC4',
           issuer: '',
           balance: btc / 1e8,
           hasTrustLine: true,
@@ -81,11 +82,13 @@ export async function GET(req: NextRequest) {
           fbtc: {
             symbol: 'FBTC',
             balance: btc / 1e8,
-            currency: 'BTC',
+            currency: 'BTC4',
             issuer: '',
             hasTrustLine: true,
             sats: btc,
           },
+          BTC: 0,
+          BTC4: btc,
           feth: { symbol: 'FETH', balance: eth / 1e18, currency: 'ETH', issuer: '', hasTrustLine: true },
           tokens,
         },

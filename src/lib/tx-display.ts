@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 const DROPS_PER_FALCON = 1_000_000
 
 /** Display label for native or issued amounts in tx history. */

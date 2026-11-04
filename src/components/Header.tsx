@@ -1,11 +1,13 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNetwork } from '@/components/NetworkProvider'
 import NetworkSwitcher from '@/components/NetworkSwitcher'
+import { useEmbeddedFace } from '@/components/EmbeddedFace'
 
 type NavItem =
   | 'faucet'
@@ -19,6 +21,7 @@ type NavItem =
   | 'scan'
   | 'arcade'
   | 'whitepaper'
+  | 'first35'
 
 interface HeaderProps {
   current: NavItem
@@ -31,33 +34,93 @@ interface HeaderProps {
   sticky?: boolean
 }
 
+/** Vault / Swap / Pool / Lend live inside the Wallet cylinder, so they highlight Wallet. */
+function navKeyFor(current: NavItem): NavItem {
+  if (current === 'first35') return 'airdrop'
+  if (current === 'vault' || current === 'swap' || current === 'pool' || current === 'lend') return 'wallet'
+  return current
+}
+
 const NAV_ITEMS: { key: NavItem; label: string; href: string }[] = [
   { key: 'faucet', label: 'Faucet', href: '/faucet' },
   { key: 'scan', label: 'Explorer', href: '/scan' },
   { key: 'wallet', label: 'Wallet', href: '/wallet' },
-  { key: 'vault', label: 'Vault', href: '/vault' },
   { key: 'arcade', label: 'Arcade', href: '/arcade' },
-  { key: 'swap', label: 'Swap', href: '/swap' },
-  { key: 'pool', label: 'Pool', href: '/pool' },
-  { key: 'lend', label: 'Lend', href: '/lend' },
   { key: 'airdrop', label: 'Airdrop', href: '/airdrop' },
   { key: 'community', label: 'Community', href: '/community' },
   { key: 'whitepaper', label: 'Whitepaper', href: '/whitepaper' },
+]
+
+/** Shown under Community in the mobile (burger) menu and the desktop/tablet Community dropdown. */
+const COMMUNITY_SUB_ITEMS: { label: string; href: string }[] = [
+  { label: 'FAQ', href: '/community/faq' },
+  { label: 'Feedback', href: '/feedback' },
+  { label: 'Learn', href: '/community/learn' },
+  { label: 'Validators', href: '/validator' },
+  { label: 'Network health', href: '/scan#network-health' },
+  { label: 'Developers', href: '/developers' },
 ]
 
 function NavLinks({
   current,
   onNavigate,
   className = '',
+  withSubItems = false,
+  communityOpen = false,
+  onToggleCommunity,
 }: {
   current: NavItem
   onNavigate?: () => void
   className?: string
+  withSubItems?: boolean
+  communityOpen?: boolean
+  onToggleCommunity?: (anchor: HTMLElement) => void
 }) {
   return (
     <nav className={className}>
-      {NAV_ITEMS.map((item) => {
-        const isActive = item.key === current
+      {NAV_ITEMS.flatMap((item) => {
+        const el = navItem(item)
+        if (item.key === 'community' && onToggleCommunity) {
+          return [
+            <span key="community-group" className="inline-flex items-center">
+              {el}
+              <button
+                type="button"
+                data-testid="community-menu-toggle"
+                aria-label="Community menu"
+                aria-haspopup="menu"
+                aria-expanded={communityOpen}
+                onClick={(e) => onToggleCommunity(e.currentTarget)}
+                className="-ml-1 px-1.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                  <path d={communityOpen ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </span>,
+          ]
+        }
+        if (!withSubItems || item.key !== 'community') return [el]
+        return [
+          el,
+          ...COMMUNITY_SUB_ITEMS.map((sub) => (
+            <Link
+              key={sub.href}
+              href={sub.href}
+              onClick={onNavigate}
+              className="pl-6 pr-2.5 py-1.5 rounded-lg whitespace-nowrap text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors text-sm"
+            >
+              {sub.label}
+            </Link>
+          )),
+        ]
+      })}
+    </nav>
+  )
+
+  function navItem(item: (typeof NAV_ITEMS)[number]) {
+        const activeKey = navKeyFor(current)
+        const isActive = item.key === activeKey
         const itemClass = 'px-2.5 sm:px-3 py-1.5 rounded-lg whitespace-nowrap scroll-mx-4'
         if (isActive) {
           return (
@@ -81,12 +144,16 @@ function NavLinks({
             {item.label}
           </Link>
         )
-      })}
-    </nav>
-  )
+  }
 }
 
-export default function Header({
+export default function Header(props: HeaderProps) {
+  // Inside the Wallet cylinder the wallet page already renders the site header.
+  if (useEmbeddedFace()) return null
+  return <HeaderInner {...props} />
+}
+
+function HeaderInner({
   current,
   subtitle,
   children,
@@ -94,8 +161,36 @@ export default function Header({
 }: HeaderProps) {
   const { network } = useNetwork()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [communityLeft, setCommunityLeft] = useState<number | null>(null)
+  const headerRef = useRef<HTMLElement>(null)
+  const communityOpen = communityLeft !== null
   useEffect(() => {
-    const el = document.getElementById(`nav-item-${current}`)
+    if (!communityOpen) return
+    const close = (e: Event) => {
+      const t = e.target as HTMLElement | null
+      if (t?.closest?.('[data-community-menu],[data-testid="community-menu-toggle"]')) return
+      setCommunityLeft(null)
+    }
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setCommunityLeft(null)
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', esc)
+    window.addEventListener('resize', () => setCommunityLeft(null), { once: true })
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', esc)
+    }
+  }, [communityOpen])
+  const toggleCommunity = (anchor: HTMLElement) => {
+    if (communityOpen) return setCommunityLeft(null)
+    const group = anchor.parentElement ?? anchor
+    const h = headerRef.current?.getBoundingClientRect()
+    const r = group.getBoundingClientRect()
+    const width = 200
+    const maxLeft = (h?.width ?? window.innerWidth) - width - 8
+    setCommunityLeft(Math.max(8, Math.min(r.left - (h?.left ?? 0), maxLeft)))
+  }
+  useEffect(() => {
+    const el = document.getElementById(`nav-item-${navKeyFor(current)}`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
   }, [current])
 
@@ -106,12 +201,12 @@ export default function Header({
       : current === 'vault'
         ? 'Vault · air-gapped'
         : current === 'swap'
-        ? 'Swap · F-USDC / FPL'
+        ? 'Swap · fUSDC / FPL'
         : current === 'pool'
-          ? 'Pool · F-USDC / FPL'
+          ? 'Pool · fUSDC / FPL'
           : current === 'lend'
             ? 'Lend · F-USDC vault'
-            : current === 'airdrop'
+            : current === 'airdrop' || current === 'first35'
               ? 'Airdrop · Community'
               : current === 'community'
                 ? 'Community'
@@ -125,6 +220,7 @@ export default function Header({
 
   return (
     <header
+      ref={headerRef}
       className={`relative border-b border-slate-800/60 px-4 py-3 bg-slate-950/95 backdrop-blur-md z-20 shrink-0 ${
         sticky ? 'sticky top-0' : ''
       }`}
@@ -134,7 +230,7 @@ export default function Header({
           <Link
             href="/"
             className="flex items-center gap-3 min-w-0 rounded-lg hover:opacity-90 transition-opacity group"
-            aria-label="Falcon Ledger home"
+            aria-label="Falcon PL home"
             title="Home"
           >
             <span className="w-8 h-8 rounded-lg overflow-hidden shrink-0 ring-1 ring-brand-500/30 group-hover:ring-brand-400/50 transition-shadow">
@@ -183,8 +279,36 @@ export default function Header({
         <NavLinks
           current={current}
           className="flex items-center gap-1 flex-nowrap justify-start min-w-max text-sm pb-0.5"
+          communityOpen={communityOpen}
+          onToggleCommunity={toggleCommunity}
         />
       </div>
+
+      {/* Community dropdown — rendered outside the scroll strip so it isn't clipped */}
+      {communityOpen && (
+        <div
+          data-community-menu
+          role="menu"
+          className="hidden sm:flex absolute top-full mt-1 w-[200px] flex-col gap-0.5 p-1.5 rounded-xl border border-slate-800 bg-slate-950 shadow-xl z-30"
+          style={{ left: communityLeft ?? 0 }}
+        >
+          {[{ label: 'Community home', href: '/community' }, ...COMMUNITY_SUB_ITEMS].map((sub) => (
+            <Link
+              key={sub.href}
+              href={sub.href}
+              role="menuitem"
+              onClick={() => setCommunityLeft(null)}
+              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                sub.href === '/feedback'
+                  ? 'text-brand-400 hover:text-brand-300 hover:bg-slate-800 font-medium'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              {sub.label}
+            </Link>
+          ))}
+        </div>
+      )}
 
       {/* Mobile — full vertical menu (all tabs always visible) */}
       {menuOpen && (
@@ -192,6 +316,7 @@ export default function Header({
           <NavLinks
             current={current}
             onNavigate={() => setMenuOpen(false)}
+            withSubItems
             className="flex flex-col gap-1 text-sm"
           />
         </div>

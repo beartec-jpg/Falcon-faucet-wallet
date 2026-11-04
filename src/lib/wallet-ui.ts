@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Shared wallet UI helpers — token colours, totals, filters */
 
 import type { FalconAssetId } from '@/lib/multi-chain-assets'
@@ -59,7 +60,7 @@ export function parseFalconBalances(account: {
     falcon: account?.balance ?? 0,
     fusdc: account?.assets?.fusdc?.balance ?? 0,
     feth: find('ETH', 'FETH'),
-    fbtc: account?.assets?.fbtc?.balance ?? find('BTC', 'FBTC'),
+    fbtc: account?.assets?.fbtc?.balance ?? find('BTC4', 'FBTC'),
     fbnb: find('BNB', 'FBNB'),
   }
 }
