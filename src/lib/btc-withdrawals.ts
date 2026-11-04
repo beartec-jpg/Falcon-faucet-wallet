@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Single switch for FBTC → BTC withdrawals (Bridge out to Bitcoin).
  *
@@ -23,10 +24,10 @@ import btcBridgeConfig from '../../public/config/btc-spv-bridge.json'
 export const BTC_WITHDRAWALS_ENABLED =
   (btcBridgeConfig as { btc_withdrawals_enabled?: unknown }).btc_withdrawals_enabled === true
 
-export const BTC_WITHDRAWALS_OFF_MESSAGE = 'BTC withdrawals are in final testing.'
+export const BTC_WITHDRAWALS_OFF_MESSAGE = 'BTC withdrawals are paused.'
 
 export const BTC_WITHDRAWALS_OFF_ERROR =
-  'BTC withdrawals are in final testing. Bridge out to Bitcoin is switched off for now; BTC deposits still work.'
+  'BTC withdrawals are paused. Bridge out to Bitcoin is switched off while the BTC bridge is rebuilt; it is not non-custodial today.'
 
 export const BTC_WITHDRAWALS_OFF_CODE = 'btc_withdrawals_disabled'
 
@@ -96,3 +97,15 @@ export function isBtcPegOutPlTx(tx: unknown): boolean {
     String(b.asset ?? '').trim().toUpperCase() === 'BTC'
   )
 }
+
+/**
+ * Switch for new BTC deposits (send BTC → mint FBTC). Source of truth:
+ * `btc_deposits_enabled` in public/config/btc-spv-bridge.json; anything other
+ * than an explicit `true` counts as off. Claiming (minting) a deposit that was
+ * already sent stays open so no paid deposit is stranded.
+ */
+export const BTC_DEPOSITS_ENABLED =
+  (btcBridgeConfig as { btc_deposits_enabled?: unknown }).btc_deposits_enabled === true
+
+export const BTC_DEPOSITS_OFF_ERROR =
+  'BTC deposits are paused. Do not send BTC to the bridge; deposits already sent can still be claimed.'

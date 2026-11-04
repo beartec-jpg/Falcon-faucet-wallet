@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
@@ -10,13 +11,15 @@ import {
   decimalToBaseUnits,
   signPlAddLiquidity,
   signPlLend,
+  signPlPay,
   signPlRemoveLiquidity,
   signPlSwapRoute,
 } from '@/lib/pl-wallet-sign'
 import { fetchSequenceInfo } from '@/lib/wallet-submit'
+import { explainTxError } from '@/lib/pl-key-commit'
 
-type Asset = 'FPL' | 'BTC' | 'ETH' | 'USDC'
-const ASSETS: Asset[] = ['FPL', 'USDC', 'ETH', 'BTC']
+type Asset = 'FPL' | 'BTC4' | 'ETH' | 'USDC'
+const ASSETS: Asset[] = ['FPL', 'USDC', 'ETH', 'BTC4']
 
 type Pool = {
   id: string
@@ -50,7 +53,7 @@ type LpPos = {
 
 const DECIMALS: Record<Asset, number> = {
   FPL: 0,
-  BTC: 8,
+  BTC4: 8,
   ETH: 18,
   USDC: 6,
 }
@@ -66,9 +69,9 @@ function toRaw(asset: Asset, human: string): string {
 }
 
 function assetLabel(asset: Asset): string {
-  if (asset === 'USDC') return 'F-USDC'
-  if (asset === 'ETH') return 'FETH'
-  if (asset === 'BTC') return 'FBTC'
+  if (asset === 'USDC') return 'fUSDC'
+  if (asset === 'ETH') return 'fETH'
+  if (asset === 'BTC4') return 'fBTC'
   return 'FPL'
 }
 
@@ -76,7 +79,7 @@ function assetLabel(asset: Asset): string {
 const POOL_MARKETS: { id: string; asset: Asset }[] = [
   { id: 'usdc-fpl', asset: 'USDC' },
   { id: 'eth-fpl', asset: 'ETH' },
-  { id: 'btc-fpl', asset: 'BTC' },
+  { id: 'btc4-fpl', asset: 'BTC4' },
 ]
 
 function assetFromPoolId(id: string): Asset | null {
@@ -84,14 +87,14 @@ function assetFromPoolId(id: string): Asset | null {
   if (known) return known.asset
   if (id.includes('usdc')) return 'USDC'
   if (id.includes('eth')) return 'ETH'
-  if (id.includes('btc')) return 'BTC'
+  if (id.includes('btc4')) return 'BTC4'
   return null
 }
 
 const LEND_MARKETS: { id: string; asset: Asset }[] = [
   { id: 'lend-usdc', asset: 'USDC' },
   { id: 'lend-eth', asset: 'ETH' },
-  { id: 'lend-btc', asset: 'BTC' },
+  { id: 'lend-btc4', asset: 'BTC4' },
 ]
 
 function assetFromLendId(id: string): Asset | null {
@@ -99,30 +102,31 @@ function assetFromLendId(id: string): Asset | null {
   if (known) return known.asset
   if (id.includes('usdc')) return 'USDC'
   if (id.includes('eth')) return 'ETH'
-  if (id.includes('btc')) return 'BTC'
+  if (id.includes('btc4')) return 'BTC4'
   return null
 }
 
 function lendChoices(markets: Market[]): { id: string; asset: Asset }[] {
-  const rank: Record<string, number> = { USDC: 0, ETH: 1, BTC: 2 }
+  const rank: Record<string, number> = { USDC: 0, ETH: 1, BTC4: 2 }
   const fromChain = markets
+    .filter((m) => m.id !== 'lend-btc')
     .map((m) => {
       const asset = (m.asset as Asset) || assetFromLendId(m.id)
       if (!asset || asset === 'FPL' || !(asset in DECIMALS)) return null
       return { id: m.id, asset }
     })
-    .filter((row): row is { id: string; asset: 'USDC' | 'ETH' | 'BTC' } => row !== null)
+    .filter((row): row is { id: string; asset: 'USDC' | 'ETH' | 'BTC4' } => row !== null)
   const rows = fromChain.length ? fromChain : LEND_MARKETS
   return [...rows].sort((a, b) => (rank[a.asset] ?? 9) - (rank[b.asset] ?? 9))
 }
 
 function poolChoices(pools: Pool[]): { id: string; asset: Asset }[] {
-  const rank: Record<string, number> = { USDC: 0, ETH: 1, BTC: 2 }
+  const rank: Record<string, number> = { USDC: 0, ETH: 1, BTC4: 2 }
   const fromChain = pools
-    .filter((p) => p.id !== 'fpl-btc')
+    .filter((p) => p.id !== 'fpl-btc' && p.id !== 'btc-fpl')
     .map((p) => {
       const asset = poolPair(p)?.fAsset ?? assetFromPoolId(p.id)
-      return asset ? { id: p.id, asset } : null
+      return asset && asset in DECIMALS ? { id: p.id, asset } : null
     })
     .filter((row): row is { id: string; asset: Asset } => row !== null)
   const rows = fromChain.length ? fromChain : POOL_MARKETS
@@ -144,10 +148,10 @@ function plainAmount(asset: Asset, raw: string): string {
 type PoolPair = { fAsset: Asset; fReserve: string; fplReserve: string }
 
 function poolPair(p: Pool): PoolPair | null {
-  if (p.asset_a === 'FPL' && p.asset_b !== 'FPL') {
+  if (p.asset_a === 'FPL' && p.asset_b !== 'FPL' && p.asset_b in DECIMALS) {
     return { fAsset: p.asset_b as Asset, fReserve: p.reserve_b, fplReserve: p.reserve_a }
   }
-  if (p.asset_b === 'FPL' && p.asset_a !== 'FPL') {
+  if (p.asset_b === 'FPL' && p.asset_a !== 'FPL' && p.asset_a in DECIMALS) {
     return { fAsset: p.asset_a as Asset, fReserve: p.reserve_a, fplReserve: p.reserve_b }
   }
   return null
@@ -364,15 +368,37 @@ function quoteRoute(pools: Pool[], tokenIn: Asset, tokenOut: Asset, amountIn: bi
   return 0n
 }
 
+const SUBMIT_TIMEOUT_MS = 45_000
+
 async function submitSigned(tx: { rawJson?: string }, networkKey: string) {
-  const res = await fetch('/api/wallet/submit', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(tx.rawJson ? { tx_json: tx.rawJson, network: networkKey } : { tx, network: networkKey }),
-  })
+  let res: Response
+  try {
+    res = await fetch('/api/wallet/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tx.rawJson ? { tx_json: tx.rawJson, network: networkKey } : { tx, network: networkKey }),
+      signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS),
+    })
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      throw new Error('The network did not answer within 45 s. Check your balance before retrying: the transaction may still land.')
+    }
+    throw e
+  }
   const out = (await res.json().catch(() => ({}))) as { error?: string; success?: boolean; message?: string }
-  if (!res.ok || out.error) throw new Error(out.error || out.message || 'Submit failed')
+  if (!res.ok || out.error || out.success === false) {
+    const msg = out.error || out.message || `Submit failed (HTTP ${res.status})`
+    throw new Error(msg)
+  }
   return out
+}
+
+/** Rejects if `p` does not settle in `ms` (passkey prompt or account fetch stuck). */
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${what} timed out. Try again.`)), ms)
+    p.then((v) => { clearTimeout(t); resolve(v) }, (e) => { clearTimeout(t); reject(e) })
+  })
 }
 
 function ChoiceBar({
@@ -536,6 +562,9 @@ function PoolAdd({
   walletReady,
   onAdd,
   onRemove,
+  stage,
+  msg,
+  err,
 }: {
   pools: Pool[]
   poolId: string
@@ -552,6 +581,9 @@ function PoolAdd({
   walletReady: boolean
   onAdd: () => void
   onRemove: () => void
+  stage?: string | null
+  msg?: string | null
+  err?: string | null
 }) {
   const choices = poolChoices(pools)
   const pool = pools.find((p) => p.id === poolId) ?? null
@@ -650,7 +682,7 @@ function PoolAdd({
         <section className="space-y-3">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Add</h3>
           <AmountField
-            label={fAsset ? assetLabel(fAsset) : 'F-asset'}
+            label={fAsset ? assetLabel(fAsset) : 'f-asset'}
             aside={fAsset ? `Available ${fromRaw(fAsset, balances[fAsset] || '0')}` : 'Choose a pool'}
             placeholder={fAsset ? `Amount of ${assetLabel(fAsset)}` : 'Choose a pool'}
             value={amount}
@@ -667,7 +699,10 @@ function PoolAdd({
           <p className="text-[11px] leading-relaxed text-slate-500">
             Max uses the smaller side so the add matches the pool. 2 FPL stays back for the fee.
           </p>
-          <button type="button" className="btn-primary" disabled={busy} onClick={onAdd}>Add</button>
+          <button type="button" className="btn-primary" disabled={busy} onClick={onAdd}>{busy ? stage || 'Working…' : 'Add'}</button>
+          {busy && stage && <p className="text-xs text-slate-400" aria-live="polite">{stage}</p>}
+          {!busy && msg && <p className="text-sm text-emerald-300" aria-live="polite">{msg}</p>}
+          {!busy && err && <p className="text-sm text-red-300" aria-live="assertive">{err}</p>}
         </section>
         <section className="space-y-3 border-t border-slate-800/80 pt-5">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Remove</h3>
@@ -977,11 +1012,12 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
   const [collateral, setCollateral] = useState('')
   const [balances, setBalances] = useState<Record<Asset, string>>({
     FPL: '0',
-    BTC: '0',
+    BTC4: '0',
     ETH: '0',
     USDC: '0',
   })
   const [busy, setBusy] = useState(false)
+  const [stage, setStage] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
@@ -1009,7 +1045,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
         const assets = (j.assets || {}) as Record<string, unknown>
         setBalances({
           FPL: digitsOf(j.balance),
-          BTC: digitsOf(assets.BTC ?? assets.btc),
+          BTC4: digitsOf(assets.BTC4),
           ETH: digitsOf(assets.ETH ?? assets.eth),
           USDC: digitsOf(assets.USDC ?? assets.usdc),
         })
@@ -1021,6 +1057,26 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     void loadPrimaryWallet().then(setWallet)
   }, [])
 
+  // 24h volume per pool (Explorer's inferred-from-reserve-samples figure; lower bound).
+  const [poolVolume, setPoolVolume] = useState<Record<string, number | null>>({})
+  useEffect(() => {
+    if (mode !== 'swap') return
+    let live = true
+    const get = () =>
+      fetch('/api/scan/rails-pools', { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((j) => {
+          if (!live) return
+          const out: Record<string, number | null> = {}
+          for (const p of (j?.pools ?? []) as { id: string; volume_24h_fpl: number | null }[]) out[p.id] = p.volume_24h_fpl
+          setPoolVolume(out)
+        })
+        .catch(() => {})
+    void get()
+    const t = setInterval(get, 60_000)
+    return () => { live = false; clearInterval(t) }
+  }, [mode])
+
   useEffect(() => {
     load()
     const t = setInterval(load, 8000)
@@ -1028,7 +1084,7 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
   }, [load])
 
   useEffect(() => {
-    const visible = pools.filter((p) => p.id !== 'fpl-btc')
+    const visible = pools.filter((p) => p.id !== 'fpl-btc' && p.id !== 'btc-fpl')
     if (!visible.length) return
     if (!visible.some((p) => p.id === poolId)) setPoolId(visible[0].id)
   }, [pools, poolId])
@@ -1059,27 +1115,78 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
     setBusy(true)
     setErr(null)
     setMsg(null)
-    try {
-      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+    setStage('Confirm with your passkey…')
+    // Hard cap so the button can never stay grey forever: any hung step ends in a visible error.
+    let capTimer: ReturnType<typeof setTimeout> | undefined
+    const cap = new Promise<never>((_, reject) => {
+      capTimer = setTimeout(
+        () => reject(new Error('No final answer after 3 minutes. Check your balance before retrying: it may still land.')),
+        180_000,
+      )
+    })
+    const flow = async () => {
+      const { keyBytes } = await withTimeout(
+        authenticatePasskey(wallet.credentialId, wallet.hasPrf),
+        90_000,
+        'Passkey confirmation',
+      )
+      setStage('Preparing…')
       const falconSecret = await decryptSeed(wallet.encrypted, keyBytes)
       const account = plAccountId(wallet)
-      const seq = await fetchSequenceInfo(account, network.key)
+      const seq = await withTimeout(fetchSequenceInfo(account, network.key), 20_000, 'Loading your account')
+      // Seats keep user keys in memory and only re-learn them from enroll txs (Pay, claim, vault…).
+      // After a seat restart a DeFi tx alone is refused with 'unknown key'; re-enroll with a
+      // zero self-Pay (fee only, same passkey session), then submit the action at the next sequence.
+      // Mempool "accepted" is not inclusion: wait for the account sequence to move.
+      const included = async (after: number) => {
+        for (let i = 0; i < 12; i++) {
+          setStage(`Waiting for inclusion… ${(i + 1) * 2.5 | 0}s`)
+          await new Promise((r) => setTimeout(r, 2500))
+          const s = await fetchSequenceInfo(account, network.key).catch(() => null)
+          if (s && s.sequence > after) return
+        }
+        throw new Error('Accepted by the node but not included after 30 s, so nothing moved yet. An earlier stuck transaction on your account may be blocking it.')
+      }
+      const send = async (build: (sequence: number) => Promise<{ rawJson?: string }>) => {
+        try {
+          setStage('Submitting…')
+          const out = await submitSigned(await build(seq.sequence), network.key)
+          await included(seq.sequence)
+          return out
+        } catch (e) {
+          if (!/unknown key/i.test(e instanceof Error ? e.message : String(e))) throw e
+          const enroll = await signPlPay({
+            account,
+            destination: account,
+            amount: 0,
+            sequence: seq.sequence,
+            fee: 2,
+            networkId: network.networkId,
+            falconSecret,
+          })
+          await submitSigned(enroll, network.key)
+          const out = await submitSigned(await build(seq.sequence + 1), network.key)
+          await included(seq.sequence + 1)
+          return out
+        }
+      }
       if (kind === 'swap') {
         if (sell === buy) throw new Error('Pick two different assets')
         const amountIn = toRaw(sell, amount)
         const minOut = quoted > 1n ? quoted - quoted / 50n : 1n
-        const tx = await signPlSwapRoute({
-          account,
-          tokenIn: sell,
-          tokenOut: buy,
-          amountIn,
-          minOut: minOut.toString(),
-          sequence: seq.sequence,
-          networkId: network.networkId,
-          falconSecret,
-        })
-        await submitSigned(tx, network.key)
-        setMsg(`Swap submitted. You receive about ${fromRaw(buy, quoted.toString())} ${buy} if the pool price holds.`)
+        await send((sequence) =>
+          signPlSwapRoute({
+            account,
+            tokenIn: sell,
+            tokenOut: buy,
+            amountIn,
+            minOut: minOut.toString(),
+            sequence,
+            networkId: network.networkId,
+            falconSecret,
+          }),
+        )
+        setMsg(`Swap submitted. You receive about ${fromRaw(buy, quoted.toString())} ${assetLabel(buy)} if the pool price holds.`)
       } else if (kind === 'add') {
         const pool = pools.find((p) => p.id === poolId)
         if (!pool) throw new Error('Pool not found')
@@ -1087,30 +1194,32 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
         if (!pair) throw new Error('Pool has no FPL side')
         const fRaw = toRaw(pair.fAsset, amount)
         const fplRaw = toRaw('FPL', amountB)
-        const tx = await signPlAddLiquidity({
-          account,
-          poolId,
-          amtA: pool.asset_a === 'FPL' ? fplRaw : fRaw,
-          amtB: pool.asset_a === 'FPL' ? fRaw : fplRaw,
-          sequence: seq.sequence,
-          networkId: network.networkId,
-          falconSecret,
-        })
-        await submitSigned(tx, network.key)
+        await send((sequence) =>
+          signPlAddLiquidity({
+            account,
+            poolId,
+            amtA: pool.asset_a === 'FPL' ? fplRaw : fRaw,
+            amtB: pool.asset_a === 'FPL' ? fRaw : fplRaw,
+            sequence,
+            networkId: network.networkId,
+            falconSecret,
+          }),
+        )
         setMsg('Liquidity add submitted.')
       } else if (kind === 'remove') {
         const have = lpRows.find((r) => r.pool_id === poolId)?.lp ?? '0'
         const lpBurn = decimalToBaseUnits(lpAmount, 0)
         if (BigInt(lpBurn) > BigInt(have)) throw new Error('That is more LP than you have in this pool')
-        const tx = await signPlRemoveLiquidity({
-          account,
-          poolId,
-          lpBurn,
-          sequence: seq.sequence,
-          networkId: network.networkId,
-          falconSecret,
-        })
-        await submitSigned(tx, network.key)
+        await send((sequence) =>
+          signPlRemoveLiquidity({
+            account,
+            poolId,
+            lpBurn,
+            sequence,
+            networkId: network.networkId,
+            falconSecret,
+          }),
+        )
         setMsg('Liquidity remove submitted.')
       } else {
         const lendKind =
@@ -1132,64 +1241,72 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
         const colIn = lendCollateral ?? collateral
         if (kind === 'borrow' && !colIn.trim()) throw new Error('Enter FPL collateral')
         const col = kind === 'borrow' ? decimalToBaseUnits(colIn, 0) : '0'
-        const tx = await signPlLend({
-          account,
-          kind: lendKind,
-          marketId,
-          amount: raw,
-          collateralFpl: col,
-          sequence: seq.sequence,
-          networkId: network.networkId,
-          falconSecret,
-        })
-        await submitSigned(tx, network.key)
+        await send((sequence) =>
+          signPlLend({
+            account,
+            kind: lendKind,
+            marketId,
+            amount: raw,
+            collateralFpl: col,
+            sequence,
+            networkId: network.networkId,
+            falconSecret,
+          }),
+        )
         setMsg(`${kind[0].toUpperCase()}${kind.slice(1)} submitted on ${assetLabel(asset)}.`)
       }
       setAmount('')
       setAmountB('')
       setLpAmount('')
       load()
+    }
+    try {
+      await Promise.race([flow(), cap])
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Failed')
+      setErr(e instanceof Error ? explainTxError(e.message) : 'Failed')
     } finally {
+      clearTimeout(capTimer)
+      setStage(null)
       setBusy(false)
     }
   }
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-slate-500">
-        Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. FBNB is not a market.
-      </p>
+      {mode !== 'swap' && (
+        <p className="text-xs text-slate-500">
+          Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. fBNB is not a market.
+        </p>
+      )}
       {mode === 'swap' && (
         <div className="card p-5 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-slate-400">
               Sell
               <select className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" value={sell} onChange={(e) => setSell(e.target.value as Asset)}>
-                {ASSETS.map((a) => <option key={a}>{a}</option>)}
+                {ASSETS.map((a) => <option key={a} value={a}>{assetLabel(a)}</option>)}
               </select>
             </label>
             <label className="text-xs text-slate-400">
               Receive
               <select className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" value={buy} onChange={(e) => setBuy(e.target.value as Asset)}>
-                {ASSETS.map((a) => <option key={a}>{a}</option>)}
+                {ASSETS.map((a) => <option key={a} value={a}>{assetLabel(a)}</option>)}
               </select>
             </label>
           </div>
-          <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder={`Amount of ${sell}`} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <input className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white" placeholder={`Amount of ${assetLabel(sell)}`} value={amount} onChange={(e) => setAmount(e.target.value)} />
           <p className="text-xs text-slate-400">
-            Quote: {quoted > 0n ? fromRaw(buy, quoted.toString()) : '—'} {buy}
+            Quote: {quoted > 0n ? fromRaw(buy, quoted.toString()) : '—'} {assetLabel(buy)}
             {sell !== 'FPL' && buy !== 'FPL' ? ' via FPL' : ''}
             {sell !== 'FPL' && priceFor(markets, pools, sell) !== '0'
-              ? ` · ${fromRaw('FPL', priceFor(markets, pools, sell))} FPL per ${sell}`
+              ? ` · ${fromRaw('FPL', priceFor(markets, pools, sell))} FPL per ${assetLabel(sell)}`
               : ''}
             {buy !== 'FPL' && priceFor(markets, pools, buy) !== '0'
-              ? ` · ${fromRaw('FPL', priceFor(markets, pools, buy))} FPL per ${buy}`
+              ? ` · ${fromRaw('FPL', priceFor(markets, pools, buy))} FPL per ${assetLabel(buy)}`
               : ''}
           </p>
           <button type="button" className="btn-primary w-full" disabled={busy} onClick={() => act('swap')}>
-            {busy ? 'Submitting…' : 'Swap on ledger'}
+            {busy ? stage || 'Submitting…' : 'Swap on ledger'}
           </button>
         </div>
       )}
@@ -1217,6 +1334,9 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
           walletReady={Boolean(wallet)}
           onAdd={() => act('add')}
           onRemove={() => act('remove')}
+          stage={stage}
+          msg={msg}
+          err={err}
         />
       )}
       {mode === 'lend' && (
@@ -1236,13 +1356,32 @@ export default function PlFplMarkets({ mode }: { mode: 'swap' | 'pool' | 'lend' 
       {msg && <p className="text-sm text-emerald-300">{msg}</p>}
       {err && <p className="text-sm text-red-300">{err}</p>}
       {mode === 'swap' && (
-        <div className="space-y-2">
-          {pools.filter((p) => p.id !== 'fpl-btc').map((p) => {
+        <p className="text-xs text-slate-500">
+          Falcon PL ledger markets. Trades, liquidity, and loans are packed on chain. fBNB is not a market.
+        </p>
+      )}
+      {mode === 'swap' && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {pools.filter((p) => p.id !== 'fpl-btc' && p.id !== 'btc-fpl' && poolPair(p) !== null).map((p) => {
             const px = poolPrice(p)
+            const pair = poolPair(p)!
+            const vol = poolVolume[p.id]
             return (
-              <div key={p.id} className="rounded-xl border border-slate-800 px-3 py-2 text-xs text-slate-400">
-                {p.id}: {fromRaw(p.asset_a as Asset, p.reserve_a)} {p.asset_a} / {fromRaw(p.asset_b as Asset, p.reserve_b)} {p.asset_b}
-                {px ? ` · ${fromRaw('FPL', px.price)} FPL per ${px.asset}` : ''}
+              <div key={p.id} className="card p-4 space-y-2 text-xs">
+                <div className="flex items-baseline justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-white">{assetLabel(pair.fAsset)} / FPL</h3>
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500">AMM pool</span>
+                </div>
+                <div className="text-lg font-bold tabular-nums text-brand-300">
+                  {px ? `${fromRaw('FPL', px.price)} FPL` : '—'}
+                  <span className="block text-[10px] font-normal text-slate-500">per {assetLabel(pair.fAsset)}</span>
+                </div>
+                <dl className="space-y-1 text-slate-400">
+                  <div className="flex justify-between gap-2"><dt>Reserve {assetLabel(pair.fAsset)}</dt><dd className="font-mono text-slate-200">{fromRaw(pair.fAsset, pair.fReserve)}</dd></div>
+                  <div className="flex justify-between gap-2"><dt>Reserve FPL</dt><dd className="font-mono text-slate-200">{fromRaw('FPL', pair.fplReserve)}</dd></div>
+                  <div className="flex justify-between gap-2"><dt>LP supply</dt><dd className="font-mono text-slate-200">{BigInt(p.lp_supply || '0').toLocaleString()}</dd></div>
+                  <div className="flex justify-between gap-2"><dt>24h volume</dt><dd className="font-mono text-slate-200">{vol == null ? 'collecting' : `${Math.round(vol).toLocaleString()} FPL`}</dd></div>
+                </dl>
               </div>
             )
           })}

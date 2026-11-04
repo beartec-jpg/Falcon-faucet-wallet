@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey } from '@/lib/network-server'
 import { quoteSwap, getUsdcMarket } from '@/lib/swap/quote'

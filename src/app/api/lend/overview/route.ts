@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
 import { getUsdcMarket } from '@/lib/swap/quote'
@@ -15,6 +16,7 @@ import {
   mptScaled,
 } from '@/lib/lend-pool-stats'
 import { filterActiveUserLoans } from '@/lib/lend-risk-scan'
+import { retiredOnPl } from '@/lib/pl-retired'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const DROPS = 1_000_000
@@ -87,6 +89,8 @@ async function featureFlags(networkKey: ReturnType<typeof resolveNetworkKey>) {
 }
 
 export async function GET(req: NextRequest) {
+  const retired = retiredOnPl(req)
+  if (retired) return retired
   const networkKey = resolveNetworkKey(req.nextUrl.searchParams.get('network'))
   const address = req.nextUrl.searchParams.get('address')?.trim() ?? ''
 
@@ -94,8 +98,9 @@ export async function GET(req: NextRequest) {
     const token = await resolveToken(networkKey)
     const protocol = await featureFlags(networkKey)
     const manifest = await loadLendingManifestServer()
-    const cosignReady = !!process.env.TESTNET_LENDING_BROKER_SECRET?.trim()
-    const hfMonitorReady = cosignReady
+    // Broker co-sign + broker-owner hot key retired (audit); borrow is permissionless-only.
+    const cosignReady = false
+    const hfMonitorReady = false
 
     const vaults: Array<{
       id: string

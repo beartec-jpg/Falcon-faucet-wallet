@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 export type XrpAmount = string
 export type IouAmount = { currency: string; issuer: string; value: string }
 /** XRPL MPT amount (integer units as string, e.g. satoshis for SPV FBTC). */

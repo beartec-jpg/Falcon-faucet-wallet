@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
@@ -106,8 +107,8 @@ export default function ArcadeLeaderboardPage() {
             <p className="p-6 text-slate-500 text-sm">Loading…</p>
           ) : entries.length === 0 ? (
             <p className="p-6 text-slate-500 text-sm">
-              No scores yet today. Play a game and hit the threshold to appear
-              here.
+              No scores yet today. Play a game to appear here — the leaderboard
+              ranks your best single run; claims use the sum of your runs.
             </p>
           ) : (
             <ol className="divide-y divide-slate-800">

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * BitVM-class vault helpers (CSV + hashlock + user CHECKSIG).
  * Matches scripts/btc-spv/bitvm/vault.py and Falcon btcParseBitvmVaultScript.
@@ -272,7 +273,7 @@ export function planVaultWithdraw(
   if (want > total) {
     throw new Error(
       `Not enough vault BTC on this device (${total} sats available, need ${want}). ` +
-        'Only vault-backed FBTC can exit non-custodially.',
+        'Only vault-backed FBTC can exit through the vault path.',
     )
   }
 

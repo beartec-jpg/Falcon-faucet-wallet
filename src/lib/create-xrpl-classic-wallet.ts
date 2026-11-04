@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Classic XRPL multi-chain wallet (today’s XRP Ledger crypto).
  *
@@ -9,6 +10,7 @@
  * Stored encrypted under the same passkey vault as ETH/BTC keys.
  */
 
+import type { WalletKey } from '@/lib/wallet-key'
 import { ed25519 } from '@noble/curves/ed25519'
 import { secp256k1 } from '@noble/curves/secp256k1'
 import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/abstract/utils'
@@ -161,7 +163,7 @@ export function createRandomXrplClassicWallet(): Promise<{
 
 export async function encryptXrplClassicSeedForPasskey(
   seed: string,
-  keyBytes: Uint8Array,
+  keyBytes: WalletKey,
   hasPrf: boolean,
 ): Promise<{ address: string; publicKey: string; xrplClassicEncrypted: EncryptedSeed }> {
   const trimmed = seed.trim()
@@ -175,7 +177,7 @@ export async function encryptXrplClassicSeedForPasskey(
 }
 
 export async function createXrplClassicWalletForPasskey(
-  keyBytes: Uint8Array,
+  keyBytes: WalletKey,
   hasPrf: boolean,
 ): Promise<{
   seed: string

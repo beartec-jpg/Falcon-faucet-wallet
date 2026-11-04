@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * On-ledger swap quoting — AMM constant-product math (mainnet-style).
  * Supports classic IOU stables and SPV FBTC MPT (sats ↔ BTC display).

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /** Lending UI parameters (preview math; chain uses daemon constants). */
 
 /** Display fallback in basis points (500 = 5%). On-chain LoanSet uses tenth-bps (5000 = 5%). */

@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { getSql, isDbConfigured } from '@/lib/db'
 import { faucetEngagementScore, AIRDROP_POOL_FALCON, AIRDROP_WINDOW_DAYS } from '@/lib/airdrop-score'
 
@@ -42,7 +43,7 @@ export async function getAirdropOverview(network = 'mainnet'): Promise<AirdropOv
     windowEndsAt: null,
     daysElapsed: null,
     notes:
-      'Contribution window starts at mainnet genesis for 60 days. Faucet: 5/day + 1h cooldown. Emissions from epoch 8.',
+      'Release phase: mainnet epochs 1-7 (49 days), paid per epoch with caps. Protocol emission starts at epoch 8. Draft; subject to change.',
     totalAddresses: 0,
     totalAllocatedFalcon: 0,
   }

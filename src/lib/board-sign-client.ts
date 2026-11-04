@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Client-side Falcon message signing for the message board.
  * falcon_secret never leaves the device.

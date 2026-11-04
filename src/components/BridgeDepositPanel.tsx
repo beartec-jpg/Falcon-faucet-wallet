@@ -1,5 +1,7 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 'use client'
 
+import type { WalletKey } from '@/lib/wallet-key'
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Wallet, parseUnits } from 'ethers'
@@ -38,13 +40,31 @@ import {
 } from '@/lib/pl-dest-lock'
 import {
   clearDestLockPending,
+  destLockLcWaitText,
   listDestLockPending,
   upsertDestLockPending,
   type DestLockPending,
 } from '@/lib/dest-lock-pending'
 import { fetchBnbTestnetBalance } from '@/lib/native-chain-balances'
-import { fetchBtcBalance } from '@/lib/btc-client'
-import { BTC_WITHDRAWALS_ENABLED, BTC_WITHDRAWALS_OFF_MESSAGE } from '@/lib/btc-withdrawals'
+import { fetchBtcBalance, sendBtcP2pkh, btcTb1AddressFromSecret } from '@/lib/btc-client'
+import {
+  createDeposit,
+  depositorPubkey,
+  getDeposit,
+  listDeposits,
+  postSignatures,
+  signDepositorRequest,
+  STATE_LABEL,
+  TN4_MEMPOOL,
+  type Tn4Deposit,
+} from '@/lib/tn4-bridge'
+import { signRailWithdraw } from '@/lib/pl-wallet-sign'
+import {
+  BTC_DEPOSITS_ENABLED,
+  BTC_DEPOSITS_OFF_ERROR,
+  BTC_WITHDRAWALS_ENABLED,
+  BTC_WITHDRAWALS_OFF_MESSAGE,
+} from '@/lib/btc-withdrawals'
 import {
   fetchSpvStatus,
   sendSpvDeposit,
@@ -89,6 +109,8 @@ import {
   type SpvWithdrawPhase,
 } from '@/lib/btc-spv-withdraw-pending'
 import { parseEvmAddressFromScan } from '@/lib/parse-evm-address'
+import { V3RefundClaim } from '@/components/V3RefundClaim'
+import { PendingWithdrawals } from '@/components/PendingWithdrawals'
 import { plAccountId } from '@/lib/pl-names'
 import { BTC_RAIL_LIVE, pegInPlBtc, pegOutPlBtc } from '@/lib/pl-btc-rail'
 import { hasBtcWallet, provisionBtcWalletForStoredWallet } from '@/lib/create-btc-wallet'
@@ -110,6 +132,7 @@ import {
   lockContractReady,
   type UsdcBridgeManifest,
 } from '@/lib/bridge-config'
+import { ActivationNote } from '@/lib/bridge-activation'
 import {
   createEncryptedEvmBackup,
   decryptEvmBackupFile,
@@ -141,6 +164,14 @@ function fmtFloor(n: string | number, decimals = 2): string {
   const scale = 10 ** decimals
   const floored = Math.floor(v * scale) / scale
   return floored.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: decimals })
+}
+
+function formatBridgeError(e: unknown, fallback: string): string {
+  const msg = e instanceof Error ? e.message : fallback
+  if (/timed out or was not allowed|NotAllowedError|webauthn/i.test(msg)) {
+    return 'Passkey prompt was cancelled or timed out. Try again.'
+  }
+  return msg || fallback
 }
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
@@ -261,12 +292,14 @@ interface BridgeWithdrawResult {
   falconTxHash?: string
   amount: string
   sepoliaRecipient: string
-  /** Bitcoin vault claim spend (non-custodial SPV out) */
+  /** Bitcoin vault claim spend (SPV out) */
   btcClaimTxid?: string
   btcClaimExplorerUrl?: string
   payoutSats?: number
   sepoliaTxHash?: string
   noteId?: string
+  /** take() was already done for this note (walletd alreadyOpen + taken). */
+  alreadyPaid?: boolean
 }
 
 type ReleaseStatus = 'pending' | 'released' | 'unconfirmed' | null
@@ -304,6 +337,8 @@ export default function BridgeDepositPanel({
   const [amount, setAmount] = useState('')
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [busy, setBusy] = useState(false)
+  /** busy is held by the V3 refund claim (shared lock; only the button labels differ). */
+  const [refundBusy, setRefundBusy] = useState(false)
   const [step, setStep] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BridgeDepositResult | null>(null)
@@ -343,6 +378,34 @@ export default function BridgeDepositPanel({
   const [spvResumeTxid, setSpvResumeTxid] = useState('')
   /** Open SPV peg-outs (burn → reserve BTC → prove) — survives refresh like Bridge In */
   const [spvWithdraws, setSpvWithdraws] = useState<SpvPendingWithdraw[]>([])
+  const [tn4Deposits, setTn4Deposits] = useState<Tn4Deposit[]>([])
+  const [tn4Busy, setTn4Busy] = useState<string | null>(null)
+  const [tn4Msg, setTn4Msg] = useState<string | null>(null)
+  const [tn4WdTo, setTn4WdTo] = useState('')
+  const [tn4DerivedTb1, setTn4DerivedTb1] = useState<string | null>(null)
+  const [dismissedTn4Ids, setDismissedTn4Ids] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return []
+    try {
+      const raw = localStorage.getItem('fpl-tn4-dismissed')
+      const parsed = raw ? JSON.parse(raw) : []
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+    } catch {
+      return []
+    }
+  })
+  const btcPkRef = useRef<string | null>(null)
+  const tn4AutoSignRef = useRef<Set<string>>(new Set())
+  const dismissTn4Deposit = useCallback((id: string) => {
+    setDismissedTn4Ids((prev) => {
+      const next = prev.includes(id) ? prev : [...prev, id]
+      try {
+        localStorage.setItem('fpl-tn4-dismissed', JSON.stringify(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }, [])
   /** Live bridge routes — honour initialRoute from Falcon / Multi-chain buttons */
   const [bridgeRoute, setBridgeRoute] = useState<BridgeRouteId>(() => {
     return PUBLIC_BRIDGE_ROUTES.includes(initialRoute as BridgeRouteId)
@@ -363,7 +426,7 @@ export default function BridgeDepositPanel({
   const btcPaymentScriptHex =
     spvStatus?.paymentScriptHex ||
     (isPl2300 && BTC_RAIL_LIVE ? BITVM2_INSTANCE_SPK : '')
-  /** BitVM2 dest-lock is live. Header lag is a warning, not “unconfigured”. */
+  /** BTC rail UI on; deposits/withdrawals gated by btc-spv-bridge.json flags. */
   const fbtcReady = isPl2300 && BTC_RAIL_LIVE
   const spvLive = fbtcReady && !!(btcWatchAddress || btcPaymentScriptHex)
   const fxrpReady = !!(fxrpIssuer && fxrpCustody)
@@ -426,7 +489,7 @@ export default function BridgeDepositPanel({
           ? fethReady
           : bridgeReady
   const openSpvBlocksIn =
-    isFbtcRoute && direction === 'deposit' && !!spvPending && spvPending.status !== 'claimed'
+    !isPl2300 && isFbtcRoute && direction === 'deposit' && !!spvPending && spvPending.status !== 'claimed'
   const canBridgeIn = openSpvBlocksIn
     ? false
     : isFbtcRoute
@@ -539,11 +602,16 @@ export default function BridgeDepositPanel({
       }
       const fbtcTok =
         tokens.find((t) => (t as { spvMpt?: boolean }).spvMpt) ||
-        tokens.find((t) => t.symbol === 'FBTC' || t.currency === 'BTC') ||
-        tokens.find((t) => t.issuer === fbtcIssuer)
+        tokens.find(
+          (t) =>
+            t.symbol === 'FBTC' ||
+            t.currency === 'BTC4' ||
+            (!isPl2300 && t.currency === 'BTC'),
+        ) ||
+        (Boolean(fbtcIssuer) ? tokens.find((t) => t.issuer === fbtcIssuer) : undefined)
       if (fbtcTok) {
         setHasFbtcTrustLine(!!fbtcTok.hasTrustLine)
-        // Product balance = SPV MPT only (what Claim mints / Bridge Out burns)
+        // Product balance = BTC4 / SPV MPT balance
         const spv =
           typeof (fbtcTok as { spvMptBalance?: number }).spvMptBalance === 'number'
             ? (fbtcTok as { spvMptBalance: number }).spvMptBalance
@@ -551,7 +619,7 @@ export default function BridgeDepositPanel({
         setFbtcLive(spv)
         setFbtcSpvLive(spv)
         setFbtcIouLive(0)
-      } else {
+      } else if (!(data.assets?.fbtc && typeof data.assets.fbtc.balance === 'number')) {
         setHasFbtcTrustLine(false)
         setFbtcLive(0)
         setFbtcSpvLive(0)
@@ -559,7 +627,7 @@ export default function BridgeDepositPanel({
       }
       const fxrpTok =
         tokens.find((t) => t.currency === 'XRP' || t.symbol === 'FXRP') ||
-        tokens.find((t) => t.issuer === fxrpIssuer)
+        (Boolean(fxrpIssuer) ? tokens.find((t) => t.issuer === fxrpIssuer) : undefined)
       if (fxrpTok) {
         setHasFxrpTrustLine(!!fxrpTok.hasTrustLine)
         setFxrpLive(fxrpTok.hasTrustLine ? (fxrpTok.balance ?? 0) : 0)
@@ -680,6 +748,11 @@ export default function BridgeDepositPanel({
             asset: job.asset,
           })
           if (cancelled) return
+          const fresh = {
+            waitingBlocks: st.waiting_blocks,
+            statusCheckedAt: Date.now(),
+            statusError: '',
+          }
           if (st.status === 'done') {
             clearDestLockPending(job.falconAccount, job.txHash)
             refreshFusdcBalance()
@@ -695,6 +768,7 @@ export default function BridgeDepositPanel({
               lastError: st.error || 'Mint failed',
               depositBlock: st.deposit_block ?? job.depositBlock,
               lcExecution: st.lc_execution ?? job.lcExecution,
+              ...fresh,
             })
             continue
           }
@@ -707,6 +781,7 @@ export default function BridgeDepositPanel({
               lastError: '',
               depositBlock: st.deposit_block ?? job.depositBlock,
               lcExecution: st.lc_execution ?? job.lcExecution,
+              ...fresh,
             })
             continue
           }
@@ -717,9 +792,17 @@ export default function BridgeDepositPanel({
             status: job.status,
             depositBlock: st.deposit_block ?? job.depositBlock,
             lcExecution: st.lc_execution ?? job.lcExecution,
+            ...fresh,
           })
-        } catch {
-          /* keep last known status */
+        } catch (e) {
+          // Keep the last known values, but say they are stale instead of hiding the failure.
+          if (cancelled) return
+          upsertDestLockPending(job.falconAccount, {
+            txHash: job.txHash,
+            asset: job.asset,
+            explorerUrl: job.explorerUrl,
+            statusError: `Status update failed, retrying… (${e instanceof Error ? e.message : String(e)})`,
+          })
         }
       }
       if (!cancelled && falconId) setDestLockJobs(listDestLockPending(falconId))
@@ -1156,7 +1239,7 @@ export default function BridgeDepositPanel({
   const attachEvmWallet = async (
     privateKey: string,
     expectedAddress?: string,
-    auth?: { keyBytes: Uint8Array; hasPrf: boolean },
+    auth?: { keyBytes: WalletKey; hasPrf: boolean },
   ) => {
     const { keyBytes, hasPrf } = auth ?? await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
     const evm = new Wallet(privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`)
@@ -1680,6 +1763,7 @@ export default function BridgeDepositPanel({
           amount: withdrawAmount,
           sepoliaRecipient: wallet.evmAddress,
           noteId: out.noteId,
+          ...(out.alreadyTaken ? { alreadyPaid: true } : {}),
         })
         setWithdrawAmount('')
         setTimeout(() => {
@@ -2013,6 +2097,10 @@ const handleSpvCompleteClaim = async () => {
   }
 
   const handleDeposit = async () => {
+    if (isFbtcRoute) {
+      await handleTn4BridgeIn()
+      return
+    }
     if (!activeLockReady) return
     if (!isFbtcRoute && (!wallet.evmEncrypted || !wallet.evmAddress)) return
     if (!canBridgeIn) {
@@ -2175,7 +2263,17 @@ const handleSpvCompleteClaim = async () => {
             amountLabel: amount,
             explorerUrl: explorer,
             status: 'minting',
+            v3DepositId: d.v3DepositId,
           })
+          if (d.v3DepositId) {
+            // V3 peg-in: the V3 watcher (auto-mint --v3) finds the Deposit log itself and mints
+            // or, after 3 days unminted, refunds. The V1 mint queue must not be asked.
+            setDestLockJobs(listDestLockPending(falconId))
+            res = {
+              depositHash: d.depositHash,
+              depositId: `Locked on Sepolia (FalconQcBridgeV3). Deposit id ${d.v3DepositId}. FETH is minted automatically once the light client reaches this block; keep the deposit id — if it is not minted within 3 days it is refunded to this 0x address.`,
+            }
+          } else {
           setStep('Queuing Falcon PL mint…')
           const queued = await queueDestLockMint({
             account: falconId,
@@ -2198,6 +2296,7 @@ const handleSpvCompleteClaim = async () => {
                 ? 'FETH minted on Falcon PL'
                 : 'Locked on Sepolia — minting FETH in the background. You can bridge USDC now.',
           }
+          }
         } else {
           const d = await depositUsdcDestLock({
             cfg: destLockCfg,
@@ -2213,7 +2312,18 @@ const handleSpvCompleteClaim = async () => {
             amountLabel: amount,
             explorerUrl: explorer,
             status: 'minting',
+            v3DepositId: d.v3DepositId,
           })
+          if (d.v3DepositId) {
+            // V3 peg-in: the V3 watcher (auto-mint --v3) finds the Deposit log itself and mints
+            // or, after 3 days unminted, refunds. The V1 mint queue must not be asked.
+            setDestLockJobs(listDestLockPending(falconId))
+            res = {
+              depositHash: d.depositHash,
+              approveHash: d.approveHash,
+              depositId: `Locked on Sepolia (FalconQcBridgeV3). Deposit id ${d.v3DepositId}. F-USDC is minted automatically once the light client reaches this block; keep the deposit id — if it is not minted within 3 days it is refunded to this 0x address.`,
+            }
+          } else {
           setStep('Queuing Falcon PL mint…')
           const queued = await queueDestLockMint({
             account: falconId,
@@ -2236,6 +2346,7 @@ const handleSpvCompleteClaim = async () => {
               queued.status === 'done'
                 ? 'F-USDC minted on Falcon PL'
                 : 'Locked on Sepolia — minting F-USDC in the background. You can bridge ETH now.',
+          }
           }
         }
       } else if (isFbnbRoute) {
@@ -2294,6 +2405,282 @@ const handleSpvCompleteClaim = async () => {
     }
   }
 
+
+  const refreshTn4Deposits = useCallback(async () => {
+    if (!falconId) return
+    try {
+      const list = await listDeposits(falconId)
+      setTn4Deposits(list)
+      const cachedPk = btcPkRef.current
+      if (cachedPk) {
+        for (const d of list) {
+          if (d.state === 'awaiting_signature' && !tn4AutoSignRef.current.has(d.id)) {
+            tn4AutoSignRef.current.add(d.id)
+            void (async () => {
+              try {
+                const full = await getDeposit(d.id)
+                if (!full.depositor_request) {
+                  tn4AutoSignRef.current.delete(d.id)
+                  return
+                }
+                const sigs = signDepositorRequest(full.depositor_request, cachedPk)
+                try {
+                  localStorage.setItem(
+                    `fpl-tn4-signed-${d.id}`,
+                    JSON.stringify({ ...sigs, request: full.depositor_request }),
+                  )
+                } catch {
+                  /* ignore */
+                }
+                const updated = await postSignatures(d.id, sigs)
+                setTn4Deposits((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+              } catch {
+                tn4AutoSignRef.current.delete(d.id)
+              }
+            })()
+          }
+        }
+      }
+    } catch {
+      /* ignore transient intake errors */
+    }
+  }, [falconId])
+
+  const [tn4OpCap, setTn4OpCap] = useState<{ maxSingleBtc: number; totalBtc: number; onlineCount: number } | null>(null)
+
+  useEffect(() => {
+    if (!isFbtcRoute) return
+    let cancelled = false
+    const loadCap = async () => {
+      try {
+        const r = await fetch('/api/scan/btc-operators', { cache: 'no-store' })
+        if (!r.ok) return
+        const j = await r.json()
+        if (cancelled) return
+        const ops = Array.isArray(j.operators) ? j.operators : []
+        const online = ops.filter((o: { online?: boolean }) => o.online !== false)
+        const active = online.length > 0 ? online : ops
+        const maxSats = active.reduce(
+          (m: number, o: { btc_available_sats?: number }) =>
+            Math.max(m, Number(o.btc_available_sats) || 0),
+          0,
+        )
+        const totSats =
+          Number(j.totals?.available_sats) ||
+          active.reduce(
+            (s: number, o: { btc_available_sats?: number }) =>
+              s + (Number(o.btc_available_sats) || 0),
+            0,
+          )
+        setTn4OpCap({
+          maxSingleBtc: maxSats / 1e8,
+          totalBtc: totSats / 1e8,
+          onlineCount: active.length,
+        })
+      } catch {
+        /* ignore */
+      }
+    }
+    void loadCap()
+    const iv = setInterval(() => void loadCap(), 15000)
+    return () => {
+      cancelled = true
+      clearInterval(iv)
+    }
+  }, [isFbtcRoute])
+
+  useEffect(() => {
+    if (!falconId) return
+    void refreshTn4Deposits()
+    const iv = setInterval(() => {
+      void refreshTn4Deposits()
+    }, 6000)
+    return () => clearInterval(iv)
+  }, [falconId, refreshTn4Deposits])
+
+  async function handleTn4BridgeIn() {
+    setError(null)
+    setTn4Msg(null)
+    setResult(null)
+    if (!hasBtc || !wallet.btcEncrypted) {
+      setError('Create Bitcoin keys first in Multi-chain BTC.')
+      return
+    }
+    const sendBtcAmt = parseFloat(amount)
+    if (!Number.isFinite(sendBtcAmt) || sendBtcAmt < 0.0005 || sendBtcAmt > 0.1) {
+      setError('Amount must be between 0.0005 and 0.1 BTC.')
+      return
+    }
+    const curBtc = btcBal != null ? parseFloat(btcBal) : 0
+    if (sendBtcAmt > curBtc) {
+      setError(`Insufficient BTC balance (have ${curBtc.toFixed(8)} BTC).`)
+      return
+    }
+    setBusy(true)
+    setStep('Confirm passkey…')
+    try {
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const btcPk = (await decryptSeed(wallet.btcEncrypted, keyBytes)).replace(/^0x/i, '')
+      btcPkRef.current = btcPk
+      try {
+        setTn4DerivedTb1(btcTb1AddressFromSecret(btcPk, 'testnet'))
+      } catch {
+        /* ignore */
+      }
+      setStep('Starting bridge in…')
+      const pub = depositorPubkey(btcPk)
+      const dep = await createDeposit(falconId, pub)
+      setStep('Sending BTC…')
+      const sent = await sendBtcP2pkh({
+        privateKeyHex: btcPk,
+        toAddress: dep.address,
+        amountBtc: String(sendBtcAmt),
+        network: 'testnet',
+      })
+      const seeded: Tn4Deposit = {
+        ...dep,
+        funding: `${sent.txid}:0`,
+        funding_sats: Math.round(sendBtcAmt * 1e8),
+      }
+      setTn4Deposits((prev) => [seeded, ...prev.filter((x) => x.id !== dep.id)])
+      setAmount('')
+      setTn4Msg('Bridge in started.')
+      if (wallet.btcAddress) {
+        fetchBtcBalance(wallet.btcAddress, 'testnet')
+          .then((r) => { if (r) setBtcBal(r.btc) })
+          .catch(() => {})
+      }
+      void refreshTn4Deposits()
+    } catch (e: unknown) {
+      setError(formatBridgeError(e, 'Bridge in failed'))
+    } finally {
+      setBusy(false)
+      setStep(null)
+    }
+  }
+
+  async function handleTn4SignDeposit(dep: Tn4Deposit) {
+    if (!wallet.btcEncrypted) {
+      setError('Bitcoin key missing in wallet.')
+      return
+    }
+    setError(null)
+    setTn4Msg(null)
+    setTn4Busy(`sign:${dep.id}`)
+    try {
+      const full = await getDeposit(dep.id)
+      if (!full.depositor_request) {
+        throw new Error('Nothing to sign yet — wait for 1st confirmation.')
+      }
+      let btcPk = btcPkRef.current
+      if (!btcPk) {
+        const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+        btcPk = (await decryptSeed(wallet.btcEncrypted, keyBytes)).replace(/^0x/i, '')
+        btcPkRef.current = btcPk
+      }
+      const sigs = signDepositorRequest(full.depositor_request, btcPk)
+      try {
+        localStorage.setItem(
+          `fpl-tn4-signed-${dep.id}`,
+          JSON.stringify({ ...sigs, request: full.depositor_request }),
+        )
+      } catch {
+        /* ignore quota errors */
+      }
+      const updated = await postSignatures(dep.id, sigs)
+      setTn4Deposits((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+    } catch (e: unknown) {
+      setError(formatBridgeError(e, 'Signing failed'))
+    } finally {
+      setTn4Busy(null)
+    }
+  }
+
+  async function handleTn4UseWalletTb1() {
+    setError(null)
+    if (tn4DerivedTb1) {
+      setTn4WdTo(tn4DerivedTb1)
+      return
+    }
+    if (!wallet.btcEncrypted) {
+      setError('No wallet BTC key found — enter a tb1… address manually or create BTC keys in Multi-chain.')
+      return
+    }
+    setTn4Busy('derive-tb1')
+    try {
+      let btcPk = btcPkRef.current
+      if (!btcPk) {
+        const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+        btcPk = (await decryptSeed(wallet.btcEncrypted, keyBytes)).replace(/^0x/i, '')
+        btcPkRef.current = btcPk
+      }
+      const tb1 = btcTb1AddressFromSecret(btcPk, 'testnet')
+      setTn4DerivedTb1(tb1)
+      setTn4WdTo(tb1)
+    } catch (e: unknown) {
+      setError(formatBridgeError(e, 'Could not derive tb1… address'))
+    } finally {
+      setTn4Busy(null)
+    }
+  }
+
+  async function handleTn4BridgeOut() {
+    setError(null)
+    setTn4Msg(null)
+    const amt = parseFloat(withdrawAmount)
+    const sats = Math.round(amt * 1e8)
+    if (!Number.isFinite(sats) || sats < 10_000) {
+      setError('Minimum withdrawal is 0.0001 FBTC (10,000 sats).')
+      return
+    }
+    const avail = fbtcSpvLive ?? fbtcLive ?? 0
+    if (amt > avail) {
+      setError(`Insufficient FBTC balance (available ${avail.toFixed(8)} FBTC).`)
+      return
+    }
+    if (tn4OpCap && tn4OpCap.maxSingleBtc > 0 && amt > tn4OpCap.maxSingleBtc + 1e-12) {
+      setError(
+        `Amount exceeds largest single operator capacity (${tn4OpCap.maxSingleBtc.toFixed(8).replace(/\.?0+$/, '')} BTC). Click Max or split into smaller withdrawals.`,
+      )
+      return
+    }
+    if (!/^tb1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{25,90}$/i.test(tn4WdTo.trim())) {
+      setError('Enter a valid Bitcoin Testnet4 tb1… address.')
+      return
+    }
+    setTn4Busy('withdraw')
+    try {
+      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+      const falconSecret = await decryptSeed(wallet.encrypted, keyBytes)
+      const seq = await fetchSequenceInfo(falconId, networkKey)
+      const tx = await signRailWithdraw({
+        account: falconId,
+        sequence: seq.sequence,
+        asset: 'BTC4',
+        amount: sats,
+        externalTo: tn4WdTo.trim(),
+        falconSecret,
+      })
+      const subRes = await fetch('/api/wallet/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tx, network: networkKey }),
+      })
+      const sub = (await subRes.json().catch(() => ({}))) as { success?: boolean; hash?: string; error?: string; message?: string }
+      if (!subRes.ok || sub.error || sub.success === false) {
+        throw new Error(sub.error || sub.message || `Submit HTTP ${subRes.status}`)
+      }
+      setTn4Msg('Bridge out submitted.')
+      setWithdrawAmount('')
+      refreshFusdcBalance()
+      onFalconRefresh?.()
+    } catch (e: unknown) {
+      setError(formatBridgeError(e, 'Withdrawal failed'))
+    } finally {
+      setTn4Busy(null)
+    }
+  }
+
   const amtNum = parseFloat(amount) || 0
   const withdrawAmtNum = parseFloat(withdrawAmount) || 0
   const sendAmtNum = parseFloat(sendAmount) || 0
@@ -2336,12 +2723,14 @@ const handleSpvCompleteClaim = async () => {
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-base font-semibold text-white tracking-tight">Bridge</h2>
           <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
-            {isFbtcRoute && spvLive ? 'SPV · Testnet' : 'Testnet'}
+            {isFbtcRoute ? 'BitVM2 · Testnet4' : 'Testnet'}
           </span>
         </div>
 
+
+
         {/* W1.5 — SPV header lag / config mismatch (BTC only) */}
-        {isFbtcRoute && spvStatus?.headers && (
+        {!isFbtcRoute && isFbtcRoute && spvStatus?.headers && (
           <div
             className={`rounded-xl px-3 py-2.5 text-xs leading-relaxed border ${
               spvStatus.headers.lagLevel === 'critical'
@@ -2403,10 +2792,20 @@ const handleSpvCompleteClaim = async () => {
         {(() => {
           const openDest = destLockJobs.filter((j) => j.status !== 'done')
           const doneDest = destLockJobs.filter((j) => j.status === 'done')
-          const openBtc = spvPending && spvPending.status !== 'claimed' ? spvPending : null
-          const doneBtc = spvPending?.status === 'claimed' ? spvPending : null
-          const openN = openDest.length + (openBtc ? 1 : 0)
-          const doneN = doneDest.length + (doneBtc ? 1 : 0)
+          const activeTn4 = tn4Deposits.filter(
+            (d) =>
+              d.state !== 'expired' &&
+              d.state !== 'failed' &&
+              d.state !== 'minted' &&
+              !dismissedTn4Ids.includes(d.id),
+          )
+          const doneTn4 = tn4Deposits.filter(
+            (d) => d.state === 'minted' && !dismissedTn4Ids.includes(d.id),
+          )
+          const openBtc = !isPl2300 && spvPending && spvPending.status !== 'claimed' ? spvPending : null
+          const doneBtc = !isPl2300 && spvPending?.status === 'claimed' ? spvPending : null
+          const openN = openDest.length + activeTn4.length + (openBtc ? 1 : 0)
+          const doneN = doneDest.length + doneTn4.length + (doneBtc ? 1 : 0)
           if (openN + doneN === 0) return null
           return (
             <div className="space-y-2">
@@ -2434,17 +2833,27 @@ const handleSpvCompleteClaim = async () => {
                           {job.depositBlock ? `Sepolia block ${job.depositBlock.toLocaleString()}` : 'Sepolia deposit'}
                           {job.createdAt ? ` · started ${new Date(job.createdAt).toLocaleString()}` : ''}
                         </p>
+                        {job.v3DepositId ? (
+                          <p className="text-[11px] text-slate-500 mt-0.5 font-mono break-all">
+                            V3 deposit id {job.v3DepositId}
+                          </p>
+                        ) : null}
                         <p className="text-xs text-slate-500 mt-0.5">
                           {job.status === 'error'
                             ? job.lastError || 'Mint failed'
-                            : job.depositBlock &&
-                                job.lcExecution != null &&
-                                job.lcExecution < job.depositBlock
-                              ? `Waiting for Ethereum finality. Light client is at block ${job.lcExecution.toLocaleString()}, deposit is in ${job.depositBlock.toLocaleString()}.`
-                              : job.status === 'minting'
+                            : destLockLcWaitText(job) ??
+                              (job.status === 'minting'
                                 ? `Minting ${job.asset === 'USDC' ? 'F-USDC' : 'FETH'} on Falcon.`
-                                : 'Deposit in progress'}
+                                : 'Deposit in progress')}
                         </p>
+                        {job.statusError ? (
+                          <p className="text-xs text-amber-400 mt-0.5">{job.statusError}</p>
+                        ) : null}
+                        {job.statusCheckedAt ? (
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Last updated {new Date(job.statusCheckedAt).toLocaleTimeString()}
+                          </p>
+                        ) : null}
                       </div>
                       <button
                         type="button"
@@ -2468,6 +2877,80 @@ const handleSpvCompleteClaim = async () => {
                     </a>
                   </div>
                 ))}
+
+                {activeTn4.map((d) => {
+                  const txid = d.peg_in_confirm_txid || d.funding?.split(':')[0] || ''
+                  const explorerHref = txid
+                    ? `${TN4_MEMPOOL}/tx/${txid}`
+                    : `${TN4_MEMPOOL}/address/${d.address}`
+                  const statusLine =
+                    d.state === 'awaiting_funding'
+                      ? 'Waiting for 1st Bitcoin confirmation'
+                      : d.state === 'funded' ||
+                          d.state === 'ceremony_pubkeys' ||
+                          d.state === 'waiting_operator_liquidity'
+                        ? 'Preparing deposit'
+                        : d.state === 'awaiting_signature'
+                          ? 'Ready to confirm'
+                          : d.state === 'signed' ||
+                              d.state === 'presigned' ||
+                              d.state === 'broadcasting'
+                            ? 'Confirming on Bitcoin'
+                            : d.state === 'peg_in_confirmed'
+                              ? `Confirming on Bitcoin (${d.confirmations ?? 1}/6)`
+                              : d.state === 'awaiting_mint'
+                                ? 'Minting FBTC on Falcon.'
+                                : 'Deposit in progress'
+                  return (
+                    <div
+                      key={d.id}
+                      className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-white">
+                            BTC → FBTC
+                            {d.funding_sats ? ` · ${(d.funding_sats / 1e8).toFixed(4)} BTC` : ''}
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Testnet4 deposit · started {new Date(d.created * 1000).toLocaleTimeString()}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">{statusLine}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {d.state === 'awaiting_signature' && (
+                            <button
+                              type="button"
+                              onClick={() => void handleTn4SignDeposit(d)}
+                              disabled={tn4Busy !== null}
+                              className="px-2.5 py-1 rounded-lg bg-brand-500 hover:bg-brand-400 text-slate-950 font-semibold text-xs transition-colors disabled:opacity-40"
+                            >
+                              {tn4Busy === `sign:${d.id}` ? 'Confirming…' : 'Confirm'}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => dismissTn4Deposit(d.id)}
+                            className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                      <a
+                        href={explorerHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-[11px] font-mono text-brand-400/90 hover:text-brand-300 truncate"
+                        title={txid || d.address}
+                      >
+                        {txid
+                          ? `${txid.slice(0, 10)}…${txid.slice(-8)}`
+                          : `${d.address.slice(0, 10)}…${d.address.slice(-8)}`}
+                      </a>
+                    </div>
+                  )
+                })}
 
                 {openBtc && (
                   <div className="rounded-xl border border-brand-500/25 bg-brand-500/5 p-4 space-y-3">
@@ -2597,6 +3080,30 @@ const handleSpvCompleteClaim = async () => {
                     ) : null}
                   </div>
                 )}
+
+                {doneTn4.map((d) => {
+                  const txid = d.peg_in_confirm_txid || d.deposit_txid || d.funding?.split(':')[0] || d.id
+                  return (
+                    <div
+                      key={`done-tn4-${d.id}`}
+                      className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 flex items-center justify-between gap-3"
+                    >
+                      <div>
+                        <div className="text-sm font-medium text-emerald-300">FBTC minted</div>
+                        <p className="text-[11px] font-mono text-slate-500 mt-0.5">
+                          {txid.slice(0, 12)}…
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => dismissTn4Deposit(d.id)}
+                        className="text-xs font-semibold text-brand-400 hover:text-brand-300"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  )
+                })}
 
                 {doneDest.map((job) => (
                   <div
@@ -2734,7 +3241,7 @@ const handleSpvCompleteClaim = async () => {
         })()}
 
         {/* Optional recover — does not block new Bridge In below */}
-        {isFbtcRoute && direction === 'deposit' && !spvPending && (
+        {!isFbtcRoute && isFbtcRoute && direction === 'deposit' && !spvPending && (
           <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 p-4 space-y-3">
             <div>
               <div className="text-sm font-semibold text-slate-200">Already deposited? Recover tracker</div>
@@ -2763,7 +3270,7 @@ const handleSpvCompleteClaim = async () => {
             </div>
             {wallet.btcAddress && (
               <a
-                href={`https://mempool.space/testnet/address/${wallet.btcAddress}`}
+                href={`https://mempool.space/testnet4/address/${wallet.btcAddress}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block text-[11px] text-brand-400/90 hover:text-brand-300"
@@ -2792,10 +3299,7 @@ const handleSpvCompleteClaim = async () => {
                   if (!ROUTE_SUPPORTS_OUT[bridgeRoute]) {
                     setBridgeRoute(hasEvm ? 'fusdc-sepolia' : hasBtc ? 'fbtc-btc' : 'fusdc-sepolia')
                   }
-                  if (bridgeRoute === 'fbtc-btc' && !hasBtc) {
-                    setError('Open Multi-chain BTC first — payout goes to your BTC address')
-                    return
-                  }
+                  // Testnet4 BTC4 bridge allows entering any tb1... destination address
                   setMode('bridge')
                   setDirection('withdraw')
                   setError(null)
@@ -3134,11 +3638,127 @@ const handleSpvCompleteClaim = async () => {
 
             {direction === 'withdraw' && isFbtcRoute && (
               <>
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">Amount</div>
+                    <label className="text-xs text-slate-400">FBTC</label>
+                    <input
+                      type="number"
+                      value={withdrawAmount}
+                      onChange={(e) => { setWithdrawAmount(e.target.value); setError(null) }}
+                      placeholder="0.00"
+                      min="0.0001"
+                      step="any"
+                      className="input-field"
+                      disabled={tn4Busy !== null}
+                    />
+                    <div className="flex justify-between text-xs text-slate-600">
+                      <span>
+                        {(fbtcSpvLive ?? fbtcLive ?? 0) > 0
+                          ? `Available ${fmt(fbtcSpvLive ?? fbtcLive ?? 0, 8)} FBTC`
+                          : 'No FBTC balance'}
+                      </span>
+                      {(fbtcSpvLive ?? fbtcLive ?? 0) > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const userAvail = fbtcSpvLive ?? fbtcLive ?? 0
+                            const cap =
+                              tn4OpCap && tn4OpCap.maxSingleBtc > 0
+                                ? Math.min(userAvail, tn4OpCap.maxSingleBtc)
+                                : userAvail
+                            setWithdrawAmount(String(cap))
+                          }}
+                          className="text-brand-500"
+                        >
+                          Max
+                        </button>
+                      )}
+                    </div>
+                    {tn4OpCap && tn4OpCap.maxSingleBtc > 0 && (
+                      <div className="flex flex-wrap justify-between gap-2 text-[11px] text-slate-500 pt-0.5">
+                        <span>
+                          Max single bridge-out:{' '}
+                          <span className="font-mono text-slate-300">
+                            {fmt(tn4OpCap.maxSingleBtc, 6)} BTC
+                          </span>
+                        </span>
+                        <span>
+                          Operator liquidity:{' '}
+                          <span className="font-mono text-slate-400">
+                            {fmt(tn4OpCap.totalBtc, 4)} BTC
+                          </span>{' '}
+                          ({tn4OpCap.onlineCount} online)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-xs text-slate-400">Destination address (tb1…)</label>
+                      {hasBtc && (
+                        <button
+                          type="button"
+                          onClick={() => void handleTn4UseWalletTb1()}
+                          disabled={tn4Busy !== null}
+                          className="text-[11px] text-brand-400 hover:text-brand-300 font-medium"
+                        >
+                          {tn4Busy === 'derive-tb1' ? 'Deriving…' : "Use my wallet's tb1… address"}
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={tn4WdTo}
+                      onChange={(e) => { setTn4WdTo(e.target.value); setError(null) }}
+                      placeholder="tb1q… or tb1p…"
+                      spellCheck={false}
+                      className="input-field font-mono text-xs"
+                      disabled={tn4Busy !== null}
+                    />
+                  </div>
+
+                  {tn4Msg && (
+                    <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200 flex items-center justify-between gap-2">
+                      <span>{tn4Msg}</span>
+                      <button
+                        type="button"
+                        onClick={() => setTn4Msg(null)}
+                        className="text-xs text-slate-400 hover:text-slate-200 shrink-0"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => void handleTn4BridgeOut()}
+                    disabled={
+                      tn4Busy !== null ||
+                      withdrawAmtNum < 0.0001 ||
+                      withdrawAmtNum > (fbtcSpvLive ?? fbtcLive ?? 0) ||
+                      !tn4WdTo.trim()
+                    }
+                    className="btn-primary w-full flex items-center justify-center gap-2"
+                  >
+                    {tn4Busy === 'withdraw' ? (
+                      <>
+                        <Spinner /> Signing…
+                      </>
+                    ) : (
+                      'Bridge out'
+                    )}
+                  </button>
+                </div>
+
+                <div className="hidden" aria-hidden="true">
                 {!BTC_WITHDRAWALS_ENABLED && (
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 space-y-1">
                     <p className="text-xs font-semibold text-amber-300">{BTC_WITHDRAWALS_OFF_MESSAGE}</p>
                     <p className="text-[11px] text-slate-400 leading-snug">
-                      Bridge out to Bitcoin is switched off for now. BTC deposits still work. If you
+                      Bridge out to Bitcoin is switched off, and new BTC deposits are paused. If you
                       already burned FBTC for a withdrawal, that withdrawal is pending: it has not been
                       paid yet, and its record is kept.
                     </p>
@@ -3219,6 +3839,7 @@ const handleSpvCompleteClaim = async () => {
                     'Bridge out'
                   )}
                 </button>
+                </div>
               </>
             )}
 
@@ -3273,7 +3894,7 @@ const handleSpvCompleteClaim = async () => {
                   }
                   className="btn-primary flex items-center justify-center gap-2"
                 >
-                  {busy ? <><Spinner /> {step ?? 'Signing…'}</> : 'Bridge out'}
+                  {busy ? (refundBusy ? 'Claim in progress…' : <><Spinner /> {step ?? 'Signing…'}</>) : 'Bridge out'}
                 </button>
                 <details className="text-xs text-slate-500">
                   <summary className="cursor-pointer hover:text-slate-300">Advanced</summary>
@@ -3291,6 +3912,39 @@ const handleSpvCompleteClaim = async () => {
                     {busy ? step ?? 'Working…' : 'Return F-USDC to issuer'}
                   </button>
                 </details>
+                {isPl2300 && destLockCfg && wallet.evmEncrypted && (
+                  <PendingWithdrawals
+                    cfg={destLockCfg}
+                    account={falconId}
+                    evmAddress={wallet.evmAddress}
+                    // One EVM-key operation at a time: shares the panel's busy state.
+                    disabled={busy}
+                    onBusyChange={(b) => {
+                      setRefundBusy(b)
+                      setBusy(b)
+                    }}
+                    getEvmKey={async () => {
+                      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+                      return decryptSeed(wallet.evmEncrypted!, keyBytes)
+                    }}
+                  />
+                )}
+                {isPl2300 && destLockCfg && wallet.evmEncrypted && (
+                  <V3RefundClaim
+                    cfg={destLockCfg}
+                    evmAddress={wallet.evmAddress}
+                    // One EVM-key operation at a time: shares the panel's busy state.
+                    disabled={busy}
+                    onBusyChange={(b) => {
+                      setRefundBusy(b)
+                      setBusy(b)
+                    }}
+                    getEvmKey={async () => {
+                      const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+                      return decryptSeed(wallet.evmEncrypted!, keyBytes)
+                    }}
+                  />
+                )}
               </>
             )}
 
@@ -3311,32 +3965,31 @@ const handleSpvCompleteClaim = async () => {
                     </button>
                   </div>
                 )}
-                {isFbtcRoute && spvLive ? (
-                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5 text-xs text-emerald-200/90 space-y-1">
-                    <div className="flex justify-between gap-2">
-                      <span>FBTC ready (SPV)</span>
-                      <span className="font-mono tabular-nums">
-                        {fusdcLoading ? '…' : fmt(fbtcLive ?? 0, 8)}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 leading-snug">
-                      Send testnet BTC to the BitVM2 instance + FALC memo. Peg-out is dest-lock Kickoff, then your key. No FROST.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200/90 flex justify-between gap-2">
-                    <span>{assetLabel} ready</span>
-                    <span className="font-mono tabular-nums">
-                      {fusdcLoading
-                        ? '…'
-                        : isFbtcRoute
-                          ? fmt(fbtcLive ?? 0, 8)
-                          : isFbnbRoute
-                            ? fmt(fbnbLive ?? 0, 6)
-                            : isFethRoute
-                              ? fmt(fethLive ?? 0, 6)
-                              : fmt(fusdcAvail, 2)}
-                    </span>
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200/90 flex justify-between gap-2">
+                  <span>{assetLabel} ready</span>
+                  <span className="font-mono tabular-nums">
+                    {fusdcLoading
+                      ? '…'
+                      : isFbtcRoute
+                        ? fmt(fbtcLive ?? 0, 8)
+                        : isFbnbRoute
+                          ? fmt(fbnbLive ?? 0, 6)
+                          : isFethRoute
+                            ? fmt(fethLive ?? 0, 6)
+                            : fmt(fusdcAvail, 2)}
+                  </span>
+                </div>
+
+                {isFbtcRoute && tn4Msg && (
+                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200 flex items-center justify-between gap-2">
+                    <span>{tn4Msg}</span>
+                    <button
+                      type="button"
+                      onClick={() => setTn4Msg(null)}
+                      className="text-xs text-slate-400 hover:text-slate-200 shrink-0"
+                    >
+                      Dismiss
+                    </button>
                   </div>
                 )}
 
@@ -3358,7 +4011,8 @@ const handleSpvCompleteClaim = async () => {
                     value={amount}
                     onChange={(e) => { setAmount(e.target.value); setError(null) }}
                     placeholder="0.00"
-                    min="0.000001"
+                    min={isFbtcRoute ? '0.0005' : '0.000001'}
+                    max={isFbtcRoute ? '0.1' : undefined}
                     step="any"
                     className="input-field"
                     disabled={busy || !activeLockReady || !canBridgeIn || openSpvBlocksIn}
@@ -3387,7 +4041,7 @@ const handleSpvCompleteClaim = async () => {
                             <button
                               type="button"
                               onClick={() =>
-                                setAmount(Math.max(0, btcAvail - 0.00002).toFixed(8))
+                                setAmount(Math.min(0.1, Math.max(0, btcAvail - 0.00002)).toFixed(8))
                               }
                               className="text-brand-500"
                             >
@@ -3433,7 +4087,7 @@ const handleSpvCompleteClaim = async () => {
                     !canBridgeIn ||
                     amtNum <= 0 ||
                     (isFbtcRoute
-                      ? btcAvail < 0.00005
+                      ? btcAvail < 0.0005
                       : isFbnbRoute
                         ? bnbAvail < 0.0025
                         : ethAvail < (isFethRoute ? 0.0015 : 0.0001))
@@ -3450,6 +4104,11 @@ const handleSpvCompleteClaim = async () => {
                     'Bridge in'
                   )}
                 </button>
+                {isPl2300 && !isFbtcRoute && !isFbnbRoute && !isFxrpRoute && destLockCfg?.pegin_notice && (
+                  <p className="text-xs font-semibold text-amber-300" data-testid="pegin-notice">
+                    {destLockCfg.pegin_notice}
+                  </p>
+                )}
                 {!openSpvBlocksIn && !canBridgeIn && !isFbtcRoute && (
                   <p className="text-xs text-slate-500">
                     {isFxrpRoute
@@ -3505,7 +4164,7 @@ const handleSpvCompleteClaim = async () => {
                               ? ` · ${String(spvStatus.bridge.minConfirmations)} conf`
                               : ''}
                           </div>
-                          {spvLive && btcWatchAddress ? (
+                          {spvLive && btcWatchAddress && BTC_DEPOSITS_ENABLED ? (
                             <div className="font-mono break-all text-slate-600">
                               {btcWatchAddress}
                             </div>
@@ -3527,7 +4186,7 @@ const handleSpvCompleteClaim = async () => {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-medium text-brand-300">
-                {withdrawResult.btcClaimTxid || withdrawResult.sepoliaTxHash
+                {withdrawResult.btcClaimTxid || withdrawResult.sepoliaTxHash || withdrawResult.alreadyPaid
                   ? 'Bridge out complete'
                   : 'Bridge out submitted'}
               </div>
@@ -3569,6 +4228,9 @@ const handleSpvCompleteClaim = async () => {
             >
               Sepolia take {withdrawResult.sepoliaTxHash.slice(0, 16)}…
             </a>
+          )}
+          {withdrawResult.alreadyPaid && (
+            <div className="text-[11px] text-emerald-400/90">Already paid on Sepolia (this note was taken earlier).</div>
           )}
           {withdrawResult.btcClaimTxid && (
             <div className="space-y-1">

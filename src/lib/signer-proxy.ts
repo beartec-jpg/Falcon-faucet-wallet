@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // Server-side client for the Falcon signing proxy on node1.
 
 import { networkIdForTx } from '@/lib/networks'
@@ -24,7 +25,7 @@ export interface ProxyOptions {
   proxyUrl?: string
   proxyToken?: string
   networkId?: number
-  /** e.g. CounterpartySignature for LoanSet co-sign */
+  /** Optional multi-sign field names (unused: LoanSet co-sign removed). */
   signatureTarget?: string
 }
 

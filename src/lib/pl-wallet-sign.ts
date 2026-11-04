@@ -1,3 +1,4 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 /**
  * Browser Falcon-512 signing for Falcon PL (2300) Pay txs.
  * falcon_secret never leaves the device. No Node builtins — wallet is a client component.
@@ -166,8 +167,8 @@ export async function signPlPay(opts: {
 
 export async function signPlSwapRoute(opts: {
   account: string
-  tokenIn: 'FPL' | 'BTC' | 'ETH' | 'USDC'
-  tokenOut: 'FPL' | 'BTC' | 'ETH' | 'USDC'
+  tokenIn: 'FPL' | 'BTC' | 'BTC4' | 'ETH' | 'USDC'
+  tokenOut: 'FPL' | 'BTC' | 'BTC4' | 'ETH' | 'USDC'
   amountIn: string
   minOut: string
   sequence: number
@@ -294,7 +295,7 @@ export async function signPlLend(opts: {
 export async function signPlAssetPay(opts: {
   account: string
   destination: string
-  asset: 'BTC' | 'ETH' | 'USDC'
+  asset: 'BTC' | 'BTC4' | 'ETH' | 'USDC'
   amount: string
   sequence: number
   fee?: number
@@ -378,6 +379,46 @@ export async function signVaultLock(opts: {
     fee: opts.fee ?? 2,
     networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
     body: { kind: 'vault_lock' },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+/** `TxBody::Claim` — moves this account's settled `claimable` FPL into its balance. */
+export async function signPlClaim(opts: {
+  account: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'claim' },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+/** `TxBody::WatcherHeartbeat` — marks the current hour slot for this account (no work). */
+export async function signPlWatcherHeartbeat(opts: {
+  account: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'watcher_heartbeat' },
     falconSecret: opts.falconSecret,
   })
 }
@@ -536,4 +577,61 @@ export async function signRailWithdraw(opts: {
     },
     rawJson,
   }
+}
+
+/**
+ * v2.9.65 `TxBody::PayToKey` — a Pay that also commits the recipient's Falcon
+ * key (`key_hash` = sha256 hex of the raw public key). Only for a recipient
+ * with no bound key; from then on only that key can bind the account.
+ */
+export async function signPlPayToKey(opts: {
+  account: string
+  destination: string
+  amount: number
+  keyHash: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  if (!/^[0-9a-f]{64}$/.test(opts.keyHash)) throw new Error('key_hash must be 64 lowercase hex')
+  return signPlBody({
+    account: opts.account,
+    destination: opts.destination,
+    amount: Math.floor(opts.amount),
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: { kind: 'pay_to_key', key_hash: opts.keyHash },
+    falconSecret: opts.falconSecret,
+  })
+}
+
+/**
+ * v2.10.0 `TxPayload::SetExternalAddr` — binds a native external chain address
+ * (`btc`, `eth`, `xrp`, `bnb`, etc.) to this Falcon PL account on-chain.
+ */
+export async function signPlSetExternalAddr(opts: {
+  account: string
+  chain: string
+  address: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  return signPlBody({
+    account: opts.account,
+    destination: '',
+    amount: 0,
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    body: {
+      kind: 'SetExternalAddr',
+      chain: opts.chain.trim().toLowerCase(),
+      address: opts.address.trim(),
+    },
+    falconSecret: opts.falconSecret,
+  })
 }

@@ -1,5 +1,6 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // POST /api/faucet
-// Body: { account: string, network?: 'testnet' | 'mainnet' }
+// Body: { account: string, asset?: 'fpl' | 'btc' | 'tbtc' | 'btc4', network?: 'testnet' | 'mainnet' }
 
 import { NextRequest, NextResponse } from 'next/server'
 import {
@@ -10,10 +11,11 @@ import {
   peekFaucetQuota,
   cooldownSecondsForNetwork,
   claimsPerDayForNetwork,
+  TBTC4_FAUCET_COOLDOWN_SECONDS,
 } from '@/lib/faucet-quota'
 import { runFaucetSybilGates, consumeFaucetSybilBudgets } from '@/lib/faucet-sybil'
 import { signPayment, dropsFromQxrp } from '@/lib/xrpl-sign'
-import { isOriginAllowed } from '@/lib/origin'
+import { requireBrowserOrigin } from '@/lib/origin'
 import { isClassicAddress } from '@/lib/classic-address'
 import {
   resolveFaucet,
@@ -25,18 +27,33 @@ import {
 import { clientIp } from '@/lib/security'
 import { existsSync } from 'fs'
 import { ctlFaucet, PL_CTL } from '@/lib/pl-ctl'
+import { walletApiHeaders, walletApiUrl } from '@/lib/walletd'
+import { nameKeyOnFile, viewName } from '@/lib/pl-name-store'
+import { plKeyCommitHash } from '@/lib/pl-key-commit-server'
+import { plAccount } from '@/lib/pl-rpc'
 
-const WALLET_API =
-  process.env.FALCON_PL_WALLET_API?.trim() || 'http://192.241.247.158:19312'
+const WALLET_API = walletApiUrl()
 
-async function faucetViaHttp(to: string, amount: number) {
+class WalletApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+async function faucetViaHttp(to: string, amount: number, publicKey?: string) {
   const r = await fetch(WALLET_API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'faucet', account: to, amount }),
+    headers: walletApiHeaders(),
+    // walletd (FPL_FAUCET_PAY_TO_KEY=1) turns publicKey, or its own name
+    // reservation, into a PayToKey commitment (audit C-1).
+    body: JSON.stringify({ action: 'faucet', account: to, amount, ...(publicKey ? { publicKey } : {}) }),
   })
   const d = (await r.json()) as { error?: string; txId?: string; raw?: string }
-  if (!r.ok) throw new Error(d.error ?? `wallet api ${r.status}`)
+  if (!r.ok) {
+    throw new WalletApiError(d.error ?? `wallet api ${r.status}`, r.status)
+  }
   const m = String(d.raw ?? '').match(/tx_id=([0-9a-fA-F]+)/)
   return { txId: d.txId || m?.[1] || '' }
 }
@@ -52,19 +69,68 @@ function err(msg: string, status = 400, extra?: Record<string, unknown>) {
   return NextResponse.json({ error: msg, ...extra }, { status })
 }
 
+function payToKeyEnabled(): boolean {
+  return (process.env.FALCON_PL_FAUCET_PAY_TO_KEY ?? '').trim().toLowerCase() === 'true'
+}
+
 const PL_DRIP = Number(process.env.FALCON_PL_DRIP ?? '2000') || 2000
+
+const TESTNET4_BTC_ADDR_RE = /^(?:tb1[ac-hj-np-z02-9]{25,87}|[mn2][a-km-zA-HJ-NP-Z1-9]{25,34})$/
+const PL_NAME_LOOKUP_RE = /^[a-z0-9][a-z0-9._-]{1,63}$/i
 
 function isPlAccount(name: string): boolean {
   if (isClassicAddress(name)) return true
   return /^[A-Za-z0-9._-]{2,64}$/.test(name)
 }
 
+function shouldUseLocalNameStore() {
+  return existsSync(
+    process.env.FALCON_PL_NAME_STORE?.trim() ||
+      `${process.env.HOME || ''}/falcon-pl-public-testnet-2300/run`,
+  )
+}
+
+async function resolveLinkedBtcAddress(plName: string): Promise<string | null> {
+  const norm = plName.trim().toLowerCase()
+  try {
+    const acct = await plAccount(norm)
+    const ext = acct?.external_addrs as Record<string, unknown> | undefined
+    if (ext && typeof ext.btc === 'string' && TESTNET4_BTC_ADDR_RE.test(ext.btc.trim())) {
+      return ext.btc.trim()
+    }
+  } catch {
+    /* ignore and check walletd / local store */
+  }
+  try {
+    if (shouldUseLocalNameStore()) {
+      const v = viewName(norm)
+      const b = v.externalAddrs?.btc?.trim()
+      if (b && TESTNET4_BTC_ADDR_RE.test(b)) return b
+    } else {
+      const r = await fetch(WALLET_API, {
+        method: 'POST',
+        headers: walletApiHeaders(),
+        body: JSON.stringify({ action: 'name-status', name: norm }),
+      })
+      if (r.ok) {
+        const d = (await r.json()) as { externalAddrs?: Record<string, string> }
+        const b = d.externalAddrs?.btc?.trim()
+        if (b && TESTNET4_BTC_ADDR_RE.test(b)) return b
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
 export async function POST(req: NextRequest) {
-  if (!isOriginAllowed(req)) {
+  if (!requireBrowserOrigin(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }
 
   let account: string
+  let asset = 'fpl'
   let networkKey = 'testnet' as ReturnType<typeof resolveNetworkKey>
   let captchaToken: string | undefined
   const ct = req.headers.get('content-type') ?? ''
@@ -74,6 +140,7 @@ export async function POST(req: NextRequest) {
     if (isForm) {
       const form = await req.formData()
       account = (form.get('account') ?? '').toString().trim()
+      asset = (form.get('asset') ?? 'fpl').toString().trim().toLowerCase()
       networkKey = resolveNetworkKey(form.get('network')?.toString())
       captchaToken =
         (form.get('turnstileToken') ?? form.get('captchaToken') ?? '')
@@ -82,6 +149,7 @@ export async function POST(req: NextRequest) {
     } else {
       const body = await req.json()
       account = (body.account ?? '').toString().trim()
+      asset = (body.asset ?? 'fpl').toString().trim().toLowerCase()
       networkKey = resolveNetworkKey(body.network)
       captchaToken =
         (body.turnstileToken ?? body.captchaToken ?? body.cfTurnstileResponse ?? '')
@@ -98,6 +166,103 @@ export async function POST(req: NextRequest) {
   }
 
   if (!account) return err('Missing "account" field')
+
+  // Testnet4 BTC faucet (0.1 tBTC = 10,000,000 sats)
+  if (asset === 'btc' || asset === 'tbtc' || asset === 'btc4') {
+    let btcAddr = account
+    if (!TESTNET4_BTC_ADDR_RE.test(btcAddr)) {
+      if (PL_NAME_LOOKUP_RE.test(account)) {
+        const linked = await resolveLinkedBtcAddress(account)
+        if (!linked) {
+          return err(
+            `No Testnet4 BTC address is linked to "${account}" yet. Open your Falcon Wallet → Multi-chain to link your BTC address, or paste your tb1… / m… / n… BTC address directly.`,
+            400,
+          )
+        }
+        btcAddr = linked
+      } else {
+        return err('Enter a valid Testnet4 BTC address (tb1… / m… / n…) or a linked Falcon PL account name.')
+      }
+    }
+
+    const clientIpAddr = ip(req)
+    const ratePrefix = 'tbtc4:'
+    const dayCap = claimsPerDayForNetwork('testnet')
+    const cooldownSec = TBTC4_FAUCET_COOLDOWN_SECONDS
+    const unlimitedTestnet = process.env.TESTNET_FAUCET_UNLIMITED?.toLowerCase() === 'true'
+    const unlimitedOk = {
+      success: true as const,
+      reason: 'ok' as const,
+      remainingToday: 999_999,
+      claimsToday: 0,
+    }
+    const [ipLimit, addrLimit] = unlimitedTestnet
+      ? [unlimitedOk, unlimitedOk]
+      : await Promise.all([
+          peekFaucetQuota(`${ratePrefix}ip:${clientIpAddr}`),
+          peekFaucetQuota(`${ratePrefix}addr:${btcAddr.toLowerCase()}`),
+        ])
+    if (!ipLimit.success) {
+      return err(
+        ipLimit.reason === 'cooldown'
+          ? `Wait at least ${Math.round(cooldownSec / 3600)} hours between Testnet4 BTC faucet claims (IP).`
+          : `Daily Testnet4 BTC faucet limit reached for your IP.`,
+        429,
+        { reset: ipLimit.reset, limitType: 'ip' },
+      )
+    }
+    if (!addrLimit.success) {
+      return err(
+        addrLimit.reason === 'cooldown'
+          ? `Wait at least ${Math.round(cooldownSec / 3600)} hours between Testnet4 BTC faucet claims.`
+          : `Daily Testnet4 BTC faucet limit reached for this address.`,
+        429,
+        { reset: addrLimit.reset, limitType: 'account' },
+      )
+    }
+
+    const intakeBase = (process.env.FPL_BRIDGE_INTAKE_URL || `${WALLET_API}/tn4-intake`).replace(/\/$/, '')
+    let d: { ok?: boolean; txid?: string; error?: string; amount_sats?: number; amount_btc?: string }
+    try {
+      const r = await fetch(`${intakeBase}/v1/faucet`, {
+        method: 'POST',
+        headers: walletApiHeaders(),
+        body: JSON.stringify({ address: btcAddr }),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(30_000),
+      })
+      d = (await r.json().catch(() => ({}))) as typeof d
+      if (!r.ok || !d.txid) {
+        return err(
+          d.error ?? `Testnet4 BTC faucet error (${r.status})`,
+          r.status >= 400 && r.status < 600 ? r.status : 502,
+        )
+      }
+    } catch (e) {
+      console.error('[faucet] tBTC drip failed:', e)
+      return err('Cannot reach Testnet4 BTC faucet right now. Try again shortly.', 503)
+    }
+
+    if (!unlimitedTestnet) {
+      await Promise.all([
+        consumeFaucetQuota(`${ratePrefix}ip:${clientIpAddr}`),
+        consumeFaucetQuota(`${ratePrefix}addr:${btcAddr.toLowerCase()}`),
+      ])
+    }
+
+    return NextResponse.json({
+      txHash: d.txid,
+      amount: 0.1,
+      amountBtc: d.amount_btc ?? '0.1',
+      amountSats: d.amount_sats ?? 10_000_000,
+      asset: 'tBTC',
+      account: btcAddr,
+      resolvedFrom: btcAddr !== account ? account.toLowerCase() : undefined,
+      remainingToday: unlimitedTestnet
+        ? 999_999
+        : Math.max(0, (addrLimit.remainingToday ?? dayCap) - 1),
+    })
+  }
 
   // Falcon PL 2300 — drip to the same account id the wallet shows (r… or a name).
   if (cfg.networkId === 2300) {
@@ -141,14 +306,39 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Audit C-1: after the chain's key-bind height (2.9.65, H=571000) a name is
+    // only spendable by a key its funder committed to. With
+    // FALCON_PL_FAUCET_PAY_TO_KEY=true the drip commits the reserved key.
+    let keyHash: string | undefined
+    if (payToKeyEnabled() && !isClassicAddress(account)) {
+      const pk = existsSync(PL_CTL) ? nameKeyOnFile(account) : null
+      if (existsSync(PL_CTL)) {
+        if (!pk) {
+          return err('Reserve this name in the wallet first, then claim from the faucet.')
+        }
+        keyHash = plKeyCommitHash(pk)
+      }
+    }
     let paid: { txId: string }
     try {
       paid = existsSync(PL_CTL)
-        ? await ctlFaucet(account, PL_DRIP)
+        ? await ctlFaucet(account, PL_DRIP, keyHash)
         : await faucetViaHttp(account, PL_DRIP)
     } catch (e) {
       const msg = String(e instanceof Error ? e.message : e)
       console.error('[faucet] PL drip failed:', msg)
+      if (e instanceof WalletApiError && e.status === 429) {
+        return err(
+          msg.includes('limit') || msg.includes('rate') || msg.includes('day')
+            ? msg
+            : 'Faucet rate limit reached for this account. Try again tomorrow.',
+          429,
+          { limitType: 'walletd' },
+        )
+      }
+      if (e instanceof WalletApiError && e.status >= 400 && e.status < 500) {
+        return NextResponse.json({ error: e.message }, { status: e.status })
+      }
       return err('Cannot reach Falcon PL. Try again shortly.', 503)
     }
 
@@ -281,7 +471,7 @@ export async function POST(req: NextRequest) {
     if (msg.includes('actNotFound') || msg.includes('Account not found')) {
       return err('Faucet account is not funded on this network. Contact operator.', 503)
     }
-    return err('Cannot reach Falcon Ledger node. Try again shortly.', 503)
+    return err('Cannot reach Falcon PL node. Try again shortly.', 503)
   }
 
   const amountDrops = dropsFromQxrp(faucet.dripAmountFpl)

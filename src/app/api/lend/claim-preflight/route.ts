@@ -1,14 +1,18 @@
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 import { NextRequest, NextResponse } from 'next/server'
 import { isOriginAllowed } from '@/lib/origin'
 import { loadLendingManifestServer } from '@/lib/lending-config'
 import { isActiveVaultLp, mptScaled } from '@/lib/lend-pool-stats'
 import { resolveNetworkKey, serverRpcCall } from '@/lib/network-server'
+import { retiredOnPl } from '@/lib/pl-retired'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
 const BPS = 10_000
 const DROPS = 1_000_000
 
 export async function POST(req: NextRequest) {
+  const retired = retiredOnPl(req)
+  if (retired) return retired
   if (!isOriginAllowed(req)) {
     return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
   }

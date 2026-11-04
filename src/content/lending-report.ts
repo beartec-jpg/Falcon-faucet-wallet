@@ -1,4 +1,5 @@
-/** Lending implementation report — rendered on /whitepaper (July 2026). */
+// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
+/** Lending implementation report — rendered on /whitepaper (July 2026). HISTORICAL: legacy network 1001, retired. */
 
 export const LENDING_REPORT_DATE = '2026-07-14'
 
@@ -6,7 +7,7 @@ export const LENDING_REPORT_SECTIONS: { id: string; title: string; body: string 
   {
     id: 'lending-report',
     title: '12. Lending — Implementation Report',
-    body: `**Date:** ${LENDING_REPORT_DATE} · **Network:** Falcon Ledger Testnet (ID \`1001\`, RPC \`http://46.224.0.140:6005\`) · **Status:** Permissionless borrow, repay, and liquidation verified on-ledger via coordinator E2E scripts; HF monitor deployed on coordinator. **Full report (PDF):** see **Lending Implementation Report** in Downloads above.
+    body: `**Date:** ${LENDING_REPORT_DATE} · **Historical (July 2026, legacy network 1001, now retired; not Falcon PL 2300).** **Network:** legacy testnet (ID \`1001\`) · **Status:** Permissionless borrow, repay, and liquidation verified on-ledger via coordinator E2E scripts; HF monitor deployed on coordinator. **Full report (PDF):** see **Lending Implementation Report** in Downloads above.
 
 **Borrowers do not need a broker.** On testnet today (\`LendingPermissionless\` live), you post FALCON collateral (≥150% HF), sign \`LoanSet\` yourself — no co-sign, no broker first-loss cover. Legacy broker paths below are historical only.
 
@@ -118,7 +119,7 @@ Liquidity in the lend pool is **real F-USDC** (QUC IOU from issuer \`rsJoDhjVV78
 - **\`POST /api/lend/repay-preflight\`**, **\`claim-preflight\`**, **\`withdraw-preflight\`**, **\`supply-preflight\`**
 - **\`GET /api/lend/risk-monitor\`** — fleet-wide HF scan
 - **\`POST /api/lend/loan-manage\`** — broker/HF daemon submits \`LoanManage\`
-- **\`POST /api/lend/cosign\`** (legacy testnet) — broker \`CounterpartySignature\`
+- **\`POST /api/lend/cosign (REMOVED)\`** (legacy testnet) — broker \`CounterpartySignature\`
 
 ### Repay UX
 
@@ -208,7 +209,7 @@ HF monitor: \`scripts/lend-hf-monitor.py\` + \`deploy-lend-hf-monitor.sh\` on co
 | Variable | Required for |
 |----------|----------------|
 | Testnet RPC | Overview + submit |
-| \`TESTNET_LENDING_BROKER_SECRET\` | Legacy borrow co-sign + HF daemon only (remove after permissionless live) |
+| \`TESTNET_LENDING_BROKER_SECRET\` | REMOVED — delete from Vercel; co-sign + app LoanManage signing retired |
 | \`SIGNER_PROXY_URL\` / \`SIGNER_PROXY_TOKEN\` | Legacy co-sign + daemon |
 | \`LEND_HF_MONITOR_TOKEN\` | HF monitor → \`loan-manage\` |
 
@@ -217,7 +218,7 @@ HF monitor: \`scripts/lend-hf-monitor.py\` + \`deploy-lend-hf-monitor.sh\` on co
 | Asset | Model |
 |-------|--------|
 | User Falcon seed | Passkey-encrypted; browser-only signing |
-| Broker secret | Server-only; legacy co-sign + daemon — not required for permissionless borrow |
+| Broker secret | REMOVED from app — delete TESTNET_LENDING_BROKER_SECRET from Vercel |
 | Permissionless borrow | No gatekeeper signature; collateral + HF enforced on-ledger |`,
   },
   {
@@ -227,7 +228,7 @@ HF monitor: \`scripts/lend-hf-monitor.py\` + \`deploy-lend-hf-monitor.sh\` on co
 
 - Payment-default liquidation E2E (24h payment interval + grace — not quick-script friendly)
 - Portal liquidator UX for third-party \`LoanManage\` default
-- Retire \`TESTNET_LENDING_BROKER_SECRET\` if legacy co-sign unused
+- DONE: retired /api/lend/cosign and TESTNET_LENDING_BROKER_SECRET from app code (delete Vercel env)
 - Live APY from epoch \`EmissionRate\` in overview
 
 ### Mainnet considerations

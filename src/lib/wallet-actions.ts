@@ -12,6 +12,7 @@ export const WALLET_ROUTE_ACTIONS: ReadonlySet<string> = new Set([
   'vault-activate',
   'eth-kickoff',
   'eth-open-claim',
+  'pending-withdrawals',
   'header-proof',
   'claim-proof',
   'mint-eth-deposit',
