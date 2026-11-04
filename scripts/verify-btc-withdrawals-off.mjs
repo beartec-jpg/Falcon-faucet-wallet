@@ -228,6 +228,7 @@ const WALLETD_ACTIONS = [
   'vault-activate',
   'eth-kickoff',
   'eth-open-claim',
+  'pending-withdrawals',
   'header-proof',
   'claim-proof',
   'mint-eth-deposit',
