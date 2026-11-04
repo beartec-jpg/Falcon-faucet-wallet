@@ -1,4 +1,4 @@
-// Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
+// Copyright (c) 2026 BEARTEC LTD. All rights reserved. See LICENSE.
 import ContentPage, { Section } from '@/components/content/ContentPage'
 import { pageMeta } from '@/lib/seo'
 
@@ -11,8 +11,8 @@ export const metadata = pageMeta(
 type Block = { p: string } | { list: string[] }
 
 const INTRO: string[] = [
-  "Last updated: [TBC date]",
-  "These terms apply to the Falcon PL testnet allocation programme at falcon-fpl.com. By taking part you agree to them."
+  "Last updated: 4 November 2026",
+  "These terms apply to the Falcon PL testnet allocation programme at falcon-fpl.com, including the Falcon arcade (falcon-fpl.com/arcade). By taking part you agree to them. Use of the site, wallet, faucet, arcade and other test features is also covered by our Terms of Use (falcon-fpl.com/terms-of-use), and our Privacy Policy (falcon-fpl.com/privacy) explains how we use personal data."
 ]
 
 const SECTIONS: { title: string; blocks: Block[] }[] = [
@@ -20,7 +20,7 @@ const SECTIONS: { title: string; blocks: Block[] }[] = [
     "title": "1. Who runs it",
     "blocks": [
       {
-        "p": "The programme is run by BEARTEC (Scott Reynolds), United Kingdom, beartec.uk. In these terms \"we\" and \"us\" means BEARTEC. [TBC: full legal entity name, company number and registered address]"
+        "p": "The programme is run by BEARTEC LTD, a company registered in England and Wales (company number 17166952), registered office 33 Salt Works Lane, Weston, Stafford, England, ST18 0LW. In these terms \"we\" and \"us\" means BEARTEC LTD."
       }
     ]
   },
@@ -46,7 +46,7 @@ const SECTIONS: { title: string; blocks: Block[] }[] = [
         ]
       },
       {
-        "p": "How each category is scored is set out on the methodology page at falcon-fpl.com/scan/methodology. Vault use is not counted. [TBC: any other activity Scott wants included]"
+        "p": "How each category is scored is set out on the methodology page at falcon-fpl.com/scan/methodology. Vault use is not counted."
       }
     ]
   },
@@ -63,7 +63,7 @@ const SECTIONS: { title: string; blocks: Block[] }[] = [
         "p": "Any allocation is planned to come from the community bucket described on falcon-fpl.com/airdrop. Validator seats are planned to be rewarded from the separate operators pool. First 35 seats and Arcade top 5 places are planned to come from the builder pot."
       },
       {
-        "p": "Allocation size and formula: [TBC: final pool sizes, per person formula and any caps. The site currently shows proposed figures. Any figures we publish are what we aim for, not a promise.]"
+        "p": "Allocation size and formula: final pool sizes, the per-person formula and any caps have not been fixed. The site currently shows proposed figures. Any figures we publish are what we aim for, not a promise."
       }
     ]
   },
@@ -71,7 +71,7 @@ const SECTIONS: { title: string; blocks: Block[] }[] = [
     "title": "4. How contributions are recorded",
     "blocks": [
       {
-        "p": "Contributions are recorded against your Falcon PL account name and its wallet address, as shown on the activity leaderboard and the /airdrop page. Validator work is recorded against the validator seat. Any allocation is intended for the account that made the contribution. We do not add contributions that were not recorded on our systems. If something looks wrong, tell us through the feedback page before the snapshot. [TBC: deadline for disputes]"
+        "p": "Contributions are recorded against your Falcon PL account name and its wallet address, as shown on the activity leaderboard and the /airdrop page. Validator work is recorded against the validator seat. Any allocation is intended for the account that made the contribution. We do not add contributions that were not recorded on our systems. If something looks wrong, tell us through the feedback page before the snapshot."
       }
     ]
   },
@@ -87,14 +87,11 @@ const SECTIONS: { title: string; blocks: Block[] }[] = [
     "title": "6. The snapshot and delivery at mainnet launch",
     "blocks": [
       {
-        "p": "Before mainnet genesis we intend to freeze a snapshot of recorded contributions. We intend to work out allocations from that snapshot and aim to credit them to the account at mainnet launch. [TBC: snapshot date]"
+        "p": "Before mainnet genesis we intend to freeze a snapshot of recorded contributions. We intend to work out allocations from that snapshot and aim to credit them to the account at mainnet launch. No snapshot date has been set; we will post it on falcon-fpl.com."
       },
       {
-        "p": "[TBC: how the allocation is delivered, for example credited at genesis or claimed through the wallet]"
+        "p": "How any allocation is delivered (for example credited at genesis or claimed through the wallet), and whether there is a claim window, has not been decided. We will post the details on falcon-fpl.com before the snapshot."
       },
-      {
-        "p": "[TBC: claim window, if any, and what happens to unclaimed allocations]"
-      }
     ]
   },
   {
@@ -129,7 +126,7 @@ const SECTIONS: { title: string; blocks: Block[] }[] = [
     "title": "9. No mainnet date",
     "blocks": [
       {
-        "p": "We do not promise a mainnet launch date, or that mainnet will launch at all. We intend to make any allocations at mainnet launch. [TBC: mainnet date, or say there is no fixed date]"
+        "p": "We do not promise a mainnet launch date, or that mainnet will launch at all. There is no fixed mainnet date. We intend to make any allocations at mainnet launch."
       },
       {
         "p": "If mainnet does not launch, there are no allocations."
@@ -150,7 +147,7 @@ const SECTIONS: { title: string; blocks: Block[] }[] = [
         ]
       },
       {
-        "p": "You are responsible for your own legal and tax position, including any tax on the allocation. We may ask for proof of eligibility before making any allocation. [TBC: whether any identity checks will be done]"
+        "p": "You are responsible for your own legal and tax position, including any tax on the allocation. We may ask for proof of eligibility, which may include identity checks, before making any allocation."
       }
     ]
   },
@@ -158,7 +155,7 @@ const SECTIONS: { title: string; blocks: Block[] }[] = [
     "title": "11. Changes to these terms",
     "blocks": [
       {
-        "p": "We may update these terms, for example to fix mistakes or add the [TBC] details. Changes will be posted on falcon-fpl.com with a new date. Changes can affect contributions already made, including how they are scored and whether they get an allocation. If you keep taking part after a change, you accept the new terms."
+        "p": "We may update these terms, for example to fix mistakes or add details. Changes will be posted on falcon-fpl.com with a new date. Changes can affect contributions already made, including how they are scored and whether they get an allocation. If you keep taking part after a change, you accept the new terms."
       }
     ]
   },
@@ -174,7 +171,7 @@ const SECTIONS: { title: string; blocks: Block[] }[] = [
     "title": "13. Limitation of liability",
     "blocks": [
       {
-        "p": "The testnet, wallet, bridges, arcade and site are test software provided as they are. Things can break. We are not liable for any loss from using them, from lost keys, or from the value of FPL going up or down. Nothing here is financial advice and FPL is not an investment. Nothing in these terms limits liability that cannot be limited under English law."
+        "p": "The testnet, wallet, bridges, arcade and site are test software provided as they are. Things can break. Testnet FPL and other test tokens have no value. We are not liable for any loss from using the test software or from lost keys, except where the law does not allow this to be excluded. Nothing here is financial advice and FPL is not an investment. Nothing in these terms limits liability that cannot be limited under English law."
       }
     ]
   },
@@ -190,7 +187,7 @@ const SECTIONS: { title: string; blocks: Block[] }[] = [
     "title": "15. Contact",
     "blocks": [
       {
-        "p": "Questions: [TBC contact email] or the feedback page at falcon-fpl.com/feedback."
+        "p": "Questions: falconledger@beartec.uk or the feedback page at falcon-fpl.com/feedback."
       }
     ]
   }

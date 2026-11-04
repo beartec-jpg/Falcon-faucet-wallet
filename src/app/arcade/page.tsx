@@ -372,6 +372,12 @@ export default function ArcadePage() {
           >
             Terms
           </Link>
+          <Link
+            href="/privacy"
+            className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700"
+          >
+            Privacy
+          </Link>
           {walletAddress ? (
             <span className="hidden sm:inline text-xs font-mono text-slate-400 truncate max-w-[10rem]">
               {walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}
