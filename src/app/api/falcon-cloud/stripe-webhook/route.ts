@@ -1,10 +1,13 @@
 // Copyright (c) 2025-2026 BEARTEC. All rights reserved. See LICENSE.
 // POST /api/falcon-cloud/stripe-webhook — verifies Stripe-Signature (STRIPE_WEBHOOK_SECRET_FALCON or STRIPE_WEBHOOK_SECRET)
-// and records Falcon Cloud subscription status in Postgres. Ignores events for other apps on the shared account.
+// records Falcon Cloud subscription status in Postgres, and mints one API key per completed Checkout session. Ignores events for other apps on the shared account.
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyStripeSignature, stripeRequest } from '@/lib/developers/stripe'
 import { tierFromSubscription } from '@/lib/developers/stripe-tiers'
 import { markEvent, upsertSubscription } from '@/lib/developers/subscription-store'
+import { pgKeyRepo } from '@/lib/developers/key-store'
+import { issueKeyForCheckout } from '@/lib/developers/key-service'
+import { revealSecret } from '@/lib/developers/api-keys'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -38,7 +41,18 @@ export async function POST(req: NextRequest) {
       case 'checkout.session.completed': {
         if (obj?.mode !== 'subscription' || obj?.metadata?.app !== 'falcon-cloud' || !obj.subscription) break
         const sub = await stripeRequest('GET', `/subscriptions/${obj.subscription}`)
-        await record(sub, obj.customer_details?.email ?? null)
+        const email = obj.customer_details?.email ?? null
+        await record(sub, email)
+        // Self-serve key: one per checkout session (idempotent on duplicate deliveries).
+        const secret = revealSecret()
+        if (!secret) throw new Error('reveal secret not configured')
+        await issueKeyForCheckout(pgKeyRepo, {
+          checkoutSessionId: obj.id,
+          tier: tierFromSubscription(sub),
+          stripeCustomer: typeof obj.customer === 'string' ? obj.customer : obj.customer?.id ?? null,
+          subscriptionId: typeof obj.subscription === 'string' ? obj.subscription : obj.subscription?.id ?? null,
+          email,
+        }, secret)
         break
       }
       case 'customer.subscription.created':
