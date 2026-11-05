@@ -225,7 +225,7 @@ type BridgeMode = 'bridge' | 'send' | 'receive'
 type BridgeDirection = 'deposit' | 'withdraw'
 type EvmPanel = 'bridge' | 'backup' | 'restore'
 
-/** Which routes support Bridge Out (custodial unlock) today. */
+/** Which routes support Bridge Out today (BTC4: BitVM2 graph peg-out, 3-operator n-of-n). */
 const ROUTE_SUPPORTS_OUT: Record<BridgeRouteId, boolean> = {
   'fusdc-sepolia': true,
   'feth-sepolia': true,
@@ -2723,7 +2723,7 @@ const handleSpvCompleteClaim = async () => {
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-base font-semibold text-white tracking-tight">Bridge</h2>
           <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
-            {isFbtcRoute ? 'BitVM2 · Testnet4' : 'Testnet'}
+            {isFbtcRoute ? 'Trust-minimised (BitVM2 graph, 3-operator n-of-n) · Testnet4' : 'Testnet'}
           </span>
         </div>
 
