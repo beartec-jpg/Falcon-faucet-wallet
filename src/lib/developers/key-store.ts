@@ -84,3 +84,20 @@ export const pgKeyRepo: KeyRepo = {
     return { status: ex[0].revealed_at ? 'revealed' : 'expired' }
   },
 }
+
+export interface ExportKey {
+  key_id: string
+  sha256: string
+  tier: string | null
+  stripe_customer: string | null
+  disabled: boolean
+}
+
+/** Hash-only export for the fpl-gateway pull (never plaintext, never reveal ciphertext, never email). */
+export async function listExportKeys(): Promise<ExportKey[]> {
+  await ensure()
+  const rows = await getSql()`SELECT key_id, sha256, tier, stripe_customer, disabled FROM falcon_cloud_keys ORDER BY created_at`
+  return (rows as ExportKey[]).map((r) => ({
+    key_id: r.key_id, sha256: r.sha256, tier: r.tier, stripe_customer: r.stripe_customer, disabled: !!r.disabled,
+  }))
+}
