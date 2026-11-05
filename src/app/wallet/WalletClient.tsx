@@ -192,6 +192,12 @@ interface TxRecord {
   accountName?: string | null
   result:       string
   date?:        number
+  height?:      number
+  /** PL 2300 display overrides (fills, swaps, orders, other tx kinds). */
+  label?:       string
+  party?:       string | null
+  direction?:   'in' | 'out' | 'trade'
+  amountLabel?: string
 }
 
 interface WalletAssets {
@@ -4625,10 +4631,12 @@ export default function WalletPage() {
                     const incoming =
                       isDepositClaim ||
                       tx.type === 'Claim' ||
-                      (tx.type === 'Payment' && (tx.destination === wallet.address || tx.destination === selfId))
+                      ((tx.type === 'Payment' || tx.type === 'AssetPay') &&
+                        (tx.destination === wallet.address || tx.destination === selfId || (!!accountName && tx.destination === accountName)))
                     const outgoing =
                       isBridgeBurn ||
-                      (tx.type === 'Payment' && tx.account === wallet.address && !incoming)
+                      ((tx.type === 'Payment' || tx.type === 'AssetPay') && !incoming)
+                    const isTransfer = tx.type === 'Payment' || tx.type === 'AssetPay'
                     const ok = tx.result === 'tesSUCCESS'
                     const asset = tx.amountAsset ?? (isDepositClaim || isBridgeBurn ? 'FBTC' : 'FPL')
                     const amt = tx.amount
@@ -4636,15 +4644,17 @@ export default function WalletPage() {
                     if (!ok) {
                       amountLabel = 'failed'
                     } else if (amt) {
-                      if (isDepositClaim || (tx.type === 'Payment' && incoming)) {
+                      if (tx.amountLabel) {
+                        amountLabel = tx.amountLabel
+                      } else if (isDepositClaim || (isTransfer && incoming)) {
                         amountLabel = `+${amt} ${asset}`
-                      } else if (isBridgeBurn || (tx.type === 'Payment' && outgoing)) {
+                      } else if (isBridgeBurn || (isTransfer && outgoing)) {
                         amountLabel = `−${amt} ${asset}`
                       } else {
                         amountLabel = `${amt} ${asset}`
                       }
                     } else {
-                      amountLabel = '—'
+                      amountLabel = tx.amountLabel ?? '—'
                     }
 
                     // Name always takes precedence over r-address for counterparty
@@ -4656,7 +4666,11 @@ export default function WalletPage() {
                     let action = tx.type
                     let party: string | null = null
                     let partyIsName = false
-                    if (tx.type === 'Payment') {
+                    if (tx.label) {
+                      action = tx.label
+                      party = tx.party ?? null
+                      partyIsName = !!party && /^[a-z0-9][a-z0-9._-]*$/i.test(party) && !party.startsWith('amm:')
+                    } else if (isTransfer) {
                       if (incoming) {
                         action = 'Received from'
                         party = fromLabel
@@ -4697,7 +4711,7 @@ export default function WalletPage() {
                           <div className={`w-7 h-7 flex-shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${
                             incoming ? 'bg-emerald-500/15 text-emerald-400' : 'bg-brand-500/15 text-brand-400'
                           }`}>
-                            {incoming ? '↓' : '↑'}
+                            {tx.direction === 'trade' ? '⇄' : incoming ? '↓' : '↑'}
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="text-xs text-slate-500">{action}</div>
@@ -4714,7 +4728,8 @@ export default function WalletPage() {
                               <div className="text-sm text-slate-300">{tx.type}</div>
                             )}
                             <div className="text-[10px] text-slate-600 font-mono truncate mt-0.5">
-                              {tx.hash ? `${tx.hash.slice(0, 14)}…` : ''}
+                              {tx.hash && !/^(fill|order):/.test(tx.hash) ? `${tx.hash.slice(0, 14)}…` : ''}
+                              {tx.height ? `${tx.hash && !/^(fill|order):/.test(tx.hash) ? ' · ' : ''}block ${tx.height.toLocaleString()}` : ''}
                             </div>
                           </div>
                         </div>
