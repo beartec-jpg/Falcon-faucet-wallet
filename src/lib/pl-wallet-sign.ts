@@ -608,8 +608,11 @@ export async function signPlPayToKey(opts: {
 }
 
 /**
- * v2.10.0 `TxPayload::SetExternalAddr` — binds a native external chain address
+ * v2.10.0 `TxBody::SetExternalAddrs` — binds a native external chain address
  * (`btc`, `eth`, `xrp`, `bnb`, etc.) to this Falcon PL account on-chain.
+ *
+ * Serde tag must be snake_case `set_external_addrs` (alias `set_external_addr`).
+ * PascalCase `SetExternalAddr` is rejected by the node.
  */
 export async function signPlSetExternalAddr(opts: {
   account: string
@@ -628,7 +631,7 @@ export async function signPlSetExternalAddr(opts: {
     fee: opts.fee ?? 2,
     networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
     body: {
-      kind: 'SetExternalAddr',
+      kind: 'set_external_addrs',
       chain: opts.chain.trim().toLowerCase(),
       address: opts.address.trim(),
     },

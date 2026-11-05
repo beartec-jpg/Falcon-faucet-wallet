@@ -59,6 +59,10 @@ import {
   qxrpToDrops,
 } from '@/lib/wallet-sign-client'
 import { signPlAssetPay, signPlClaim, signPlPay, signPlPayToKey } from '@/lib/pl-wallet-sign'
+import {
+  needsOnChainBtcLink,
+  publishBtcExternalAddrOnChain,
+} from '@/lib/pl-external-addrs'
 import { isDestinationKeyBound, isOwnLinkedVault, isPayToKeyUnsupported, keyCommitHash } from '@/lib/vault-activation'
 import { loadPrimaryVault } from '@/lib/vault-store'
 import {
@@ -250,6 +254,8 @@ interface AccountData {
   nameStatus?:  string
   keyFp?:       string
   names?: Record<string, string>
+  /** On-ledger Multi-chain links (v2.10+ SetExternalAddrs), lower-case chain keys. */
+  externalAddrs?: Record<string, string>
 }
 
 interface LendSupplySummary {
@@ -473,6 +479,10 @@ export default function WalletPage() {
     address?: string
   }>({ status: 'idle', name: '', chainKey: 'btc' })
   const syncedExternalAddrsRef = useRef<string>('')
+  /** Session gate for auto on-chain BTC link (first unlock). */
+  const btcOnChainLinkRef = useRef<'idle' | 'running' | 'done' | 'deferred'>('idle')
+  const [btcOnChainLinkNote, setBtcOnChainLinkNote] = useState<string | null>(null)
+
 
   // Account name (AccountNames amendment)
   const [accountName, setAccountName] = useState<string | null>(null)
@@ -688,6 +698,95 @@ export default function WalletPage() {
       /* best-effort multi-chain address link */
     })
   }, [wallet?.accountName, wallet?.publicKey, wallet?.btcAddress, wallet?.evmAddress, wallet?.xrplClassicAddress])
+
+  /**
+   * First unlock: if Multi-chain BTC exists but on-ledger external_addrs.btc is empty,
+   * prompt passkey once and publish SetExternalAddrs (BTC-only). name-set-addrs stays
+   * the off-chain fast path (effect above).
+   */
+  useEffect(() => {
+    if (view !== 'dashboard' || !wallet || busy) return
+    if (network.networkId !== 2300) return
+    if (!account?.exists) return
+    if (!hasBtcWallet(wallet) || !wallet.btcAddress) return
+    if (!needsOnChainBtcLink(wallet.btcAddress, account.externalAddrs)) {
+      btcOnChainLinkRef.current = 'done'
+      return
+    }
+    if (btcOnChainLinkRef.current !== 'idle') return
+    btcOnChainLinkRef.current = 'running'
+    const id = plAccountId(wallet)
+    const btcAddress = wallet.btcAddress
+    const already = account.externalAddrs
+    let cancelled = false
+    void (async () => {
+      setBtcOnChainLinkNote('Linking Testnet4 BTC receive address on Falcon PL…')
+      try {
+        const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
+        if (cancelled) return
+        const falconSecret = await decryptSeed(wallet.encrypted, keyBytes)
+        const seq = await fetchSequenceInfo(id, networkKey)
+        if (!seq.exists) {
+          btcOnChainLinkRef.current = 'deferred'
+          setBtcOnChainLinkNote(null)
+          return
+        }
+        const out = await publishBtcExternalAddrOnChain({
+          account: id,
+          falconSecret,
+          sequence: seq.sequence,
+          btcAddress,
+          networkKey,
+          networkId: network.networkId,
+          already,
+        })
+        if (cancelled) return
+        if (out.published) {
+          setBtcOnChainLinkNote('Testnet4 BTC linked on Falcon PL for faucet / name sends.')
+          btcOnChainLinkRef.current = 'done'
+          await refreshBalance(id)
+          // Keep off-chain name store in sync (fast path for faucet while mempool seals).
+          if (wallet.accountName && wallet.publicKey) {
+            void fetch('/api/wallet/name', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'set-addrs',
+                name: wallet.accountName,
+                publicKey: wallet.publicKey,
+                externalAddrs: { btc: btcAddress },
+              }),
+            }).catch(() => {})
+          }
+        } else {
+          btcOnChainLinkRef.current = 'done'
+          setBtcOnChainLinkNote(null)
+        }
+      } catch (e: unknown) {
+        if (cancelled) return
+        // Do not loop passkey prompts this session (user cancel / fee / node blip).
+        btcOnChainLinkRef.current = 'deferred'
+        const msg = e instanceof Error ? e.message : 'BTC on-chain link deferred'
+        setBtcOnChainLinkNote(
+          /cancel|not allowed|abort/i.test(msg)
+            ? 'BTC on-chain link skipped this session — unlock again later (send/claim) to retry.'
+            : `BTC on-chain link deferred: ${msg}`,
+        )
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    view,
+    wallet,
+    busy,
+    account?.exists,
+    account?.externalAddrs?.btc,
+    network.networkId,
+    networkKey,
+    refreshBalance,
+  ])
 
   // Debounced lookup when sending native BTC/ETH/USDC/BNB/XRP to a Falcon PL account name
   useEffect(() => {
@@ -1497,6 +1596,63 @@ export default function WalletPage() {
     }
   }
 
+  /**
+   * Opportunistic on-chain BTC link when falcon_secret is already unlocked
+   * (send/claim). Retries a deferred first-unlock attempt without a second prompt.
+   */
+  const maybePublishBtcAfterUnlock = useCallback(
+    async (falconSecret: string) => {
+      if (!wallet || network.networkId !== 2300) return
+      if (!hasBtcWallet(wallet) || !wallet.btcAddress) return
+      if (btcOnChainLinkRef.current === 'running' || btcOnChainLinkRef.current === 'done') return
+      if (!needsOnChainBtcLink(wallet.btcAddress, account?.externalAddrs)) {
+        btcOnChainLinkRef.current = 'done'
+        return
+      }
+      btcOnChainLinkRef.current = 'running'
+      const id = plAccountId(wallet)
+      const btcAddress = wallet.btcAddress
+      try {
+        const seq = await fetchSequenceInfo(id, networkKey)
+        if (!seq.exists) {
+          btcOnChainLinkRef.current = 'deferred'
+          return
+        }
+        const out = await publishBtcExternalAddrOnChain({
+          account: id,
+          falconSecret,
+          sequence: seq.sequence,
+          btcAddress,
+          networkKey,
+          networkId: network.networkId,
+          already: account?.externalAddrs,
+        })
+        if (out.published) {
+          btcOnChainLinkRef.current = 'done'
+          setBtcOnChainLinkNote('Testnet4 BTC linked on Falcon PL for faucet / name sends.')
+          void refreshBalance(id)
+          if (wallet.accountName && wallet.publicKey) {
+            void fetch('/api/wallet/name', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'set-addrs',
+                name: wallet.accountName,
+                publicKey: wallet.publicKey,
+                externalAddrs: { btc: btcAddress },
+              }),
+            }).catch(() => {})
+          }
+        } else {
+          btcOnChainLinkRef.current = 'done'
+        }
+      } catch {
+        btcOnChainLinkRef.current = 'deferred'
+      }
+    },
+    [wallet, account?.externalAddrs?.btc, network.networkId, networkKey, refreshBalance],
+  )
+
   const [claimMsg, setClaimMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
 
   const claimPlRewards = async () => {
@@ -1513,6 +1669,11 @@ export default function WalletPage() {
     try {
       const { keyBytes } = await authenticatePasskey(wallet.credentialId, wallet.hasPrf)
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+      // After claim packs, link BTC on-chain if still empty (uses a later sequence).
+      void (async () => {
+        await new Promise((r) => setTimeout(r, 2500))
+        await maybePublishBtcAfterUnlock(falcon_secret)
+      })()
       const seq = await fetchSequenceInfo(id, networkKey)
       const tx = await signPlClaim({
         account: id,
@@ -2005,6 +2166,11 @@ export default function WalletPage() {
       // 2. Decrypt falcon_secret locally. Signing happens in-browser via WASM —
       //    the secret is never sent to any server.
       const falcon_secret = await decryptSeed(wallet.encrypted, keyBytes)
+      // Retry deferred on-chain BTC link after this send settles (fresh sequence).
+      void (async () => {
+        await new Promise((r) => setTimeout(r, 2500))
+        await maybePublishBtcAfterUnlock(falcon_secret)
+      })()
 
       // 3. Fetch fresh sequence + ledger index just before signing, and re-sign +
       //    resubmit automatically if the ledger reports a sequence race (tefPAST_SEQ).
@@ -3488,6 +3654,19 @@ export default function WalletPage() {
                                   >
                                     Get Testnet4 BTC (0.1 tBTC) →
                                   </Link>
+                                  {btcOnChainLinkNote && (
+                                    <div className="text-[10px] text-slate-500 mt-1 leading-snug">
+                                      {btcOnChainLinkNote}
+                                    </div>
+                                  )}
+                                  {!btcOnChainLinkNote &&
+                                    needsOnChainBtcLink(wallet.btcAddress, account?.externalAddrs) &&
+                                    network.networkId === 2300 &&
+                                    account?.exists && (
+                                      <div className="text-[10px] text-amber-400/80 mt-1 leading-snug">
+                                        On-ledger BTC link pending — unlock to publish for name sends / faucet.
+                                      </div>
+                                    )}
                                 </div>
                               )}
                               {chain.id === 'bnb' && bnbNativeBal == null && !nativeBalLoading && hasEvmKey && (

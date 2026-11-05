@@ -152,6 +152,15 @@ export async function GET(req: NextRequest) {
         keyFp: String(acct.key_fp ?? ''),
         allowlist: Array.isArray(acct.allowlist) ? acct.allowlist : [],
         vaultLocked: Boolean(acct.vault_locked),
+        externalAddrs: (() => {
+          const raw = acct.external_addrs
+          if (!raw || typeof raw !== 'object') return {}
+          const map: Record<string, string> = {}
+          for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+            if (typeof v === 'string' && v.trim()) map[k.toLowerCase()] = v.trim()
+          }
+          return map
+        })(),
         assets: plAssets(acct.assets, address, zp),
       })
     }
