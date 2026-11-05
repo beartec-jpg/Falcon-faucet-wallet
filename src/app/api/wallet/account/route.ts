@@ -12,6 +12,8 @@ import {
   resolveNameForAddress,
 } from '@/lib/account-name-server'
 import { plAccount, plStatus } from '@/lib/pl-rpc'
+import { bookCall } from '@/lib/explorer-api/node'
+import { buildPlActivity } from '@/lib/pl-activity'
 import { loadZeroPoint, offsetAsset, type ZeroPoint } from '@/lib/pl-zero-point'
 
 const ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/
@@ -123,27 +125,19 @@ export async function GET(req: NextRequest) {
       // was timing out the FBTC claim poll, which the wallet showed as a network blip.
       const [acct, zp] = await Promise.all([plAccount(address), loadZeroPoint()])
       const exists = Boolean(acct.exists)
-      const tip = await Promise.race([
-        plStatus(false).then((st) => num(st.tip_height)).catch(() => 0),
-        new Promise<number>((resolve) => setTimeout(() => resolve(0), 400)),
+      const self = PL_NAME_RE.test(address) ? address : String(acct.name ?? acct.account ?? address)
+      const within = <T,>(p: Promise<T>, ms: number, fallback: T) =>
+        Promise.race([p.catch(() => fallback), new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])
+      const bookList = (msg: Record<string, unknown>, key: string) =>
+        bookCall(msg).then((r) => (r.kind === 'ok' && Array.isArray(r.body[key]) ? (r.body[key] as Array<Record<string, unknown>>) : []))
+      // Order-book fills (limit fills + AMM swaps) and open orders are not in recent_txs.
+      const [tip, fills, orders] = await Promise.all([
+        within(plStatus(false).then((st) => num(st.tip_height)), 1_500, 0),
+        within(bookList({ type: 'fills_query', pair: null, account: self, limit: 50 }, 'fills'), 2_500, []),
+        within(bookList({ type: 'open_orders_query', account: self }, 'orders'), 2_500, []),
       ])
-      const rippleEpoch = 946684800
       const recent = Array.isArray(acct.recent_txs) ? acct.recent_txs as Array<Record<string, unknown>> : []
-      const transactions = recent.map((t) => {
-        const kind = String(t.kind ?? 'tx')
-        const ms = Number(t.sealed_at_ms ?? 0)
-        const type = kind === 'pay' ? 'Payment' : kind === 'claim' ? 'Claim' : kind === 'asset_pay' ? 'AssetPay' : 'Tx'
-        return {
-          hash: String(t.tx_id ?? ''),
-          type,
-          amount: t.amount != null ? String(t.amount) : undefined,
-          amountAsset: kind === 'asset_pay' || kind === 'rail_deposit' || kind === 'rail_withdraw' ? (String(t.asset ?? '') === 'BTC4' ? 'FBTC' : String(t.asset ?? '')) : 'FPL',
-          destination: t.destination != null ? String(t.destination) : undefined,
-          account: String(t.account ?? ''),
-          result: 'tesSUCCESS',
-          date: ms > 0 ? Math.floor(ms / 1000) - rippleEpoch : undefined,
-        }
-      }).filter((t) => t.hash)
+      const transactions = buildPlActivity({ self, recentTxs: recent, fills, orders, tip, nowMs: Date.now() })
       return NextResponse.json({
         address,
         balance: num(acct.balance),
