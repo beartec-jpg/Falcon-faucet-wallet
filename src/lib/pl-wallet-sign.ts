@@ -635,3 +635,66 @@ export async function signPlSetExternalAddr(opts: {
     falconSecret: opts.falconSecret,
   })
 }
+
+/**
+ * v2.10.4 order book: `TxBody::PlaceLimitOrder` (serde tag `place_limit_order`).
+ * Field order matches fd-pl lib.rs: pair, side, price, amount, expiry_height (omitted when None).
+ * `price` = FPL raw per one whole coin; `amount` = base asset raw units.
+ */
+export async function signPlPlaceLimitOrder(opts: {
+  account: string
+  pair: string
+  side: 'buy' | 'sell'
+  price: string
+  amount: string
+  expiryHeight?: string | null
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  if (!/^[A-Z0-9]{1,16}-FPL$/.test(opts.pair)) throw new Error('pair must look like <ASSET>-FPL')
+  if (opts.side !== 'buy' && opts.side !== 'sell') throw new Error('side must be buy or sell')
+  const price = u64Digits(opts.price, 'price')
+  const amount = u64Digits(opts.amount, 'amount')
+  const expiry = opts.expiryHeight ? u64Digits(opts.expiryHeight, 'expiry height') : null
+  const bodyJson =
+    `{"kind":"place_limit_order","pair":${JSON.stringify(opts.pair)},"side":${JSON.stringify(opts.side)},` +
+    `"price":${price},"amount":${amount}${expiry ? `,"expiry_height":${expiry}` : ''}}`
+  const body: Record<string, unknown> = { kind: 'place_limit_order', pair: opts.pair, side: opts.side, price, amount }
+  if (expiry) body.expiry_height = expiry
+  return signPlExact({
+    account: opts.account,
+    destination: '',
+    amountDigits: '0',
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    bodyJson,
+    body,
+    falconSecret: opts.falconSecret,
+  })
+}
+
+/** v2.10.4 order book: `TxBody::CancelOrder { order_id }` (serde tag `cancel_order`). */
+export async function signPlCancelOrder(opts: {
+  account: string
+  orderId: string
+  sequence: number
+  fee?: number
+  networkId?: number
+  falconSecret: string
+}): Promise<SignedPlTx> {
+  const orderId = u64Digits(opts.orderId, 'order id')
+  return signPlExact({
+    account: opts.account,
+    destination: '',
+    amountDigits: '0',
+    sequence: opts.sequence,
+    fee: opts.fee ?? 2,
+    networkId: opts.networkId ?? DEFAULT_NETWORK_ID,
+    bodyJson: `{"kind":"cancel_order","order_id":${orderId}}`,
+    body: { kind: 'cancel_order', order_id: orderId },
+    falconSecret: opts.falconSecret,
+  })
+}

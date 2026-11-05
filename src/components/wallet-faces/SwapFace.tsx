@@ -24,8 +24,8 @@ import {
 import { submitWithSequenceRetry, fetchSequenceInfo, type SubmitResult } from '@/lib/wallet-submit'
 import { btcToSatsString } from '@/lib/xrpl-amount'
 import DexOrdersPanel from '@/components/DexOrdersPanel'
-import PlFplMarkets from '@/components/PlFplMarkets'
 import OrderBookPanel from '@/components/OrderBookPanel'
+import Pl2300Trade from '@/components/Pl2300Trade'
 
 const DROPS_PER_XRP = 1_000_000
 
@@ -615,9 +615,7 @@ export default function SwapPage() {
       <ProductShell intensity={0.4}>
         <Header current="swap" />
         <NetworkBanner />
-        <main className={`flex-1 px-4 ${embedded ? 'pt-0 pb-8' : 'py-8'} max-w-2xl mx-auto w-full`}>
-          <PlFplMarkets mode="swap" />
-        </main>
+        <Pl2300Trade embedded={embedded} />
       </ProductShell>
     )
   }
