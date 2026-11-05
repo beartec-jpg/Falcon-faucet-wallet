@@ -75,3 +75,14 @@ for faucet / name-resolved native BTC sends / bridge. Investigation notes.
 ## Explicit non-actions this investigation
 
 - No funds sent, no PR opened, no Tailscale restart, no merge.
+
+
+## Implementation status (2026-11-05)
+
+Scott chose **auto-publish BTC on first unlock**. Draft branch wires:
+
+1. `signPlSetExternalAddr` kind `set_external_addrs`
+2. `/api/wallet/account` returns `externalAddrs`
+3. Dashboard first-unlock passkey → `publishBtcExternalAddrOnChain` (BTC-only)
+4. Opportunistic retry after send/claim unlock
+5. Off-chain `name-set-addrs` kept as fast path

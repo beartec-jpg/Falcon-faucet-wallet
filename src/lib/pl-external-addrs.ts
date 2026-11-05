@@ -4,8 +4,8 @@
  * (v2.10+ SetExternalAddrs). Complements the off-chain walletd name-set-addrs
  * store used by /api/wallet/name and the tBTC faucet name resolver.
  *
- * Wire from WalletClient after BTC (and optional eth/bnb/xrp) keys exist and
- * the account is unlocked via passkey — see docs/BTC4-EXTERNAL-ADDRS-FIXPLAN.md.
+ * Product path: auto-publish BTC on first wallet unlock when on-chain
+ * external_addrs.btc is empty — see docs/BTC4-EXTERNAL-ADDRS-FIXPLAN.md.
  */
 
 import { signPlSetExternalAddr, type SignedPlTx } from '@/lib/pl-wallet-sign'
@@ -30,6 +30,17 @@ async function submitSigned(tx: SignedPlTx, networkKey: NetworkKey): Promise<{ t
     throw new Error(out.error || out.message || `Submit failed (HTTP ${res.status})`)
   }
   return { txId: tx.tx_id }
+}
+
+/** True when on-ledger BTC receive address is missing or differs from local Multi-chain BTC. */
+export function needsOnChainBtcLink(
+  localBtc: string | undefined | null,
+  already?: Record<string, string> | null,
+): boolean {
+  const want = localBtc?.trim()
+  if (!want) return false
+  const onChain = already?.btc?.trim()
+  return !onChain || onChain !== want
 }
 
 export async function publishExternalAddrsOnChain(opts: {
@@ -66,4 +77,33 @@ export async function publishExternalAddrsOnChain(opts: {
     seq += 1
   }
   return { published, nextSequence: seq }
+}
+
+/** BTC-only publish used on first unlock (eth/bnb/xrp deferred). */
+export async function publishBtcExternalAddrOnChain(opts: {
+  account: string
+  falconSecret: string
+  sequence: number
+  btcAddress: string
+  networkKey: NetworkKey
+  fee?: number
+  networkId?: number
+  already?: Record<string, string>
+}): Promise<{ published: boolean; txId?: string; nextSequence: number }> {
+  const result = await publishExternalAddrsOnChain({
+    account: opts.account,
+    falconSecret: opts.falconSecret,
+    sequence: opts.sequence,
+    addrs: { btc: opts.btcAddress },
+    networkKey: opts.networkKey,
+    fee: opts.fee,
+    networkId: opts.networkId,
+    already: opts.already,
+  })
+  const btc = result.published.find((p) => p.chain === 'btc')
+  return {
+    published: Boolean(btc),
+    txId: btc?.txId,
+    nextSequence: result.nextSequence,
+  }
 }
