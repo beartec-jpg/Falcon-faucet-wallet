@@ -68,7 +68,7 @@ describe('compliance copy', () => {
       expect(s, relative(root, f)).not.toMatch(/sk_live|sk_test|rk_live|whsec_/i)
       if (!f.endsWith('pricing/page.tsx')) expect(s, relative(root, f)).not.toMatch(/stripe/i)
     }
-    expect(read('src/components/developers/ApiKeyRequest.tsx')).not.toMatch(/fetch\(|axios|XMLHttpRequest/)
+    expect(read('src/components/developers/FreeKeyButton.tsx')).toMatch(/\/api\/falcon-cloud\/free-key/)
   })
 })
 
@@ -78,9 +78,9 @@ describe('api key feature flag', () => {
     expect(apiKeysEnabled({ NEXT_PUBLIC_DEV_PORTAL_KEYS: 'true' })).toBe(false)
     expect(apiKeysEnabled({ NEXT_PUBLIC_DEV_PORTAL_KEYS: '1' })).toBe(true)
   })
-  it('page renders the closed state when the flag is off', () => {
+  it('api keys page offers the self-serve Free key', () => {
     const p = read('src/app/developers/api-keys/page.tsx')
-    expect(p).toMatch(/on \?[\s\S]*<ApiKeyRequest \/>[\s\S]*api-keys-closed/)
+    expect(p).toMatch(/<FreeKeyButton \/>/)
   })
 })
 
@@ -101,9 +101,9 @@ describe('gateway docs', () => {
     expect(GATEWAY_CORS_ORIGINS).toEqual(['https://falcon-fpl.com', 'https://www.beartec.uk'])
     expect(GATEWAY_ERRORS.find((e) => e.code === -32600)?.http).toBe(400)
   })
-  it('keys are issued on request through BEARTEC, no email published', () => {
+  it('Free keys are self-serve, shown once, no email published', () => {
     const k = read('src/app/developers/api-keys/page.tsx')
-    expect(k).toMatch(/issued manually on request through BEARTEC/)
+    expect(k).toMatch(/shown once/)
     for (const f of devFiles) expect(readFileSync(f, 'utf8'), relative(root, f)).not.toMatch(/mailto:|[\w.+-]+@[\w-]+\.[a-z]{2,}/i)
   })
   it('documents 429 and the error codes', () => {

@@ -48,6 +48,8 @@ function ensure(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`
       await sql`CREATE INDEX IF NOT EXISTS falcon_cloud_keys_subscription_idx ON falcon_cloud_keys (subscription_id)`
+      await sql`ALTER TABLE falcon_cloud_keys ADD COLUMN IF NOT EXISTS ip_hash TEXT`
+      await sql`CREATE INDEX IF NOT EXISTS falcon_cloud_keys_free_ip_idx ON falcon_cloud_keys (ip_hash, created_at)`
     })().catch((e) => { ready = null; throw e })
   }
   return ready
@@ -100,4 +102,27 @@ export async function listExportKeys(): Promise<ExportKey[]> {
   return (rows as ExportKey[]).map((r) => ({
     key_id: r.key_id, sha256: r.sha256, tier: r.tier, stripe_customer: r.stripe_customer, disabled: !!r.disabled,
   }))
+}
+
+/** Disable (or re-enable) every key minted for a Stripe subscription. Returns the number of keys changed. */
+export async function setKeysDisabledForSubscription(subscriptionId: string, disabled: boolean): Promise<number> {
+  await ensure()
+  const rows = await getSql()`UPDATE falcon_cloud_keys SET disabled = ${disabled}, updated_at = now()
+    WHERE subscription_id = ${subscriptionId} AND disabled <> ${disabled} RETURNING key_id`
+  return rows.length
+}
+
+/** Self-serve Free key: hash only, no reveal copy (the plaintext is returned once in the HTTP response). */
+export async function insertFreeKey(r: { keyId: string; sha256: string; ipHash: string }): Promise<void> {
+  await ensure()
+  await getSql()`INSERT INTO falcon_cloud_keys (key_id, sha256, tier, ip_hash) VALUES (${r.keyId}, ${r.sha256}, 'free', ${r.ipHash})`
+}
+
+/** Free keys minted since `since`, for one IP hash and in total. */
+export async function countFreeKeysSince(ipHash: string, since: Date): Promise<{ ip: number; total: number }> {
+  await ensure()
+  const rows = await getSql()`SELECT
+      count(*) FILTER (WHERE ip_hash = ${ipHash})::int AS ip, count(*)::int AS total
+    FROM falcon_cloud_keys WHERE tier = 'free' AND checkout_session_id IS NULL AND created_at > ${since.toISOString()}`
+  return { ip: Number(rows[0]?.ip ?? 0), total: Number(rows[0]?.total ?? 0) }
 }
