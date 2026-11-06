@@ -13,26 +13,78 @@ type Obj = Record<string, unknown>
 const obj = (v: unknown): Obj => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Obj) : {})
 const arr = (v: unknown): Obj[] => (Array.isArray(v) ? v.filter((x): x is Obj => !!x && typeof x === 'object') : [])
 
+/** Chain-physics ms is a ledger stamp, not Unix wall time. Never feed it to Date(). */
+export type ChainPhysicsQuality = 'chain_physics' | 'unavailable'
+/** Only hash-bound signed UTC (node tip_sealed_utc_*) is UTC-quality. */
+export type SealedUtcSource = 'signed_utc_v5' | 'none'
+
 export type BlockV1 = {
   height: number
   hash: string
   state_root: string | null
   packer: string
   tx_count: number
+  /**
+   * ISO-8601 UTC wall time — set ONLY when signed UTC quality is utc_committed.
+   * Never derived from tip_sealed_at_ms / sealed_at_ms (chain physics).
+   */
   sealed_at: string | null
+  /** Raw chain-physics ms retained for diagnostics; not wall UTC. */
+  sealed_at_ms: number | null
+  sealed_at_quality: ChainPhysicsQuality
+  /** ISO-8601 from tip_sealed_utc_ms when quality is utc_committed; else null. */
+  sealed_utc: string | null
+  sealed_utc_ms: number | null
+  sealed_utc_quality: string
+  sealed_utc_source: SealedUtcSource
+  /** Observer wall clock when this API mapped the tip (separate from chain stamps). */
   observed_at: string
 }
 
+/** Honest time fields from node status / tx wire. Never Date(chain_physics_ms). */
+export function honestSealTimes(input: {
+  physicsMs: number
+  utcMs: number
+  utcQuality: string
+  observedAtMs: number
+}): Pick<
+  BlockV1,
+  | 'sealed_at'
+  | 'sealed_at_ms'
+  | 'sealed_at_quality'
+  | 'sealed_utc'
+  | 'sealed_utc_ms'
+  | 'sealed_utc_quality'
+  | 'sealed_utc_source'
+  | 'observed_at'
+> {
+  const physicsOk = Number.isFinite(input.physicsMs) && input.physicsMs > 0
+  const q = (input.utcQuality || 'unavailable').trim() || 'unavailable'
+  const utcOk = q === 'utc_committed' && Number.isFinite(input.utcMs) && input.utcMs > 0
+  const sealedUtc = utcOk ? new Date(input.utcMs).toISOString() : null
+  return {
+    sealed_at: sealedUtc, // legacy field: only UTC-quality ISO, else null (no Date(physics))
+    sealed_at_ms: physicsOk ? input.physicsMs : null,
+    sealed_at_quality: physicsOk ? 'chain_physics' : 'unavailable',
+    sealed_utc: sealedUtc,
+    sealed_utc_ms: Number.isFinite(input.utcMs) && input.utcMs > 0 ? input.utcMs : null,
+    sealed_utc_quality: q,
+    sealed_utc_source: utcOk ? 'signed_utc_v5' : 'none',
+    observed_at: new Date(input.observedAtMs).toISOString(),
+  }
+}
+
 export function tipBlockFromStatus(st: Obj, observedAtMs: number): BlockV1 {
-  const sealed = num(st.tip_sealed_at_ms, num(st.last_pack_at_ms, Number.NaN))
+  const physics = num(st.tip_sealed_at_ms, num(st.last_pack_at_ms, Number.NaN))
+  const utcMs = num(st.tip_sealed_utc_ms, Number.NaN)
+  const utcQ = str(st.tip_sealed_utc_quality, 'unavailable')
   return {
     height: num(st.tip_height),
     hash: str(st.tip_hash),
     state_root: str(st.state_root) || null,
     packer: str(st.last_pack_packer),
     tx_count: num(st.last_pack_txs),
-    sealed_at: Number.isFinite(sealed) && sealed > 0 ? new Date(sealed).toISOString() : null,
-    observed_at: new Date(observedAtMs).toISOString(),
+    ...honestSealTimes({ physicsMs: physics, utcMs, utcQuality: utcQ, observedAtMs }),
   }
 }
 
@@ -67,14 +119,24 @@ export type TxV1 = {
   destination: string | null
   amount: Amount
   fee: Amount
+  /** ISO only when sealed_utc_quality is utc_committed; never Date(sealed_at_ms). */
   sealed_at: string | null
+  sealed_at_ms: number | null
+  sealed_at_quality: ChainPhysicsQuality
+  sealed_utc: string | null
+  sealed_utc_ms: number | null
+  sealed_utc_quality: string
+  sealed_utc_source: SealedUtcSource
   chain?: string
   address?: string
 }
 
-export function txFromNode(t: Obj): TxV1 {
+export function txFromNode(t: Obj, observedAtMs = Date.now()): TxV1 {
   const asset = str(t.asset) || 'FPL'
-  const sealed = num(t.sealed_at_ms, Number.NaN)
+  const physics = num(t.sealed_at_ms, Number.NaN)
+  const utcMs = num(t.sealed_utc_ms, Number.NaN)
+  const utcQ = str(t.sealed_utc_quality, 'unavailable')
+  const times = honestSealTimes({ physicsMs: physics, utcMs, utcQuality: utcQ, observedAtMs })
   return {
     tx_id: str(t.tx_id),
     height: num(t.height),
@@ -83,7 +145,13 @@ export function txFromNode(t: Obj): TxV1 {
     destination: str(t.destination) || null,
     amount: amount(asset, t.amount ?? 0),
     fee: amount('FPL', t.fee ?? 0),
-    sealed_at: Number.isFinite(sealed) && sealed > 0 ? new Date(sealed).toISOString() : null,
+    sealed_at: times.sealed_at,
+    sealed_at_ms: times.sealed_at_ms,
+    sealed_at_quality: times.sealed_at_quality,
+    sealed_utc: times.sealed_utc,
+    sealed_utc_ms: times.sealed_utc_ms,
+    sealed_utc_quality: times.sealed_utc_quality,
+    sealed_utc_source: times.sealed_utc_source,
     ...(t.chain ? { chain: str(t.chain) } : {}),
     ...(t.address ? { address: str(t.address) } : {}),
   }

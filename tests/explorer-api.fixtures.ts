@@ -6,6 +6,10 @@ import type { PlWire } from '@/lib/pl-rpc'
 export const STATUS = {
   tip_height: 512_345,
   tip_hash: 'ab'.repeat(32),
+  // chain-physics (NOT wall UTC) — Date(6200000000) => 1970-03-14; honesty must not ISO this
+  tip_sealed_at_ms: 6_200_000_000,
+  tip_sealed_utc_ms: 0,
+  tip_sealed_utc_quality: 'unavailable',
   tip_lag: 1,
   state_root: 'cd'.repeat(32),
   last_pack_packer: 'v1',

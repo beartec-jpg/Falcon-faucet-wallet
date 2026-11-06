@@ -107,11 +107,28 @@ export const openapi = {
       PageInfo: { type: 'object', required: ['limit', 'next_cursor', 'total'], properties: { limit: int, next_cursor: nullable('string'), total: int } },
       Block: {
         type: 'object', required: ['height', 'hash', 'packer', 'tx_count', 'observed_at'],
-        properties: { height: int, hash: str, state_root: nullable('string'), packer: str, tx_count: int, sealed_at: nullable('string'), observed_at: { type: 'string', format: 'date-time' } },
+        properties: {
+          height: int, hash: str, state_root: nullable('string'), packer: str, tx_count: int,
+          sealed_at: nullable('string'),
+          sealed_at_ms: nullable('integer'),
+          sealed_at_quality: { type: 'string', enum: ['chain_physics', 'unavailable'] },
+          sealed_utc: nullable('string'),
+          sealed_utc_ms: nullable('integer'),
+          sealed_utc_quality: str,
+          sealed_utc_source: { type: 'string', enum: ['signed_utc_v5', 'none'] },
+          observed_at: { type: 'string', format: 'date-time' },
+        },
       },
       Tx: {
         type: 'object', required: ['tx_id', 'height', 'kind', 'account', 'amount', 'fee'],
-        properties: { tx_id: str, height: int, kind: str, account: str, destination: nullable('string'), amount: ref('Amount'), fee: ref('Amount'), sealed_at: nullable('string'), chain: str, address: str },
+        properties: {
+          tx_id: str, height: int, kind: str, account: str, destination: nullable('string'), amount: ref('Amount'), fee: ref('Amount'),
+          sealed_at: nullable('string'), sealed_at_ms: nullable('integer'),
+          sealed_at_quality: { type: 'string', enum: ['chain_physics', 'unavailable'] },
+          sealed_utc: nullable('string'), sealed_utc_ms: nullable('integer'),
+          sealed_utc_quality: str, sealed_utc_source: { type: 'string', enum: ['signed_utc_v5', 'none'] },
+          chain: str, address: str,
+        },
       },
       AccountTxPage: { ...page(ref('Tx'), { account: str }), required: ['account', 'items', 'page'] },
       Account: {

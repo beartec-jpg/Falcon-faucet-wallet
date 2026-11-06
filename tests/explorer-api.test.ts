@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { amount, toDecimalString } from '@/lib/explorer-api/amounts'
 import * as h from '@/lib/explorer-api/handlers'
 import { apiJson, etagOf } from '@/lib/explorer-api/http'
-import { accountFromNode, BlockRing, bridgeFromStatus, normalizePair, validatorsFromStatus } from '@/lib/explorer-api/mappers'
+import { accountFromNode, BlockRing, bridgeFromStatus, honestSealTimes, normalizePair, tipBlockFromStatus, txFromNode, validatorsFromStatus } from '@/lib/explorer-api/mappers'
 import { classifyBookReply, setStatusFetcher, setWire } from '@/lib/explorer-api/node'
 import { decodeCursor, encodeCursor, pageParams, paginate } from '@/lib/explorer-api/pagination'
 import { ACCOUNT, fakeWire, STATUS } from './explorer-api.fixtures'
@@ -77,8 +77,56 @@ describe('mappers', () => {
   })
   it('block ring keeps newest first and bounded', () => {
     const r = new BlockRing(2)
-    for (const height of [1, 3, 2]) r.remember({ height, hash: '', state_root: null, packer: '', tx_count: 0, sealed_at: null, observed_at: '' })
+    const blank = {
+      hash: '', state_root: null as string | null, packer: '', tx_count: 0,
+      sealed_at: null, sealed_at_ms: null, sealed_at_quality: 'unavailable' as const,
+      sealed_utc: null, sealed_utc_ms: null, sealed_utc_quality: 'unavailable',
+      sealed_utc_source: 'none' as const, observed_at: '',
+    }
+    for (const height of [1, 3, 2]) r.remember({ height, ...blank })
     expect(r.list().map((b) => b.height)).toEqual([3, 2])
+  })
+  it('never treats chain-physics ms as UTC ISO (1970 honesty)', () => {
+    // Synthetic physics stamp ~1970-03-14 if wrongly passed to Date()
+    const physics = 6_200_000_000
+    const b = tipBlockFromStatus(
+      { tip_height: 10, tip_hash: 'aa', tip_sealed_at_ms: physics, tip_sealed_utc_ms: 0, tip_sealed_utc_quality: 'unavailable' },
+      1_762_000_000_000,
+    )
+    expect(b.sealed_at).toBeNull()
+    expect(b.sealed_utc).toBeNull()
+    expect(b.sealed_at_ms).toBe(physics)
+    expect(b.sealed_at_quality).toBe('chain_physics')
+    expect(b.sealed_utc_source).toBe('none')
+    expect(b.observed_at).toBe(new Date(1_762_000_000_000).toISOString())
+    // Must not equal Date(physics).toISOString() which is 1970-03-14...
+    expect(b.sealed_at).not.toBe(new Date(physics).toISOString())
+  })
+  it('exposes signed UTC as UTC-quality only when utc_committed', () => {
+    const utc = 1_762_000_123_000
+    const b = tipBlockFromStatus(
+      {
+        tip_height: 10, tip_hash: 'aa', tip_sealed_at_ms: 6_200_000_000,
+        tip_sealed_utc_ms: utc, tip_sealed_utc_quality: 'utc_committed',
+      },
+      1_762_000_200_000,
+    )
+    expect(b.sealed_utc).toBe(new Date(utc).toISOString())
+    expect(b.sealed_at).toBe(b.sealed_utc)
+    expect(b.sealed_utc_source).toBe('signed_utc_v5')
+    expect(b.sealed_at_ms).toBe(6_200_000_000)
+    expect(b.sealed_at_quality).toBe('chain_physics')
+  })
+  it('tx mapper keeps physics raw and omits Date(physics)', () => {
+    const tx = txFromNode({ tx_id: 't', height: 1, kind: 'pay', account: 'a', destination: 'b', amount: 1, fee: 1, sealed_at_ms: 6_200_000_000 }, 1_762_000_000_000)
+    expect(tx.sealed_at).toBeNull()
+    expect(tx.sealed_at_ms).toBe(6_200_000_000)
+    expect(tx.sealed_utc_source).toBe('none')
+  })
+  it('honestSealTimes helper separates observation', () => {
+    const h = honestSealTimes({ physicsMs: 100, utcMs: 0, utcQuality: 'unavailable', observedAtMs: 1_700_000_000_000 })
+    expect(h.observed_at).toBe(new Date(1_700_000_000_000).toISOString())
+    expect(h.sealed_at).toBeNull()
   })
   it('classifies order book replies', () => {
     expect(classifyBookReply({ type: 'order_book', body: {} }).kind).toBe('ok')
