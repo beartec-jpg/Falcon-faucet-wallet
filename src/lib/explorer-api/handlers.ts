@@ -19,6 +19,8 @@ import {
 } from './mappers'
 import { blockRing, bookCall, getAccount, getStatus, nodeCalls, startedAt, tipSeen, type BookResult } from './node'
 import { paginate, pageParams } from './pagination'
+import { decodeHistoryCursor, type RawFill } from './fill-history'
+import { getFillHistoryStore, persistFillHistoryStore } from './fill-history-store'
 
 type Obj = Record<string, unknown>
 const ACCOUNT_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/
@@ -296,4 +298,83 @@ export async function uptime(req: Request, now = Date.now()): Promise<Response> 
     },
     { cache: CACHE.short },
   )
+}
+
+
+// ---- fill history (P2 durable index; latest200 trades endpoint unchanged) ----
+
+/** GET history page over ingested fills. Does not claim full-chain archive. */
+export async function listFillHistory(req: Request): Promise<Response> {
+  const q = sp(req)
+  const limRaw = q.get('limit')
+  if (limRaw != null && !/^\d{1,3}$/.test(limRaw)) return bad(req, 'limit must be 1-100')
+  const limit = Math.min(100, Math.max(1, Number(limRaw ?? 50)))
+  const cursorRaw = q.get('cursor')
+  const cursor = decodeHistoryCursor(cursorRaw)
+  if (cursorRaw && !cursor) return bad(req, 'invalid history cursor')
+  const rawPair = q.get('pair')
+  const pair = rawPair ? normalizePair(rawPair) : null
+  if (rawPair && !pair) return bad(req, 'pair must look like <ASSET>-FPL')
+  const store = getFillHistoryStore()
+  const page = store.page({ limit, cursor, pair })
+  return apiJson(
+    req,
+    {
+      items: page.items,
+      page: { limit, next_cursor: page.next_cursor, total: page.coverage.fill_count },
+      coverage: page.coverage,
+      retention: 'ingested fills retained in this API instance (optional dump path); not a chain archive',
+      latest200_compat: '/v1/explorer/trades remains the live node RECENT_FILLS ring (≤200)',
+    },
+    { cache: CACHE.short },
+  )
+}
+
+/** POST backfill: pull node fills_query (≤200) into the durable index. Idempotent by fill_id. */
+export async function backfillFillHistory(req: Request): Promise<Response> {
+  const q = sp(req)
+  const rawPair = q.get('pair')
+  const pair = rawPair ? normalizePair(rawPair) : null
+  if (rawPair && !pair) return bad(req, 'pair must look like <ASSET>-FPL')
+  try {
+    const r = await bookCall({ type: 'fills_query', pair, account: null, limit: 200 })
+    if (r.kind !== 'ok') return bookUnavailable(req, r, { added: 0, coverage: getFillHistoryStore().coverage() })
+    const fills = Array.isArray(r.body.fills) ? (r.body.fills as RawFill[]) : Array.isArray(r.body.items) ? (r.body.items as RawFill[]) : []
+    // Normalize height from node trade shape if needed
+    const raws: RawFill[] = fills.map((f: any) => ({
+      height: Number(f.height ?? f.ledger_height ?? 0),
+      asset: String(f.asset ?? f.base_asset ?? 'FPL'),
+      side: String(f.side ?? ''),
+      price: f.price,
+      base: f.base ?? f.amount,
+      quote: f.quote ?? f.total,
+      taker: String(f.taker ?? ''),
+      maker: String(f.maker ?? ''),
+      maker_order: f.maker_order,
+      taker_order: f.taker_order,
+      sealed_at_ms: f.sealed_at_ms,
+      sealed_utc_ms: f.sealed_utc_ms,
+      sealed_utc_quality: f.sealed_utc_quality,
+      tip_hash: f.tip_hash ?? f.block_hash,
+    }))
+    const store = getFillHistoryStore()
+    const added = store.ingest(raws)
+    persistFillHistoryStore()
+    return apiJson(
+      req,
+      {
+        added,
+        pulled: raws.length,
+        coverage: store.coverage(),
+        note: 'Backfill sources node RECENT_FILLS ring (≤200). Gaps outside the ring are honest unknowns, not archive holes.',
+      },
+      { cache: 'no-store' },
+    )
+  } catch (e) {
+    return nodeUnavailable(req, 'fills/history/backfill', e)
+  }
+}
+
+export async function getFillHistoryCoverage(req: Request): Promise<Response> {
+  return apiJson(req, getFillHistoryStore().coverage(), { cache: CACHE.short })
 }
