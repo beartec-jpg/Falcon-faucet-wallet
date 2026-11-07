@@ -21,6 +21,8 @@
     "node_modules",
     "cold-signer",
     "cold-signer/**",
+    "falcon-sign",
+    "falcon-sign/**",
     "tests",
     "vitest.config.ts"
   ]

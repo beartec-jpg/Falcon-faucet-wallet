@@ -1,0 +1,9 @@
+ts/node_modules/
+ts/dist/
+rust/target/
+compat/target/
+compat/Cargo.toml
+compat/Cargo.lock
+.cache/
+vectors/*.json
+!vectors/txid-golden.json
